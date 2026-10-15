@@ -1,0 +1,58 @@
+# Command Center job config. Validated on every run: any unknown key, bad cron, or bad
+# job setting fails loudly before a job runs. Check locally with `npm run validate`.
+#
+# Privacy: if this repository is public, so is this file (search terms, ZIP). To keep it private,
+# put the whole YAML in the CC_CONFIG_YAML GitHub secret; it takes precedence over this file.
+version: 1
+
+# Time zone for every cron schedule below.
+timezone: America/Chicago
+
+politeness:
+  # Randomized wait before each request, plus a minimum gap per host.
+  minDelayMs: 3000
+  maxDelayMs: 8000
+  perHostIntervalMs: 10000
+  respectRobots: true
+  cacheTtlSec: 600
+
+defaults:
+  retries: 2
+  retryBaseMs: 15000
+  timeoutMs: 600000
+  notify:
+    onNew: true
+    onFailure: true
+    maxPerRun: 5
+    silentFirstRun: true
+
+jobs:
+  heartbeat:
+    enabled: true
+    schedule: "7 7 * * *"
+
+  govdeals:
+    enabled: true
+    # Every 3 hours from 06:17 to 21:17 local time (6 runs/day).
+    schedule: "17 6-21/3 * * *"
+    settings:
+      searches:
+        - id: forklift
+          keywords: forklift
+          zip: "78701"
+          maxDistanceMiles: 100
+          maxBid: 5000
+          excludeKeywords: [battery, parts]
+        - id: pickup
+          keywords: pickup truck
+          zip: "78701"
+          maxDistanceMiles: 150
+          maxBid: 8000
+      endingSoon:
+        enabled: true
+        windowsHours: [6]
+    # exporters:
+    #   - type: sheets
+    #     spreadsheetId: "your-spreadsheet-id"
+    #     sheet: GovDeals
+    #     columns: [currentBid, endTime, location]

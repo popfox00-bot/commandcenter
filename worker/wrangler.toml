@@ -1,0 +1,40 @@
+# Cloudflare Worker for Command Center. Deploy from this folder: `npx wrangler deploy`.
+name = "command-center"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+workers_dev = true
+
+# Free plan: 5 cron triggers per account. This uses one (every 2 hours).
+[triggers]
+crons = ["41 */2 * * *"]
+
+# The Worker also serves the PWA (web/) from its own URL: a free fallback when GitHub Pages isn't
+# available (private repo on the Free plan) and the easy path for Cloudflare Access (same origin).
+[assets]
+directory = "../web"
+run_worker_first = ["/api/*", "/ingest/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "command-center"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"   # from `npx wrangler d1 create command-center`
+migrations_dir = "migrations"
+
+[vars]
+# Comma-separated origins allowed to call /api (your GitHub Pages origin, no path).
+ALLOWED_ORIGINS = "https://popfox00-bot.github.io"
+GH_OWNER = "popfox00-bot"
+GH_REPO = "commandcenter"
+GH_REF = "main"
+GH_DISPATCH_WORKFLOW = "cc-dispatch.yml"
+GH_SCHEDULED_WORKFLOW = "cc-scheduled.yml"
+WATCHDOG_HOURS = "8"
+RETAIN_RUN_DAYS = "60"
+RETAIN_ITEM_DAYS = "120"
+
+# Secrets (never in this file). Set each with `npx wrangler secret put <NAME>`:
+#   CC_API_TOKEN       bearer token the PWA sends (24+ random chars)
+#   CC_INGEST_SECRET   HMAC secret shared with the GitHub Actions runner (different value!)
+#   GH_DISPATCH_TOKEN  fine-grained PAT: this repo only, Actions: Read and write
+#   NTFY_TOPIC         your private ntfy topic (watchdog alerts)
+#   NTFY_TOKEN         optional, only for protected topics

@@ -1,0 +1,64 @@
+# Runs one job by id. Triggered by the Worker's "Run now" (workflow_dispatch API) or by hand.
+name: cc-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Job id from config/jobs.yaml (e.g. govdeals)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cc-job-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  run-one:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JOB_ID: ${{ inputs.job_id }}
+      CC_STORE: remote
+      CC_NOTIFY: ntfy
+      CC_LOG_STDOUT: minimal
+      CC_LOG_FORMAT: json
+      CC_WORKER_URL: ${{ secrets.CC_WORKER_URL }}
+      CC_INGEST_SECRET: ${{ secrets.CC_INGEST_SECRET }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+      CC_CONFIG_YAML: ${{ secrets.CC_CONFIG_YAML }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      CC_ACCESS_CLIENT_ID: ${{ secrets.CC_ACCESS_CLIENT_ID }}
+      CC_ACCESS_CLIENT_SECRET: ${{ secrets.CC_ACCESS_CLIENT_SECRET }}
+    steps:
+      - name: Validate input
+        # The input only ever reaches the shell through $JOB_ID (never ${{ }} interpolation).
+        run: |
+          if ! [[ "$JOB_ID" =~ ^[a-z][a-z0-9-]{1,40}$ ]]; then echo "Invalid job id"; exit 1; fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Needs browser?
+        id: info
+        run: |
+          node --disable-warning=ExperimentalWarning src/cli.js list --json > "$RUNNER_TEMP/jobs.json"
+          echo "browser=$(jq -r --arg id "$JOB_ID" '.[] | select(.id == $id) | .needsBrowser' "$RUNNER_TEMP/jobs.json")" >> "$GITHUB_OUTPUT"
+      - name: Install Chromium
+        if: steps.info.outputs.browser == 'true'
+        uses: ./.github/actions/setup
+        with:
+          browser: "true"
+          deps: "false"
+      - name: Run job
+        run: node --disable-warning=ExperimentalWarning src/cli.js run "$JOB_ID" --trigger manual
+      - name: Alert on workflow failure
+        if: failure()
+        run: node scripts/notify-workflow-failure.js
+        env:
+          WORKFLOW_NAME: cc-dispatch
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

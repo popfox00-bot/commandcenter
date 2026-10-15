@@ -1,0 +1,45 @@
+name: Command Center setup
+description: Node, dependencies, and (optionally) Playwright Chromium with caching.
+inputs:
+  browser:
+    description: Install headless Chromium for Playwright
+    required: false
+    default: "false"
+  deps:
+    description: Set up Node and run npm ci (false when only adding the browser later in a job)
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      if: inputs.deps == 'true'
+      with:
+        node-version: 22
+        cache: npm
+    - name: Install dependencies
+      if: inputs.deps == 'true'
+      shell: bash
+      run: npm ci --no-audit --no-fund
+      env:
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    - name: Playwright version
+      if: inputs.browser == 'true'
+      id: pw
+      shell: bash
+      run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+    - name: Cache Playwright browsers
+      if: inputs.browser == 'true'
+      id: pwcache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: pw-${{ runner.os }}-${{ steps.pw.outputs.version }}-shell
+    - name: Install Chromium
+      if: inputs.browser == 'true' && steps.pwcache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npx playwright install --with-deps --only-shell chromium
+    - name: Install Chromium system deps (cache hit)
+      if: inputs.browser == 'true' && steps.pwcache.outputs.cache-hit == 'true'
+      shell: bash
+      run: npx playwright install-deps chromium

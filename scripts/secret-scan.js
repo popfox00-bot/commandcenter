@@ -15,7 +15,8 @@ const RULES = [
   ['Google service account', /"type"\s*:\s*"service_account"/],
   ['Bearer token literal', /\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}(?![A-Za-z0-9])/],
 ];
-const ASSIGN = /\b([A-Z0-9_]*(SECRET|TOKEN|PASSWORD|API_KEY|NTFY_TOPIC)[A-Z0-9_]*)\s*[:=]\s*["']?([^\s"'#]{16,})/i;
+// Values are literal-looking runs; code expressions (calls, property chains ending in "(") are skipped.
+const ASSIGN = /\b([A-Z0-9_]*(SECRET|TOKEN|PASSWORD|API_KEY|NTFY_TOPIC)[A-Z0-9_]*)\s*[:=]\s*["']?([^\s"'#(),;]{16,})(?![(\w])/i;
 const SKIP = [/^node_modules\//, /package-lock\.json$/, /\.(png|jpg|jpeg|gif|ico|woff2?|pdf)$/i, /^test\/fixtures\//, /^scripts\/secret-scan\.js$/];
 
 function entropy(s) {

@@ -48,3 +48,17 @@ CREATE TABLE IF NOT EXISTS items (
 );
 CREATE INDEX IF NOT EXISTS items_recent ON items (job_id, type, first_seen_at DESC);
 CREATE INDEX IF NOT EXISTS items_last_run ON items (job_id, last_run_id);
+
+-- "Run now" requests, for a cooldown so repeated taps can't burn Actions minutes.
+CREATE TABLE IF NOT EXISTS dispatches (
+  job_id        TEXT NOT NULL,
+  requested_at  TEXT NOT NULL,
+  status        INTEGER,
+  PRIMARY KEY (job_id, requested_at)
+);
+
+-- Small key/value state for the Worker (e.g. last watchdog alert time).
+CREATE TABLE IF NOT EXISTS worker_state (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
+);

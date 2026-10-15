@@ -55,21 +55,42 @@ function partsIn(date, timeZone) {
   return { minute: Number(p.minute), hour: Number(p.hour), dom: Number(p.day), month: Number(p.month), dow: wd };
 }
 
-export function cronMatches(cron, date, timeZone = 'UTC') {
-  const p = partsIn(date, timeZone);
-  if (!cron.minute.has(p.minute) || !cron.hour.has(p.hour) || !cron.month.has(p.month)) return false;
+function fieldsMatch(cron, p) {
+  if (!cron.hour.has(p.hour) || !cron.month.has(p.month)) return false;
   const domOk = cron.dom.has(p.dom);
   const dowOk = cron.dow.has(p.dow);
   if (cron.domStar || cron.dowStar) return domOk && dowOk;
   return domOk || dowOk;
 }
 
-/** Most recent fire time at or before `now`, searching back at most `lookbackMinutes`. Null if none. */
+export function cronMatches(cron, date, timeZone = 'UTC') {
+  const p = partsIn(date, timeZone);
+  return cron.minute.has(p.minute) && fieldsMatch(cron, p);
+}
+
+/**
+ * Most recent fire time at or before `now`, searching back at most `lookbackMinutes`. Null if none.
+ * Walks back one UTC hour at a time (one time-zone conversion per hour, so 8 days is ~200
+ * conversions: cheap enough for a Worker's 10 ms CPU budget). Zones with a non-whole-hour
+ * offset fall back to checking each minute of the hour.
+ */
 export function previousFire(cron, now, timeZone = 'UTC', lookbackMinutes = 8 * 24 * 60) {
-  const start = Math.floor(now.getTime() / 60000) * 60000;
-  for (let i = 0; i <= lookbackMinutes; i++) {
-    const d = new Date(start - i * 60000);
-    if (cronMatches(cron, d, timeZone)) return d;
+  const startMin = Math.floor(now.getTime() / 60000) * 60000;
+  const floor = startMin - lookbackMinutes * 60000;
+  const minutesDesc = [...cron.minute].sort((a, b) => b - a);
+  for (let h = Math.floor(startMin / 3600000) * 3600000; h >= floor - 3600000; h -= 3600000) {
+    const maxMinute = Math.min(59, (startMin - h) / 60000);
+    const p = partsIn(new Date(h), timeZone);
+    if (p.minute === 0) {
+      if (!fieldsMatch(cron, p)) continue;
+      const m = minutesDesc.find((x) => x <= maxMinute && h + x * 60000 >= floor);
+      if (m !== undefined) return new Date(h + m * 60000);
+      continue;
+    }
+    for (let i = maxMinute; i >= 0; i--) {
+      const d = new Date(h + i * 60000);
+      if (d.getTime() >= floor && cronMatches(cron, d, timeZone)) return d;
+    }
   }
   return null;
 }

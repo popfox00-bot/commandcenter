@@ -1,0 +1,42 @@
+# Publishes the PWA in web/ to GitHub Pages. Repo Settings -> Pages -> Source: "GitHub Actions".
+name: cc-pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/cc-pages.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Write public runtime config
+        # Only the Worker URL (not a secret). The API token is entered on the phone, never built in.
+        run: |
+          printf 'window.CC_CONFIG = %s;\n' "$(jq -n --arg u "$WORKER_URL" '{workerUrl: $u}')" > web/config.js
+        env:
+          WORKER_URL: ${{ vars.CC_WORKER_URL }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

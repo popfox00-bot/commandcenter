@@ -1,0 +1,61 @@
+# Runs every job that is due according to its cron in config/jobs.yaml.
+# Free-tier sizing: one short job per hour (about 1 billed minute when nothing is due) plus the
+# due jobs themselves. Private repos get 2,000 min/month; public repos are unlimited.
+name: cc-scheduled
+
+on:
+  schedule:
+    - cron: "23 * * * *"   # minute 23 avoids the top-of-hour rush; jobs' own crons decide what runs
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cc-scheduled
+  cancel-in-progress: false
+
+jobs:
+  run-due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CC_STORE: remote
+      CC_NOTIFY: ntfy
+      CC_LOG_STDOUT: minimal
+      CC_LOG_FORMAT: json
+      CC_WORKER_URL: ${{ secrets.CC_WORKER_URL }}
+      CC_INGEST_SECRET: ${{ secrets.CC_INGEST_SECRET }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+      CC_CONFIG_YAML: ${{ secrets.CC_CONFIG_YAML }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      CC_ACCESS_CLIENT_ID: ${{ secrets.CC_ACCESS_CLIENT_ID }}
+      CC_ACCESS_CLIENT_SECRET: ${{ secrets.CC_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Plan
+        id: plan
+        run: |
+          node --disable-warning=ExperimentalWarning src/cli.js due --json > "$RUNNER_TEMP/due.json"
+          echo "count=$(jq 'length' "$RUNNER_TEMP/due.json")" >> "$GITHUB_OUTPUT"
+          echo "browser=$(jq -r 'any(.[]; .needsBrowser)' "$RUNNER_TEMP/due.json")" >> "$GITHUB_OUTPUT"
+          echo "Due: $(jq -c '[.[].id]' "$RUNNER_TEMP/due.json")"
+      - name: Install Chromium
+        if: steps.plan.outputs.browser == 'true'
+        uses: ./.github/actions/setup
+        with:
+          browser: "true"
+          deps: "false"
+      - name: Run due jobs
+        if: steps.plan.outputs.count != '0'
+        run: node --disable-warning=ExperimentalWarning src/cli.js scheduled
+      - name: Alert on workflow failure
+        if: failure()
+        run: node scripts/notify-workflow-failure.js
+        env:
+          WORKFLOW_NAME: cc-scheduled
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

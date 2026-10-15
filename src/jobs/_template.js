@@ -21,6 +21,8 @@ export default {
   name: 'My job',
   description: 'What it watches and why.',
   schedule: '0 */6 * * *',
+  /** Set true if the job uses ctx.page({ render: true }) or ctx.browser. */
+  needsBrowser: false,
   configSchema: z.object({
     url: z.string().url(),
   }).strict(),

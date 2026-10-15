@@ -104,6 +104,8 @@ export default {
   description: 'Saved GovDeals searches: alerts for new matches and listings ending soon.',
   schedule: '17 */3 * * *',
   configSchema,
+  /** CI installs Chromium only when a due job needs it. */
+  needsBrowser: true,
   ui: { primary: 'current', sortBy: 'endTime', types: ['match', 'ending_soon'] },
 
   formatNotification(item) {

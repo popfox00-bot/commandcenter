@@ -88,7 +88,7 @@ async function dueJobs(registry, config, store, now) {
   for (const [id, jobCfg] of Object.entries(config.jobs)) {
     if (!jobCfg.enabled) continue;
     const { due, fire } = isDue({ cron: jobCfg.schedule, now, lastRunAt: states[id]?.lastRunAt, timeZone: config.timezone });
-    out.push({ id, due, lastFire: fire?.toISOString() ?? null, lastRunAt: states[id]?.lastRunAt ?? null, schedule: jobCfg.schedule });
+    out.push({ id, due, needsBrowser: !!registry.get(id).needsBrowser, lastFire: fire?.toISOString() ?? null, lastRunAt: states[id]?.lastRunAt ?? null, schedule: jobCfg.schedule });
   }
   return out;
 }
@@ -99,8 +99,9 @@ Commands
   validate                 Validate config/jobs.yaml against every job's schema
   list                     List jobs, schedules and due status
   run <jobId>              Run one job now
-  due                      Show which enabled jobs are due (--json for machines)
+  due                      Show which enabled jobs are due (--json: [{id, needsBrowser}])
   scheduled                Run every due job (used by the scheduled workflow)
+  notify-test              Send a test push to NTFY_TOPIC
   capture <url>            Render a page in Chromium and save its HTML (--out, --wait)
   items <jobId>            Show stored items (--view recent|current, --type, --limit)
   runs <jobId>             Show recent runs
@@ -124,6 +125,13 @@ async function main() {
       const c = config.jobs[mod.id];
       print(`  ${mod.id.padEnd(20)} ${c ? (c.enabled ? 'enabled ' : 'disabled') : 'not configured'}  ${c?.schedule ?? mod.schedule}  (${config.timezone})`);
     }
+    return 0;
+  }
+
+  if (command === 'notify-test') {
+    if (!process.env.NTFY_TOPIC) throw new ConfigError('NTFY_TOPIC is not set (put it in .env or the environment)');
+    await notifierFromEnv({ log }).send({ title: '✅ Command Center test', message: 'If you can read this on your phone, notifications work.', priority: 'default', tags: ['white_check_mark'] });
+    print('✔ Test notification sent. Check the ntfy app.');
     return 0;
   }
 
@@ -152,7 +160,7 @@ async function main() {
 
     if (command === 'list' || command === 'due') {
       const rows = await dueJobs(registry, config, store, now);
-      if (opts.json) { print(command === 'due' ? rows.filter((r) => r.due).map((r) => r.id) : rows); return 0; }
+      if (opts.json) { print(command === 'due' ? rows.filter((r) => r.due).map(({ id, needsBrowser }) => ({ id, needsBrowser })) : rows); return 0; }
       for (const r of rows) print(`${r.due ? '● due ' : '○ wait'}  ${r.id.padEnd(20)} ${r.schedule.padEnd(16)} last run: ${r.lastRunAt ?? 'never'}`);
       return 0;
     }

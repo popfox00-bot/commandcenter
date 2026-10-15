@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Command">
+  <title>Command Center</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Command Center</h1>
+    <div class="topbar-actions">
+      <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+      <button id="open-settings" class="icon-btn" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="jobs" class="jobs" aria-live="polite">
+    <p class="muted center">Loading…</p>
+  </main>
+
+  <footer class="foot muted" id="updated"></footer>
+
+  <dialog id="settings">
+    <form method="dialog" class="sheet" id="settings-form">
+      <h2>Settings</h2>
+      <label>Worker URL
+        <input id="worker-url" type="url" inputmode="url" autocomplete="off" placeholder="https://command-center.example.workers.dev" required>
+      </label>
+      <label>API token
+        <input id="api-token" type="password" autocomplete="off" placeholder="CC_API_TOKEN" required>
+      </label>
+      <p class="muted small">The token is stored only on this device. Anyone with this device unlocked can use it; revoke it by changing the Worker secret.</p>
+      <div class="row">
+        <button type="button" id="test-connection" class="btn">Test</button>
+        <span id="test-result" class="small"></span>
+      </div>
+      <div class="row end">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="save" id="save-settings" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="run-detail">
+    <div class="sheet">
+      <div class="row space"><h2 id="run-title">Run</h2><button class="icon-btn" id="close-run" aria-label="Close">✕</button></div>
+      <dl id="run-meta" class="meta"></dl>
+      <h3>Log</h3>
+      <pre id="run-log" class="log"></pre>
+    </div>
+  </dialog>
+
+  <template id="job-card">
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="job-name"></h2>
+          <p class="job-desc muted small"></p>
+        </div>
+        <span class="pill"></span>
+      </div>
+      <p class="job-status small"></p>
+      <p class="job-error small" hidden></p>
+      <div class="row space">
+        <button class="btn primary run-now">Run now</button>
+        <button class="btn ghost toggle">Details</button>
+      </div>
+      <section class="details" hidden>
+        <div class="tabs" role="tablist"></div>
+        <ul class="items"></ul>
+        <h3 class="small muted">Recent runs</h3>
+        <ul class="runs"></ul>
+      </section>
+    </article>
+  </template>
+</body>
+</html>

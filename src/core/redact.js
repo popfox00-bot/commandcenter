@@ -21,7 +21,7 @@ export function registerSecret(value) {
  * with a sensitive-looking name. Values that look like paths or booleans are skipped so that
  * e.g. a *_SESSION_DIR variable doesn't mask every file path in the logs.
  */
-const KNOWN_SECRET_ENV = /^(NTFY_TOPIC|NTFY_TOKEN|CC_INGEST_SECRET|CC_API_TOKEN|GH_DISPATCH_TOKEN|GITHUB_TOKEN|GOOGLE_SERVICE_ACCOUNT_JSON|CC_CONFIG_YAML|JOB_[A-Z0-9_]+)$/;
+const KNOWN_SECRET_ENV = /^(NTFY_TOPIC|NTFY_TOKEN|CC_INGEST_SECRET|CC_API_TOKEN|GH_DISPATCH_TOKEN|GITHUB_TOKEN|GOOGLE_SERVICE_ACCOUNT_JSON|CC_CONFIG_YAML|CC_ACCESS_CLIENT_SECRET|JOB_[A-Z0-9_]+)$/;
 export function registerSecretsFromEnv(env = process.env, extraNames = []) {
   for (const [name, value] of Object.entries(env)) {
     if (typeof value !== 'string' || value.length < 6) continue;

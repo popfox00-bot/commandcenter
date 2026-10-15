@@ -7,7 +7,7 @@ const MAX_FIELDS_BYTES = 8192;
 /**
  * Normalize and validate the items a job returns. The contract is
  * { key, title, url, fields, timestamp } plus an optional `type` (default "match") that lets
- * one job emit several alert kinds (e.g. GovDeals "match" and "ending_soon") under the same
+ * one job emit several alert kinds (e.g. a "match" and an "ending_soon" alert) under the same
  * dedupe and notification machinery.
  */
 export function normalizeItems(raw, { now, jobId }) {

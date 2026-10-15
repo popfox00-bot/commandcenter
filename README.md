@@ -19,7 +19,7 @@ choices that keep usage under them.
      │  Node 22 + Playwright Chromium
      │  POST /ingest/*  HMAC-signed with CC_INGEST_SECRET (a separate secret)
      ▼
- ntfy.sh ──► phone        (new matches, ending soon, failures, selector breaks)
+ ntfy.sh ──► phone        (new items, failures, selector breaks, stalled scheduler)
 ```
 
 ## Contents
@@ -28,7 +28,6 @@ choices that keep usage under them.
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
 - [Cloud setup](#cloud-setup): [ntfy](#1-ntfy) · [Cloudflare](#2-cloudflare-worker--d1) · [GitHub](#3-github-secrets-and-token) · [PWA on iPhone](#4-install-the-pwa-on-iphone)
 - [Configuration](#configuration)
-- [GovDeals watcher](#govdeals-watcher)
 - [Adding a job](#adding-a-job)
 - [Free-tier budget](#free-tier-budget)
 - [Security](#security)
@@ -46,7 +45,6 @@ src/cli.js                  CLI: validate, list, due, run, scheduled, capture, n
 src/core/                   Framework: config, registry, runner, retries/timeouts, schedule (cron),
                             polite HTTP + robots.txt, Playwright, notifications, logging + redaction
 src/jobs/                   One module per job (files starting with "_" are templates)
-  govdeals/                 GovDeals watcher (index.js, parse.js, selectors.js)
   heartbeat.js              No-network self-test job
   _template.js              Copy this to add a job
 src/store/                  local (SQLite file) / remote (Worker) / d1-shim (node:sqlite as D1)
@@ -54,7 +52,7 @@ src/exporters/sheets.js     Optional Google Sheets exporter
 shared/                     Code shared by runner and Worker: SQL store, HMAC signing
 worker/                     Cloudflare Worker (API, ingest, cron) + D1 migrations
 web/                        PWA (no build step)
-test/                       node:test suites + GovDeals HTML fixtures
+test/                       node:test suites
 .github/workflows/          cc-scheduled, cc-dispatch, cc-ci (tests + secret scan), cc-pages
 scripts/                    secret scan, git hook installer, icon renderer, failure alert
 ```
@@ -65,20 +63,20 @@ Requires Node 22.13+.
 
 ```bash
 npm install
-npx playwright install chromium         # only needed for live GovDeals runs
+npx playwright install chromium         # only for jobs that render pages (needsBrowser)
 npm run hooks:install                   # pre-commit secret scan
 
 npm run validate                        # check config/jobs.yaml
-npm test                                # framework + GovDeals parser + Worker tests
+npm test                                # framework + Worker tests
 
-# Run a job against a saved page: no network, nothing persisted, notifications print to the console
-npm run job -- govdeals --dry-run --fixture test/fixtures/govdeals/search-results.html
+# Run a job: nothing persisted, notifications print to the console
+npm run job -- heartbeat --dry-run
 
-# Run it for real (renders govdeals.com, stores state in .cc/local.db, prints notifications)
-npm run job -- govdeals
-npm run job -- govdeals                 # second run: "0 new" (dedupe)
-npm run cc -- items govdeals --view current
-npm run cc -- runs govdeals
+# Run it for real (state in .cc/local.db), then again: the second run reports "0 new" (dedupe)
+npm run job -- heartbeat
+npm run job -- heartbeat
+npm run cc -- items heartbeat
+npm run cc -- runs heartbeat
 ```
 
 Useful flags: `--store local|remote|memory`, `--notify` (real ntfy push), `--config <file>`,
@@ -182,7 +180,7 @@ defaults:
   timeoutMs: 600000
   notify: { onNew: true, onFailure: true, maxPerRun: 5, silentFirstRun: true }
 jobs:
-  govdeals:
+  my-job:
     enabled: true
     schedule: "17 6-21/3 * * *"  # overrides the module default
     minItems: 0                  # >0 makes "fewer items than this" a failure
@@ -202,45 +200,13 @@ if it hasn't run since. So job crons have one-hour resolution, and GitHub's cron
 A job's first successful run sends one "now tracking N" summary instead of one push per existing
 listing.
 
-## GovDeals watcher
-
-`src/jobs/govdeals/` renders each saved search in headless Chromium (the site is a JavaScript
-app with no public API). It reads the listing cards and returns:
-
-- `match` items, keyed `<accountId>-<assetId>`, with title, current bid, end time, location and
-  the searches they matched. Each new key sends one push: *🏷️ title / Current bid / Ends / link*.
-- `ending_soon` items, for listings that still match and end within `endingSoon.windowsHours`.
-  Each listing alerts once per window: *⏰ Ends in 3h: title, current bid*.
-
-```yaml
-settings:
-  searches:
-    - id: forklift
-      keywords: forklift
-      category: ""               # optional, passed as a query param
-      zip: "78701"
-      maxDistanceMiles: 100      # passed to GovDeals' own distance filter
-      maxBid: 5000               # applied here, on the current bid
-      excludeKeywords: [battery]
-    - id: custom
-      url: "https://www.govdeals.com/en/search?..."   # or paste any search URL from the site
-  endingSoon: { enabled: true, windowsHours: [24, 3] }
-  # selectors: { listingLink: "...", bidText: "..." }  # hot-fix selectors without a code change
-```
-
-In the PWA, the card's **Tracked** tab lists the listings in the latest successful run sorted by
-end time. **New matches** and **Ending alerts** show history.
-
-It fails loudly in these cases, sending a push labeled "Selector or parse broke":
-- the page has no listing links and no "no results" marker (layout changed or didn't render);
-- listing links are found but most cards have no readable bid or end time.
-
 ## Adding a job
 
 1. Copy `src/jobs/_template.js` to `src/jobs/<id>.js` (or `src/jobs/<id>/index.js`).
 2. Export `{ id, name, description, schedule, configSchema?, needsBrowser?, formatNotification?, run(ctx) }`.
 3. Add a `jobs.<id>` entry to `config/jobs.yaml` and run `npm run validate`.
-4. Add a fixture test like `test/govdeals.test.js`.
+4. Add a test that runs it against a saved page or API response (`fixture` option of `runJob`; see
+   `test/worker.test.js`).
 
 `run(ctx)` returns `[{ key, title, url, fields, timestamp, type? }]`. The framework handles
 dedupe, persistence, notifications, logging, retries, timeouts and politeness, so jobs must not.
@@ -267,11 +233,11 @@ directly; sources are listed at the end). Re-check them if anything changes.
 
 | Service | Free limit | This design | Status |
 | --- | --- | --- | --- |
-| GitHub Actions | Private repos: 2,000 Linux min/month. Public repos: unlimited | Hourly sweep ≈ 24 billed min/day (each job rounds up to 1 min) ≈ 720/mo. GovDeals 6 runs/day × ~3 min ≈ 540/mo. CI ≈ 1–2 min per push | **~1,300–1,400/mo on a private repo: fits, with ~30% headroom.** Each extra browser job at 6 runs/day adds ~540/mo, so a second one would exceed the limit. Then make the repo public, or cut the sweep to every 2 hours (`23 */2 * * *`) |
+| GitHub Actions | Private repos: 2,000 Linux min/month. Public repos: unlimited | Hourly sweep ≈ 24 billed min/day (each job rounds up to 1 min) ≈ 720/mo. A browser job at 6 runs/day adds ~540/mo; an API job ~180/mo. CI ≈ 1–2 min per push | **This repo is public, so minutes are unlimited.** On a private repo the sweep plus two browser jobs would exceed 2,000; cut the sweep to every 2 hours (`23 */2 * * *`) there |
 | GitHub Actions cron | Public repos: scheduled workflows are disabled after 60 days without repo activity | The Worker cron re-enables `cc-scheduled` and alerts | Handled |
 | GitHub Pages | Free for public repos; **private repos need a paid plan** | PWA via cc-pages | **Flag:** if the repo is private on GitHub Free, use the Worker URL. The Worker serves the same PWA (static assets, free) |
 | Workers | 100,000 requests/day; 10 ms CPU per request and per cron run; 50 subrequests; 5 cron triggers per account | A few hundred requests/day; 1 cron trigger (every 2h, ≤3 subrequests) | Fits. The cron lookback was rewritten to walk hours (~200 time-zone conversions) to stay inside 10 ms |
-| D1 | 5M rows read/day, 100k rows written/day, 5 GB | GovDeals ≈ 50 items × 6 runs ≈ 300 upserts/day (~1k row writes with indexes) | Fits. Retention prunes runs after 60 days and items unseen for 120 days |
+| D1 | 5M rows read/day, 100k rows written/day, 5 GB | A job returning ~50 items 6×/day ≈ 300 upserts/day (~1k row writes with indexes) | Fits. Retention prunes runs after 60 days and items unseen for 120 days |
 | KV | n/a | Not used (D1 only) | – |
 | ntfy.sh | 250 messages/day per visitor; 4,096-byte messages | At most 6 pushes per job run (5 + summary) plus failures | Fits for one person. **Flag:** limits are per visitor (IP), and GitHub runners share IPs. If you ever see HTTP 429, create an ntfy account and set `NTFY_TOKEN` |
 
@@ -332,7 +298,7 @@ The bearer token is enough for one person. To add SSO in front of it:
 exporters:
   - type: sheets
     spreadsheetId: "1AbC..."
-    sheet: GovDeals
+    sheet: Results
     types: [match]
     columns: [currentBid, endTime, location]
 ```
@@ -346,7 +312,7 @@ Not built yet. Each fits the current contract:
 
 | Job | Approach | Notes |
 | --- | --- | --- |
-| eBay sold comps | eBay Browse/Marketplace Insights API via `ctx.http.json`, app credentials via `ctx.secret` | On-demand job keyed by query. API terms limit how sold data may be used and stored |
+| eBay comps | Browse API (free key) via `ctx.http.json` | **Active listings / asking prices only.** Sold data needs Marketplace Insights, which is approval-only; the Finding API (completed items) was shut down 2025-02-05 |
 | Home listing tracker | Listing pages or feed via `ctx.page`; key = listing id; Sheets exporter | Needs **change** alerts (price drop, status). Plan: a read-only `ctx.previous(type, key)` backed by the existing `items` table, so jobs can emit `price_drop` items keyed `id@price` |
 | Price drop / restock | Prefer the retailer's API or structured data (JSON-LD `offers`); key `url@price` or `url@instock` | Same `ctx.previous` addition |
 | Odds snapshots | Odds API (e.g. The Odds API free tier) via `ctx.http.json`; key `event@book@timestamp` | API only, no sportsbook logins |
@@ -357,28 +323,19 @@ Not built yet. Each fits the current contract:
 
 Each one is a default you can test, change in one place, and report back on:
 
-1. **GovDeals markup.** The parser anchors on links like `/en/asset/<assetId>/<accountId>`. The
-   fixtures were written by hand because this build environment couldn't reach govdeals.com.
-   Test: `npm run cc -- capture "<a GovDeals search URL>" --out test/fixtures/govdeals/live.html`,
-   then `npm run job -- govdeals --dry-run --fixture test/fixtures/govdeals/live.html`. The
-   listings printed should match what you see in Safari.
-2. **GovDeals search URL.** Default: `/en/search?kWord=…&zipcode=…&miles=…&category=…`. If
-   results look unfiltered, paste a real search URL into `url:` for that search, or change
-   `searchUrlTemplate`.
-3. **GovDeals robots.txt and terms** allow polite reading of public search pages. The runner
-   enforces robots.txt on every request (and stops if it can't fetch it). Read the site's terms
-   yourself before enabling the job.
-4. **Times without a zone** on cards are treated as UTC, because the runner's browser runs in UTC.
-5. **"Tracked"** means the listing appeared in the latest successful run. A listing whose bid rose
-   above `maxBid` drops off and gets no ending-soon alert.
-6. **Distance** is filtered by GovDeals itself (ZIP + miles in the URL). Cards don't carry
-   coordinates, so it isn't re-checked here.
+1. **Rendered pages run in UTC.** The runner's browser uses the UTC time zone, so a page that shows
+   local times without a zone shows them in UTC. Parse them as UTC.
+2. **"Current" items** are those present in the job's latest successful run (the PWA's default view
+   for jobs with `ui.primary: 'current'`).
+3. **A site may refuse automated access.** Check the site's robots.txt and terms before writing a
+   scraping job, and test from GitHub's runners first: some sites block cloud IPs outright
+   (GovDeals returned HTTP 403 "Access Denied" there, so that job was dropped). Prefer official APIs.
 
 ## Troubleshooting
 
 | Symptom | Where to look |
 | --- | --- |
-| Push "Selector or parse broke" | Capture the page (assumption 1), update `selectors.js` or `settings.selectors`, then add a fixture test |
+| Push "Selector or parse broke" | Save the page with `npm run cc -- capture <url> --out page.html`, fix the job's parser against it, and add it as a test fixture |
 | Push "Command Center scheduler" | Actions → cc-scheduled: disabled, failing, or secrets missing |
 | Run now → "GitHub dispatch failed (HTTP 404)" | Workflows must be on `main`; check `GH_OWNER`/`GH_REPO`; token repo access |
 | Run now → 401 from GitHub | `GH_DISPATCH_TOKEN` expired or lacks Actions write |

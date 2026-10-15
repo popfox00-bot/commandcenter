@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       job_id:
-        description: Job id from config/jobs.yaml (e.g. govdeals)
+        description: Job id from config/jobs.yaml (e.g. heartbeat)
         required: true
         type: string
 

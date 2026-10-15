@@ -2,7 +2,7 @@
 // Command Center CLI. Runs jobs locally (no cloud services needed) or in GitHub Actions.
 //   node src/cli.js validate
 //   node src/cli.js list
-//   node src/cli.js run govdeals [--dry-run] [--fixture test/fixtures/govdeals/search-results.html] [--store local|remote|memory] [--notify]
+//   node src/cli.js run <jobId> [--dry-run] [--fixture saved-page.html] [--store local|remote|memory] [--notify]
 //   node src/cli.js due [--json]
 //   node src/cli.js scheduled
 //   node src/cli.js capture <url> --out file.html [--wait "css selector"]

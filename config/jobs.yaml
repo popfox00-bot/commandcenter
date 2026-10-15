@@ -6,7 +6,7 @@
 version: 1
 
 # Time zone for every cron schedule below.
-timezone: America/Chicago
+timezone: America/Denver
 
 politeness:
   # Randomized wait before each request, plus a minimum gap per host.

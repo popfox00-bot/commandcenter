@@ -1,0 +1,62 @@
+# Manually capture one real GovDeals search on GitHub's runners and check the parser against it.
+# Actions -> cc-capture -> Run workflow. Results: the run's Summary tab (table of parsed listings)
+# and the "govdeals-capture" artifact (page.html, page.png, report.json).
+# Note: in a public repo, the inputs, summary and artifact of this run are publicly visible.
+name: cc-capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      keywords:
+        description: Search keywords
+        default: pickup truck
+        type: string
+      zip:
+        description: 5-digit ZIP (optional)
+        default: "80214"
+        type: string
+      miles:
+        description: Max distance in miles (optional, needs ZIP)
+        default: "100"
+        type: string
+      max_bid:
+        description: Max current bid in dollars (optional)
+        default: "8000"
+        type: string
+      url:
+        description: Or paste a full govdeals.com search URL (used when keywords is empty)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Inputs reach scripts only through env vars (never ${{ }} inside run:).
+      CAPTURE_KEYWORDS: ${{ inputs.keywords }}
+      CAPTURE_ZIP: ${{ inputs.zip }}
+      CAPTURE_MILES: ${{ inputs.miles }}
+      CAPTURE_MAX_BID: ${{ inputs.max_bid }}
+      CAPTURE_URL: ${{ inputs.url }}
+      CAPTURE_OUT: capture-out
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - name: Capture and parse
+        run: node scripts/capture-govdeals.js
+      - name: Upload capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: govdeals-capture
+          path: capture-out
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,6 +1,10 @@
 # Command Center
 
-A personal, phone-first automation dashboard. Jobs run on a schedule or on demand, results are
+A personal, phone-first app with two halves:
+
+- **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
+  Today: the [File Converter](#tools). Next: a Photo Editor.
+- **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
 
@@ -24,6 +28,7 @@ choices that keep usage under them.
 
 ## Contents
 
+- [Tools](#tools)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
 - [Cloud setup](#cloud-setup): [ntfy](#1-ntfy) · [Cloudflare](#2-cloudflare-worker--d1) · [GitHub](#3-github-secrets-and-token) · [PWA on iPhone](#4-install-the-pwa-on-iphone)
@@ -36,6 +41,48 @@ choices that keep usage under them.
 - [Planned jobs](#planned-jobs-design-notes)
 - [Assumptions to verify](#assumptions-to-verify)
 - [Troubleshooting](#troubleshooting)
+
+## Tools
+
+Open **https://popfox00-bot.github.io/commandcenter/** in Safari, then Share → **Add to Home
+Screen**. The Tools tab works immediately; the Jobs tab needs the cloud setup below.
+
+Everything a tool does happens in the browser on your phone. Nothing is uploaded, and after the
+first visit every tool works offline: the service worker precaches the whole app, including its
+libraries.
+
+### File Converter
+
+| From | To |
+| --- | --- |
+| HEIC/HEIF*, JPEG, PNG, WebP, GIF, AVIF, BMP, SVG | JPEG, PNG, WebP, or PDF (one page per image, one combined PDF or one per file) |
+| PDF (each page) | JPEG, PNG, WebP, or PDF (pages become images; useful to merge PDFs and photos) |
+
+- Options: quality, max size (long edge), PDF page size (fit / Letter / A4), lossless PDF pages, PDF
+  reading resolution.
+- Photo orientation is applied, then **all metadata is removed** (EXIF, GPS location, camera).
+- Results: **Share** (Save Image to Photos, Save to Files, AirDrop), **Save** (download), or
+  **Download all** as a .zip.
+- Limits: iPhone Safari caps an image canvas at 16.7 megapixels, so 24/48 MP photos are scaled to
+  fit and the result says so. Very large batches can run out of memory; convert in smaller groups.
+
+\* HEIC opens only where the browser can decode it (Safari on iPhone, iPad and Mac). When you pick
+from Photos, iOS often hands Safari a JPEG already.
+
+Libraries (vendored in `web/vendor/`, Apache-2.0): pdf.js for reading PDFs, libwebp (via jSquash)
+for WebP encoding because Safari can't encode WebP itself. Writing PDFs and ZIPs uses small modules
+in `web/lib/`.
+
+### Developing the tools
+
+```bash
+npm run vendor          # re-copy web/vendor from node_modules (after upgrading pdfjs-dist / @jsquash/webp)
+npm run precache        # regenerate the offline file list in web/sw.js (a test fails if it is stale)
+npm run test:web        # browser tests in Chromium: conversions, WebP encoder, offline mode
+```
+
+Add a tool: create `web/tools/<id>/<id>.js` exporting `mount(host)` (return an unmount function),
+add it to `web/tools/index.js`, and run `npm run precache`.
 
 ## Repository layout
 
@@ -51,8 +98,9 @@ src/store/                  local (SQLite file) / remote (Worker) / d1-shim (nod
 src/exporters/sheets.js     Optional Google Sheets exporter
 shared/                     Code shared by runner and Worker: SQL store, HMAC signing
 worker/                     Cloudflare Worker (API, ingest, cron) + D1 migrations
-web/                        PWA (no build step)
-test/                       node:test suites
+web/                        PWA (no build step): app.js shell, jobs.js dashboard, tools/, lib/, vendor/
+index.html                  Redirects the GitHub Pages root to web/
+test/                       node:test suites; test/browser/ = Playwright tests for the tools
 .github/workflows/          cc-scheduled, cc-dispatch, cc-ci (tests + secret scan), cc-pages
 scripts/                    secret scan, git hook installer, icon renderer, failure alert
 ```
@@ -149,13 +197,18 @@ automatically). Set an expiry and a calendar reminder. Store it only as the Work
 **Repository variable** (Variables tab): `CC_WORKER_URL`, the same URL. `cc-pages` writes it into
 the PWA so you don't have to type it on the phone.
 
-**Pages**: Settings → Pages → Source: **GitHub Actions**. Merge to `main` (workflows only run from
-the default branch), then run **cc-pages** once.
+**Pages**: "Deploy from a branch" (`main`, root) already works. Switching Settings → Pages →
+Source to **GitHub Actions** and running **cc-pages** once additionally pre-fills the Worker URL in
+the app, so you only type the token.
 
 Check: Actions → **cc-dispatch** → Run workflow → `heartbeat`. Within a couple of minutes the run
 is green and `GET /api/jobs` shows heartbeat with a successful last run.
 
 ### 4. Install the PWA on iPhone
+
+GitHub Pages works either way: **deploy from branch** (`main`, root; the root `index.html`
+redirects to `web/`) or **GitHub Actions** (the `cc-pages` workflow publishes `web/` and writes the
+Worker URL into it).
 
 1. Open `https://popfox00-bot.github.io/commandcenter/` in **Safari**. Alternatively, open the
    Worker URL itself (`https://command-center.<you>.workers.dev/`), which serves the same app.

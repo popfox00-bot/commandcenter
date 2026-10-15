@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' https: blob: data: http://localhost:* http://127.0.0.1:*; manifest-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#0f1115">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,19 +21,36 @@
 <body>
   <header class="topbar">
     <h1>Command Center</h1>
-    <div class="topbar-actions">
+    <div class="topbar-actions" id="jobs-actions" hidden>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
       <button id="open-settings" class="icon-btn" aria-label="Settings">⚙</button>
     </div>
   </header>
 
-  <div id="banner" class="banner" hidden></div>
+  <button id="update" class="update-bar" hidden>A new version is ready. Tap to reload.</button>
 
-  <main id="jobs" class="jobs" aria-live="polite">
-    <p class="muted center">Loading…</p>
-  </main>
+  <section id="view-tools" class="view" hidden>
+    <p class="muted small view-note">Runs on this phone. Files never leave it, and tools work offline.</p>
+    <nav id="tool-list" class="tool-list" aria-label="Tools"></nav>
+  </section>
 
-  <footer class="foot muted" id="updated"></footer>
+  <section id="view-tool" class="view" hidden>
+    <a href="#/tools" class="back">‹ Tools</a>
+    <div id="tool-host"></div>
+  </section>
+
+  <section id="view-jobs" class="view" hidden>
+    <div id="banner" class="banner" hidden></div>
+    <main id="jobs" class="jobs" aria-live="polite">
+      <p class="muted center">Loading…</p>
+    </main>
+    <footer class="foot muted" id="updated"></footer>
+  </section>
+
+  <nav class="tabbar" aria-label="Sections">
+    <a href="#/tools" data-tab="tools"><span aria-hidden="true">🧰</span>Tools</a>
+    <a href="#/jobs" data-tab="jobs"><span aria-hidden="true">⏱</span>Jobs</a>
+  </nav>
 
   <dialog id="settings">
     <form method="dialog" class="sheet" id="settings-form">

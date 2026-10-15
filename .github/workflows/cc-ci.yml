@@ -11,15 +11,19 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+        with:
+          browser: "true"
       - run: npm run check
       - run: npm run validate
       - run: npm test
+      - name: Browser tests (PWA tools)
+        run: npm run test:web
       - name: Secret scan (repo script)
         run: npm run secret-scan
 

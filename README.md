@@ -201,6 +201,10 @@ the PWA so you don't have to type it on the phone.
 Source to **GitHub Actions** and running **cc-pages** once additionally pre-fills the Worker URL in
 the app, so you only type the token.
 
+**Turn on the schedule** last: in `.github/workflows/cc-scheduled.yml`, uncomment the two
+`schedule:` lines. It ships switched off so an unfinished setup doesn't fail every hour, and it also
+skips itself while the `CC_WORKER_URL` repository variable is missing.
+
 Check: Actions → **cc-dispatch** → Run workflow → `heartbeat`. Within a couple of minutes the run
 is green and `GET /api/jobs` shows heartbeat with a successful last run.
 

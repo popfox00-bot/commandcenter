@@ -38,3 +38,4 @@ RETAIN_ITEM_DAYS = "120"
 #   GH_DISPATCH_TOKEN  fine-grained PAT: this repo only, Actions: Read and write
 #   NTFY_TOPIC         your private ntfy topic (watchdog alerts)
 #   NTFY_TOKEN         optional, only for protected topics
+#   GSB_API_KEY        optional: Google Safe Browsing key, adds a phishing/malware check to the QR link check

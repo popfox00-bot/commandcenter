@@ -1,11 +1,12 @@
 // Command Center API (Cloudflare Worker + D1).
-//   /api/*     read API for the PWA + "Run now"; bearer CC_API_TOKEN
+//   /api/*     read API for the PWA + "Run now" + link check for scanned QR codes; bearer CC_API_TOKEN
 //   /ingest/*  write-back from job runners; HMAC-signed with CC_INGEST_SECRET (a separate secret)
 //   cron       stale-run cleanup, retention, scheduler watchdog, re-enable the scheduled workflow
 
 import * as sql from '../../shared/sql-store.js';
 import { verify, SIGNATURE_HEADER, TIMESTAMP_HEADER } from '../../shared/hmac.js';
 import { isDue, parseCron } from '../../src/core/schedule.js';
+import { traceLink, LinkError } from './linkcheck.js';
 
 const MAX_BODY = 1_000_000;
 const DISPATCH_COOLDOWN_MS = 2 * 60 * 1000;
@@ -158,6 +159,20 @@ async function handleApi(request, env, url) {
       const status = await dispatchJob(env, jobId);
       await env.DB.prepare('INSERT INTO dispatches (job_id, requested_at, status) VALUES (?1, ?2, ?3)').bind(jobId, requestedAt, status).run();
       return json({ ok: true, jobId, requestedAt }, 202);
+    }
+  }
+  // POST, so the scanned link (which can carry tokens) never appears in request logs as a query string.
+  if (request.method === 'POST' && parts.length === 2 && parts[1] === 'linkcheck') {
+    const raw = await request.text();
+    if (raw.length > 8192) throw new HttpError(413, 'body too large');
+    let target;
+    try { target = JSON.parse(raw).url; } catch { throw new HttpError(400, 'invalid JSON'); }
+    if (typeof target !== 'string' || !target || target.length > 4096) throw new HttpError(400, 'url is required (max 4096 chars)');
+    try {
+      return json(await traceLink(target, env));
+    } catch (err) {
+      if (err instanceof LinkError) throw new HttpError(422, err.message);
+      throw new HttpError(502, 'link check failed');
     }
   }
   if (request.method === 'GET' && parts[1] === 'runs' && parts.length === 3 && isRunId(parts[2])) {

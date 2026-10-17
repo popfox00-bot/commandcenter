@@ -7,6 +7,13 @@ export const TOOLS = [
     icon: '✎',
     load: () => import('./studio/studio.js'),
   },
+  {
+    id: 'qr',
+    name: 'QR & Barcode',
+    description: 'Scan codes and check where links really go before opening them. Make QR codes for links, Wi-Fi, contacts, events and more.',
+    icon: '▦',
+    load: () => import('./qr/qr.js'),
+  },
 ];
 
 /** Old links (bookmarks, autosaved hashes) that moved. */

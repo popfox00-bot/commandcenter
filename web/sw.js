@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "e13ef3dd07a0",
+  "version": "14ba17bf29a6",
   "files": [
     "app.js",
     "config.js",
@@ -41,6 +41,10 @@ const PRECACHE = {
     "tools/pdfwrite/annotate.js",
     "tools/pdfwrite/pdfwrite.js",
     "tools/pdfwrite/signature.js",
+    "tools/qr/link-check.js",
+    "tools/qr/qr-make.js",
+    "tools/qr/qr-parse.js",
+    "tools/qr/qr.js",
     "tools/scan/scan-core.js",
     "tools/scan/scan.js",
     "tools/studio/studio.js",
@@ -74,9 +78,15 @@ const PRECACHE = {
     "vendor/pdfjs/wasm/jbig2.wasm",
     "vendor/pdfjs/wasm/openjpeg.wasm",
     "vendor/pdfjs/wasm/qcms_bg.wasm",
+    "vendor/uqr/LICENSE",
+    "vendor/uqr/uqr.mjs",
     "vendor/webp/LICENSE",
     "vendor/webp/webp_enc.js",
-    "vendor/webp/webp_enc.wasm"
+    "vendor/webp/webp_enc.wasm",
+    "vendor/zxing/LICENSE",
+    "vendor/zxing/reader/index.js",
+    "vendor/zxing/share.js",
+    "vendor/zxing/zxing_reader.wasm"
   ]
 };
 /* PRECACHE:END */

@@ -20,6 +20,15 @@ const copies = [
   // pdf-lib (MIT): adds text, ink and shapes to existing PDFs without rasterizing their pages.
   ['pdf-lib/dist/pdf-lib.esm.min.js', 'pdf-lib/pdf-lib.esm.min.js'],
   ['pdf-lib/LICENSE.md', 'pdf-lib/LICENSE.md'],
+  // ZXing-C++ reader as WebAssembly (zxing-wasm, MIT; ZXing-C++ is Apache-2.0): QR codes and barcodes.
+  // reader/index.js imports ../share.js, so the layout is kept.
+  ['zxing-wasm/dist/es/reader/index.js', 'zxing/reader/index.js'],
+  ['zxing-wasm/dist/es/share.js', 'zxing/share.js'],
+  ['zxing-wasm/dist/reader/zxing_reader.wasm', 'zxing/zxing_reader.wasm'],
+  ['zxing-wasm/LICENSE', 'zxing/LICENSE'],
+  // uqr (MIT): QR code encoder (module matrix only; the app draws it).
+  ['uqr/dist/index.mjs', 'uqr/uqr.mjs'],
+  ['uqr/LICENSE', 'uqr/LICENSE'],
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 

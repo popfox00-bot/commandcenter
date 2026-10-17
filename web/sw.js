@@ -4,9 +4,13 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "14ba17bf29a6",
+  "version": "040974469cb6",
   "files": [
     "app.js",
+    "apps/index.js",
+    "apps/updates/sports-core.js",
+    "apps/updates/updates.js",
+    "apps/updates/weather-core.js",
     "config.js",
     "icons/apple-touch-icon.png",
     "icons/icon-192.png",

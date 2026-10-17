@@ -1,13 +1,14 @@
 # Runs every job that is due according to its cron in config/jobs.yaml.
-# Free-tier sizing: one short job per hour (about 1 billed minute when nothing is due) plus the
-# due jobs themselves. Private repos get 2,000 min/month; public repos are unlimited.
+# Free-tier sizing: one short run every 20 minutes (about 1 minute each when nothing is due) plus the
+# due jobs themselves: ~2,200 min/month. Public repos are unlimited; a private repo (2,000 free
+# min/month) should use "23 * * * *" (hourly) instead.
 name: cc-scheduled
 
 # The hourly schedule is OFF until the cloud setup in the README is done (otherwise every run fails
 # and GitHub emails you). To turn it on, uncomment the two schedule lines below.
 on:
   # schedule:
-  #   - cron: "23 * * * *"   # minute 23 avoids the top-of-hour rush; jobs' own crons decide what runs
+  #   - cron: "3,23,43 * * * *"   # every 20 min, off the top of the hour; jobs' own crons decide what runs
   workflow_dispatch: {}
 
 permissions:

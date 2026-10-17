@@ -30,3 +30,40 @@ jobs:
   heartbeat:
     enabled: true
     schedule: "7 7 * * *"
+
+  # Weather Service alerts, freezes, wind gusts and air quality for one place.
+  # The Updates app (Weather tab) shows the same conditions live.
+  weather-alerts:
+    enabled: true
+    schedule: "*/20 * * * *"
+    notify:
+      silentFirstRun: false   # an active warning should push on the very first run
+    settings:
+      zip: "80214"
+      name: Lakewood, CO
+      lat: 39.7436
+      lon: -105.0617
+      severities: [Extreme, Severe, Moderate]   # add Minor for every advisory and statement
+      freezeF: 32
+      freezeMonths: [3, 4, 5, 9, 10, 11]        # freezes matter in spring and fall
+      coldF: 10                                 # bitter cold, any month
+      windGustMph: 45
+      damagingGustMph: 58
+      aqiMin: 101                               # "Unhealthy for Sensitive Groups" and worse
+
+  # Final scores and game-day reminders (time, TV, line). League ids: nfl nba nhl mlb mls wnba
+  # ncaaf ncaab epl; team = ESPN team abbreviation or id (the Updates app's Sports tab can find them).
+  sports:
+    enabled: true
+    schedule: "13 * * * *"
+    settings:
+      teams:
+        - { league: nfl, team: den, name: Broncos }
+        - { league: nba, team: den, name: Nuggets }
+        - { league: nhl, team: col, name: Avalanche }
+        - { league: mlb, team: col, name: Rockies }
+      finals: true
+      gameDay: true
+      gameDayHours: 14
+      quietUntil: 8      # no game-day pushes before 8 AM...
+      quietFrom: 22      # ...or after 10 PM (Denver time)

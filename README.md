@@ -1,6 +1,7 @@
 # Command Center
 
-A personal, phone-first app with two halves:
+A personal, phone-first app. It opens on a home screen of app icons: **Tools**, **Updates** and
+**Jobs**.
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
   Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
@@ -9,6 +10,9 @@ A personal, phone-first app with two halves:
   (opens the photo editor) and converted PDFs a **Write on it** button. And
   [QR & Barcode](#qr--barcode): scan codes with a link safety check before anything opens, and make
   your own QR codes.
+- **[Updates](#updates)**: weather (Weather Service alerts, forecast, freezes, wind, air quality for
+  ZIP 80214 by default) and sports (your teams' live scores, next games with TV and line, results).
+  Works on the phone with no setup; the same rules drive push notifications from two jobs.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -24,7 +28,7 @@ choices that keep usage under them.
      │  workflow_dispatch (fine-grained PAT: this repo, Actions write)
      │  cron: stale runs, retention, watchdog, re-enable scheduled workflow
      ▼
- GitHub Actions: cc-scheduled (hourly sweep of due jobs) / cc-dispatch (one job)
+ GitHub Actions: cc-scheduled (20-minute sweep of due jobs) / cc-dispatch (one job)
      │  Node 22 + Playwright Chromium
      │  POST /ingest/*  HMAC-signed with CC_INGEST_SECRET (a separate secret)
      ▼
@@ -34,6 +38,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Tools](#tools)
+- [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
 - [Cloud setup](#cloud-setup): [ntfy](#1-ntfy) · [Cloudflare](#2-cloudflare-worker--d1) · [GitHub](#3-github-secrets-and-token) · [PWA on iPhone](#4-install-the-pwa-on-iphone)
@@ -195,6 +200,65 @@ npm run test:web        # browser tests in Chromium: conversions, WebP encoder, 
 Add a tool: create `web/tools/<id>/<id>.js` exporting `mount(host)` (return an unmount function),
 add it to `web/tools/index.js`, and run `npm run precache`.
 
+## Updates
+
+Open **Updates** on the home screen. Both tabs load directly from public sources on the phone (no
+account, no key, no setup) and refresh when you come back to the app.
+
+### Weather
+
+For ZIP **80214** (Lakewood) by default; **Change** takes any U.S. ZIP code or **📍 Here**.
+
+- **Now**: temperature, conditions, wind and the current U.S. Air Quality Index with its color.
+- **Weather Service alerts** for the exact point (warnings, watches, advisories), with the full
+  text and "what to do" on tap.
+- **Heads-up (next 36 hours)**, the same rules the push job uses:
+  - **Freeze** at or below 32°F in spring and fall (March–May, September–November), "hard freeze"
+    at 28°F or below. Not in winter, when every night freezes.
+  - **Bitter cold** at or below 10°F, any month.
+  - **Strong wind**: gusts of 45 mph or more; **damaging wind** at 58 mph or more (a second alert).
+  - **Air quality**: U.S. AQI 101 or worse ("Unhealthy for Sensitive Groups" and up), with the main
+    pollutant (ozone or smoke particles).
+- Next 24 hours (temperature, precipitation chance, gusts), 7-day forecast, and links to the NWS
+  forecast page, radar and AirNow.
+
+Sources: [api.weather.gov](https://www.weather.gov/documentation/services-web-api) (alerts, hourly
+and 7-day forecast, gusts from the gridded forecast) and
+[Open-Meteo air quality](https://open-meteo.com/en/docs/air-quality-api) (U.S. AQI from the CAMS
+model; AirNow's own API needs a key, so the app links to AirNow for official monitor readings).
+ZIP lookup: Zippopotam.us.
+
+### Sports
+
+Starts with the Broncos, Nuggets, Avalanche and Rockies. Each team shows its record and standing, a
+**live** score while a game is on (refreshing every 45 seconds), the **next game** (time, TV and the
+betting line when ESPN lists one) and the **last result**; **Schedule** lists the season. **Edit**
+adds teams from the NFL, NBA, NHL, MLB, MLS, WNBA, college football and basketball, or the Premier
+League, removes them, or resets to the Denver teams. Data: ESPN's public site API (no key). Lines
+are shown for information only; nothing logs into or automates a sportsbook.
+
+### Push jobs: weather-alerts and sports
+
+The same rules run in the cloud and push to your phone with ntfy, once per thing:
+
+| Job | Runs | Pushes |
+| --- | --- | --- |
+| `weather-alerts` | every 20 min | each new Weather Service alert (Extreme/Severe/Moderate by default; Extreme ones at max priority), each freeze night, bitter cold, wind day (strong, then damaging), and air-quality day/category |
+| `sports` | hourly | each final score (within 36 h of the game) and a game-day reminder for games in the next 14 h, only between 8 AM and 10 PM Denver time |
+
+Settings (ZIP and coordinates, thresholds, severities, teams, quiet hours) live in
+`config/jobs.yaml` and are validated on every run. The app's own team list and ZIP are separate (they
+are stored on the phone).
+
+**Try them without any setup:** Actions → **cc-try** → Run workflow. It checks every data source
+(status, CORS for the app, robots.txt) and runs both jobs in dry-run mode: nothing is stored, and the
+notifications they *would* send are printed in the log. It also runs automatically on pushes that
+change a job or the Updates app.
+
+**Real pushes** need the [cloud setup](#cloud-setup) (ntfy, the Worker, GitHub secrets), then turn on
+the schedule in `cc-scheduled.yml` (it runs every 20 minutes; the weather job is due every run, the
+sports job hourly).
+
 ## Repository layout
 
 ```
@@ -204,15 +268,20 @@ src/core/                   Framework: config, registry, runner, retries/timeout
                             polite HTTP + robots.txt, Playwright, notifications, logging + redaction
 src/jobs/                   One module per job (files starting with "_" are templates)
   heartbeat.js              No-network self-test job
+  weather-alerts.js         Weather Service alerts, freezes, wind, air quality -> push
+  sports.js                 Final scores and game-day reminders -> push
   _template.js              Copy this to add a job
 src/store/                  local (SQLite file) / remote (Worker) / d1-shim (node:sqlite as D1)
 src/exporters/sheets.js     Optional Google Sheets exporter
 shared/                     Code shared by runner and Worker: SQL store, HMAC signing
 worker/                     Cloudflare Worker (API, ingest, cron) + D1 migrations
-web/                        PWA (no build step): app.js shell, jobs.js dashboard, tools/, lib/, vendor/
+web/                        PWA (no build step): app.js shell (home screen), jobs.js dashboard,
+                            tools/ (Editor, QR), apps/updates/ (weather + sports; *-core.js shared
+                            with the jobs), lib/, vendor/
 index.html                  Redirects the GitHub Pages root to web/
 test/                       node:test suites; test/browser/ = Playwright tests for the tools
-.github/workflows/          cc-scheduled, cc-dispatch, cc-ci (tests + secret scan), cc-pages
+.github/workflows/          cc-scheduled, cc-dispatch, cc-ci (tests + secret scan), cc-pages,
+                            cc-try (dry-run jobs against the live sources, no secrets)
 scripts/                    secret scan, git hook installer, icon renderer, failure alert
 ```
 

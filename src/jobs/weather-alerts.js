@@ -52,6 +52,10 @@ export default {
   async run(ctx) {
     const s = ctx.settings;
     const headers = { 'user-agent': `CommandCenter/1.0 (${s.contact})`, accept: 'application/geo+json' };
+    // Air quality first: from GitHub runners, a fresh connection to Open-Meteo late in the run has
+    // timed out while the same request at the start succeeds.
+    let air = null;
+    try { air = W.parseAirQuality(await ctx.http.json(W.urls.airQuality(s.lat, s.lon, ctx.timezone), { headers: { 'user-agent': headers['user-agent'] } })); } catch (err) { ctx.log.warn('air quality unavailable', { error: err.message }); }
     const point = W.parsePoint(await ctx.http.json(W.urls.points(s.lat, s.lon), { headers }));
     if (!point) throw new ParseError(`api.weather.gov has no forecast office for ${s.lat},${s.lon}`);
     const alertsJson = await ctx.http.json(W.urls.alerts(s.lat, s.lon), { headers, cache: false });
@@ -60,11 +64,9 @@ export default {
     const hourly = W.parsePeriods(hourlyJson);
     if (!hourly.length) throw new ParseError('hourly forecast has no periods');
 
-    // Gusts and air quality add to the alerts; if one is down, alert on the rest and say so in the log.
+    // Gusts (like air quality) add to the alerts; if one is down, alert on the rest and say so in the log.
     let gusts = [];
     try { gusts = W.parseGusts(await ctx.http.json(point.grid, { headers })); } catch (err) { ctx.log.warn('wind gusts unavailable', { error: err.message }); }
-    let air = null;
-    try { air = W.parseAirQuality(await ctx.http.json(W.urls.airQuality(s.lat, s.lon, point.timeZone || ctx.timezone), { headers: { 'user-agent': headers['user-agent'] } })); } catch (err) { ctx.log.warn('air quality unavailable', { error: err.message }); }
 
     const conditions = W.assess({
       alerts: W.parseAlerts(alertsJson), hourly, gusts, air,

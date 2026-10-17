@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "b70b4bd980c8",
+  "version": "a77b683fb349",
   "files": [
     "app.js",
     "config.js",

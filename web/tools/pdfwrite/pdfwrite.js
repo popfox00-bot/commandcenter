@@ -30,7 +30,10 @@ export function mount(host, { file: initialFile } = {}) {
   let doc = null; let pages = []; // [{ info, node, base, overlay, rendered }]
   let history = null; let saveTimer = 0; let observer = null;
   let drag = null; let draft = null;
-  let toolbar; let undoBtn; let redoBtn; let pagesBox;
+  let toolbar; let undoBtn; let redoBtn; let pagesBox; let scroller; let zoomLabel;
+  let zoom = 1; let pinch = null; let zoomTimer = 0;
+  const touches = new Map(); // pointerId -> {x, y} for two-finger zoom
+  const ZOOMS = [1, 1.5, 2, 3, 4];
   const items = () => history.state;
 
   // ---------- open ----------
@@ -83,13 +86,17 @@ export function mount(host, { file: initialFile } = {}) {
     redoBtn = el('button', { class: 'icon-btn', 'aria-label': 'Redo', text: '↷', onclick: () => { if (history.redo()) changed(); } });
     toolbar = el('div', { class: 'pw-toolbar' });
     pagesBox = el('div', { class: 'pw-pages' });
+    scroller = el('div', { class: 'pw-scroll' }, pagesBox);
+    bindZoom();
     host.replaceChildren(
       el('div', { class: 'ed-top' },
         el('button', { class: 'icon-btn', 'aria-label': 'Close PDF', text: '✕', onclick: closeDoc }),
         el('div', { class: 'ed-top-mid' }, undoBtn, redoBtn),
         el('button', { class: 'btn primary small-btn', text: 'Done', onclick: openExport })),
       el('p', { class: 'muted small pw-name', text: `${fileName} · ${doc.numPages} page${doc.numPages === 1 ? '' : 's'}` }),
-      toolbar, pagesBox);
+      toolbar, scroller);
+    zoom = 1;
+    applyZoom(1);
     renderToolbar();
 
     pages = [];
@@ -148,7 +155,12 @@ export function mount(host, { file: initialFile } = {}) {
         class: `btn small-btn${saved ? ' ghost' : ' primary'}`, text: saved ? `Redraw ${KINDS[prefs.tool].label.toLowerCase()}` : `Draw ${KINDS[prefs.tool].label.toLowerCase()}`,
         onclick: () => drawSignature(prefs.tool).then(() => renderToolbar()),
       }) : null,
-      el('p', { class: 'muted small pw-hint', text: hint }),
+      el('div', { class: 'ed-row' },
+        el('p', { class: 'muted small pw-hint', text: hint }),
+        el('div', { class: 'pw-zoom' },
+          el('button', { class: 'icon-btn small-btn', 'aria-label': 'Zoom out', text: '−', onclick: () => stepZoom(-1) }),
+          zoomLabel = el('button', { class: 'linkish small', 'aria-label': 'Fit width', text: `${Math.round(zoom * 100)}%`, onclick: () => setZoom(1) }),
+          el('button', { class: 'icon-btn small-btn', 'aria-label': 'Zoom in', text: '+', onclick: () => stepZoom(1) }))),
     ].filter(Boolean));
   }
 
@@ -172,13 +184,83 @@ export function mount(host, { file: initialFile } = {}) {
     try {
       const page = await doc.getPage(p.index + 1);
       const vp1 = page.getViewport({ scale: 1 });
-      const vp = page.getViewport({ scale: (cssW * dpr) / vp1.width });
+      // Sharp at the current zoom, but within iOS canvas limits (4096 px wide, 16.7 MP).
+      let scale = Math.min(cssW * dpr, 4096) / vp1.width;
+      scale = Math.min(scale, Math.sqrt(16e6 / (vp1.width * vp1.height)));
+      const vp = page.getViewport({ scale });
       const c = p.base;
       c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
       await page.render({ canvasContext: c.getContext('2d'), viewport: vp, background: '#ffffff' }).promise;
       p.overlay.width = c.width; p.overlay.height = c.height;
       drawOverlay(p);
     } catch { p.rendered = 0; }
+  }
+
+  // ---------- zoom ----------
+
+  function applyZoom(z, focus) {
+    const old = { w: pagesBox.offsetWidth, h: pagesBox.offsetHeight };
+    const top = pagesBox.getBoundingClientRect().top + window.scrollY;
+    // Keep the content under the fingers (or the screen center) where it is.
+    const fx = focus ? (scroller.scrollLeft + focus.x - scroller.getBoundingClientRect().left) / (old.w || 1) : null;
+    const fy = focus ? (window.scrollY + focus.y - top) / (old.h || 1) : null;
+    zoom = z;
+    pagesBox.style.width = `${z * 100}%`;
+    if (focus && old.w) {
+      scroller.scrollLeft = fx * pagesBox.offsetWidth - (focus.x - scroller.getBoundingClientRect().left);
+      window.scrollTo(window.scrollX, top + fy * pagesBox.offsetHeight - focus.y);
+    }
+    if (zoomLabel) zoomLabel.textContent = `${Math.round(z * 100)}%`;
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(rerenderVisible, 220);
+  }
+
+  function setZoom(z, focus) { applyZoom(Math.min(4, Math.max(1, z)), focus); }
+
+  function stepZoom(dir) {
+    const next = dir > 0 ? ZOOMS.find((z) => z > zoom + 0.01) ?? 4 : [...ZOOMS].reverse().find((z) => z < zoom - 0.01) ?? 1;
+    setZoom(next, { x: innerWidth / 2, y: innerHeight / 2 });
+  }
+
+  function rerenderVisible() {
+    for (const p of pages) {
+      const r = p.node.getBoundingClientRect();
+      if (r.bottom > -innerHeight * 2 && r.top < innerHeight * 3) renderPage(p);
+    }
+  }
+
+  /** Two fingers anywhere on the pages zoom, in every mode (a second finger cancels a stroke). */
+  function bindZoom() {
+    const dist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    const mid = () => { const [a, b] = [...touches.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+    scroller.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        if (drag?.kind === 'move') history.replace(drag.before);
+        drag = null; draft = null;
+        for (const p of pages) if (p.rendered) drawOverlay(p);
+        pinch = { d0: dist(), z0: zoom };
+      }
+    }, true);
+    scroller.addEventListener('pointermove', (e) => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && touches.size === 2) setZoom(pinch.z0 * (dist() / pinch.d0), mid());
+    }, true);
+    const up = (e) => {
+      touches.delete(e.pointerId);
+      if (touches.size < 2 && pinch) pinch = touches.size ? { ended: true } : null;
+      if (!touches.size) pinch = null;
+    };
+    scroller.addEventListener('pointerup', up, true);
+    scroller.addEventListener('pointercancel', up, true);
+    // Trackpad pinch on a computer arrives as ctrl+wheel.
+    scroller.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom(zoom * Math.exp(-e.deltaY / 200), { x: e.clientX, y: e.clientY });
+    }, { passive: false });
   }
 
   function drawOverlay(p) {
@@ -214,13 +296,17 @@ export function mount(host, { file: initialFile } = {}) {
     const tolPt = (r) => (14 * displaySize(p.info).w) / r.width; // ~14 css px in points
 
     p.overlay.addEventListener('pointerdown', (e) => {
+      if (pinch) return; // second finger of a zoom gesture
       const tool = prefs.tool;
       if (tool === 'scroll') return;
       const q = pos(e);
       const list = items();
       if (tool === 'eraser') {
-        const i = hitTest(list, p.index, q.u, q.v, p.info, tolPt(q.r));
-        if (i >= 0) commit(list.filter((_, j) => j !== i));
+        drag = { kind: 'tap', start: q, action: () => {
+          const i = hitTest(items(), p.index, q.u, q.v, p.info, tolPt(q.r));
+          if (i >= 0) commit(items().filter((_, j) => j !== i));
+        } };
+        p.overlay.setPointerCapture(e.pointerId);
         return;
       }
       if (tool === 'signature' || tool === 'initials') {
@@ -228,23 +314,22 @@ export function mount(host, { file: initialFile } = {}) {
         if (i >= 0 && list[i].type === 'sign') {
           drag = { kind: 'move', i, start: q, orig: list[i], moved: false, before: list };
         } else {
-          const place = (sig) => { if (sig) commit([...items(), signItem(sig, p.index, p.info, q.u, q.v, tool === 'initials' ? prefs.initialsHeight : prefs.signHeight, prefs.color)]); };
-          const sig = loadSignature(tool);
-          if (sig) place(sig); else drawSignature(tool).then((s2) => { renderToolbar(); place(s2); });
-          return;
+          drag = { kind: 'tap', start: q, action: () => {
+            const place = (sig) => { if (sig) commit([...items(), signItem(sig, p.index, p.info, q.u, q.v, tool === 'initials' ? prefs.initialsHeight : prefs.signHeight, prefs.color)]); };
+            const sig = loadSignature(tool);
+            if (sig) place(sig); else drawSignature(tool).then((s2) => { renderToolbar(); place(s2); });
+          } };
         }
       } else if (tool === 'text') {
         const i = hitTest(list, p.index, q.u, q.v, p.info, tolPt(q.r));
         if (i >= 0 && list[i].type === 'text') {
           drag = { kind: 'move', i, start: q, orig: list[i], moved: false, before: list };
         } else {
-          askText({ page: p.index, type: 'text', u: q.u, v: q.v - (prefs.textSize * 0.5) / displaySize(p.info).h, text: '', size: prefs.textSize, color: prefs.color }, -1);
-          return;
+          drag = { kind: 'tap', start: q, action: () => askText({ page: p.index, type: 'text', u: q.u, v: q.v - (prefs.textSize * 0.5) / displaySize(p.info).h, text: '', size: prefs.textSize, color: prefs.color }, -1) };
         }
       } else if (tool === 'check' || tool === 'cross') {
         const { w, h } = displaySize(p.info);
-        commit([...list, { page: p.index, type: tool, u: q.u - prefs.markSize / 2 / w, v: q.v - prefs.markSize / 2 / h, size: prefs.markSize, color: prefs.color }]);
-        return;
+        drag = { kind: 'tap', start: q, action: () => commit([...items(), { page: p.index, type: tool, u: q.u - prefs.markSize / 2 / w, v: q.v - prefs.markSize / 2 / h, size: prefs.markSize, color: prefs.color }]) };
       } else if (tool === 'ink') {
         draft = { page: p.index, type: 'ink', points: [[q.u, q.v]], width: prefs.inkWidth, color: prefs.color };
         drag = { kind: 'draw' };
@@ -257,9 +342,11 @@ export function mount(host, { file: initialFile } = {}) {
       drawOverlay(p);
     });
     p.overlay.addEventListener('pointermove', (e) => {
-      if (!drag) return;
+      if (!drag || pinch) return;
       const q = pos(e);
-      if (drag.kind === 'move') {
+      if (drag.kind === 'tap') {
+        if (Math.hypot((q.u - drag.start.u) * q.r.width, (q.v - drag.start.v) * q.r.height) > 10) drag.cancelled = true;
+      } else if (drag.kind === 'move') {
         const du = q.u - drag.start.u; const dv = q.v - drag.start.v;
         if (Math.hypot(du * q.r.width, dv * q.r.height) > 4) drag.moved = true;
         if (!drag.moved) return;
@@ -276,7 +363,9 @@ export function mount(host, { file: initialFile } = {}) {
     });
     const end = () => {
       if (!drag) return;
-      if (drag.kind === 'move') {
+      if (drag.kind === 'tap') {
+        if (!drag.cancelled && !pinch) drag.action();
+      } else if (drag.kind === 'move') {
         const next = items();
         history.replace(drag.before);
         if (drag.moved) commit(next);

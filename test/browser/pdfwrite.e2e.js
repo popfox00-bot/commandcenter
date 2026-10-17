@@ -54,7 +54,8 @@ async function openPdfTab(context) {
 }
 
 async function pageBox(page, n) {
-  return page.$eval(`.pw-page[data-page="${n}"] .pw-overlay`, (o) => { o.scrollIntoView(); const r = o.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  // Center the page: the sticky toolbar covers the top of the screen.
+  return page.$eval(`.pw-page[data-page="${n}"] .pw-overlay`, (o) => { o.scrollIntoView({ block: 'center' }); const r = o.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
 }
 
 test('type, sign and check on a PDF, then save a real PDF with the original text intact', async () => {
@@ -112,10 +113,11 @@ test('type, sign and check on a PDF, then save a real PDF with the original text
 test('PDF work survives closing the app; eraser and undo work', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page } = await openPdfTab(context);
-  const b = await pageBox(page, 0);
   await page.getByRole('button', { name: /Cross/ }).click();
+  let b = await pageBox(page, 0); // measure after each tool tap (it may scroll)
   await page.mouse.click(b.x + b.w * 0.5, b.y + b.h * 0.6);
   await page.getByRole('button', { name: /Eraser/ }).click();
+  b = await pageBox(page, 0);
   await page.mouse.click(b.x + b.w * 0.5, b.y + b.h * 0.6);
   await page.getByRole('button', { name: 'Undo' }).click(); // cross is back
   await page.waitForTimeout(600);
@@ -180,6 +182,44 @@ test('signature: draw once, stamp twice, drag, and it is remembered', async () =
   assert.ok(await page.evaluate(() => !!JSON.parse(localStorage.getItem('cc.pdf.signatures')).signature));
   await page.getByRole('button', { name: 'Done' }).click();
   await page.waitForFunction(() => /form-signed\.pdf/.test(document.querySelector('.ed-dialog .muted')?.textContent ?? ''));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('zoom: buttons and a two-finger pinch enlarge pages and re-render them sharp', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 });
+  const { page, errors } = await openPdfTab(context);
+  const widths = () => page.$eval('.pw-page[data-page="0"]', (n) => ({ css: n.clientWidth, px: n.querySelector('.pw-base').width }));
+  const w1 = await widths();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.waitForFunction((w) => document.querySelector('.pw-base').width > w * 1.4, w1.px);
+  const w2 = await widths();
+  assert.ok(w2.css > w1.css * 1.4, `css ${w1.css} -> ${w2.css}`);
+  assert.equal(await page.$eval('.pw-zoom .linkish', (b) => b.textContent), '150%');
+  await page.getByRole('button', { name: 'Fit width' }).click();
+  await page.waitForFunction((w) => document.querySelector('.pw-page').clientWidth === w, w1.css);
+
+  // Pinch out with two fingers while a drawing tool is active: zooms, draws nothing.
+  await page.getByRole('button', { name: '✍ Draw', exact: true }).click();
+  const b = await pageBox(page, 0); // measure after the tap, which may scroll
+  const cx = b.x + b.w / 2; const cy = 520; // middle of the screen, on the page
+  const cdp = await context.newCDPSession(page);
+  const touch = (type, d) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: cx - d, y: cy, id: 1 }, { x: cx + d, y: cy, id: 2 }] });
+  await touch('touchStart', 40);
+  for (let d = 50; d <= 120; d += 10) await touch('touchMove', d);
+  await touch('touchEnd', 0);
+  await page.waitForTimeout(500);
+  const w3 = await widths();
+  assert.ok(w3.css > w1.css * 2, `pinch zoomed ${w1.css} -> ${w3.css}`);
+  const saved = await page.evaluate(async () => (await new Promise((r) => { const q = indexedDB.open('command-center'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('pdfwrite.session'); g.onsuccess = () => r(g.result); }; })).items);
+  assert.equal(saved.length, 0, 'the pinch did not leave a stroke');
+  await page.getByRole('button', { name: /T Text/ }).click();
+  await page.getByRole('button', { name: 'Fit width' }).click();
+  const b2 = await pageBox(page, 0);
+  const t = (type, d) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: b2.x + 150 - d, y: 520, id: 1 }, { x: b2.x + 150 + d, y: 520, id: 2 }] });
+  await t('touchStart', 30); for (let d = 40; d <= 90; d += 10) await t('touchMove', d); await t('touchEnd', 0);
+  await page.waitForTimeout(300);
+  assert.equal(await page.$$eval('.ed-dialog', (d) => d.length), 0, 'pinching with the Text tool does not open the text box');
   assert.deepEqual(errors, []);
   await context.close();
 });

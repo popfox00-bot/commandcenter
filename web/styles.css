@@ -199,3 +199,31 @@ label.btn { cursor: pointer; }
 .result-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
 .privacy { margin: 18px 0 8px; }
 button:disabled { opacity: .5; }
+
+/* ---------- photo editor ---------- */
+.ed-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 10px; }
+.ed-top-mid { display: flex; gap: 6px; }
+.ed-top .icon-btn:disabled { opacity: .35; }
+.ed-stage { position: relative; display: flex; justify-content: center; align-items: center; margin: 0 -16px; background: #000; border-radius: 0; overflow: hidden; }
+@media (min-width: 720px) { .ed-stage { margin: 0; border-radius: var(--radius); } }
+.ed-canvas, .ed-overlay { display: block; }
+.ed-overlay { position: absolute; left: 50%; top: 0; transform: translateX(-50%); touch-action: none; }
+.ed-panel { display: grid; gap: 10px; padding: 12px 0; min-height: 132px; }
+.ed-modes { margin-top: 10px; }
+.ed-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ed-slider input { touch-action: pan-x; }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: .9rem; white-space: nowrap; }
+.chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+.chip.changed:not(.active) { border-color: var(--primary); color: var(--primary); }
+.filter { flex: none; display: grid; gap: 4px; justify-items: center; padding: 4px; border: 2px solid transparent; border-radius: 12px; background: none; color: var(--text); }
+.filter.active { border-color: var(--primary); }
+.filter-thumb { width: 64px; height: 64px; border-radius: 8px; background: var(--idle-bg); }
+.swatches { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border); padding: 0; }
+.swatch.active { outline: 3px solid var(--primary); outline-offset: 2px; }
+.swatch-custom { width: 38px; height: 38px; min-height: 0; padding: 0; border: 0; background: none; margin: 0; }
+.ed-dialog .sheet { display: grid; gap: 12px; }
+.ed-textarea { width: 100%; min-height: 88px; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
+.resume { display: grid; gap: 6px; margin-bottom: 12px; }

@@ -3,7 +3,7 @@
 A personal, phone-first app with two halves:
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
-  Today: the [File Converter](#tools). Next: a Photo Editor.
+  Today: the [File Converter](#file-converter) and the [Photo Editor](#photo-editor).
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -72,6 +72,32 @@ from Photos, iOS often hands Safari a JPEG already.
 Libraries (vendored in `web/vendor/`, Apache-2.0): pdf.js for reading PDFs, libwebp (via jSquash)
 for WebP encoding because Safari can't encode WebP itself. Writing PDFs and ZIPs uses small modules
 in `web/lib/`.
+
+### Photo Editor
+
+Modeled on the iPhone Photos editor; edits are non-destructive and the original is never changed.
+
+- **Adjust**: Auto, Exposure, Brilliance, Highlights, Shadows, Contrast, Brightness, Black Point,
+  Saturation, Vibrance, Warmth, Tint, Sharpness, Definition, Noise Reduction, Vignette.
+  Double-tap a slider or chip to reset it.
+- **Filters**: Vivid (+ Warm/Cool), Dramatic (+ Warm/Cool), Mono, Silvertone, Noir, plus Fade and
+  Sepia, each with an intensity slider.
+- **Crop**: Freeform, Original, Square, 4:5, 3:4, 2:3, 9:16 and the landscape ratios; drag corners,
+  edges or the whole box; rotate 90°, flip, and straighten ±45° (auto-zooms so no corners go empty).
+- **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
+  colors and size. Markup stays attached to the picture when you crop, rotate or flip.
+- Undo/redo for every step, hold ◑ to compare with the original, and **autosave**: if iOS closes the
+  app, reopening the editor offers to continue where you left off.
+- **Done** exports at full resolution (or 4096/2048/1080 px) as JPEG, PNG or WebP, then Share (Save
+  Image to Photos) or Save.
+
+Rendering runs on the GPU (WebGL 2) in two passes: geometry and color in one, then sharpness,
+definition, noise reduction and vignette. Full-size export is limited by the same 16.7 MP canvas
+cap and the device's maximum texture size.
+
+Planned next: text with more fonts and moving/resizing items (layers), blur/pixelate a region,
+curves and per-color HSL, social-size presets, collages and templates, then background removal with
+an on-device model.
 
 ### Developing the tools
 

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "79ccea590d7d",
+  "version": "d90ce24bdecb",
   "files": [
     "app.js",
     "config.js",
@@ -17,6 +17,7 @@ const PRECACHE = {
     "jobs.js",
     "lib/dom.js",
     "lib/files.js",
+    "lib/idb.js",
     "lib/image.js",
     "lib/pdf-reader.js",
     "lib/pdf-writer.js",
@@ -26,6 +27,11 @@ const PRECACHE = {
     "styles.css",
     "tools/convert/convert-core.js",
     "tools/convert/convert.js",
+    "tools/editor/editor.js",
+    "tools/editor/geometry.js",
+    "tools/editor/markup.js",
+    "tools/editor/renderer.js",
+    "tools/editor/state.js",
     "tools/index.js",
     "vendor/pdfjs/LICENSE",
     "vendor/pdfjs/pdf.min.mjs",

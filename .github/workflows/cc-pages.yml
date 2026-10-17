@@ -1,10 +1,9 @@
-# Publishes the PWA in web/ to GitHub Pages. Repo Settings -> Pages -> Source: "GitHub Actions".
+# Optional: publishes only web/ to GitHub Pages, with the Worker URL filled in.
+# Only for Settings -> Pages -> Source: "GitHub Actions". With "Deploy from a branch" (the default
+# here) Pages already publishes every push, so this runs only when started by hand.
 name: cc-pages
 
 on:
-  push:
-    branches: [main]
-    paths: ["web/**", ".github/workflows/cc-pages.yml"]
   workflow_dispatch: {}
 
 permissions:

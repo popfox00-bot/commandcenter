@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "d90ce24bdecb",
+  "version": "e2ab97a75318",
   "files": [
     "app.js",
     "config.js",
@@ -73,7 +73,9 @@ const CACHE = `cc-${PRECACHE.version}`;
 const NETWORK_FIRST = new Set(['config.js']);
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', ...PRECACHE.files])));
+  // cache: 'reload' bypasses the HTTP cache (GitHub Pages lets browsers keep files for 10 minutes),
+  // so a new version never gets stored with stale copies of its files.
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', ...PRECACHE.files].map((u) => new Request(u, { cache: 'reload' })))));
 });
 
 self.addEventListener('activate', (e) => {

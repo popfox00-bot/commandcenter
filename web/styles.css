@@ -130,20 +130,19 @@ input { display: block; width: 100%; margin-top: 6px; min-height: 44px; padding:
 .meta dd { margin: 0; overflow-wrap: anywhere; }
 .log { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px; font-size: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow: auto; }
 
-/* ---------- app shell: views + tab bar ---------- */
-.view { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+/* ---------- app shell: home screen + views ---------- */
+.view { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.app-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px 12px; padding: 28px 16px; max-width: 520px; margin: 0 auto; }
+.app-tile { display: grid; justify-items: center; gap: 6px; color: var(--text); text-decoration: none; text-align: center; -webkit-tap-highlight-color: transparent; }
+.app-tile:active .app-icon { transform: scale(.94); }
+.app-icon { display: grid; place-items: center; width: 76px; height: 76px; border-radius: 20px; font-size: 2.3rem; box-shadow: 0 6px 16px rgb(0 0 0 / .18), inset 0 1px 0 rgb(255 255 255 / .25); transition: transform .12s; }
+.app-name { font-weight: 600; font-size: .95rem; }
+.app-note { font-size: .72rem; line-height: 1.2; }
+.tint-blue { background: linear-gradient(160deg, #60a5fa, #1d4ed8); }
+.tint-amber { background: linear-gradient(160deg, #fcd34d, #ea580c); }
+.tint-slate { background: linear-gradient(160deg, #94a3b8, #334155); }
+#app-host { max-width: 720px; margin: 0 auto; padding: 0 16px; }
 .view-note { max-width: 720px; margin: 12px auto 0; padding: 0 16px; }
-.tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
-  display: grid; grid-template-columns: 1fr 1fr;
-  padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid var(--border);
-}
-.tabbar a { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; justify-content: center; color: var(--muted); text-decoration: none; font-size: .75rem; font-weight: 600; border-radius: 10px; }
-.tabbar a span { font-size: 1.3rem; line-height: 1; }
-.tabbar a[aria-current="page"] { color: var(--primary); }
 .update-bar { display: block; width: calc(100% - 32px); max-width: 688px; margin: 10px auto 0; min-height: 44px; border: 0; border-radius: 12px; background: var(--run-bg); color: var(--run); font: inherit; font-weight: 600; }
 .back { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; color: var(--primary); text-decoration: none; font-weight: 600; }
 #tool-host { max-width: 720px; margin: 0 auto; padding: 0 16px; }
@@ -342,3 +341,50 @@ button:disabled { opacity: .5; }
 .qr-more summary { color: var(--primary); font-weight: 600; cursor: pointer; margin-bottom: 10px; }
 .qr-pane .qr-preview-wrap { max-width: 240px; }
 .qr-export { margin-bottom: 16px; justify-content: center; }
+
+/* ---------- Updates: weather + sports ---------- */
+.upd-tabs { margin: 4px 0 12px; }
+.upd-tabs .seg { display: grid; place-items: center; text-decoration: none; }
+.upd-pane { display: grid; gap: 10px; }
+.upd-pane h3 { margin: 10px 0 0; }
+.upd-pane .row { margin-top: 0; }
+.upd-loc { display: grid; gap: 6px; }
+.upd-loc strong { overflow-wrap: anywhere; }
+.upd-zip { display: flex; gap: 8px; align-items: center; }
+.upd-zip input { margin: 0; max-width: 130px; }
+.upd-now { display: grid; gap: 10px; }
+.upd-now-main { display: flex; align-items: center; gap: 12px; }
+.upd-now-icon { font-size: 2.6rem; line-height: 1; }
+.upd-now-temp { font-size: 2.6rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.upd-now-text { display: grid; gap: 2px; min-width: 0; }
+.upd-aqi { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+.upd-aqi-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgb(0 0 0 / .25); flex: none; }
+.upd-alert { display: grid; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--primary); }
+.upd-alert.danger { border-left-color: var(--bad); background: var(--bad-bg); }
+.upd-alert.warning { border-left-color: var(--warn); }
+.upd-alert summary { display: grid; gap: 2px; cursor: pointer; list-style: none; }
+.upd-alert summary::-webkit-details-marker { display: none; }
+.upd-pre { white-space: pre-wrap; margin: 4px 0 0; }
+.upd-hours { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.upd-hours::-webkit-scrollbar { display: none; }
+.upd-hour { flex: none; display: grid; justify-items: center; gap: 2px; min-width: 52px; padding: 8px 4px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.upd-days { display: grid; gap: 6px; }
+.upd-day { padding: 8px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.upd-day summary { display: grid; grid-template-columns: 6.5em 1.6em 1fr auto; gap: 8px; align-items: center; cursor: pointer; list-style: none; }
+.upd-day summary::-webkit-details-marker { display: none; }
+.upd-day-name { font-weight: 600; }
+.upd-day-short { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-day-temps { font-variant-numeric: tabular-nums; }
+.upd-push { display: grid; gap: 6px; justify-items: start; }
+.upd-team { display: grid; gap: 6px; border-left: 6px solid #555; }
+.upd-team p { margin: 0; }
+.upd-team-head { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.upd-team-head > span:last-child { display: grid; min-width: 0; }
+.upd-badge { flex: none; display: grid; place-items: center; min-width: 48px; height: 48px; padding: 0 6px; border-radius: 12px; font-weight: 800; font-size: .95rem; letter-spacing: .02em; }
+.upd-live { color: var(--bad); font-weight: 700; }
+.upd-sched ol { margin: 6px 0 0; padding-left: 1.4em; display: grid; gap: 3px; }
+.upd-add { display: grid; gap: 8px; margin: 8px 0; }
+.upd-add input { margin: 0; }
+.upd-team-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 300px; overflow: auto; }
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.app-tile { align-content: start; }

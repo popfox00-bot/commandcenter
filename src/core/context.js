@@ -9,7 +9,7 @@ import { randInt } from './rng.js';
 import { ConfigError } from './errors.js';
 
 export function createContext({ job, jobCfg, config, runId, attempt, now, rng, signal, log, fixture, env = process.env, fetchFn, cacheDir }) {
-  const http = createPoliteHttp({ politeness: config.politeness, log, rng, signal, fetchFn, cacheDir });
+  const http = createPoliteHttp({ politeness: config.politeness, log, rng, signal, fetchFn, cacheDir, officialApis: job.officialApis ?? [] });
   const browser = createBrowser({ politeness: config.politeness, http, log, signal });
 
   /**

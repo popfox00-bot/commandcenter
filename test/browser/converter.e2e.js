@@ -55,12 +55,26 @@ async function convertTo(page, label) {
   return page.$$eval('.result strong', (els) => els.map((e) => e.textContent));
 }
 
-test('tools hub opens without any setup (no settings dialog)', async () => {
+test('home screen of apps; Tools holds Editor and QR; no setup needed (no settings dialog)', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
+  await page.waitForSelector('.app-tile');
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Tools', 'Updates', 'Jobs']);
+  assert.equal(await page.textContent('#title'), 'Command Center');
+  await page.click('.app-tile >> text=Tools');
+  await page.waitForSelector('.tool-card');
+  assert.equal(await page.textContent('#title'), 'Tools');
+  assert.match(await page.textContent('#tool-list'), /QR & Barcode/);
+  await page.click('#view-tools .back');
+  await page.waitForSelector('#view-home:not([hidden])');
+  await page.click('.app-tile >> text=Jobs');
+  await page.waitForSelector('#view-jobs:not([hidden])');
+  assert.equal(await page.isVisible('#jobs-actions'), true);
+  await page.click('#view-jobs .back');
+  await page.click('.app-tile >> text=Tools');
   await page.waitForSelector('.tool-card');
   assert.equal(await page.isVisible('#settings[open]'), false);
-  assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden on the Tools tab');
+  assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden in Tools');
   assert.equal(await page.isVisible('#update'), false, 'no update prompt on a first visit');
   assert.match(await page.textContent('#tool-list'), /Editor/);
   assert.deepEqual(errors, []);

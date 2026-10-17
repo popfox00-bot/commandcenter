@@ -15,6 +15,7 @@ export function assertJobModule(mod, source = 'job') {
   if (typeof mod?.run !== 'function') problems.push('run(ctx)');
   try { parseCron(mod?.schedule); } catch { problems.push('schedule (5-field cron)'); }
   if (mod?.configSchema && typeof mod.configSchema.safeParse !== 'function') problems.push('configSchema (zod schema)');
+  if (mod?.officialApis != null && !(Array.isArray(mod.officialApis) && mod.officialApis.every((h) => typeof h === 'string' && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(h)))) problems.push('officialApis (array of host names)');
   if (problems.length) throw new ConfigError(`${source} does not export a valid job: missing/invalid ${problems.join(', ')}`);
   return mod;
 }

@@ -21,6 +21,12 @@ export default {
   name: 'My job',
   description: 'What it watches and why.',
   schedule: '0 */6 * * *',
+  /**
+   * Optional: hosts of documented public APIs this job calls (e.g. 'api.weather.gov'). robots.txt is
+   * not applied to these hosts only; use it solely for official APIs meant for programs, never to
+   * get around a website's robots.txt.
+   */
+  // officialApis: [],
   /** Set true if the job uses ctx.page({ render: true }) or ctx.browser. */
   needsBrowser: false,
   configSchema: z.object({

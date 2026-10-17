@@ -1,0 +1,45 @@
+# Try jobs without any setup: runs them in dry-run mode (nothing stored, notifications printed to the
+# log instead of pushed) and checks the public data sources the Updates app uses. Needs no secrets.
+# Also runs on pushes that change jobs or the Updates app, against the live sources.
+name: cc-try
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Job id to try (empty = weather-alerts and sports)
+        required: false
+        type: string
+  push:
+    paths:
+      - "src/jobs/**"
+      - "web/apps/updates/**"
+      - "scripts/probe-apis.js"
+      - ".github/workflows/cc-try.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      JOB_ID: ${{ inputs.job_id }}
+    steps:
+      - name: Validate input
+        run: |
+          if [ -n "$JOB_ID" ] && ! [[ "$JOB_ID" =~ ^[a-z][a-z0-9-]{1,40}$ ]]; then echo "Invalid job id"; exit 1; fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Data sources (status, CORS, robots.txt)
+        run: node scripts/probe-apis.js
+      - name: Dry-run jobs
+        run: |
+          for id in ${JOB_ID:-weather-alerts sports}; do
+            echo "::group::$id"
+            node --disable-warning=ExperimentalWarning src/cli.js run "$id" --dry-run
+            echo "::endgroup::"
+          done

@@ -94,7 +94,7 @@ function tabsFor(job) {
 function renderSetup() {
   $('#jobs').replaceChildren(el('section', { class: 'card setup' },
     el('h2', { text: 'Connect your jobs' }),
-    el('p', { class: 'muted small', text: 'Scheduled jobs run in the cloud (GitHub Actions + a Cloudflare Worker). After the one-time setup in the README, enter the Worker URL and token here. The Tools tab works without this.' }),
+    el('p', { class: 'muted small', text: 'Scheduled jobs run in the cloud (GitHub Actions + a Cloudflare Worker). After the one-time setup in the README, enter the Worker URL and token here. Tools and Updates work without this; push alerts need it.' }),
     el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Open settings', onclick: openSettings }))));
 }
 

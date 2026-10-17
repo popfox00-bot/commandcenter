@@ -30,7 +30,8 @@ const base = (league) => {
   return `${ESPN}/${L.sport}/${L.league}`;
 };
 export const urls = {
-  teams: (league) => `${base(league)}/teams`,
+  /** Every team in a league, from the standings (the /teams list sends no CORS header). */
+  teams: (league) => `${base(league).replace('/apis/site/v2/', '/apis/v2/')}/standings`,
   team: (league, team) => `${base(league)}/teams/${encodeURIComponent(team)}`,
   schedule: (league, team) => `${base(league)}/teams/${encodeURIComponent(team)}/schedule`,
   scoreboard: (league) => `${base(league)}/scoreboard`,
@@ -95,10 +96,17 @@ export function parseScheduleTeam(json) {
   };
 }
 
+/** Teams from a standings response (conferences/divisions nested in `children`) or a /teams list. */
 export function parseTeamList(json) {
-  return (json?.sports?.[0]?.leagues?.[0]?.teams ?? []).map(({ team: t }) => ({
-    id: String(t.id), abbr: t.abbreviation, name: t.displayName, color: t.color ? `#${t.color}` : '#444444',
-  })).sort((a, b) => a.name.localeCompare(b.name));
+  const found = new Map();
+  const add = (t) => { if (t?.id && !found.has(String(t.id))) found.set(String(t.id), { id: String(t.id), abbr: t.abbreviation ?? '', name: t.displayName ?? t.name ?? '', color: t.color ? `#${t.color}` : '#444444' }); };
+  const walk = (node) => {
+    for (const e of node?.standings?.entries ?? []) add(e.team);
+    for (const c of node?.children ?? []) walk(c);
+  };
+  walk(json);
+  for (const { team } of json?.sports?.[0]?.leagues?.[0]?.teams ?? []) add(team);
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ---------- wording ----------

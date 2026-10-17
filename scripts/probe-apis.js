@@ -54,9 +54,7 @@ ok &= await probe('Open-Meteo air quality', W.urls.airQuality(lat, lon), (j) => 
 for (const t of S.DEFAULT_TEAMS) {
   ok &= await probe(`ESPN ${t.name} schedule`, S.urls.schedule(t.league, t.team), (j) => { const g = S.parseSchedule(j); const p = S.pickGames(g); const tm = S.parseScheduleTeam(j); return `${g.length} games; team: ${tm?.name} ${tm?.record} · ${tm?.standing}; next: ${p.next ? S.gameLine(p.next, t.team) : '-'}; last: ${p.last ? S.gameLine(p.last, t.team) : '-'}`; });
 }
-ok &= await probe('ESPN NFL teams (app team picker)', S.urls.teams('nfl'), (j) => `${S.parseTeamList(j).length} teams`);
-// Not used yet: other places a team list could come from, to compare browser access (CORS).
-for (const u of ['https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams', 'https://site.api.espn.com/apis/v2/sports/football/nfl/standings', 'https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings', 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/groups']) {
-  await probe(`candidate ${u.replace('https://', '')}`, u, (j) => `top-level keys: ${Object.keys(j).join(', ')}`);
+for (const league of Object.keys(S.LEAGUES)) {
+  ok &= await probe(`ESPN ${S.LEAGUES[league].name} teams (app team picker)`, S.urls.teams(league), (j) => { const t = S.parseTeamList(j); return `${t.length} teams, e.g. ${t.slice(0, 3).map((x) => `${x.name} (${x.id})`).join(', ')}`; });
 }
 process.exitCode = ok ? 0 : 1;

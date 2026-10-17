@@ -64,7 +64,7 @@ export default {
     let gusts = [];
     try { gusts = W.parseGusts(await ctx.http.json(point.grid, { headers })); } catch (err) { ctx.log.warn('wind gusts unavailable', { error: err.message }); }
     let air = null;
-    try { air = W.parseAirQuality(await ctx.http.json(W.urls.airQuality(s.lat, s.lon, point.timeZone || ctx.timezone))); } catch (err) { ctx.log.warn('air quality unavailable', { error: err.message }); }
+    try { air = W.parseAirQuality(await ctx.http.json(W.urls.airQuality(s.lat, s.lon, point.timeZone || ctx.timezone), { headers: { 'user-agent': headers['user-agent'] } })); } catch (err) { ctx.log.warn('air quality unavailable', { error: err.message }); }
 
     const conditions = W.assess({
       alerts: W.parseAlerts(alertsJson), hourly, gusts, air,

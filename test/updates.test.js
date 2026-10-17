@@ -87,6 +87,8 @@ test('sports: schedule parsing, results, lines and what to show', () => {
   assert.deepEqual([t.record, t.standing, t.color], ['5-2', '1st in AFC West', '#fb4f14']);
   assert.deepEqual(S.parseScheduleTeam(scheduleJson), { id: '7', abbr: 'DEN', name: 'Denver Broncos', short: 'Broncos', color: '#fb4f14', alt: '#002244', record: '5-2', standing: '1st in AFC West' });
   assert.deepEqual(S.parseTeamList({ sports: [{ leagues: [{ teams: [{ team: KC }, { team: DEN }] }] }] }).map((x) => x.abbr), ['DEN', 'KC']);
+  assert.deepEqual(S.parseTeamList({ children: [{ standings: { entries: [{ team: KC }] } }, { children: [{ standings: { entries: [{ team: DEN }, { team: KC }] } }] }] }).map((x) => x.abbr), ['DEN', 'KC'], 'standings, nested, de-duplicated');
+  assert.equal(S.urls.teams('nfl'), 'https://site.api.espn.com/apis/v2/sports/football/nfl/standings');
 });
 
 test('sports events: recent finals and game-day reminders only', () => {

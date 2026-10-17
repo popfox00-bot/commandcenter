@@ -104,7 +104,8 @@ export function createPoliteHttp({ politeness, log, rng, signal, fetchFn = fetch
         signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]),
       });
     } catch (err) {
-      throw new FetchError(`${method} ${rawUrl} failed: ${err.message}`, { cause: err });
+      const why = err.cause?.code || err.cause?.message || err.name;
+      throw new FetchError(`${method} ${rawUrl} failed: ${err.message}${why && why !== err.message ? ` (${why})` : ''}`, { cause: err });
     }
     const text = await res.text();
     log.info('http', { method, url: rawUrl, status: res.status, bytes: text.length });

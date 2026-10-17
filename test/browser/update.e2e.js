@@ -33,17 +33,17 @@ test('a new deploy is applied when the app is reopened, even with HTTP caching',
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
-  assert.match(await page.textContent('#tool-list'), /File Converter/);
+  assert.match(await page.textContent('#tool-list'), /Editor/);
 
   // Deploy a new version: changed tool list + new precache version.
   const idx = join(dir, 'tools/index.js');
-  await writeFile(idx, (await readFile(idx, 'utf8')).replace("name: 'File Converter'", "name: 'File Converter v2'"));
+  await writeFile(idx, (await readFile(idx, 'utf8')).replace("name: 'Editor'", "name: 'Editor v2'"));
   const sw = join(dir, 'sw.js');
   await writeFile(sw, (await readFile(sw, 'utf8')).replace(/"version": "[0-9a-f]+"/, '"version": "deadbeef0001"'));
 
   // "Reopen" the app (navigation triggers the update check). No taps: the update applies itself.
   await page.goto(`${origin}${BASE}`);
-  await page.waitForFunction(() => /File Converter v2/.test(document.querySelector('#tool-list')?.textContent ?? ''), null, { timeout: 15000 });
+  await page.waitForFunction(() => /Editor v2/.test(document.querySelector('#tool-list')?.textContent ?? ''), null, { timeout: 15000 });
   await context.close();
 });
 

@@ -162,7 +162,7 @@ input { display: block; width: 100%; margin-top: 6px; min-height: 44px; padding:
 /* ---------- shared controls ---------- */
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .btn.block { display: flex; width: 100%; align-items: center; justify-content: center; }
-label.btn { cursor: pointer; }
+label.btn { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .small-btn { min-height: 36px; min-width: 36px; padding: 0 12px; font-size: .9rem; }
 .row.wrap { flex-wrap: wrap; }
 .badge { flex: none; font-size: .7rem; font-weight: 700; padding: 3px 7px; border-radius: 6px; background: var(--idle-bg); color: var(--muted); letter-spacing: .03em; }
@@ -227,3 +227,47 @@ button:disabled { opacity: .5; }
 .ed-dialog .sheet { display: grid; gap: 12px; }
 .ed-textarea { width: 100%; min-height: 88px; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
 .resume { display: grid; gap: 6px; margin-bottom: 12px; }
+
+/* ---------- Editor app (photo + convert tabs) ---------- */
+.studio-tabs { margin-bottom: 12px; }
+.studio-tabs a.chip { display: inline-flex; align-items: center; text-decoration: none; font-weight: 600; }
+
+/* ---------- write on PDF ---------- */
+.pw-name { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-toolbar { position: sticky; top: 61px; z-index: 2; display: grid; gap: 8px; padding: 8px 0; background: var(--bg); }
+.pw-toolbar select { min-height: 38px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 16px; }
+.pw-hint { margin: 0; }
+.pw-banner { margin: 4px 0; }
+.pw-scroll { overflow-x: auto; overflow-y: visible; margin: 0 -16px; padding: 0 16px; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
+.pw-pages { display: grid; gap: 14px; padding: 6px 0 24px; min-width: 100%; }
+.pw-zoom { display: flex; align-items: center; gap: 6px; }
+.pw-zoom .linkish { min-width: 3.5em; justify-content: center; }
+.pw-page { position: relative; width: 100%; background: #fff; box-shadow: 0 1px 6px rgb(0 0 0 / .18); border-radius: 4px; overflow: hidden; }
+.pw-base, .pw-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pw-overlay { touch-action: pan-x pan-y; } /* pinch handled by the app, so it works in every mode */
+.pw-overlay.capture { touch-action: none; }
+.pw-num { position: absolute; right: 6px; bottom: 4px; padding: 0 6px; border-radius: 6px; background: rgb(0 0 0 / .45); color: #fff; pointer-events: none; }
+.sig-pad { width: 100%; height: 180px; border: 1px dashed var(--border); border-radius: 12px; background: #fff; touch-action: none; }
+
+/* ---------- scan ---------- */
+.scan-add { margin-bottom: 4px; }
+.scan-pages { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 10px; }
+.scan-page { display: grid; grid-template-columns: 84px 1fr; gap: 12px; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.scan-thumb { width: 84px; height: 110px; object-fit: contain; background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgb(0 0 0 / .2); }
+.scan-thumb.placeholder { display: grid; place-items: center; color: #666; font-weight: 700; }
+.scan-page-body { display: grid; gap: 8px; min-width: 0; align-content: start; }
+.scan-footer { display: grid; gap: 10px; }
+.scan-dialog .sheet { display: grid; gap: 10px; justify-items: center; }
+.scan-dialog .sheet > :not(canvas) { justify-self: stretch; }
+.scan-edit { touch-action: none; border-radius: 6px; }
+
+/* ---------- cutout + characters ---------- */
+.co-canvas, .cl-canvas { display: block; touch-action: none; }
+.co-stage, .cl-stage { background: transparent; }
+.cl-stage { margin-top: 12px; }
+.checker { display: grid; place-items: center; background-color: #fff; background-image: conic-gradient(#d9d9d9 25%, #fff 0 50%, #d9d9d9 0 75%, #fff 0); background-size: 16px 16px; border-radius: 10px; overflow: hidden; }
+.checker img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.checker.big { width: 100%; height: 260px; }
+.char-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin: 8px 0 16px; }
+.char-card { display: grid; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); text-align: center; }
+.char-card .checker { height: 88px; }

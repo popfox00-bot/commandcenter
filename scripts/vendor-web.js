@@ -1,6 +1,6 @@
 // Copy third-party browser libraries into web/vendor/ (`npm run vendor`). They are committed so
 // GitHub Pages can serve the PWA with no build step, and the service worker can cache them offline.
-import { cpSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -17,6 +17,9 @@ const copies = [
   ['@jsquash/webp/codec/enc/webp_enc.js', 'webp/webp_enc.js'],
   ['@jsquash/webp/codec/enc/webp_enc.wasm', 'webp/webp_enc.wasm'],
   ['@jsquash/webp/LICENSE', 'webp/LICENSE'],
+  // pdf-lib (MIT): adds text, ink and shapes to existing PDFs without rasterizing their pages.
+  ['pdf-lib/dist/pdf-lib.esm.min.js', 'pdf-lib/pdf-lib.esm.min.js'],
+  ['pdf-lib/LICENSE.md', 'pdf-lib/LICENSE.md'],
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 
@@ -27,4 +30,9 @@ for (const [from, to] of copies) {
 }
 mkdirSync(join(out, 'pdfjs/wasm'), { recursive: true });
 for (const f of pdfWasm) cpSync(join(nm, 'pdfjs-dist/wasm', f), join(out, 'pdfjs/wasm', f));
+// Drop source-map comments: the maps aren't shipped, and browsers would request them.
+for (const f of ['pdf-lib/pdf-lib.esm.min.js']) {
+  const p = join(out, f);
+  writeFileSync(p, readFileSync(p, 'utf8').replace(/\n?\/\/# sourceMappingURL=\S+\s*$/, '\n'));
+}
 console.log('vendored:', readdirSync(out).join(', '));

@@ -7,7 +7,8 @@ import { createZip } from '../../lib/zip.js';
 const OPTIONS_KEY = 'cc.convert.options';
 const SIZES = [[0, 'Original'], [4096, '4096 px'], [2048, '2048 px'], [1600, '1600 px'], [1080, '1080 px'], [720, '720 px']];
 
-export function mount(host) {
+/** mount(host, { onEdit, onWrite }) — Edit button on image results, Write on PDF results. */
+export function mount(host, { onEdit, onWrite } = {}) {
   const options = { ...DEFAULT_OPTIONS, ...store.json(OPTIONS_KEY, {}) };
   let inputs = [];
   let results = [];
@@ -29,7 +30,6 @@ export function mount(host) {
   const resultsBox = el('section', { class: 'results', hidden: true });
 
   host.append(
-    el('h2', { class: 'tool-title', text: 'File Converter' }),
     drop, inputList,
     el('h3', { text: 'Convert to' }), formatBar, optionsBox,
     convertBtn, progress, resultsBox,
@@ -167,6 +167,8 @@ export function mount(host) {
             el('span', { class: 'muted small', text: [formatBytes(r.blob.size), r.width ? `${r.width}×${r.height}` : r.source].filter(Boolean).join(' · ') }),
             r.note ? el('span', { class: 'warn-text small', text: r.note }) : null),
           el('div', { class: 'result-actions' },
+            onEdit && isImage ? el('button', { class: 'btn small-btn ghost', text: 'Edit', onclick: () => onEdit(file) }) : null,
+            onWrite && r.blob.type === 'application/pdf' ? el('button', { class: 'btn small-btn ghost', text: 'Write on it', onclick: () => onWrite(file) }) : null,
             canShareFiles([file]) ? el('button', { class: 'btn small-btn', text: 'Share', onclick: () => shareFiles([file], r.name).catch(showError) }) : null,
             el('button', { class: 'btn small-btn ghost', text: 'Save', onclick: () => downloadBlob(r.blob, r.name) })));
       })),

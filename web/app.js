@@ -2,7 +2,7 @@
 // No build step; every module is plain ES modules served from this folder.
 
 import { $, el, store } from './lib/dom.js';
-import { TOOLS } from './tools/index.js';
+import { TOOLS, REDIRECTS } from './tools/index.js';
 import { setJobsActive } from './jobs.js';
 
 const views = { tools: $('#view-tools'), jobs: $('#view-jobs'), tool: $('#view-tool') };
@@ -21,6 +21,7 @@ function renderToolsHub() {
 }
 
 async function route() {
+  if (REDIRECTS[location.hash]) { location.replace(REDIRECTS[location.hash]); return; }
   const hash = location.hash || (store.get('cc.lastTab') === 'jobs' ? '#/jobs' : '#/tools');
   const [, section, toolId] = hash.split('/');
   const view = section === 'jobs' ? 'jobs' : toolId ? 'tool' : 'tools';

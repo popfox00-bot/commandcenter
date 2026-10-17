@@ -3,7 +3,10 @@
 A personal, phone-first app with two halves:
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
-  Today: the [File Converter](#file-converter) and the [Photo Editor](#photo-editor).
+  Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
+  [Collage](#collage--superimpose), [Cutout](#cutout-and-characters), [Write on PDF](#write-on-pdf),
+  [Scan](#scan) and the [File Converter](#file-converter). Converted images have an **Edit** button
+  (opens the photo editor) and converted PDFs a **Write on it** button.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -96,8 +99,52 @@ definition, noise reduction and vignette. Full-size export is limited by the sam
 cap and the device's maximum texture size.
 
 Planned next: text with more fonts and moving/resizing items (layers), blur/pixelate a region,
-curves and per-color HSL, social-size presets, collages and templates, then background removal with
+curves and per-color HSL, social-size presets and templates, then automatic background removal with
 an on-device model.
+
+### Collage / Superimpose
+
+- **Grid**: pick a layout (2 side by side, 2 stacked, 3, 4, 6 or 9), a shape (square, 4:5, 9:16,
+  16:9, ...), spacing, rounded corners and a background color. Drag a photo to reposition it in its
+  cell, pinch or use the Zoom slider to crop; Replace and Remove act on the selected cell.
+- **Free / Superimpose**: set a background photo, then add photos or saved Characters on top. Drag
+  to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
+  Delete and Opacity act on the selected layer.
+- Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
+  Work is autosaved.
+
+### Cutout and Characters
+
+Cut an object out of a photo: trace around it with your finger (**Trace**), or trace areas to take
+away (**Remove**), with undo/redo and an **Edge softness** slider. **Preview cutout** shows the
+result on a checkerboard. The result can be saved as a transparent PNG, shared, placed on another
+photo (opens Collage in Free mode), or saved as a **Character**: a named library of cutouts kept on
+the device (IndexedDB) that you can reuse from Collage ("+ Character"), rename, share or delete.
+
+### Write on PDF
+
+Fill in and sign PDFs: **Text** (tap to type; tap text to edit, drag to move), **Signature** and
+**Initials**, **Draw**, **Check** ✓ and **Cross** ✗ marks, **Box**, **Highlight**, **White-out**,
+and an **Eraser**, with undo/redo and autosave. **Scroll** mode lets your finger scroll the pages
+instead of drawing.
+
+- **Saved signature and initials**: draw them once; after that each tap places them (drag to move).
+  They're kept on this device only; **Redraw** replaces them and **Forget saved** removes them.
+- **Zoom**: pinch with two fingers, or use Zoom out / Fit width / Zoom in (100–400%). Pages are
+  re-rendered sharp at the new size.
+
+Saving writes your additions into the original PDF (pdf-lib, vendored, MIT): existing pages are not
+turned into images, their text stays selectable, and your typed text is real PDF text too. Rotated
+pages (common in scans) are handled. Limits: typed text uses the standard Helvetica font, so
+characters outside Western European languages (and emoji) become "?" (the save dialog says when);
+password-protected PDFs can be viewed but not saved.
+
+### Scan
+
+Photograph paper documents (camera or library) and get a clean PDF. Edges are found automatically
+and the page is flattened; drag the corners to adjust (**Auto** / **Whole photo**). Each page has a
+filter (**Clean**, **Gray**, **B&W**, **Original**), rotate, reorder and remove. **Make PDF** at
+US Letter, A4 or the scan's own size, then Share, Save, or **Sign / write on it** (opens Write on PDF).
 
 ### Developing the tools
 

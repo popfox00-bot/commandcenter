@@ -3,7 +3,7 @@ export const TOOLS = [
   {
     id: 'editor',
     name: 'Editor',
-    description: 'Edit photos like the Photos app (crop, light, color, filters, markup) and convert photos and PDFs (HEIC, JPEG, PNG, WebP, PDF).',
+    description: 'Edit photos like the Photos app, write on and sign PDFs, and convert photos and PDFs (HEIC, JPEG, PNG, WebP, PDF).',
     icon: '✎',
     load: () => import('./studio/studio.js'),
   },

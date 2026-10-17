@@ -3,9 +3,9 @@
 A personal, phone-first app with two halves:
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
-  Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor) and the
-  [File Converter](#file-converter). Converted images have an **Edit** button that opens them in the
-  photo editor.
+  Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
+  [Write on PDF](#write-on-pdf) and the [File Converter](#file-converter). Converted images have an
+  **Edit** button (opens the photo editor) and converted PDFs a **Write on it** button.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -100,6 +100,18 @@ cap and the device's maximum texture size.
 Planned next: text with more fonts and moving/resizing items (layers), blur/pixelate a region,
 curves and per-color HSL, social-size presets, collages and templates, then background removal with
 an on-device model.
+
+### Write on PDF
+
+Fill in and sign PDFs: **Text** (tap to type; tap text to edit, drag to move), **Sign / Draw**,
+**Check** ✓ and **Cross** ✗ marks, **Box**, **Highlight**, **White-out**, and an **Eraser**, with
+undo/redo and autosave. **Scroll** mode lets your finger scroll the pages instead of drawing.
+
+Saving writes your additions into the original PDF (pdf-lib, vendored, MIT): existing pages are not
+turned into images, their text stays selectable, and your typed text is real PDF text too. Rotated
+pages (common in scans) are handled. Limits: typed text uses the standard Helvetica font, so
+characters outside Western European languages (and emoji) become "?" (the save dialog says when);
+password-protected PDFs can be viewed but not saved.
 
 ### Developing the tools
 

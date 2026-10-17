@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "f9d2b366555f",
+  "version": "7022befb2658",
   "files": [
     "app.js",
     "config.js",
@@ -33,7 +33,11 @@ const PRECACHE = {
     "tools/editor/renderer.js",
     "tools/editor/state.js",
     "tools/index.js",
+    "tools/pdfwrite/annotate.js",
+    "tools/pdfwrite/pdfwrite.js",
     "tools/studio/studio.js",
+    "vendor/pdf-lib/LICENSE.md",
+    "vendor/pdf-lib/pdf-lib.esm.min.js",
     "vendor/pdfjs/LICENSE",
     "vendor/pdfjs/pdf.min.mjs",
     "vendor/pdfjs/pdf.worker.min.mjs",

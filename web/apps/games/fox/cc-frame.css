@@ -1,0 +1,7 @@
+/* Command Center additions to Fox Games (the game files themselves are unchanged): a way back Home. */
+.cc-home {
+  display: block; max-width: 460px; margin: 0 auto; padding: 10px 20px 0;
+  color: var(--accent); font-weight: 700; font-size: 15px; text-decoration: none;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+.cc-home + #app .page { padding-top: 12px; }

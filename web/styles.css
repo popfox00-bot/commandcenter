@@ -388,3 +388,59 @@ button:disabled { opacity: .5; }
 .upd-team-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 300px; overflow: auto; }
 a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .app-tile { align-content: start; }
+.tint-green { background: linear-gradient(160deg, #86efac, #15803d); }
+.tint-fox { background: linear-gradient(160deg, #E2793D, #B85A24); }
+
+/* ---------- Notes + Grocery ---------- */
+.nt-tabs { margin: 4px 0 12px; }
+.nt-tabs .seg { display: grid; place-items: center; text-decoration: none; }
+.nt-pane { display: grid; gap: 10px; }
+.nt-pane .row { margin-top: 0; }
+.nt-head { flex-wrap: wrap; }
+.nt-search { flex: 1; min-width: 140px; margin: 0; }
+.nt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.nt-card { display: grid; gap: 4px; align-content: start; padding: 12px; min-height: 92px; text-align: left; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); font: inherit; overflow: hidden; }
+.nt-card.pinned { border-color: var(--warn); }
+.nt-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-card-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.nt-card-img { width: calc(100% + 24px); margin: -12px -12px 4px; height: 96px; object-fit: cover; }
+.nt-title { font-size: 1.25rem; font-weight: 700; margin: 0; }
+.nt-body { min-height: 140px; resize: none; }
+.nt-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.nt-checklist li { display: flex; align-items: center; gap: 8px; }
+.nt-checklist input { margin: 0; flex: 1; }
+.nt-checklist input.done { text-decoration: line-through; color: var(--muted); }
+.nt-check { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); color: #fff; font-weight: 800; display: grid; place-items: center; padding: 0; }
+.nt-check[aria-checked="true"] { background: var(--ok); border-color: var(--ok); }
+.nt-photos { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.nt-photo { position: relative; width: 96px; height: 96px; }
+.nt-photo-open { padding: 0; border: 0; background: none; width: 100%; height: 100%; }
+.nt-photo-open img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+.nt-photo-x { position: absolute; top: -6px; right: -6px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgb(0 0 0 / .7); color: #fff; font-size: .8rem; }
+.nt-photo-btns { width: 100%; }
+.nt-add { display: flex; gap: 8px; }
+.nt-add input { margin: 0; flex: 1; }
+.nt-sugg { padding-top: 8px; }
+.nt-sugg-chip { display: inline-flex; align-items: center; gap: 4px; }
+.nt-chip-thumb { width: 26px; height: 26px; border-radius: 6px; object-fit: cover; }
+.nt-section { margin: 8px 0 0; font-size: .9rem; }
+.nt-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.nt-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.nt-item.done { opacity: .55; }
+.nt-item.done strong { text-decoration: line-through; }
+.nt-item-body { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; }
+.nt-item-icon { font-size: 1.4rem; flex: none; }
+.nt-big-icon { width: 52px; height: 52px; display: grid; place-items: center; font-size: 1.8rem; }
+.nt-item-text { display: grid; min-width: 0; }
+.nt-item-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-thumb-btn { flex: none; padding: 0; border: 0; background: none; }
+.nt-thumb { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; display: block; }
+.nt-edit { display: grid; gap: 10px; }
+.nt-edit label { margin-bottom: 0; }
+.nt-edit-photo { display: grid; gap: 8px; }
+.nt-photo-big { padding: 0; border: 0; background: none; }
+.nt-photo-big img { width: 100%; max-height: 260px; object-fit: contain; border-radius: 12px; background: #fff; }
+.nt-viewer { max-width: 100vw; }
+.nt-viewer-body { display: grid; gap: 10px; justify-items: center; padding: 12px; background: var(--surface); border-radius: 18px; }
+.nt-viewer-img { max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 12px; }
+.nt-viewer-body p { margin: 0; font-weight: 600; text-align: center; }

@@ -237,8 +237,12 @@ is green and `GET /api/jobs` shows heartbeat with a successful last run.
 ### 4. Install the PWA on iPhone
 
 GitHub Pages works either way: **deploy from branch** (`main`, root; the root `index.html`
-redirects to `web/`) or **GitHub Actions** (the `cc-pages` workflow publishes `web/` and writes the
-Worker URL into it).
+redirects to `web/`; every merge is live within a minute or two) or **GitHub Actions** (run the
+`cc-pages` workflow by hand; it publishes `web/` and writes the Worker URL into it).
+
+Updates: the installed app checks for a new version whenever it is opened or brought back to the
+foreground. If one is ready before you tap anything, it is applied immediately; if it arrives while
+you are working, a "new version is ready" bar lets you reload when convenient.
 
 1. Open `https://popfox00-bot.github.io/commandcenter/` in **Safari**. Alternatively, open the
    Worker URL itself (`https://command-center.<you>.workers.dev/`), which serves the same app.

@@ -57,21 +57,32 @@ renderToolsHub();
 window.addEventListener('hashchange', route);
 route();
 
-// Service worker: offline support. When a new version is installed, offer a reload instead of
-// reloading under the user (they may be mid-conversion).
+// Service worker: offline support and updates. A new version installs in the background and then
+// waits. If it is ready before the user has touched anything (i.e. right after opening the app), it
+// is applied at once; otherwise a "tap to reload" bar appears, so nobody loses work mid-task.
 if ('serviceWorker' in navigator) {
+  let interacted = false;
+  let reloading = false;
+  for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => { interacted = true; }, { once: true, capture: true });
+
+  const apply = (worker) => { reloading = true; worker.postMessage('skip-waiting'); };
+  const offer = (reg) => {
+    const waiting = reg.waiting;
+    if (!waiting || !navigator.serviceWorker.controller) return; // first install: nothing to replace
+    if (!interacted) { apply(waiting); return; }
+    const bar = $('#update');
+    bar.hidden = false;
+    bar.onclick = () => apply(waiting);
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) location.reload(); });
+
   navigator.serviceWorker.register('sw.js').then((reg) => {
+    offer(reg); // an update may already be waiting from an earlier visit
     reg.addEventListener('updatefound', () => {
       const next = reg.installing;
-      next?.addEventListener('statechange', () => {
-        if (next.state === 'installed' && navigator.serviceWorker.controller) {
-          const b = $('#update');
-          b.hidden = false;
-          b.onclick = () => { next.postMessage('skip-waiting'); };
-        }
-      });
+      next?.addEventListener('statechange', () => { if (next.state === 'installed') offer(reg); });
     });
+    // Home-screen apps stay alive in the background for days: check again whenever they return.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
   }).catch(() => {});
-  let reloaded = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && !$('#update').hidden) { reloaded = true; location.reload(); } });
 }

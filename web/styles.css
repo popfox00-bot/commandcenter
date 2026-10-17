@@ -227,3 +227,7 @@ button:disabled { opacity: .5; }
 .ed-dialog .sheet { display: grid; gap: 12px; }
 .ed-textarea { width: 100%; min-height: 88px; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
 .resume { display: grid; gap: 6px; margin-bottom: 12px; }
+
+/* ---------- Editor app (photo + convert tabs) ---------- */
+.studio-tabs { margin-bottom: 12px; }
+.studio-tabs a.seg { display: flex; align-items: center; justify-content: center; text-decoration: none; }

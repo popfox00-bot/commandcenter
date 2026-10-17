@@ -62,7 +62,7 @@ test('tools hub opens without any setup (no settings dialog)', async () => {
   assert.equal(await page.isVisible('#settings[open]'), false);
   assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden on the Tools tab');
   assert.equal(await page.isVisible('#update'), false, 'no update prompt on a first visit');
-  assert.match(await page.textContent('#tool-list'), /File Converter/);
+  assert.match(await page.textContent('#tool-list'), /Editor/);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -125,5 +125,22 @@ test('works offline after the first visit', async () => {
   await page.setInputFiles('#cv-files', files);
   const names = await convertTo(page, 'PNG');
   assert.equal(names.length, 4, 'images and PDFs convert with no network');
+  await context.close();
+});
+
+test('Editor app: old converter link redirects, and Edit sends a converted image to the photo editor', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const { page, errors } = await openApp(context, '#/tools/convert');
+  await page.waitForFunction(() => location.hash === '#/tools/editor/convert');
+  await page.setInputFiles('#cv-files', [files[1]]);
+  await convertTo(page, 'PNG');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.waitForFunction(() => location.hash === '#/tools/editor');
+  await page.waitForSelector('.ed-canvas');
+  assert.equal(await page.getAttribute('[role=tab][aria-selected=true]', 'href'), '#/tools/editor');
+  // Switching back keeps the conversion results (tabs stay alive).
+  await page.getByRole('tab', { name: 'Convert' }).click();
+  await page.waitForSelector('.result');
+  assert.deepEqual(errors, []);
   await context.close();
 });

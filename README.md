@@ -3,7 +3,9 @@
 A personal, phone-first app with two halves:
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
-  Today: the [File Converter](#file-converter) and the [Photo Editor](#photo-editor).
+  Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor) and the
+  [File Converter](#file-converter). Converted images have an **Edit** button that opens them in the
+  photo editor.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.

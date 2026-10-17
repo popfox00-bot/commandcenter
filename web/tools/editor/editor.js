@@ -18,7 +18,8 @@ const TOOLS = [
   ['rect', '▭', 'Box'], ['ellipse', '◯', 'Oval'], ['text', 'T', 'Text'], ['eraser', '⌫', 'Eraser'],
 ];
 
-export function mount(host) {
+/** mount(host, { file }) — `file` opens that photo right away (e.g. sent from the converter). */
+export function mount(host, { file: initialFile } = {}) {
   const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, ...store.json(PREFS_KEY, {}) };
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
 
@@ -50,7 +51,6 @@ export function mount(host) {
         el('button', { class: 'btn primary', text: 'Continue', onclick: () => openFile(saved.blob, saved.name, normalizeState(saved.state)) }),
         el('button', { class: 'btn ghost', text: 'Discard', onclick: () => { idb.del(SAVE_KEY); showStart(null); } }))) : null;
     host.replaceChildren(...[
-      el('h2', { class: 'tool-title', text: 'Photo Editor' }),
       resume,
       el('div', { class: 'drop' },
         el('label', { class: 'btn primary block', for: 'ed-file', text: 'Choose a photo' }),
@@ -585,10 +585,21 @@ export function mount(host) {
   }
 
   // ---------- start ----------
-  idb.get(SAVE_KEY).then((saved) => showStart(saved?.blob ? saved : null));
+  if (initialFile) openFile(initialFile);
+  else idb.get(SAVE_KEY).then((saved) => showStart(saved?.blob ? saved : null));
 
-  return () => {
+  const unmount = () => {
     if (history && file) persist(true);
     teardown();
   };
+  /** Open another photo; asks first if the current one has edits. */
+  unmount.openFile = (blob, name) => {
+    if (history && file && !isDefault(state()) && !window.confirm('Open the new photo? Edits to the current one will be discarded.')) return false;
+    teardown();
+    openFile(blob, name);
+    return true;
+  };
+  /** Redraw after the panel becomes visible again (sizes are 0 while hidden). */
+  unmount.show = () => { if (renderer) schedule(); };
+  return unmount;
 }

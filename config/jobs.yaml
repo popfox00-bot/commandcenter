@@ -30,29 +30,3 @@ jobs:
   heartbeat:
     enabled: true
     schedule: "7 7 * * *"
-
-  govdeals:
-    enabled: true
-    # Every 3 hours from 06:17 to 21:17 local time (6 runs/day).
-    schedule: "17 6-21/3 * * *"
-    settings:
-      searches:
-        - id: forklift
-          keywords: forklift
-          zip: "78701"
-          maxDistanceMiles: 100
-          maxBid: 5000
-          excludeKeywords: [battery, parts]
-        - id: pickup
-          keywords: pickup truck
-          zip: "78701"
-          maxDistanceMiles: 150
-          maxBid: 8000
-      endingSoon:
-        enabled: true
-        windowsHours: [6]
-    # exporters:
-    #   - type: sheets
-    #     spreadsheetId: "your-spreadsheet-id"
-    #     sheet: GovDeals
-    #     columns: [currentBid, endTime, location]

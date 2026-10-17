@@ -102,8 +102,8 @@ function mapItem(r) {
 
 /**
  * view "recent": newest first by first_seen.
- * view "current": items present in the job's latest successful run (e.g. GovDeals listings still
- * matching a search), so the PWA can show tracked listings sorted by end time.
+ * view "current": items present in the job's latest successful run (e.g. listings still
+ * matching a search), so the PWA can show what is currently tracked.
  */
 export async function listItems(db, jobId, { type, view = 'recent', limit = 50 } = {}) {
   limit = Math.max(1, Math.min(200, Number(limit) || 50));

@@ -1,13 +1,23 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { D1Shim } from '../src/store/d1-shim.js';
 import worker, { scheduled } from '../worker/src/index.js';
 import { createRemoteStore } from '../src/store/remote-store.js';
 import { runJob } from '../src/core/runner.js';
-import govdeals from '../src/jobs/govdeals/index.js';
-import { configFor, recordingNotifier, quietLog, noSleep } from './helpers/harness.js';
+import { configFor, fakeJob, recordingNotifier, quietLog, noSleep } from './helpers/harness.js';
+
+// A small page-parsing job: reads a (fixture) page through ctx.page, like a real scraper job would.
+const PAGE = '<ul><li data-id="a1" data-price="10">Lamp</li><li data-id="b2" data-price="25">Desk</li></ul>';
+const listings = fakeJob({
+  id: 'listings',
+  name: 'Listings',
+  ui: { primary: 'current' },
+  async run(ctx) {
+    const { html } = await ctx.page('https://example.com/listings');
+    return [...html.matchAll(/data-id="(\w+)" data-price="(\d+)">([^<]+)</g)]
+      .map(([, id, price, title]) => ({ key: id, title, url: `https://example.com/item/${id}`, fields: { price: Number(price) } }));
+  },
+});
 
 const API = 'a'.repeat(32);
 const INGEST = 'ingest-secret-0123456789';
@@ -65,28 +75,26 @@ test('ingest rejects unsigned, wrongly signed, and UI-token requests', async () 
 });
 
 test('runner write-back through the Worker: dedupe, run log, and read API for the PWA', async () => {
-  const { registry, config } = configFor([govdeals], { govdeals: { notify: { silentFirstRun: false }, settings: { searches: [{ keywords: 'forklift', maxBid: 5000 }] } } });
+  const { registry, config } = configFor([listings], { listings: { notify: { silentFirstRun: false } } });
   const store = remote();
   const { jobsMetadata } = await import('../src/core/runner.js');
   await store.syncJobs(jobsMetadata(registry, config), new Date().toISOString());
-  const html = readFileSync(resolve(import.meta.dirname, 'fixtures/govdeals/search-results.html'), 'utf8');
-  const NOW = new Date('2026-10-15T12:00:00Z');
-  const run = (now) => runJob({ job: govdeals, config, store, notifier: recordingNotifier(), now, fixture: () => html, log: quietLog(), sleepFn: noSleep, closeBrowserAfter: false, source: 'https://github.com/o/r/actions/runs/1' });
+  const run = (now) => runJob({ job: listings, config, store, notifier: recordingNotifier(), now, fixture: () => PAGE, log: quietLog(), sleepFn: noSleep, closeBrowserAfter: false, source: 'https://github.com/o/r/actions/runs/1' });
 
-  const r1 = await run(NOW);
+  const r1 = await run(new Date('2026-10-15T12:00:00Z'));
   assert.equal(r1.status, 'success', r1.error);
-  assert.ok(r1.newItems.length > 0);
+  assert.deepEqual(r1.newItems.map((i) => i.key), ['a1', 'b2']);
   const r2 = await run(new Date('2026-10-15T13:00:00Z'));
   assert.equal(r2.newItems.length, 0, 'dedupe state lives in D1');
 
   const jobs = await (await call('/api/jobs')).json();
-  const gd = jobs.jobs.find((j) => j.id === 'govdeals');
-  assert.equal(gd.lastRun.status, 'success');
-  assert.equal(gd.meta.ui.sortBy, 'endTime');
+  const job = jobs.jobs.find((j) => j.id === 'listings');
+  assert.equal(job.lastRun.status, 'success');
+  assert.equal(job.meta.ui.primary, 'current');
 
-  const current = await (await call('/api/jobs/govdeals/items?view=current&type=match')).json();
-  assert.equal(current.items.length, r1.items.filter((i) => i.type === 'match').length);
-  const runs = await (await call('/api/jobs/govdeals/runs')).json();
+  const current = await (await call('/api/jobs/listings/items?view=current&type=match')).json();
+  assert.deepEqual(current.items.map((i) => [i.key, i.fields.price]).sort(), [['a1', 10], ['b2', 25]]);
+  const runs = await (await call('/api/jobs/listings/runs')).json();
   assert.equal(runs.runs.length, 2);
   const detail = await (await call(`/api/runs/${runs.runs[0].id}`)).json();
   assert.ok(detail.run.log.some((e) => e.msg === 'run finish'));
@@ -100,15 +108,15 @@ test('items cannot be written to a run that is not active', async () => {
 });
 
 test('Run now dispatches the workflow with least-privilege inputs, with a cooldown', async () => {
-  await remote().syncJobs([{ id: 'govdeals', name: 'G', enabled: true, schedule: '17 */3 * * *' }], new Date().toISOString());
-  const res = await call('/api/jobs/govdeals/run', { method: 'POST' });
+  await remote().syncJobs([{ id: 'listings', name: 'L', enabled: true, schedule: '17 */3 * * *' }], new Date().toISOString());
+  const res = await call('/api/jobs/listings/run', { method: 'POST' });
   assert.equal(res.status, 202);
   const gh = ghCalls.find((c) => c.url.endsWith('/dispatches'));
   assert.equal(gh.url, 'https://api.github.com/repos/o/r/actions/workflows/cc-dispatch.yml/dispatches');
-  assert.deepEqual(JSON.parse(gh.body), { ref: 'main', inputs: { job_id: 'govdeals' } });
-  assert.equal((await call('/api/jobs/govdeals/run', { method: 'POST' })).status, 429);
+  assert.deepEqual(JSON.parse(gh.body), { ref: 'main', inputs: { job_id: 'listings' } });
+  assert.equal((await call('/api/jobs/listings/run', { method: 'POST' })).status, 429);
   assert.equal((await call('/api/jobs/nope/run', { method: 'POST' })).status, 404);
-  assert.equal((await call('/api/jobs/govdeals/run', { method: 'POST', token: null })).status, 401);
+  assert.equal((await call('/api/jobs/listings/run', { method: 'POST', token: null })).status, 401);
 });
 
 test('cron: stale runs fail, overdue jobs alert once, and the workflow is re-enabled', async () => {

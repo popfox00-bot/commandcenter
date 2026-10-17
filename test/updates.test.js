@@ -85,6 +85,7 @@ test('sports: schedule parsing, results, lines and what to show', () => {
   assert.equal(sb.home.score, '3');
   const t = S.parseTeam({ team: { ...DEN, alternateColor: '002244', record: { items: [{ type: 'total', summary: '5-2' }] }, standingSummary: '1st in AFC West', nextEvent: [] } });
   assert.deepEqual([t.record, t.standing, t.color], ['5-2', '1st in AFC West', '#fb4f14']);
+  assert.deepEqual(S.parseScheduleTeam(scheduleJson), { id: '7', abbr: 'DEN', name: 'Denver Broncos', short: 'Broncos', color: '#fb4f14', alt: '#002244', record: '5-2', standing: '1st in AFC West' });
   assert.deepEqual(S.parseTeamList({ sports: [{ leagues: [{ teams: [{ team: KC }, { team: DEN }] }] }] }).map((x) => x.abbr), ['DEN', 'KC']);
 });
 
@@ -101,12 +102,13 @@ test('sports events: recent finals and game-day reminders only', () => {
 
 // ---------- the jobs, through the real runner ----------
 
-function fakeNet(routes) {
+// Like the real hosts: api.weather.gov and Open-Meteo serve "Disallow: /" (aimed at crawlers).
+function fakeNet(routes, robots = { 'api.weather.gov': 'User-agent: *\nDisallow: /', 'air-quality-api.open-meteo.com': 'User-agent: *\nDisallow: /' }) {
   const calls = [];
   const fetchFn = async (url, init = {}) => {
     calls.push({ url: String(url), headers: init.headers ?? {} });
     const u = String(url);
-    if (u.endsWith('/robots.txt')) return new Response('', { status: 404 });
+    if (u.endsWith('/robots.txt')) return robots[new URL(u).host] ? new Response(robots[new URL(u).host]) : new Response('', { status: 404 });
     const hit = Object.entries(routes).find(([k]) => u.startsWith(k));
     if (!hit) return new Response('not found', { status: 404 });
     return Response.json(hit[1]);
@@ -132,7 +134,8 @@ test('weather-alerts job: pushes each condition once, with the Weather Service U
   assert.equal(storm.title, '⚠️ Winter Storm Warning');
   assert.match(storm.message, /WINTER STORM WARNING IN EFFECT[\s\S]*Until /);
   assert.equal(notifier.sent.find((n) => /Damaging/.test(n.title)).priority, 'high');
-  assert.ok(calls.filter((c) => c.url.includes('api.weather.gov') && !c.url.endsWith('robots.txt')).every((c) => /^CommandCenter\/1\.0 \(github\.com\/popfox00-bot\/commandcenter\)$/.test(c.headers['user-agent'])));
+  assert.ok(calls.filter((c) => c.url.includes('api.weather.gov')).every((c) => /^CommandCenter\/1\.0 \(github\.com\/popfox00-bot\/commandcenter\)$/.test(c.headers['user-agent'])));
+  assert.ok(!calls.some((c) => c.url.endsWith('/robots.txt')), 'declared official APIs: robots.txt not consulted');
 
   const sentBefore = notifier.sent.length;
   const r2 = await runJob(opts({ job: weatherJob, config, store, notifier, now: new Date(NOW + 20 * 60_000), fetchFn }));
@@ -171,6 +174,11 @@ test('sports job: finals and game-day pushes, quiet overnight, one failing team 
   const r2 = await runJob(opts({ job: sportsJob, config, store: memoryStore(), notifier: n2, now: new Date(night), fetchFn: fakeNet({ 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/den/schedule': sched2 }).fetchFn }));
   assert.equal(r2.status, 'success');
   assert.deepEqual(r2.items.map((i) => i.title), []);
+
+  // ESPN is not a declared official API: its robots.txt still applies.
+  const blocked = await runJob(opts({ job: sportsJob, config, store: memoryStore(), notifier: recordingNotifier(), now: new Date(NOW), fetchFn: fakeNet({ 'https://site.api.espn.com/': scheduleJson }, { 'site.api.espn.com': 'User-agent: *\nDisallow: /apis/' }).fetchFn }));
+  assert.equal(blocked.status, 'failed');
+  assert.match(blocked.error, /robots\.txt disallows/);
 
   // Every team failing is a failed run.
   const r3 = await runJob(opts({ job: sportsJob, config, store: memoryStore(), notifier: recordingNotifier(), now: new Date(NOW), fetchFn: fakeNet({}).fetchFn }));

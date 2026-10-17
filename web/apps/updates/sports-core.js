@@ -83,6 +83,18 @@ export function parseTeam(json) {
   };
 }
 
+/** The team block of a schedule response (record and standing included; the team endpoint
+ * itself can't be read by the browser, it sends no CORS header). */
+export function parseScheduleTeam(json) {
+  const t = json?.team;
+  if (!t) return null;
+  return {
+    id: String(t.id), abbr: t.abbreviation, name: t.displayName, short: t.shortDisplayName ?? t.name,
+    color: t.color ? `#${t.color}` : '#444444', alt: t.alternateColor ? `#${t.alternateColor}` : '#ffffff',
+    record: t.recordSummary ?? t.record?.items?.[0]?.summary ?? '', standing: t.standingSummary ?? '',
+  };
+}
+
 export function parseTeamList(json) {
   return (json?.sports?.[0]?.leagues?.[0]?.teams ?? []).map(({ team: t }) => ({
     id: String(t.id), abbr: t.abbreviation, name: t.displayName, color: t.color ? `#${t.color}` : '#444444',

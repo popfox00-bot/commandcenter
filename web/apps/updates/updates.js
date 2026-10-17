@@ -225,8 +225,8 @@ export function mount(host) {
     const saveTeams = () => store.set(TEAMS_KEY, JSON.stringify(teams));
 
     async function loadTeam(t) {
-      const [team, sched] = await Promise.all([getJson(S.urls.team(t.league, t.team)), getJson(S.urls.schedule(t.league, t.team))]);
-      return { at: Date.now(), team: S.parseTeam(team), games: S.parseSchedule(sched) };
+      const sched = await getJson(S.urls.schedule(t.league, t.team));
+      return { at: Date.now(), team: S.parseScheduleTeam(sched), games: S.parseSchedule(sched) };
     }
 
     async function load(force = false) {

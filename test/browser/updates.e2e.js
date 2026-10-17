@@ -36,7 +36,6 @@ async function mockApis(context, extra = {}) {
   await context.route('https://air-quality-api.open-meteo.com/**', json(airJson));
   await context.route('https://api.zippopotam.us/us/80401', json({ 'post code': '80401', places: [{ 'place name': 'Golden', 'state abbreviation': 'CO', latitude: '39.73', longitude: '-105.21' }] }));
   await context.route('https://site.api.espn.com/apis/site/v2/sports/*/*/teams/*/schedule', json(scheduleJson));
-  await context.route(/site\.api\.espn\.com\/apis\/site\/v2\/sports\/[^/]+\/[^/]+\/teams\/[^/]+$/, json({ team: { ...DEN, alternateColor: '002244', record: { items: [{ type: 'total', summary: '5-2' }] }, standingSummary: '1st in AFC West' } }));
   await context.route(/site\.api\.espn\.com\/apis\/site\/v2\/sports\/[^/]+\/[^/]+\/teams$/, json({ sports: [{ leagues: [{ teams: [{ team: DEN }, { team: { id: '9', abbreviation: 'GB', displayName: 'Green Bay Packers', color: '204e32' } }] }] }] }));
   for (const [pattern, body] of Object.entries(extra)) await context.route(pattern, json(body));
   return seen;

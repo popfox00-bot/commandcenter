@@ -12,9 +12,16 @@ import { sleep } from './retry.js';
 
 export const DEFAULT_CACHE_DIR = resolve(import.meta.dirname, '../../.cc/cache');
 
-export function createPoliteHttp({ politeness, log, rng, signal, fetchFn = fetch, cacheDir = process.env.CC_CACHE_DIR || DEFAULT_CACHE_DIR, now = () => Date.now(), sleepFn = sleep }) {
+/**
+ * officialApis: hosts of documented public APIs a job declares it uses (e.g. api.weather.gov). Their
+ * robots.txt ("Disallow: /" aimed at search crawlers) is not applied to them; everything else
+ * (rate limits, delays, timeouts, cache) still is. Any other host keeps full robots.txt enforcement.
+ */
+export function createPoliteHttp({ politeness, log, rng, signal, fetchFn = fetch, cacheDir = process.env.CC_CACHE_DIR || DEFAULT_CACHE_DIR, now = () => Date.now(), sleepFn = sleep, officialApis = [] }) {
   const robotsCache = new Map(); // origin -> Promise<groups|null>
   const lastHit = new Map(); // host -> ms
+  const apiHosts = new Set(officialApis.map((h) => h.toLowerCase()));
+  const noted = new Set();
 
   async function robotsFor(url) {
     const origin = url.origin;
@@ -37,7 +44,9 @@ export function createPoliteHttp({ politeness, log, rng, signal, fetchFn = fetch
   async function gate(rawUrl) {
     const url = new URL(rawUrl);
     let crawlDelayMs = 0;
-    if (politeness.respectRobots) {
+    if (apiHosts.has(url.hostname.toLowerCase())) {
+      if (!noted.has(url.hostname)) { noted.add(url.hostname); log.info('robots.txt not applied: declared official API', { host: url.hostname }); }
+    } else if (politeness.respectRobots) {
       const robots = await robotsFor(url);
       if (robots.unreachable) {
         // RFC 9309: if robots.txt is unreachable (5xx/network), assume complete disallow.

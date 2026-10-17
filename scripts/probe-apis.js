@@ -9,6 +9,7 @@ import { parseRobots, checkRobots } from '../src/core/robots.js';
 const ORIGIN = 'https://popfox00-bot.github.io';
 const UA = 'CommandCenter/1.0 (github.com/popfox00-bot/commandcenter)';
 const { lat, lon } = W.DEFAULT_PLACE;
+const OFFICIAL = new Set((await import('../src/jobs/weather-alerts.js')).default.officialApis);
 
 async function probe(label, url, peek) {
   const started = Date.now();
@@ -18,7 +19,7 @@ async function probe(label, url, peek) {
     const acao = res.headers.get('access-control-allow-origin');
     let note = '';
     try { note = peek ? peek(JSON.parse(text)) : ''; } catch (err) { note = `unexpected JSON: ${err.message}`; }
-    const robots = await robotsFor(url);
+    const robots = OFFICIAL.has(new URL(url).hostname) ? 'n/a (declared official API)' : await robotsFor(url);
     console.log(`${res.ok ? '✔' : '✖'} ${label}: HTTP ${res.status} · ${text.length} bytes · ${Date.now() - started} ms · CORS ${acao ? `allowed (${acao})` : 'NOT allowed'} · robots ${robots}${note ? `\n    ${note}` : ''}`);
     return res.ok;
   } catch (err) {
@@ -51,8 +52,11 @@ if (point) {
 }
 ok &= await probe('Open-Meteo air quality', W.urls.airQuality(lat, lon), (j) => { const a = W.parseAirQuality(j); return `AQI now ${a?.now?.aqi}; ${a?.hourly.length} hours`; });
 for (const t of S.DEFAULT_TEAMS) {
-  ok &= await probe(`ESPN ${t.name} schedule`, S.urls.schedule(t.league, t.team), (j) => { const g = S.parseSchedule(j); const p = S.pickGames(g); return `${g.length} games; next: ${p.next ? S.gameLine(p.next, t.team) : '-'}; last: ${p.last ? S.gameLine(p.last, t.team) : '-'}`; });
+  ok &= await probe(`ESPN ${t.name} schedule`, S.urls.schedule(t.league, t.team), (j) => { const g = S.parseSchedule(j); const p = S.pickGames(g); const tm = S.parseScheduleTeam(j); return `${g.length} games; team: ${tm?.name} ${tm?.record} · ${tm?.standing}; next: ${p.next ? S.gameLine(p.next, t.team) : '-'}; last: ${p.last ? S.gameLine(p.last, t.team) : '-'}`; });
 }
-ok &= await probe('ESPN Broncos team', S.urls.team('nfl', 'den'), (j) => { const t = S.parseTeam(j); return `${t?.name} ${t?.record} · ${t?.standing}`; });
-ok &= await probe('ESPN NFL teams', S.urls.teams('nfl'), (j) => `${S.parseTeamList(j).length} teams`);
+ok &= await probe('ESPN NFL teams (app team picker)', S.urls.teams('nfl'), (j) => `${S.parseTeamList(j).length} teams`);
+// Not used yet: other places a team list could come from, to compare browser access (CORS).
+for (const u of ['https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams', 'https://site.api.espn.com/apis/v2/sports/football/nfl/standings', 'https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings', 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/groups']) {
+  await probe(`candidate ${u.replace('https://', '')}`, u, (j) => `top-level keys: ${Object.keys(j).join(', ')}`);
+}
 process.exitCode = ok ? 0 : 1;

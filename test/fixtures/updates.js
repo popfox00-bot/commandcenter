@@ -40,7 +40,7 @@ export const ev = (id, date, state, home, away, hs, as, extra = {}) => ({
     { homeAway: 'away', team: away, score: as == null ? undefined : { value: as, displayValue: String(as) }, winner: hs != null && as != null && state === 'post' ? as > hs : undefined },
   ], status: { type: { state, completed: state === 'post', shortDetail: state === 'post' ? 'Final' : state === 'in' ? '3rd 5:12' : '10/19 - 2:25 PM MDT' } }, venue: { fullName: 'Empower Field at Mile High' }, broadcasts: [{ media: { shortName: 'CBS' } }], ...extra }],
 });
-export const scheduleJson = { events: [
+export const scheduleJson = { team: { ...DEN, alternateColor: '002244', recordSummary: '5-2', standingSummary: '1st in AFC West' }, events: [
   ev('401', iso(-30), 'post', DEN, LV, 24, 17), // finished ~yesterday morning (within 36 h)
   ev('300', iso(-24 * 9), 'post', KC, DEN, 31, 20), // older
   ev('402', iso(2.5), 'pre', DEN, KC, null, null, { odds: [{ details: 'DEN -3.5', overUnder: 44.5, provider: { name: 'ESPN BET' } }] }),

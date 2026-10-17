@@ -18,6 +18,9 @@ export default {
   name: 'Weather alerts',
   description: 'Weather Service alerts, freezes, wind and air quality for your ZIP code.',
   schedule: '*/20 * * * *',
+  // Both are official APIs documented for programmatic use (weather.gov/documentation/services-web-api,
+  // open-meteo.com/en/docs/air-quality-api); their robots.txt "Disallow: /" targets search crawlers.
+  officialApis: ['api.weather.gov', 'air-quality-api.open-meteo.com'],
   configSchema: z.object({
     zip: z.string().regex(/^\d{5}$/).default(W.DEFAULT_PLACE.zip),
     name: z.string().default(W.DEFAULT_PLACE.name),

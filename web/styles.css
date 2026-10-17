@@ -260,3 +260,14 @@ button:disabled { opacity: .5; }
 .scan-dialog .sheet { display: grid; gap: 10px; justify-items: center; }
 .scan-dialog .sheet > :not(canvas) { justify-self: stretch; }
 .scan-edit { touch-action: none; border-radius: 6px; }
+
+/* ---------- cutout + characters ---------- */
+.co-canvas, .cl-canvas { display: block; touch-action: none; }
+.co-stage, .cl-stage { background: transparent; }
+.cl-stage { margin-top: 12px; }
+.checker { display: grid; place-items: center; background-color: #fff; background-image: conic-gradient(#d9d9d9 25%, #fff 0 50%, #d9d9d9 0 75%, #fff 0); background-size: 16px 16px; border-radius: 10px; overflow: hidden; }
+.checker img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.checker.big { width: 100%; height: 260px; }
+.char-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin: 8px 0 16px; }
+.char-card { display: grid; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); text-align: center; }
+.char-card .checker { height: 88px; }

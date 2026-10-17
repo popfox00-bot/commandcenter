@@ -7,6 +7,8 @@ import { el } from '../../lib/dom.js';
 
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
+  { id: 'collage', label: 'Collage', load: () => import('../collage/collage.js') },
+  { id: 'cutout', label: 'Cutout', load: () => import('../cutout/cutout.js') },
   { id: 'pdf', label: 'PDF', load: () => import('../pdfwrite/pdfwrite.js') },
   { id: 'scan', label: 'Scan', load: () => import('../scan/scan.js') },
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
@@ -39,7 +41,12 @@ export function mount(host) {
       class: `chip${t.id === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t.id === id), text: t.label,
       href: hashFor(t.id),
     })));
-    const opts = { convert: { onEdit: sendToPhoto, onWrite: sendToPdf }, scan: { onWrite: sendToPdf } }[id] ?? {};
+    const opts = {
+      convert: { onEdit: sendToPhoto, onWrite: sendToPdf },
+      scan: { onWrite: sendToPdf },
+      cutout: { onPlace: (f) => sendTo('collage', f) },
+      collage: { onEdit: sendToPhoto },
+    }[id] ?? {};
     const pane = await ensure(id, opts);
     await pane.ready;
     for (const [pid, p] of panes) p.node.hidden = pid !== id;

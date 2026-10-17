@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "4d15f83e3d10",
+  "version": "e13ef3dd07a0",
   "files": [
     "app.js",
     "config.js",
@@ -15,6 +15,7 @@ const PRECACHE = {
     "icons/icon.svg",
     "index.html",
     "jobs.js",
+    "lib/characters.js",
     "lib/dom.js",
     "lib/files.js",
     "lib/idb.js",
@@ -25,8 +26,12 @@ const PRECACHE = {
     "lib/zip.js",
     "manifest.webmanifest",
     "styles.css",
+    "tools/collage/collage-core.js",
+    "tools/collage/collage.js",
     "tools/convert/convert-core.js",
     "tools/convert/convert.js",
+    "tools/cutout/cutout-core.js",
+    "tools/cutout/cutout.js",
     "tools/editor/editor.js",
     "tools/editor/geometry.js",
     "tools/editor/markup.js",

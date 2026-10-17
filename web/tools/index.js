@@ -3,7 +3,7 @@ export const TOOLS = [
   {
     id: 'editor',
     name: 'Editor',
-    description: 'Edit photos like the Photos app, write on and sign PDFs, scan paper into PDFs, and convert photos and PDFs.',
+    description: 'Edit photos, make collages, cut out objects as Characters, write on and sign PDFs, scan paper, and convert files.',
     icon: '✎',
     load: () => import('./studio/studio.js'),
   },

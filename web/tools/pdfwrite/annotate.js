@@ -6,6 +6,7 @@
 // with the origin at the top-left. Sizes are in PDF points (1/72 inch).
 //   { page, type: 'text', u, v, text, size, color }          u,v = top-left of the text
 //   { page, type: 'ink', points: [[u,v]...], width, color }
+//   { page, type: 'sign', strokes: [[[u,v]...]...], width, color }   saved signature / initials
 //   { page, type: 'check' | 'cross', u, v, size, color }      u,v = top-left of the mark's box
 //   { page, type: 'box' | 'highlight' | 'whiteout', u1, v1, u2, v2, color, width }
 
@@ -43,6 +44,24 @@ export function markLines(item, info) {
   return [[P(0.1, 0.1), P(0.9, 0.9)], [P(0.9, 0.1), P(0.1, 0.9)]];
 }
 
+const STROKED = new Set(['ink', 'sign', 'check', 'cross']);
+
+/** Polylines for any stroked item. */
+export function strokeLines(item, info) {
+  if (item.type === 'ink') return [item.points];
+  if (item.type === 'sign') return item.strokes;
+  return markLines(item, info);
+}
+
+/** Move an item by (du, dv) in display-normalized units. */
+export function moveItem(item, du, dv) {
+  const P = ([u, v]) => [u + du, v + dv];
+  if (item.type === 'sign') return { ...item, strokes: item.strokes.map((s) => s.map(P)) };
+  if (item.type === 'ink') return { ...item, points: item.points.map(P) };
+  if ('u1' in item) return { ...item, u1: item.u1 + du, v1: item.v1 + dv, u2: item.u2 + du, v2: item.v2 + dv };
+  return { ...item, u: item.u + du, v: item.v + dv };
+}
+
 export function textLines(item) {
   return String(item.text).split('\n');
 }
@@ -69,10 +88,10 @@ export function drawPage(ctx, items, info, pxW, pxH) {
       ctx.font = `${it.size * k}px ${FONT_STACK}`;
       ctx.textBaseline = 'alphabetic';
       textLines(it).forEach((line, i) => ctx.fillText(line, X(it.u), Y(it.v) + (ASCENT + i * LINE_HEIGHT) * it.size * k));
-    } else if (it.type === 'ink' || it.type === 'check' || it.type === 'cross') {
+    } else if (STROKED.has(it.type)) {
       ctx.strokeStyle = it.color;
       ctx.lineWidth = Math.max(1, (it.width ?? it.size * 0.14) * k);
-      const lines = it.type === 'ink' ? [it.points] : markLines(it, info);
+      const lines = strokeLines(it, info);
       for (const pts of lines) {
         ctx.beginPath();
         ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
@@ -118,9 +137,8 @@ export function hitTest(items, page, u, v, info, tolPt = 8) {
     if (it.type === 'text') {
       const b = textBox(it, info);
       if (u >= b.u - tolPt / w && u <= b.u + b.w + tolPt / w && v >= b.v - tolPt / h && v <= b.v + b.h + tolPt / h) return i;
-    } else if (it.type === 'ink' || it.type === 'check' || it.type === 'cross') {
-      const lines = it.type === 'ink' ? [it.points] : markLines(it, info);
-      for (const pts of lines) {
+    } else if (STROKED.has(it.type)) {
+      for (const pts of strokeLines(it, info)) {
         const q = pts.map(([a, b]) => P(a, b));
         if (q.length === 1 && Math.hypot(px - q[0][0], py - q[0][1]) <= tolPt) return i;
         for (let j = 1; j < q.length; j++) if (distSeg(px, py, ...q[j - 1], ...q[j]) <= tolPt + (it.width ?? 2)) return i;
@@ -181,9 +199,9 @@ export async function applyToPdf(lib, bytes, items) {
         const at = toPdf(info, it.u, it.v + ((ASCENT + i * LINE_HEIGHT) * it.size) / h);
         page.drawText(enc.text, { x: at.x, y: at.y, size: it.size, font, color, rotate: rot });
       });
-    } else if (it.type === 'ink' || it.type === 'check' || it.type === 'cross') {
+    } else if (STROKED.has(it.type)) {
       const thickness = it.width ?? it.size * 0.14;
-      const lines = it.type === 'ink' ? [it.points] : markLines(it, info);
+      const lines = strokeLines(it, info);
       for (const pts of lines) {
         const q = pts.map(([u, v]) => toPdf(info, u, v));
         if (q.length === 1) q.push({ x: q[0].x + 0.01, y: q[0].y });

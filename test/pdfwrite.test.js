@@ -96,3 +96,20 @@ test('hit testing finds annotations on the right page', () => {
   assert.equal(hitTest(items, 0, 0.15, 0.15, info), -1, 'box is on another page');
   assert.equal(hitTest(items, 1, 0.15, 0.15, info), 1);
 });
+
+test('saved signatures are normalized once and stamped as one item that saves as vector strokes', async () => {
+  const { normalizeStrokes, signItem } = await import('../web/tools/pdfwrite/signature.js');
+  const sig = normalizeStrokes([[[10, 50], [60, 20], [110, 50]], [[20, 70], [100, 70]]], 3);
+  assert.equal(sig.aspect, 100 / 50);
+  assert.deepEqual(sig.strokes[0][0], [0, 0.6]);
+  assert.equal(normalizeStrokes([[[1, 1]]], 3), null, 'a single dot is not a signature');
+  const info = { x: 0, y: 0, width: 612, height: 792, rotate: 0 };
+  const item = signItem(sig, 0, info, 0.5, 0.5, 36, '#111111');
+  const us = item.strokes.flat().map((p) => p[0]); const vs = item.strokes.flat().map((p) => p[1]);
+  assert.ok(Math.abs((Math.max(...vs) - Math.min(...vs)) * 792 - 36) < 1e-6, '36 pt tall');
+  assert.ok(Math.abs((Math.max(...us) - Math.min(...us)) * 612 - 72) < 1e-6, 'aspect kept');
+  assert.equal(hitTest([item], 0, 0.5, Math.max(...vs), info), 0, 'tap on the underline stroke');
+  assert.equal(hitTest([item], 0, 0.9, 0.9, info), -1);
+  const { bytes } = await applyToPdf(lib, await samplePdf(), [item]);
+  assert.equal((await lib.PDFDocument.load(bytes)).getPageCount(), 2);
+});

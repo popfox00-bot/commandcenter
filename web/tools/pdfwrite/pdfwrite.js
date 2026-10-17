@@ -6,13 +6,14 @@ import { idb } from '../../lib/idb.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { openPdf, closePdf } from '../../lib/pdf-reader.js';
 import { createHistory } from '../editor/state.js';
-import { drawPage, hitTest, applyToPdf, displaySize, FONT_STACK } from './annotate.js';
+import { drawPage, hitTest, applyToPdf, displaySize, moveItem, FONT_STACK } from './annotate.js';
+import { KINDS, loadSignature, drawSignature, signItem } from './signature.js';
 
 const SAVE_KEY = 'pdfwrite.session';
 const PREFS_KEY = 'cc.pdfwrite.prefs';
 const COLORS = ['#111111', '#0a3fd1', '#d70015'];
 const TOOLS = [
-  ['scroll', '✋', 'Scroll'], ['text', 'T', 'Text'], ['ink', '✍', 'Sign / Draw'], ['check', '✓', 'Check'],
+  ['scroll', '✋', 'Scroll'], ['text', 'T', 'Text'], ['signature', '✒️', 'Signature'], ['initials', '✒', 'Initials'], ['ink', '✍', 'Draw'], ['check', '✓', 'Check'],
   ['cross', '✗', 'Cross'], ['box', '▭', 'Box'], ['highlight', '▮', 'Highlight'], ['whiteout', '⬜', 'White-out'], ['eraser', '⌫', 'Eraser'],
 ];
 const DRAWING = new Set(['ink', 'box', 'highlight', 'whiteout']);
@@ -22,7 +23,7 @@ const loadPdfLib = () => (pdfLibPromise ??= import('../../vendor/pdf-lib/pdf-lib
 
 /** mount(host, { file }) — `file` opens that PDF right away (e.g. from the converter). */
 export function mount(host, { file: initialFile } = {}) {
-  const prefs = { tool: 'text', color: '#111111', textSize: 12, inkWidth: 1.6, markSize: 14, ...store.json(PREFS_KEY, {}) };
+  const prefs = { tool: 'text', color: '#111111', textSize: 12, inkWidth: 1.6, markSize: 14, signHeight: 34, initialsHeight: 22, ...store.json(PREFS_KEY, {}) };
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
 
   let file = null; let fileName = 'document.pdf'; let bytes = null;
@@ -119,24 +120,34 @@ export function mount(host, { file: initialFile } = {}) {
       if (prefs.tool === 'text') return sizeSelect('Text size', prefs.textSize, [8, 9, 10, 11, 12, 14, 16, 18, 24, 32], 'pt', (v) => { prefs.textSize = v; });
       if (prefs.tool === 'ink') return sizeSelect('Pen', prefs.inkWidth, [0.8, 1.2, 1.6, 2.4, 3.5], 'pt', (v) => { prefs.inkWidth = v; });
       if (prefs.tool === 'check' || prefs.tool === 'cross') return sizeSelect('Mark size', prefs.markSize, [8, 10, 12, 14, 18, 24], 'pt', (v) => { prefs.markSize = v; });
+      if (prefs.tool === 'signature') return sizeSelect('Signature height', prefs.signHeight, [20, 26, 34, 44, 56], 'pt', (v) => { prefs.signHeight = v; });
+      if (prefs.tool === 'initials') return sizeSelect('Initials height', prefs.initialsHeight, [14, 18, 22, 28, 36], 'pt', (v) => { prefs.initialsHeight = v; });
       return null;
     };
+    const signing = prefs.tool === 'signature' || prefs.tool === 'initials';
+    const saved = signing ? loadSignature(prefs.tool) : null;
     const hint = {
       scroll: 'Scroll mode: swipe to move through the pages.', text: 'Tap to type. Tap text to edit it, or drag it to move it.',
-      ink: 'Draw or sign with your finger.', check: 'Tap to place a check mark.', cross: 'Tap to place a cross.',
+      ink: 'Draw with your finger.', check: 'Tap to place a check mark.', cross: 'Tap to place a cross.',
       box: 'Drag to draw a box.', highlight: 'Drag over text to highlight it.', whiteout: 'Drag to cover something with white.',
       eraser: 'Tap anything you added to remove it.',
+      signature: saved ? 'Tap where your signature goes. Drag a placed signature to move it.' : 'Tap "Draw signature" once; it is saved on this phone.',
+      initials: saved ? 'Tap where your initials go. Drag placed initials to move them.' : 'Tap "Draw initials" once; it is saved on this phone.',
     }[prefs.tool];
     toolbar.replaceChildren(...[
       el('div', { class: 'chips' }, ...TOOLS.map(([id, icon, label]) => el('button', {
         class: `chip${prefs.tool === id ? ' active' : ''}`, text: `${icon} ${label}`,
         onclick: () => { prefs.tool = id; savePrefs(); renderToolbar(); updateTouch(); },
       }))),
-      ['text', 'ink', 'check', 'cross', 'box'].includes(prefs.tool) ? el('div', { class: 'ed-row' },
+      ['text', 'ink', 'check', 'cross', 'box', 'signature', 'initials'].includes(prefs.tool) ? el('div', { class: 'ed-row' },
         el('div', { class: 'swatches' }, ...COLORS.map((c) => el('button', {
           class: `swatch${prefs.color === c ? ' active' : ''}`, style: { background: c }, 'aria-label': `Color ${c}`,
           onclick: () => { prefs.color = c; savePrefs(); renderToolbar(); },
         }))), sizeControl()) : null,
+      signing ? el('button', {
+        class: `btn small-btn${saved ? ' ghost' : ' primary'}`, text: saved ? `Redraw ${KINDS[prefs.tool].label.toLowerCase()}` : `Draw ${KINDS[prefs.tool].label.toLowerCase()}`,
+        onclick: () => drawSignature(prefs.tool).then(() => renderToolbar()),
+      }) : null,
       el('p', { class: 'muted small pw-hint', text: hint }),
     ].filter(Boolean));
   }
@@ -212,10 +223,20 @@ export function mount(host, { file: initialFile } = {}) {
         if (i >= 0) commit(list.filter((_, j) => j !== i));
         return;
       }
-      if (tool === 'text') {
+      if (tool === 'signature' || tool === 'initials') {
+        const i = hitTest(list, p.index, q.u, q.v, p.info, tolPt(q.r));
+        if (i >= 0 && list[i].type === 'sign') {
+          drag = { kind: 'move', i, start: q, orig: list[i], moved: false, before: list };
+        } else {
+          const place = (sig) => { if (sig) commit([...items(), signItem(sig, p.index, p.info, q.u, q.v, tool === 'initials' ? prefs.initialsHeight : prefs.signHeight, prefs.color)]); };
+          const sig = loadSignature(tool);
+          if (sig) place(sig); else drawSignature(tool).then((s2) => { renderToolbar(); place(s2); });
+          return;
+        }
+      } else if (tool === 'text') {
         const i = hitTest(list, p.index, q.u, q.v, p.info, tolPt(q.r));
         if (i >= 0 && list[i].type === 'text') {
-          drag = { kind: 'move', i, start: q, orig: { u: list[i].u, v: list[i].v }, moved: false, before: list };
+          drag = { kind: 'move', i, start: q, orig: list[i], moved: false, before: list };
         } else {
           askText({ page: p.index, type: 'text', u: q.u, v: q.v - (prefs.textSize * 0.5) / displaySize(p.info).h, text: '', size: prefs.textSize, color: prefs.color }, -1);
           return;
@@ -242,7 +263,7 @@ export function mount(host, { file: initialFile } = {}) {
         const du = q.u - drag.start.u; const dv = q.v - drag.start.v;
         if (Math.hypot(du * q.r.width, dv * q.r.height) > 4) drag.moved = true;
         if (!drag.moved) return;
-        const next = items().map((it, j) => (j === drag.i ? { ...it, u: drag.orig.u + du, v: drag.orig.v + dv } : it));
+        const next = items().map((it, j) => (j === drag.i ? moveItem(drag.orig, du, dv) : it));
         history.replace(next);
         drawOverlay(p);
       } else if (draft) {
@@ -259,7 +280,7 @@ export function mount(host, { file: initialFile } = {}) {
         const next = items();
         history.replace(drag.before);
         if (drag.moved) commit(next);
-        else askText(drag.before[drag.i], drag.i);
+        else if (drag.orig.type === 'text') askText(drag.before[drag.i], drag.i);
       } else if (draft) {
         const it = draft;
         draft = null;

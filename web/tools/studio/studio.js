@@ -1,5 +1,5 @@
-// "Editor" app: Photo Editor, File Converter and Write on PDF as tabs of one app.
-// Routes: #/tools/editor (photo, default), #/tools/editor/convert, #/tools/editor/pdf.
+// "Editor" app: one app, several tools as tabs (photo, PDF, scan, convert, ...).
+// Routes: #/tools/editor (photo, default) and #/tools/editor/<tab>.
 // Each tab is mounted the first time it is opened and then kept alive while hidden, so switching
 // tabs never loses a conversion in progress or an open photo.
 
@@ -8,13 +8,14 @@ import { el } from '../../lib/dom.js';
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
   { id: 'pdf', label: 'PDF', load: () => import('../pdfwrite/pdfwrite.js') },
+  { id: 'scan', label: 'Scan', load: () => import('../scan/scan.js') },
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
 ];
 const hashFor = (id) => (id === 'photo' ? '#/tools/editor' : `#/tools/editor/${id}`);
 
 export function mount(host) {
   const panes = new Map(); // id -> { node, api }
-  const bar = el('div', { class: 'segmented studio-tabs', role: 'tablist', 'aria-label': 'Editor' });
+  const bar = el('div', { class: 'chips studio-tabs', role: 'tablist', 'aria-label': 'Editor' });
   const body = el('div', { class: 'studio-body' });
   host.append(el('h2', { class: 'tool-title', text: 'Editor' }), bar, body);
 
@@ -35,10 +36,11 @@ export function mount(host) {
 
   async function show(id) {
     bar.replaceChildren(...TABS.map((t) => el('a', {
-      class: `seg${t.id === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t.id === id), text: t.label,
+      class: `chip${t.id === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t.id === id), text: t.label,
       href: hashFor(t.id),
     })));
-    const pane = await ensure(id, id === 'convert' ? { onEdit: sendToPhoto, onWrite: sendToPdf } : {});
+    const opts = { convert: { onEdit: sendToPhoto, onWrite: sendToPdf }, scan: { onWrite: sendToPdf } }[id] ?? {};
+    const pane = await ensure(id, opts);
     await pane.ready;
     for (const [pid, p] of panes) p.node.hidden = pid !== id;
     pane.api?.show?.();

@@ -10,8 +10,8 @@ export const TOOLS = [
   {
     id: 'editor',
     name: 'Photo Editor',
-    description: 'Crop, adjust, filters, markup and more. Coming next.',
+    description: 'Crop, straighten, light and color, filters, and markup. Like the Photos app, plus extras.',
     icon: '✎',
-    soon: true,
+    load: () => import('./editor/editor.js'),
   },
 ];

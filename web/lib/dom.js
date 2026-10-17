@@ -14,6 +14,8 @@ export function el(tag, attrs = {}, ...children) {
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
     if (k === 'class') node.className = v;
+    // Inline style attributes are blocked by the page's CSP; set styles through the CSSOM instead.
+    else if (k === 'style') Object.assign(node.style, v);
     else if (k === 'text') node.textContent = v;
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
     else node.setAttribute(k, v === true ? '' : v);

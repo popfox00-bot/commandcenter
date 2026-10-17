@@ -58,3 +58,18 @@ for (const league of Object.keys(S.LEAGUES)) {
   ok &= await probe(`ESPN ${S.LEAGUES[league].name} teams (app team picker)`, S.urls.teams(league), (j) => { const t = S.parseTeamList(j); return `${t.length} teams, e.g. ${t.slice(0, 3).map((x) => `${x.name} (${x.id})`).join(', ')}`; });
 }
 process.exitCode = ok ? 0 : 1;
+
+// The weather job's own HTTP client (polite delays, timeouts) against Open-Meteo, next to a plain
+// request, to tell a source problem from a client problem.
+{
+  const { createPoliteHttp } = await import('../src/core/http.js');
+  const log = { info: () => {}, debug: () => {}, warn: () => {} };
+  const politeness = { minDelayMs: 0, maxDelayMs: 0, perHostIntervalMs: 0, respectRobots: true, cacheTtlSec: 0, userAgent: UA };
+  const http = createPoliteHttp({ politeness, log, rng: () => 0.5, officialApis: ['air-quality-api.open-meteo.com'], cacheDir: '/tmp/cc-probe-cache' });
+  for (const [label, url] of [['job client, AQ URL', W.urls.airQuality(lat, lon)], ['job client, simple URL', 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=39.74&longitude=-105.06&current=us_aqi']]) {
+    const t = Date.now();
+    try { const j = await http.json(url, { headers: { 'user-agent': UA } }); console.log(`✔ Open-Meteo (${label}): AQI ${j.current?.us_aqi} in ${Date.now() - t} ms`); } catch (err) { console.log(`✖ Open-Meteo (${label}): ${err.message} after ${Date.now() - t} ms`); }
+  }
+  const dns = await import('node:dns/promises');
+  console.log(`  DNS air-quality-api.open-meteo.com: ${JSON.stringify(await dns.lookup('air-quality-api.open-meteo.com', { all: true }).catch((e) => e.message))}`);
+}

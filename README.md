@@ -6,7 +6,9 @@ A personal, phone-first app with two halves:
   Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
   [Collage](#collage--superimpose), [Cutout](#cutout-and-characters), [Write on PDF](#write-on-pdf),
   [Scan](#scan) and the [File Converter](#file-converter). Converted images have an **Edit** button
-  (opens the photo editor) and converted PDFs a **Write on it** button.
+  (opens the photo editor) and converted PDFs a **Write on it** button. And
+  [QR & Barcode](#qr--barcode): scan codes with a link safety check before anything opens, and make
+  your own QR codes.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -146,6 +148,42 @@ and the page is flattened; drag the corners to adjust (**Auto** / **Whole photo*
 filter (**Clean**, **Gray**, **B&W**, **Original**), rotate, reorder and remove. **Make PDF** at
 US Letter, A4 or the scan's own size, then Share, Save, or **Sign / write on it** (opens Write on PDF).
 
+### QR & Barcode
+
+**Scan** with the camera (live) or from a photo or screenshot (several codes in one picture are
+listed). QR codes, Data Matrix, Aztec, PDF417 and product barcodes (UPC/EAN/ISBN, Code 128, ...) are
+read on the device with ZXing-C++ (WebAssembly, vendored). **Nothing opens by itself**: you first
+see what the code holds:
+
+- **Links** get a safety check on the phone, without visiting the site: the real site name in bold
+  (`paypal.com.`**`secure-login.ru`**), look-alike spellings (`paypa1`, Cyrillic letters), brand names
+  in the wrong place, disguised `user@host` addresses, number-only or local addresses, unencrypted
+  http, short links and QR-code services that hide the destination, links forwarded inside other
+  links, risky downloads (iPhone configuration profiles, app installers), sign-in and
+  parking/toll-payment pages, scam-heavy domain endings and tracking tags. The verdict is
+  **No warning signs found**, **Be careful** or **Don't open this**. Opening a risky link asks first.
+  **Open without tracking** strips `utm_*`, `fbclid` and similar tags.
+- **Check where it leads** (optional, tap to run): with the Jobs setup, your Worker opens the link
+  from Cloudflare, not your phone. It follows every redirect (HTTP, refresh tags, simple script
+  redirects; never into local-network addresses) and reports each hop, the final page's title, file
+  downloads, each domain's registration date (brand-new domains are a top scam sign) and, if you add
+  the optional `GSB_API_KEY` Worker secret, Google Safe Browsing matches. The site does see a visit
+  (from Cloudflare). Without a Worker, the phone only looks up the domain's age (RDAP).
+- **Wi-Fi** (password hidden until you tap Show, copy buttons), **contacts** (Add to Contacts),
+  **events** (Add to Calendar), email, phone, text messages (warns about premium and short-code
+  numbers), map locations, product barcodes (check digit, web search), two-factor setup codes and
+  payment codes (warnings, no open button), app links and enterprise app installs (blocked).
+- **History** of scans stays on the phone; it can be turned off or cleared. Wi-Fi passwords are
+  masked in the list.
+
+**Create**: Link, Text, Wi-Fi, Contact (vCard), Email, Phone, Text message, Location (Apple Maps,
+Google Maps or `geo:`, with "use my current location"), Event and Social profile (Instagram, TikTok,
+X, YouTube, ...). Style it: colors (with contrast warnings), see-through background, square/rounded/dot
+modules, square/rounded/circle corners, a logo or photo in the middle, a caption underneath, border
+size and error correction. Every design is **test-scanned** as you edit ("✓ Scans correctly"). Save
+as PNG (1024 px) or SVG (any size), share it, or keep it under **Saved** (e.g. your home Wi-Fi). Codes are
+static: the content is in the code itself, with no QR service in between, so they never expire.
+
 ### Developing the tools
 
 ```bash
@@ -234,6 +272,7 @@ npx wrangler secret put CC_API_TOKEN        # the PWA's bearer token
 npx wrangler secret put CC_INGEST_SECRET    # HMAC secret shared with GitHub Actions only
 npx wrangler secret put GH_DISPATCH_TOKEN   # see step 3
 npx wrangler secret put NTFY_TOPIC          # watchdog alerts
+# Optional: npx wrangler secret put GSB_API_KEY  # Google Safe Browsing key (free; Google Cloud console → "Safe Browsing API") for the QR link check
 
 npm run deploy
 ```

@@ -1,5 +1,5 @@
-// Auto-Crop: navy (#022157) bars at the top/bottom are found per photo, including JPEG-ish noise,
-// text on the bar, thin lines, one-sided bars, and photos without bars (left alone).
+// Auto-Crop: bars of #022157 / #0B1014 at the top/bottom are cut at their clean straight line, per photo:
+// noise, shifted colors, shading, text on the bar, thin lines, one-sided bars; photos without bars stay.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findBars, cropForBars, describeBars, hexToRgb, AUTO_CROP_DEFAULTS } from '../web/tools/editor/autocrop.js';
@@ -136,6 +136,32 @@ test('heavy compression and a soft edge: the line is found within a pixel or two
   const bars = findBars(img, w, h);
   assert.ok(bars.top >= 50 && bars.top <= 52, `top ${bars.top}`);
   assert.ok(bars.bottom <= 350 && bars.bottom >= 348, `bottom ${bars.bottom}`);
+});
+
+// Real photos: bars a little off the exact hex (color profiles), shaded, noisy, full of text, with a
+// soft edge or dark picture right below. The cut is at the visible line in every case.
+const busy = (x, y) => [100 + 60 * Math.sin(x / 17) + 40 * Math.cos(y / 23), 120 + 50 * Math.sin((x + y) / 29), 80 + 70 * Math.cos(x / 11 - y / 31)];
+const dusk = (x, y) => [25 + 15 * Math.sin(x / 9), 30 + 15 * Math.cos(y / 13), 45 + 20 * Math.sin((x - y) / 19)];
+const REAL = {
+  'color-shifted navy': (x, y) => (y < 100 || y >= 700 ? [18, 50, 112] : busy(x, y)),
+  'shaded top to bottom': (x, y) => (y < 100 ? [2, 23 + y / 5, 72 + y / 3] : y >= 700 ? NAVY : busy(x, y)),
+  'shaded left to right': (x, y) => (y < 100 || y >= 700 ? [2 + x / 12, 33 + x / 12, 87 + x / 10] : busy(x, y)),
+  'camera noise': (x, y) => (y < 100 || y >= 700 ? tex(NAVY, 14)(x, y) : busy(x, y)),
+  'rows of text': (x, y) => (y < 100 || y >= 700 ? (y % 20 < 12 && x % 9 < 4 && x < 200 ? [240, 240, 240] : hexToRgb('#0B1014')) : busy(x, y)),
+  'dark picture below the bar': (x, y) => (y < 100 || y >= 700 ? hexToRgb('#0B1014') : y < 250 ? dusk(x, y) : busy(x, y)),
+  'soft 6-row edge': (x, y) => { const m = Math.min(1, Math.max(0, (y - 97) / 6), Math.max(0, (703 - y) / 6)); return NAVY.map((v, k) => v * (1 - m) + busy(x, y)[k] * m); },
+};
+for (const [name, paint] of Object.entries(REAL)) {
+  test(`real-photo bars: ${name}`, () => {
+    const bars = findBars(image(240, 800, paint), 240, 800);
+    assert.ok(bars.foundTop && bars.foundBottom, name);
+    assert.ok(Math.abs(bars.top - 100) <= 1 && Math.abs(bars.bottom - 700) <= 2, `${name}: ${bars.top}..${bars.bottom}`);
+  });
+}
+
+test('no straight line, no crop: a dark sky with a ragged horizon stays', () => {
+  const img = image(240, 800, (x, y) => (y < 200 + 25 * Math.sin(x / 15) ? dusk(x, y) : busy(x, y)));
+  assert.deepEqual(findBars(img, 240, 800), { top: 0, bottom: 800, foundTop: false, foundBottom: false });
 });
 
 test('the existing horizontal crop is kept', () => {

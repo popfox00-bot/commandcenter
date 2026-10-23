@@ -133,11 +133,11 @@ than one, the editor opens the bulk screen:
 **Auto-Crop** (bulk screen, and the ✂️ button under a single photo): finds the solid bars of the
 boundary colors — **#022157** (navy) or **#0B1014** (near-black), either one, even both in the same photo
 — and cuts at their clean straight line, keeping all of the middle. Each side is scanned from the edge
-inward: a bar must start within the outer 25% with a solid, flat row of one of those colors; its exact
-color is measured, and it is followed inward only while rows stay that color (text or a logo on the bar
-is fine, a 1-px separator inside it is bridged). The first row that isn't bar color is the cut, plus at
-most two rows of blurred edge. Dark parts of the picture itself (night sky, shadows, a road) are
-textured or a different shade, so they never extend a bar, and the cut never reaches past 48% from
+inward: the bar begins at the first row whose main color is one of those (a little off is fine: color
+profiles, shading, compression, text or a logo on it). The cut is the first straight line after that
+where the color changes across the width and stays different — the line you see. A soft edge is split
+at its middle. A thin separator or text on the bar doesn't count, and dark picture content (night sky,
+shadows) with no straight line is left alone: no line, no crop. The cut never reaches past 48% from
 either edge. Each photo is measured on its own at full resolution. Photos without bars are left
 uncropped. The colors are editable under More edits (add up to four, or back to defaults).
 The single-photo editor also has **✨ Auto-Enhance** next to it, with the full tools below.

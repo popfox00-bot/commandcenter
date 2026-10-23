@@ -169,7 +169,13 @@ test('Auto-Crop cuts at the clean bar line even when the picture itself has dark
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const make = (spec) => page.evaluate(async (spec) => {
     const c = new OffscreenCanvas(400, 700); const x = c.getContext('2d');
-    if (spec === 'night') {
+    if (spec === 'shaded') {
+      const g = x.createLinearGradient(0, 0, 400, 0); g.addColorStop(0, '#0a2a66'); g.addColorStop(1, '#011a48');
+      x.fillStyle = g; x.fillRect(0, 0, 400, 700);                             // shaded, slightly off-hex navy bars
+      x.fillStyle = '#fff'; x.font = '22px sans-serif'; x.fillText('Saturday, 9:41 AM', 20, 60);
+      const p = x.createLinearGradient(0, 100, 0, 600); p.addColorStop(0, '#d8c3a5'); p.addColorStop(1, '#5d4037');
+      x.fillStyle = p; x.fillRect(0, 100, 400, 500);                           // the picture
+    } else if (spec === 'night') {
       x.fillStyle = '#000'; x.fillRect(0, 0, 400, 700);                       // letterbox bars
       const g = x.createLinearGradient(0, 120, 0, 580); g.addColorStop(0, '#141a2a'); g.addColorStop(0.45, '#2b3550'); g.addColorStop(1, '#c08040');
       x.fillStyle = g; x.fillRect(0, 120, 400, 460);                           // dark sky at the top of the photo
@@ -186,16 +192,19 @@ test('Auto-Crop cuts at the clean bar line even when the picture itself has dark
   await page.setInputFiles('#ed-file', [
     { name: 'night.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make('night')) },
     { name: 'gallery.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make('gallery')) },
+    { name: 'shaded.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make('shaded')) },
   ]);
   await page.waitForSelector('.bt-tile');
-  await page.getByRole('button', { name: 'Apply to 2 photos' }).click();
-  await page.waitForSelector('.bt-result:nth-child(2)', { timeout: 60000 });
+  await page.getByRole('button', { name: 'Apply to 3 photos' }).click();
+  await page.waitForSelector('.bt-result:nth-child(3)', { timeout: 60000 });
   const rows = await page.$$eval('.bt-result-text', (els) => els.map((e) => e.textContent));
   const dims = rows.map((t) => /(\d+)×(\d+)/.exec(t).slice(1).map(Number));
   // Night: bars 120 rows top and bottom -> 460 tall (±2 for JPEG edges), not cut into the dark sky.
   assert.ok(Math.abs(dims[0][1] - 460) <= 2, `night photo height ${dims[0][1]} (${rows[0]})`);
   // Gallery: only the 90-row header goes -> 610 tall; the dark road is part of the picture.
   assert.ok(Math.abs(dims[1][1] - 610) <= 2, `gallery height ${dims[1][1]} (${rows[1]})`);
+  // Shaded, off-hex navy with text on it: cut at both lines -> 500 tall.
+  assert.ok(Math.abs(dims[2][1] - 500) <= 2, `shaded height ${dims[2][1]} (${rows[2]})`);
   assert.deepEqual(errors, []);
   await context.close();
 });

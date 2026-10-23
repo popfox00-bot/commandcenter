@@ -8,6 +8,7 @@ import { defaultState, autoAdjust } from './state.js';
 import { orientedSize, outputPixelSize, cropForRatio } from './geometry.js';
 import { viewTransform, drawMarkup } from './markup.js';
 import { detectAutoCrop } from './autocrop.js';
+import { setPatchedSource } from './retouch.js';
 
 /**
  * renderEdited(file, state, { maxEdge, autoCrop: {colors,...} | null, autoEnhance, ratio })
@@ -22,7 +23,7 @@ export async function renderEdited(file, state, { maxEdge = 0, autoCrop = null, 
   const notes = [];
   try {
     const srcFit = fitSize(bitmap.width, bitmap.height, r.maxTexture);
-    r.setSource(srcFit.scale < 1 ? drawToCanvas(bitmap, srcFit.width, srcFit.height, null) : bitmap);
+    setPatchedSource(r, srcFit.scale < 1 ? drawToCanvas(bitmap, srcFit.width, srcFit.height, null) : bitmap, state.patches);
     const prepared = prepareState(r, state, { autoCrop, autoEnhance, ratio });
     const s = prepared.state;
     const { review } = prepared;
@@ -61,7 +62,12 @@ export function prepareState(r, state, { autoCrop = null, autoEnhance = false, r
   let s = state;
   let review = null;
   if (autoCrop) {
+    // Look at the original (without earlier patches), then paint this photo's icon fills on.
+    const base = r.base ?? r.image;
+    if (r.image !== base) r.setSource(base);
     const found = detectAutoCrop(r, s, autoCrop);
+    s = { ...s, patches: found.patches };
+    if (found.patches.length) setPatchedSource(r, base, found.patches);
     if (found.crop && found.sure) s = { ...s, crop: found.crop };
     else if (found.crop) review = found.crop;
     notes.push(found.note);

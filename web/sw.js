@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "77e8bc72d071",
+  "version": "6ddad2205e69",
   "files": [
     "app.js",
     "apps/games/fox/cc-frame.css",
@@ -49,6 +49,7 @@ const PRECACHE = {
     "tools/editor/markup.js",
     "tools/editor/render-file.js",
     "tools/editor/renderer.js",
+    "tools/editor/retouch.js",
     "tools/editor/state.js",
     "tools/index.js",
     "tools/pdfwrite/annotate.js",

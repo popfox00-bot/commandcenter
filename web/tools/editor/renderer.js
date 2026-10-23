@@ -144,8 +144,13 @@ export class Renderer {
     this.fboSize = [0, 0];
   }
 
-  /** Upload the image (ImageBitmap/canvas). Must fit maxTexture on both sides. */
-  setSource(image) {
+  /**
+   * Upload the image (ImageBitmap/canvas). Must fit maxTexture on both sides. `base` is the image
+   * before any retouch patches were painted on (kept for Auto-Crop to look at the original).
+   */
+  setSource(image, base = image) {
+    this.image = image;
+    this.base = base;
     const gl = this.gl;
     if (this.source) gl.deleteTexture(this.source);
     const tex = gl.createTexture();

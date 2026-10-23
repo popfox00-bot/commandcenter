@@ -50,8 +50,8 @@ async function barred(page, { color, top, bottom, type = 'image/png' }) {
  * theme: 'dark' (#0d1117), 'navy' (#022157) or 'light' (white). media: 'slab' (flat gray, a graded
  * coin slab in the middle), 'photo' (colorful), 'white' (white background with an object).
  */
-async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/png' } = {}) {
-  return Buffer.from(await page.evaluate(async ({ theme, media, type }) => {
+async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/png', icons = false } = {}) {
+  return Buffer.from(await page.evaluate(async ({ theme, media, type, icons }) => {
     const c = new OffscreenCanvas(393, 852); const x = c.getContext('2d');
     const chrome = { dark: '#0d1117', navy: '#022157', light: '#ffffff' }[theme];
     const ink = theme === 'light' ? '#141414' : '#ebebeb';
@@ -72,6 +72,12 @@ async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/p
       x.fillStyle = g; x.fillRect(0, 148, 393, 491);
       for (let i = 0; i < 40; i++) { x.fillStyle = `hsl(${i * 37} 70% 60%)`; x.fillRect((i * 53) % 360, 160 + ((i * 97) % 450), 30, 20); }
     }
+    if (icons) {
+      // Instagram-style buttons on the media: tagged people (bottom left), mute (bottom right).
+      dot(26, 613, 14, 'rgba(0,0,0,0.6)'); dot(26, 609, 4, '#fff'); x.beginPath(); x.ellipse(26, 619, 7, 4, 0, Math.PI, 0); x.fill();
+      dot(367, 613, 14, 'rgba(0,0,0,0.6)'); x.fillStyle = '#fff'; x.fillRect(360, 609, 4, 8); x.beginPath(); x.moveTo(364, 609); x.lineTo(369, 605); x.lineTo(369, 621); x.lineTo(364, 617); x.fill();
+      x.strokeStyle = '#fff'; x.lineWidth = 2; x.beginPath(); x.moveTo(359, 605); x.lineTo(375, 621); x.stroke();
+    }
     for (const cx of [190, 200, 210]) dot(cx, 655, 3, cx === 190 ? '#5865f2' : '#5a5a5a');                    // dots
     for (const l of [13, 83, 133, 183]) { rr(l, 673, 19, 19, 5, ink); x.fillStyle = ink; x.font = '13px sans-serif'; x.fillText('227', l + 24, 687); }
     rr(367, 673, 16, 19, 2, ink);                                                                                 // action bar
@@ -81,7 +87,7 @@ async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/p
     x.fillStyle = '#f2f2f2'; x.fillRect(10, 817, 250, 35);
     rr(50, 777, 293, 47, 23, '#24262e'); for (const l of [70, 127, 184, 241, 298]) rr(l, 791, 19, 19, 4, '#dcdcdc'); // tab bar
     return Array.from(new Uint8Array(await (await c.convertToBlob({ type, quality: 0.9 })).arrayBuffer()));
-  }, { theme, media, type }));
+  }, { theme, media, type, icons }));
 }
 
 test('bulk Auto-Crop, offline: each screenshot cropped to its own post media, saved as separate uniquely named files', async () => {
@@ -227,6 +233,57 @@ test('bulk: the same edit (Mono filter, rotate, square) goes to every selected p
   assert.deepEqual(external, [], 'photos never leave the phone: no request outside the app');
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+test('overlay icons on the media (mute, tagged people) are filled in from the background around them', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  await page.setInputFiles('#ed-file', [
+    { name: 'icons.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'dark', media: 'slab', icons: true }) },
+    { name: 'plain.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'dark', media: 'slab' }) },
+  ]);
+  await page.waitForSelector('.bt-tile');
+  await page.evaluate(() => {
+    window.__shared = null; navigator.canShare = () => true;
+    navigator.share = async (d) => {
+      window.__shared = await Promise.all(d.files.map(async (f) => {
+        const b = await createImageBitmap(f); const c = new OffscreenCanvas(b.width, b.height); const x = c.getContext('2d'); x.drawImage(b, 0, 0);
+        const at = (px, py) => [...x.getImageData(px, py, 1, 1).data.slice(0, 3)];
+        // The button centers (y 613 in the screenshot, 465 in the crop) and their symbols.
+        return { w: b.width, h: b.height, left: at(26, 465), leftSymbol: at(26, 461), right: at(367, 465), rightSymbol: at(366, 469) };
+      }));
+    };
+  });
+  await page.getByRole('button', { name: 'Apply to 2 photos' }).click();
+  await page.waitForSelector('.bt-result:nth-child(2)', { timeout: 60000 });
+  const notes = await page.$$eval('.bt-result-text', (els) => els.map((e) => e.textContent));
+  assert.match(notes[0], /393×491.*removed 2 icons/);
+  assert.doesNotMatch(notes[1], /removed/);
+  await page.getByRole('button', { name: 'Save to Files' }).click();
+  await page.waitForFunction(() => window.__shared);
+  const [filled] = await page.evaluate(() => window.__shared);
+  for (const k of ['left', 'leftSymbol', 'right', 'rightSymbol']) {
+    assert.ok(filled[k].every((v) => Math.abs(v - 0xc4) <= 8), `${k}: ${filled[k]} should be the background #c4c4c4`);
+  }
+
+  // One photo in the editor: Auto-Crop removes them too, as an undoable step.
+  const context2 = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page2 = await context2.newPage();
+  page2.on('pageerror', (e) => errors.push(e.message));
+  await page2.goto(`${origin}${BASE}#/tools/editor`);
+  await page2.waitForSelector('#ed-file', { state: 'attached' });
+  await page2.setInputFiles('#ed-file', { name: 'icons.png', mimeType: 'image/png', buffer: await feedShot(page2, { theme: 'dark', media: 'slab', icons: true }) });
+  await page2.waitForSelector('.ed-canvas');
+  await page2.locator('.ed-quick').getByRole('button', { name: /Auto-Crop/ }).click();
+  await page2.waitForFunction(() => /removed 2 icons/.test(document.querySelector('.ed-quick-note')?.textContent ?? ''));
+  assert.equal(await page2.getAttribute('[aria-label=Undo]', 'disabled'), null, 'undo is available');
+  assert.deepEqual(errors, []);
+  await context.close();
+  await context2.close();
 });
 
 test('reference screenshot (dark feed, flat gray coin slab) through the real renderer: just the media', async () => {

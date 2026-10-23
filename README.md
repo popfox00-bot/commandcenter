@@ -148,6 +148,14 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
 5. When the photo's own background is the app's color (a white photo in light mode), its edges can't
    be seen. Then it falls back to the account header above and the action icons below.
 
+**Overlay icons:** the round buttons apps draw on the media (Instagram's mute and tagged-people
+buttons: a dark see-through disc with a white symbol) are found in the media's corners and filled in
+from the background just around them, with its grain, so they disappear. A circle counts only if it is
+a flat disc clearly darker than its surroundings all the way around, with a white symbol inside, so a
+dark round object in the photo stays. The fill is a retouch patch in the edit, not a change to the
+original: Compare shows it without the patch, undo removes it, and it's part of every export
+(`web/tools/editor/retouch.js`).
+
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the
 crop handles open on the best guess, and in bulk the photo is left uncropped with a **✂️ Check crop**
 button. Photos that aren't screenshots are left alone. The app colors under More edits are optional

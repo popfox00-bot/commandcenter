@@ -10,6 +10,7 @@ import { Renderer } from './renderer.js';
 import { ADJUSTMENTS, FILTERS, RATIOS, defaultState, normalizeState, createHistory, autoAdjust, isDefault } from './state.js';
 import { FULL_CROP, orientedSize, outputPixelSize, cropForRatio, dragCrop, rotateClockwise, flipHorizontal } from './geometry.js';
 import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
+import { applyPatches } from './retouch.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
@@ -36,6 +37,7 @@ export function mount(host, { file: initialFile } = {}) {
   let activeAdjust = 'exposure';
   let comparing = false;
   let raf = 0;
+  let shownPatches = null;    // the retouch patches painted on the renderer's source
   let saveTimer = 0;
   let drag = null;            // active pointer interaction
   let draft = null;           // markup item being drawn
@@ -111,6 +113,7 @@ export function mount(host, { file: initialFile } = {}) {
       renderer?.destroy();
       renderer = new Renderer(glCanvas);
       renderer.setSource(source);
+      shownPatches = null;
     } catch (err) {
       host.replaceChildren(el('p', { class: 'bad-text', text: err.message }));
       return;
@@ -197,6 +200,9 @@ export function mount(host, { file: initialFile } = {}) {
   function draw() {
     if (!renderer) return;
     const vs = viewState();
+    // Retouch patches are painted on the source (compare shows the original without them).
+    const patches = vs.patches ?? [];
+    if (patches !== shownPatches) { shownPatches = patches; renderer.setSource(applyPatches(source, patches), source); }
     const { W, H } = orientedSize(source.width, source.height, vs.rotate);
     const out = outputPixelSize(vs, source.width, source.height);
     const maxCssW = stage.clientWidth || 360;
@@ -501,13 +507,15 @@ export function mount(host, { file: initialFile } = {}) {
       const found = detectAutoCrop(r, state(), { colors: [...prefs.autoCropColors] });
       autoCropNote = found.sure ? found.note : found.crop ? `${found.note}: drag the handles, then switch back` : found.note;
       note.textContent = autoCropNote;
+      // Overlay icons filled in (or none any more): part of the same undo step as the crop.
+      const next = { ...state(), patches: found.patches };
       if (found.crop && !found.sure) {
         // Not sure: show the crop handles on the best guess instead of just applying it.
         mode = 'crop'; drag = null; draft = null;
-        commit({ ...state(), crop: found.crop, ratio: 'free' });
+        commit({ ...next, crop: found.crop, ratio: 'free' });
         renderModes(); renderPanel(); schedule();
-      } else if (found.crop) commit({ ...state(), crop: found.crop, ratio: 'free' });
-      else renderPanel();
+      } else if (found.crop) commit({ ...next, crop: found.crop, ratio: 'free' });
+      else { commit(next); renderPanel(); }
     } catch (err) {
       autoCropNote = `Auto-Crop failed: ${err.message}`;
       note.textContent = autoCropNote;

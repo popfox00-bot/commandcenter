@@ -18,6 +18,7 @@
 
 import { FULL_CROP } from './geometry.js';
 import { defaultState } from './state.js';
+import { removeIcons } from './retouch.js';
 
 /** Every tunable threshold, in one place. Shares are of the image's width or height unless noted. */
 export const AUTO_CROP_DEFAULTS = Object.freeze({
@@ -485,8 +486,10 @@ export function describeBars(m, W, H) {
 /**
  * Detect the media on the photo loaded in `renderer`, with the geometry of `state` (rotation, flips,
  * straighten). The analysis copy is rendered small; edges are refined on full-size strips rendered
- * just around them. Returns { crop, box, confidence, method, sure, note, bars }: crop (frame
- * coordinates) is null when nothing was found; `sure` is false when it should be checked by hand.
+ * just around them. Returns { crop, box, confidence, method, sure, note, bars, patches }: crop (frame
+ * coordinates) is null when nothing was found; `sure` is false when it should be checked by hand;
+ * `patches` fill in the app's round overlay icons in the media's corners (opts.icons: false skips that;
+ * only for an unrotated, unflipped, unstraightened photo, whose frame is the source itself).
  */
 export function detectAutoCrop(renderer, state, opts = {}) {
   const cfg = { ...AUTO_CROP_DEFAULTS, ...opts };
@@ -506,5 +509,10 @@ export function detectAutoCrop(renderer, state, opts = {}) {
   // Rows only: the crop always keeps the full width of the photo.
   const crop = found ? { x: 0, y: box.y / H, w: 1, h: box.height / H } : null;
   const bars = { top: box.y, bottom: box.y + box.height, foundTop: found && box.y > 0, foundBottom: found && box.y + box.height < H };
-  return { crop, box, confidence: box.confidence, method: box.method, sure: found && box.confidence >= cfg.sure, note: found ? describeBars(box, W, H) : describeBars(null), bars };
+  const identity = !state.rotate && !state.flipH && !state.flipV && !state.straighten;
+  const media = found ? { x: 0, y: box.y, width: W, height: box.height } : { x: 0, y: 0, width: W, height: H };
+  const patches = opts.icons !== false && identity ? removeIcons(sample, W, H, media) : [];
+  let note = found ? describeBars(box, W, H) : describeBars(null);
+  if (patches.length) note += ` · removed ${patches.length} icon${patches.length === 1 ? '' : 's'}`;
+  return { crop, box, confidence: box.confidence, method: box.method, sure: found && box.confidence >= cfg.sure, note, bars, patches };
 }

@@ -28,6 +28,8 @@ after(async () => { await browser?.close(); server?.close(); });
 async function openApp(context, hash = '') {
   const page = await context.newPage();
   const errors = [];
+  // Notes, photos and games stay on the phone: any request outside the app is an error.
+  page.on('request', (r) => { if (!r.url().startsWith(origin) && !/^(blob|data):/.test(r.url())) errors.push(`external request: ${r.url()}`); });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(`${origin}${BASE}${hash}`);

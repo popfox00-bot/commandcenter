@@ -2,6 +2,9 @@
 import { el, store } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, encodeCanvas } from '../../lib/image.js';
+import { renderEdited, loadFullRenderer } from './render-file.js';
+import { AUTO_CROP_DEFAULTS, detectAutoCrop } from './autocrop.js';
+import { mountBatch, barColorsPicker } from './batch.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { Renderer } from './renderer.js';
 import { ADJUSTMENTS, FILTERS, RATIOS, defaultState, normalizeState, createHistory, autoAdjust, isDefault } from './state.js';
@@ -20,7 +23,8 @@ const TOOLS = [
 
 /** mount(host, { file }) — `file` opens that photo right away (e.g. sent from the converter). */
 export function mount(host, { file: initialFile } = {}) {
-  const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, ...store.json(PREFS_KEY, {}) };
+  const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
+  delete prefs.autoCropColor;
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
 
   let file = null;            // original File/Blob
@@ -42,8 +46,13 @@ export function mount(host, { file: initialFile } = {}) {
   // ---------- screens ----------
 
   function showStart(saved) {
-    const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', class: 'visually-hidden', id: 'ed-file' });
-    input.addEventListener('change', () => { if (input.files[0]) openFile(input.files[0]); input.value = ''; });
+    const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', multiple: true, class: 'visually-hidden', id: 'ed-file' });
+    input.addEventListener('change', () => {
+      const files = [...input.files];
+      input.value = '';
+      if (files.length === 1) openFile(files[0]);
+      else if (files.length > 1) openBatch(files);
+    });
     const resume = saved ? el('section', { class: 'card resume' },
       el('strong', { text: `Continue editing ${saved.name}?` }),
       el('span', { class: 'muted small', text: `Saved on this phone ${new Date(saved.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` }),
@@ -53,10 +62,21 @@ export function mount(host, { file: initialFile } = {}) {
     host.replaceChildren(...[
       resume,
       el('div', { class: 'drop' },
-        el('label', { class: 'btn primary block', for: 'ed-file', text: 'Choose a photo' }),
-        el('p', { class: 'muted small center', text: 'Crop, straighten, adjust light and color, filters and markup. Your original is never changed.' })),
+        el('label', { class: 'btn primary block', for: 'ed-file', text: 'Choose photos' }),
+        el('p', { class: 'muted small center', text: 'Pick one photo to edit it, or many to edit them all at once (Auto-Crop, filters, light and color, size). Your originals are never changed, and nothing leaves this phone.' })),
       input,
     ].filter(Boolean));
+  }
+
+  /** Several photos: the bulk editor. "Edit one" opens a single photo in the full editor. */
+  function openBatch(files) {
+    teardown();
+    const stop = mountBatch(host, files, {
+      prefs, savePrefs,
+      onExit: () => { stop(); showStart(null); },
+      onEditOne: (f) => { stop(); openFile(f); },
+    });
+    cleanups.push(stop);
   }
 
   async function openFile(blob, name = blob.name || 'photo.jpg', restored = null) {
@@ -446,8 +466,13 @@ export function mount(host, { file: initialFile } = {}) {
       onInput: (v) => { before.value ??= state(); live({ ...state(), straighten: v }); },
       onChange: () => { const next = state(); if (before.value) history.replace(before.value); before.value = null; commit(next); },
     });
+    const autoNote = el('span', { class: 'muted small ed-autocrop-note', text: autoCropNote });
     return [
       ratios,
+      el('div', { class: 'ed-row ed-autocrop' },
+        el('button', { class: 'btn small-btn primary', text: '⬍ Auto-Crop bars', onclick: (e) => runAutoCrop(e.currentTarget, autoNote) }),
+        autoNote),
+      barColorsPicker(prefs.autoCropColors, () => savePrefs()),
       el('div', { class: 'ed-row' },
         el('button', { class: 'btn small-btn', text: '⟳ Rotate', onclick: () => commit(rotateClockwise(state())) }),
         el('button', { class: 'btn small-btn', text: '⇋ Flip', onclick: () => commit(flipHorizontal(state())) }),
@@ -455,6 +480,24 @@ export function mount(host, { file: initialFile } = {}) {
       el('strong', { class: 'small', text: 'Straighten' }),
       straighten,
     ];
+  }
+
+  let autoCropNote = 'Removes solid bars of these colors (either one) at the top and bottom.';
+  async function runAutoCrop(btn, note) {
+    btn.disabled = true;
+    note.textContent = 'Looking for bars…';
+    let r;
+    try {
+      // Full resolution, so no sliver of the bar is left at export.
+      r = await loadFullRenderer(file);
+      const found = detectAutoCrop(r, state(), { colors: [...prefs.autoCropColors] });
+      autoCropNote = found.note;
+      if (found.crop) commit({ ...state(), crop: found.crop, ratio: 'free' });
+      else renderPanel();
+    } catch (err) {
+      autoCropNote = `Auto-Crop failed: ${err.message}`;
+      renderPanel();
+    } finally { r?.destroy(); }
   }
 
   function markupPanel() {
@@ -488,37 +531,8 @@ export function mount(host, { file: initialFile } = {}) {
   }
 
   async function renderFull() {
-    // Decode the original at full size; the preview used a downscaled copy.
-    const type = await sniffType(file);
-    const bitmap = await decodeImage(file, type);
-    const canvas = document.createElement('canvas');
-    const r = new Renderer(canvas);
-    try {
-      const srcFit = fitSize(bitmap.width, bitmap.height, r.maxTexture);
-      const src = srcFit.scale < 1 ? drawToCanvas(bitmap, srcFit.width, srcFit.height, null) : bitmap;
-      r.setSource(src);
-      const s = state();
-      const full = outputPixelSize(s, r.srcW, r.srcH);
-      let out = fitSize(full.width, full.height, Math.min(prefs.exportMax || Infinity, r.maxTexture));
-      r.render(s, out.width, out.height);
-      // Browsers may give a smaller drawing buffer than asked for on huge canvases.
-      const { drawingBufferWidth: dbw, drawingBufferHeight: dbh } = r.gl;
-      if (dbw < out.width || dbh < out.height) {
-        const k = Math.min(dbw / out.width, dbh / out.height);
-        out = { width: Math.floor(out.width * k), height: Math.floor(out.height * k) };
-        r.render(s, out.width, out.height);
-      }
-      const final = document.createElement('canvas');
-      final.width = out.width; final.height = out.height;
-      const ctx = final.getContext('2d');
-      ctx.drawImage(canvas, 0, 0);
-      const { W, H } = orientedSize(r.srcW, r.srcH, s.rotate);
-      drawMarkup(ctx, s.markup, viewTransform({ crop: s.crop, W, H, tw: out.width, th: out.height }));
-      return final;
-    } finally {
-      bitmap.close?.();
-      r.destroy();
-    }
+    // Full resolution from the original; the preview used a downscaled copy.
+    return (await renderEdited(file, state(), { maxEdge: prefs.exportMax })).canvas;
   }
 
   function openExport() {

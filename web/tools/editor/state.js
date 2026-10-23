@@ -64,6 +64,7 @@ export function defaultState() {
     adjust: zeroAdjust(),
     filter: 'original', filterIntensity: 1,
     markup: [],
+    patches: [], // retouch patches painted on the source first (e.g. overlay icons filled in), see retouch.js
   };
 }
 
@@ -77,6 +78,7 @@ export function normalizeState(s) {
     adjust: { ...d.adjust, ...(s.adjust ?? {}) },
     crop: { ...d.crop, ...(s.crop ?? {}) },
     markup: Array.isArray(s.markup) ? s.markup : [],
+    patches: Array.isArray(s.patches) ? s.patches : [],
   };
 }
 

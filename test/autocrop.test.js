@@ -151,11 +151,19 @@ test('media with dark top and bottom edges and a chrome-colored line inside: one
   assert.deepEqual(box(findMedia(img.px, W, H)), { x: 0, y: 445, width: W, height: 1473 });
 });
 
-test('inset card with rounded corners: left and right bounds too', () => {
+test('never cuts the sides: an inset card with rounded corners keeps the full width', () => {
   const img = feed({ mx0: 60, mx1: 1119, my0: 445, my1: 1700, card: 40, paint: textured });
   const m = findMedia(img.px, W, H);
-  assert.deepEqual(box(m), { x: 60, y: 445, width: 1059, height: 1255 });
+  assert.deepEqual(box(m), { x: 0, y: 445, width: W, height: 1255 });
   assert.ok(m.confidence >= 0.8, `confidence ${m.confidence}`);
+});
+
+test('never cuts the sides: a photo whose left part is the app\'s own color keeps the full width', () => {
+  // Left 45% of the photo is dark like the app (a night scene, a black backdrop): only rows are cut.
+  const img = feed({ paint: (x, y) => (x < 530 ? [13 + Math.round(3 * noise(x, y, 0)), 17, 23] : textured(x, y)) });
+  const m = findMedia(img.px, W, H);
+  assert.deepEqual([m.x, m.width], [0, W], 'full width');
+  assert.deepEqual([m.y, m.y + m.height], [445, 1918]);
 });
 
 test('media running under a floating tab bar: cut above the bar, nothing blurred behind it', () => {

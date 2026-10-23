@@ -141,7 +141,8 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
    else is content. This goes by distance from the chrome color, not flatness, so a flat gray photo is
    still a photo.
 3. The media is the largest run of content rows: gaps under 1% of the height merge (thin lines in a
-   photo), and runs under 15% are dropped (banners, buttons). Then the columns within it (inset cards).
+   photo), and runs under 15% are dropped (banners, buttons). Only the rows above
+   and below it are cut: the crop always keeps the full width, never the sides.
 4. Each edge snaps to the strongest color step near it, and the result gets a confidence from how
    clean and straight the edges are.
 5. When the photo's own background is the app's color (a white photo in light mode), its edges can't

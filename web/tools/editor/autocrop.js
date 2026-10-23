@@ -8,8 +8,8 @@
 //  3. Rows that are mostly chrome color are chrome (flat bars, or text and icons on chrome); the rest
 //     are content. Classification is by distance from the chrome color, never by flatness, so a flat
 //     gray photo is still content.
-//  4. The media is the largest run of content rows (small gaps merged, short runs rejected), then
-//     the content columns within it (inset cards).
+//  4. The media is the largest run of content rows (small gaps merged, short runs rejected). The crop
+//     only ever removes rows above and below it: it always keeps the full width, never cuts the sides.
 //  5. Each edge snaps to the strongest color step near it on the full-size image.
 //  6. When the media's own background is the chrome color (white photo in light mode), the edges are
 //     invisible: fall back to the account header above and the action icons below.
@@ -38,7 +38,6 @@ export const AUTO_CROP_DEFAULTS = Object.freeze({
   dominantDelta: 12,      // row statistic: share of pixels within this distance of the row's dominant color
   mergeGap: 0.01,         // content runs separated by less than 1% of the height merge (thin lines in media)
   minRun: 0.15,           // runs shorter than 15% of the height are not media (banners, buttons)
-  colChrome: 0.5,         // within the media band, a column is chrome when half its pixels are
   edgeMin: 12,            // color step (RGB distance) that counts as an edge when scoring straightness
   sure: 0.6,              // below this confidence the crop is offered for checking, not applied
   uiInkMin: 0.003,        // UI rows (text and icons on chrome) have more than 0.3% non-chrome pixels...
@@ -278,20 +277,6 @@ function trimFloatingBar(A, run, cfg) {
   return run;
 }
 
-/** Content columns within the band: { start, end } (full width when the media is full-bleed). */
-function contentColumns(A, mask, run, cfg) {
-  const { w } = A;
-  const rows = run.end - run.start;
-  const flags = new Uint8Array(w);
-  for (let x = 0; x < w; x++) {
-    let ch = 0;
-    for (let y = run.start, p = run.start * w + x; y < run.end; y++, p += w) ch += mask[p];
-    flags[x] = ch / rows < cfg.colChrome ? 1 : 0;
-  }
-  const best = contentRuns(flags, Math.max(1, w * cfg.mergeGap), Math.max(1, w * cfg.minRun))[0];
-  return best ?? { start: 0, end: w };
-}
-
 // ---------- 5. edges at full size ----------
 
 /**
@@ -313,39 +298,20 @@ function snapRows(sample, W, H, x0, x1, coarse, cfg) {
     for (let x = 0; x < n; x++) { const a = at(y, x); const b = at(y - 1, x); g += Math.abs(px[a] - px[b]) + Math.abs(px[a + 1] - px[b + 1]) + Math.abs(px[a + 2] - px[b + 2]); }
     if (g > bestG) { bestG = g; best = y; }
   }
-  return { at: best, straight: straightness(px, n, r1 - r0, best - r0, cfg.edgeMin, true) };
+  return { at: best, straight: straightness(px, n, r1 - r0, best - r0, cfg.edgeMin) };
 }
 
-/** Same for a vertical edge (between columns x-1 and x), over rows [y0, y1). */
-function snapCols(sample, W, H, y0, y1, coarse, cfg) {
-  if (coarse <= 0 || coarse >= W) return { at: clamp(coarse, 0, W), straight: null };
-  const R = cfg.refine;
-  const lo = clamp(coarse - R, 1, W - 1); const hi = clamp(coarse + R, 1, W - 1);
-  const c0 = Math.max(0, lo - 4); const c1 = Math.min(W, hi + 4);
-  const n = c1 - c0; const rows = y1 - y0;
-  const px = sample(c0, y0, n, rows);
-  const step = Math.max(1, Math.floor(rows / 400));
-  let best = lo; let bestG = -1;
-  for (let x = lo; x <= hi; x++) {
-    let g = 0;
-    for (let y = 0; y < rows; y += step) { const a = (y * n + x - c0) * 4; const b = a - 4; g += Math.abs(px[a] - px[b]) + Math.abs(px[a + 1] - px[b + 1]) + Math.abs(px[a + 2] - px[b + 2]); }
-    if (g > bestG) { bestG = g; best = x; }
-  }
-  return { at: best, straight: straightness(px, n, rows, best - c0, cfg.edgeMin, false) };
-}
-
-/** Share of lines across the edge at `k` where the color 3 px before differs from 2 px after by > edgeMin. */
-function straightness(px, n, rows, k, edgeMin, horizontal) {
-  const len = horizontal ? n : rows; const span = horizontal ? rows : n;
-  const before = clamp(k - 3, 0, span - 1); const after = clamp(k + 2, 0, span - 1);
+/** Share of columns where the color 3 rows above row `k` differs from 2 rows below it by > edgeMin. */
+function straightness(px, n, rows, k, edgeMin) {
+  const before = clamp(k - 3, 0, rows - 1); const after = clamp(k + 2, 0, rows - 1);
   if (before === after) return 0;
   let hit = 0;
-  for (let t = 0; t < len; t++) {
-    const a = (horizontal ? before * n + t : t * n + before) * 4;
-    const b = (horizontal ? after * n + t : t * n + after) * 4;
+  for (let t = 0; t < n; t++) {
+    const a = (before * n + t) * 4;
+    const b = (after * n + t) * 4;
     if ((px[a] - px[b]) ** 2 + (px[a + 1] - px[b + 1]) ** 2 + (px[a + 2] - px[b + 2]) ** 2 > edgeMin * edgeMin) hit++;
   }
-  return hit / len;
+  return hit / n;
 }
 
 // ---------- 6. header / action-bar anchors ----------
@@ -432,7 +398,7 @@ export function detectMedia(A, sample, W, H, opts = {}) {
   if (!chrome) return NONE(W, H);
   const mask = chromeMask(A, chrome);
   const stats = rowStats(A, mask, cfg);
-  const sx = W / A.w; const sy = H / A.h;
+  const sy = H / A.h;
   const candidates = [];
 
   // Strategy 1: chrome contrast.
@@ -440,15 +406,11 @@ export function detectMedia(A, sample, W, H, opts = {}) {
   const anchors = findAnchors(A, mask, stats, cfg);
   if (run) {
     run = trimFloatingBar(A, run, cfg);
-    const cols = contentColumns(A, mask, run, cfg);
-    const inset = cols.start > 0 || cols.end < A.w;
-    const x0 = Math.round(cols.start * sx); const x1 = Math.round(cols.end * sx);
-    const top = snapRows(sample, W, H, x0, x1, Math.round(run.start * sy), cfg);
-    const bottom = snapRows(sample, W, H, x0, x1, Math.round(run.end * sy), cfg);
-    let left = { at: x0, straight: null }; let right = { at: x1, straight: null };
-    if (inset) { left = snapCols(sample, W, H, top.at, bottom.at, x0, cfg); right = snapCols(sample, W, H, top.at, bottom.at, x1, cfg); }
+    // Full width, always: only the rows above and below the media are cut.
+    const top = snapRows(sample, W, H, 0, W, Math.round(run.start * sy), cfg);
+    const bottom = snapRows(sample, W, H, 0, W, Math.round(run.end * sy), cfg);
     const edgeScore = (e) => (e.straight == null ? 0.6 : clamp((e.straight - 0.35) / 0.5, 0, 1));
-    const edges = [top, bottom, ...(inset ? [left, right] : [])].map(edgeScore);
+    const edges = [top, bottom].map(edgeScore);
     const k = Math.max(1, Math.round(A.h * 0.01));
     const sep = (from, to) => { if (from < 0 || to > A.h || from >= to) return 1; let s = 0; for (let y = from; y < to; y++) s += stats.chromeShare[y]; return s / (to - from); };
     const separation = (sep(run.start - k, run.start) + sep(run.end, run.end + k)) / 2;
@@ -456,16 +418,16 @@ export function detectMedia(A, sample, W, H, opts = {}) {
     for (let y = run.start; y < run.end; y++) purity += stats.chromeShare[y] < cfg.chromeRow ? 1 : 0;
     purity /= run.end - run.start;
     let confidence = 0.6 * (edges.reduce((s, e) => s + e, 0) / edges.length) + 0.25 * separation + 0.15 * purity;
-    // A box with edges that aren't clean full-width lines (or an inset one) and a wide empty chrome gap
-    // between it and the header or the action bar: the media's own background is chrome-colored and
-    // only an object inside it was found. (A real post's media or card sits right under its header.)
-    if (anchors && (inset || !edges.every((e) => e >= 0.9)) && blankRun(stats, run.start, -1, cfg) >= A.h * cfg.blankGap && blankRun(stats, run.end, 1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
+    // A box with edges that aren't clean full-width lines and wide empty chrome gaps both above it (to
+    // the header) and below it (to the action bar): the media's own background is chrome-colored and
+    // only an object inside it was found.
+    if (anchors && !edges.every((e) => e >= 0.9) && blankRun(stats, run.start, -1, cfg) >= A.h * cfg.blankGap && blankRun(stats, run.end, 1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
     // App chrome always ends at a visible line; a box whose every edge is a gradual fade is just a
     // photo with a smooth sky or backdrop, not a screenshot.
-    const seen = [top, bottom, ...(inset ? [left, right] : [])].filter((e) => e.straight != null);
+    const seen = [top, bottom].filter((e) => e.straight != null);
     const noLine = seen.length > 0 && seen.every((e) => edgeScore(e) < 0.2);
-    if (!noLine && bottom.at - top.at > 0 && right.at - left.at > 0) {
-      candidates.push({ x: left.at, y: top.at, width: right.at - left.at, height: bottom.at - top.at, confidence, method: 'chrome-contrast' });
+    if (!noLine && bottom.at - top.at > 0) {
+      candidates.push({ x: 0, y: top.at, width: W, height: bottom.at - top.at, confidence, method: 'chrome-contrast' });
     }
   }
 
@@ -516,7 +478,6 @@ export function describeBars(m, W, H) {
   const sides = [];
   if (m.y > 0) sides.push(`top ${m.y} px`);
   if (H - m.y - m.height > 0) sides.push(`bottom ${H - m.y - m.height} px`);
-  if (m.x > 0 || W - m.x - m.width > 0) sides.push(`sides ${m.x} / ${W - m.x - m.width} px`);
   if (m.confidence < AUTO_CROP_DEFAULTS.sure) return `Not sure where the post is (${pct}): check the crop`;
   return `Cropped to the post: ${sides.join(', ')} (${pct})`;
 }
@@ -541,8 +502,9 @@ export function detectAutoCrop(renderer, state, opts = {}) {
     return renderer.readPixels();
   };
   const box = detectMedia(A, sample, W, H, opts);
-  const found = box.method !== 'none' && (box.width < W || box.height < H);
-  const crop = found ? { x: box.x / W, y: box.y / H, w: box.width / W, h: box.height / H } : null;
+  const found = box.method !== 'none' && box.height < H;
+  // Rows only: the crop always keeps the full width of the photo.
+  const crop = found ? { x: 0, y: box.y / H, w: 1, h: box.height / H } : null;
   const bars = { top: box.y, bottom: box.y + box.height, foundTop: found && box.y > 0, foundBottom: found && box.y + box.height < H };
   return { crop, box, confidence: box.confidence, method: box.method, sure: found && box.confidence >= cfg.sure, note: found ? describeBars(box, W, H) : describeBars(null), bars };
 }

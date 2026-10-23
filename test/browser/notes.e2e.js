@@ -34,6 +34,16 @@ async function openApp(context, hash = '') {
   return { page, errors };
 }
 
+/** Wait until IndexedDB (the app's on-phone storage) has `name` in `key`'s `list` array, before a reload. */
+async function waitForSaved(page, key, list, field, name) {
+  await page.waitForFunction(async ({ key, list, field, name }) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('command-center'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const value = await new Promise((res) => { const r = db.transaction('kv').objectStore('kv').get(key); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); });
+    db.close();
+    return (value?.[list] ?? []).some((x) => x[field] === name && !x.done);
+  }, { key, list, field, name });
+}
+
 async function jpeg(page, color, label) {
   return Buffer.from(await page.evaluate(async ({ color, label }) => {
     const c = new OffscreenCanvas(600, 800); const x = c.getContext('2d');
@@ -89,7 +99,8 @@ test('grocery: items sort into sections with icons; a brand photo is remembered 
   await page.click('.nt-sugg-chip >> text=Shredded cheddar');
   await page.waitForSelector('.nt-item .nt-thumb[src^="blob:"]');
 
-  // Survives a reload (IndexedDB).
+  // Survives a reload (IndexedDB). Saving is asynchronous, so wait for it before reloading.
+  await waitForSaved(page, 'grocery.v1', 'items', 'name', 'Shredded cheddar');
   await page.reload();
   await page.waitForSelector('.nt-item');
   assert.match(await page.textContent('.nt-pane:not([hidden])'), /Shredded cheddar[\s\S]*Tillamook/);
@@ -129,6 +140,7 @@ test('notes: text note, checklist, photo, pin, search; saved across reloads', as
   await page.fill('.nt-search', 'stove');
   assert.deepEqual(await page.$$eval('.nt-card strong', (els) => els.map((e) => e.textContent)), ['Camping']);
 
+  await waitForSaved(page, 'notes.v1', 'notes', 'title', 'Camping');
   await page.reload();
   await page.waitForSelector('.nt-card');
   assert.equal(await page.locator('.nt-card').count(), 2);

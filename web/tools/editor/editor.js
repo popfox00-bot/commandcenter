@@ -74,12 +74,13 @@ export function mount(host, { file: initialFile } = {}) {
     const stop = mountBatch(host, files, {
       prefs, savePrefs,
       onExit: () => { stop(); showStart(null); },
-      onEditOne: (f) => { stop(); openFile(f); },
+      // `check`: a state whose crop Auto-Crop wasn't sure of: open with the crop handles on it.
+      onEditOne: (f, check = null) => { stop(); openFile(f, f.name, check, check ? 'crop' : null); },
     });
     cleanups.push(stop);
   }
 
-  async function openFile(blob, name = blob.name || 'photo.jpg', restored = null) {
+  async function openFile(blob, name = blob.name || 'photo.jpg', restored = null, startMode = null) {
     host.replaceChildren(el('p', { class: 'muted center', text: 'Opening…' }));
     try {
       const type = await sniffType(blob);
@@ -90,6 +91,7 @@ export function mount(host, { file: initialFile } = {}) {
       file = blob;
       fileName = name;
       history = createHistory(restored ?? defaultState());
+      if (startMode) mode = startMode;
       buildEditor();
       if (!restored) persist(true);
     } catch (err) {
@@ -476,7 +478,7 @@ export function mount(host, { file: initialFile } = {}) {
     return [
       ratios,
       el('div', { class: 'ed-row ed-autocrop' },
-        el('button', { class: 'btn small-btn primary', text: '⬍ Auto-Crop bars', onclick: (e) => runAutoCrop(e.currentTarget, autoNote) }),
+        el('button', { class: 'btn small-btn primary', text: '✂️ Auto-Crop', onclick: (e) => runAutoCrop(e.currentTarget, autoNote) }),
         autoNote),
       barColorsPicker(prefs.autoCropColors, () => savePrefs()),
       el('div', { class: 'ed-row' },
@@ -488,18 +490,23 @@ export function mount(host, { file: initialFile } = {}) {
     ];
   }
 
-  let autoCropNote = 'Removes solid bars of these colors (either one) at the top and bottom.';
+  let autoCropNote = 'Crops a screenshot of a post to just its photo or video.';
   async function runAutoCrop(btn, note) {
     btn.disabled = true;
-    note.textContent = 'Looking for bars…';
+    note.textContent = 'Looking for the post…';
     let r;
     try {
       // Full resolution, so no sliver of the bar is left at export.
       r = await loadFullRenderer(file);
       const found = detectAutoCrop(r, state(), { colors: [...prefs.autoCropColors] });
-      autoCropNote = found.note;
-      note.textContent = found.note;
-      if (found.crop) commit({ ...state(), crop: found.crop, ratio: 'free' });
+      autoCropNote = found.sure ? found.note : found.crop ? `${found.note}: drag the handles, then switch back` : found.note;
+      note.textContent = autoCropNote;
+      if (found.crop && !found.sure) {
+        // Not sure: show the crop handles on the best guess instead of just applying it.
+        mode = 'crop'; drag = null; draft = null;
+        commit({ ...state(), crop: found.crop, ratio: 'free' });
+        renderModes(); renderPanel(); schedule();
+      } else if (found.crop) commit({ ...state(), crop: found.crop, ratio: 'free' });
       else renderPanel();
     } catch (err) {
       autoCropNote = `Auto-Crop failed: ${err.message}`;

@@ -122,7 +122,7 @@ than one, the editor opens the bulk screen:
   That's all most batches need.
 - **More edits ▾** (optional, closed by default) holds drop-downs for precise changes, each showing its
   current setting: Filter, Light & color, Rotate & shape (square, 4:5, 16:9, …, centered), Auto-Crop
-  bar colors, and File type & size (same type as each photo — HEIC becomes JPEG — or JPEG/PNG/WebP;
+  app colors, and File type & size (same type as each photo — HEIC becomes JPEG — or JPEG/PNG/WebP;
   full size or 4096/2048/1080 px; quality).
 - **Apply** edits them one by one with progress (Stop is possible), then lists every result with its
   size and what Auto-Crop did. **Save to Photos** / **Save to Files** open the iPhone share sheet with
@@ -130,17 +130,29 @@ than one, the editor opens the bulk screen:
   "image-edited-2.png" when the Photos picker gives every photo the same name). If the sheet can't take
   them all at once, they come in groups of 20. Each result can also be shared on its own.
 
-**Auto-Crop** (bulk screen, and the ✂️ button under a single photo): finds the solid bars of the
-boundary colors — **#022157** (navy) or **#0B1014** (near-black), either one, even both in the same photo
-— and cuts at their clean straight line, keeping all of the middle. Each side is scanned from the edge
-inward: the bar begins at the first row whose main color is one of those (a little off is fine: color
-profiles, shading, compression, text or a logo on it). The cut is the first straight line after that
-where the color changes across the width and stays different — the line you see. A soft edge is split
-at its middle. A thin separator or text on the bar doesn't count, and dark picture content (night sky,
-shadows) with no straight line is left alone: no line, no crop. The cut never reaches past 48% from
-either edge. Each photo is measured on its own at full resolution. Photos without bars are left
-uncropped. The colors are editable under More edits (add up to four, or back to defaults).
-The single-photo editor also has **✨ Auto-Enhance** next to it, with the full tools below.
+**Auto-Crop** (bulk screen, and the ✂️ button under a single photo) takes a phone screenshot of a
+social post (Instagram/Threads-style feed) and crops it to just the post's photo or video: no status
+bar or banners, account header, carousel dots, action bar, caption, floating tab bar, or the next post
+peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
+
+1. It analyses a copy about 400 px wide and refines every edge on the full-size pixels (±8 px).
+2. The app's chrome color is the most common color in the screen margins (top 4%, bottom 8%, sides
+   2%). Rows that are mostly that color are app (flat bars, or text and icons on them); everything
+   else is content. This goes by distance from the chrome color, not flatness, so a flat gray photo is
+   still a photo.
+3. The media is the largest run of content rows: gaps under 1% of the height merge (thin lines in a
+   photo), and runs under 15% are dropped (banners, buttons). Then the columns within it (inset cards).
+4. Each edge snaps to the strongest color step near it, and the result gets a confidence from how
+   clean and straight the edges are.
+5. When the photo's own background is the app's color (a white photo in light mode), its edges can't
+   be seen. Then it falls back to the account header above and the action icons below.
+
+A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the
+crop handles open on the best guess, and in bulk the photo is left uncropped with a **✂️ Check crop**
+button. Photos that aren't screenshots are left alone. The app colors under More edits are optional
+hints (#022157 and #0B1014 by default); the chrome color is read from each screenshot by itself.
+All thresholds are in one commented object, `AUTO_CROP_DEFAULTS`. The single-photo editor also has
+**✨ Auto-Enhance** next to it, with the full tools below.
 
 Everything happens on the phone: photos are decoded, edited and encoded locally, kept in memory until
 you save them, and nothing is uploaded. It works offline.

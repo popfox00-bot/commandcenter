@@ -1,6 +1,6 @@
 // Render a photo file with an edit state at full resolution, on this device: used by the editor's
 // export and by bulk edits. Optional per-photo steps run on the full-size image first:
-// Auto-Crop (find color bars) and auto-enhance (from the photo's own histogram).
+// Auto-Crop (find the post's media in a screenshot) and auto-enhance (from the photo's own histogram).
 
 import { sniffType, decodeImage, fitSize, drawToCanvas } from '../../lib/image.js';
 import { Renderer } from './renderer.js';
@@ -10,8 +10,9 @@ import { viewTransform, drawMarkup } from './markup.js';
 import { detectAutoCrop } from './autocrop.js';
 
 /**
- * renderEdited(file, state, { maxEdge, autoCrop: {color,...} | null, autoEnhance, ratio })
- * -> { canvas, state, notes: [string] }  (`state` is the one actually used, e.g. with the found crop)
+ * renderEdited(file, state, { maxEdge, autoCrop: {colors,...} | null, autoEnhance, ratio })
+ * -> { canvas, state, notes: [string], review }  (`state` is the one actually used, e.g. with the found
+ * crop; `review` is a crop Auto-Crop wasn't sure of: not applied, offered for checking)
  * `ratio` (w/h) crops to that shape, centered inside the (auto-)cropped area.
  */
 export async function renderEdited(file, state, { maxEdge = 0, autoCrop = null, autoEnhance = false, ratio = null } = {}) {
@@ -24,6 +25,7 @@ export async function renderEdited(file, state, { maxEdge = 0, autoCrop = null, 
     r.setSource(srcFit.scale < 1 ? drawToCanvas(bitmap, srcFit.width, srcFit.height, null) : bitmap);
     const prepared = prepareState(r, state, { autoCrop, autoEnhance, ratio });
     const s = prepared.state;
+    const { review } = prepared;
     notes.push(...prepared.notes);
     const full = outputPixelSize(s, r.srcW, r.srcH);
     let out = fitSize(full.width, full.height, Math.min(maxEdge || Infinity, r.maxTexture));
@@ -41,7 +43,7 @@ export async function renderEdited(file, state, { maxEdge = 0, autoCrop = null, 
     ctx.drawImage(canvas, 0, 0);
     const { W, H } = orientedSize(r.srcW, r.srcH, s.rotate);
     drawMarkup(ctx, s.markup, viewTransform({ crop: s.crop, W, H, tw: out.width, th: out.height }));
-    return { canvas: final, state: s, notes };
+    return { canvas: final, state: s, notes, review };
   } finally {
     bitmap.close?.();
     r.destroy();
@@ -51,14 +53,17 @@ export async function renderEdited(file, state, { maxEdge = 0, autoCrop = null, 
 /**
  * The per-photo steps, run on the photo loaded in renderer `r`: Auto-Crop finds this photo's bars,
  * `ratio` (w/h) then crops to that shape centered in what's left, and auto-enhance reads this photo's
- * histogram. Returns { state, notes }.
+ * histogram. Returns { state, notes, review }: a crop Auto-Crop isn't sure of is not applied but
+ * returned as `review` (a crop to check by hand).
  */
 export function prepareState(r, state, { autoCrop = null, autoEnhance = false, ratio = null } = {}) {
   const notes = [];
   let s = state;
+  let review = null;
   if (autoCrop) {
     const found = detectAutoCrop(r, s, autoCrop);
-    if (found.crop) s = { ...s, crop: found.crop };
+    if (found.crop && found.sure) s = { ...s, crop: found.crop };
+    else if (found.crop) review = found.crop;
     notes.push(found.note);
   }
   if (ratio) {
@@ -73,7 +78,7 @@ export function prepareState(r, state, { autoCrop = null, autoEnhance = false, r
     s = { ...s, adjust: { ...s.adjust, ...autoAdjust(r.readPixels()) } };
     notes.push('Auto-enhanced');
   }
-  return { state: s, notes };
+  return { state: s, notes, review };
 }
 
 /** Load a file into a renderer at full resolution (for Auto-Crop in the open editor). */

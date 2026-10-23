@@ -475,6 +475,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .bt-result img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; flex: none; }
 .bt-result-text { display: grid; flex: 1; min-width: 0; }
 .bt-result-text > strong, .bt-result-text > .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-result-actions { display: grid; gap: 6px; flex: none; }
 .ed-autocrop { flex-wrap: wrap; align-items: center; }
 .ed-autocrop-note { flex-basis: 100%; }
 .bt-colors { gap: 6px; align-items: center; }

@@ -1,5 +1,5 @@
 // Bulk editing: many photos, one set of edits ("recipe"), one output file per photo.
-// Per-photo steps adapt to each photo: Auto-Crop finds each photo's own bars, auto-enhance reads each
+// Per-photo steps adapt to each photo: Auto-Crop finds each screenshot's own post media, auto-enhance reads each
 // photo's own light. Everything runs on this device; results are kept in memory until saved.
 
 import { el } from '../../lib/dom.js';
@@ -44,12 +44,12 @@ export function uniqueName(name, ext, taken) {
   return n;
 }
 
-/** Editable list of boundary colors (any of them counts as bar). onChange(colors) after each edit. */
+/** Editable list of app colors (hints for Auto-Crop's chrome). onChange(colors) after each edit. */
 export function barColorsPicker(colors, onChange) {
   const box = el('div', { class: 'row wrap bt-colors' });
   const draw = () => box.replaceChildren(
     ...colors.map((c, i) => {
-      const input = el('input', { type: 'color', value: c, class: 'swatch-custom', 'aria-label': `Bar color ${i + 1}` });
+      const input = el('input', { type: 'color', value: c, class: 'swatch-custom', 'aria-label': `App color ${i + 1}` });
       input.addEventListener('change', () => { colors[i] = input.value; onChange(colors); draw(); });
       return el('span', { class: 'bt-color' }, input, el('code', { class: 'small', text: c.toUpperCase() }),
         colors.length > 1 ? el('button', { class: 'btn small-btn ghost', 'aria-label': `Remove ${c}`, text: '✕', onclick: () => { colors.splice(i, 1); onChange(colors); draw(); } }) : null);
@@ -68,7 +68,7 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
   const saveRecipe = () => { prefs.batchRecipe = recipe; savePrefs(); };
   let items = [];
   let focus = null;
-  let results = [];      // [{ item, file: File, url, note, w, h }]
+  let results = [];      // [{ item, file: File, url, note, w, h, review }]
   let running = null;    // { cancel: bool }
   let stopped = false;
   let activeAdjust = 'exposure';
@@ -205,7 +205,7 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
     sizeSel.addEventListener('change', () => { recipe.maxEdge = Number(sizeSel.value); changed(); });
 
     quickBox.replaceChildren(
-      quick('✂️', 'Auto-Crop', 'autoCrop', 'Cut at the bars, keep the middle'),
+      quick('✂️', 'Auto-Crop', 'autoCrop', 'Just the post\'s photo, no app around it'),
       quick('✨', 'Auto-Enhance', 'autoEnhance', 'Light & color per photo'));
 
     const adjusted = ADJUSTMENTS.filter((a) => recipe.adjust[a.id]).map((a) => a.label);
@@ -230,8 +230,8 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
           el('button', { class: 'btn small-btn', text: `⟳ Rotate${recipe.turns % 4 ? ` (${(recipe.turns % 4) * 90}°)` : ''}`, onclick: () => { recipe.turns = (recipe.turns + 1) % 4; changed(); } }),
           el('button', { class: `btn small-btn${recipe.flipH ? ' primary' : ''}`, text: '⇋ Flip', onclick: () => { recipe.flipH = !recipe.flipH; changed(); } })),
         el('div', { class: 'chips' }, ...RATIOS.filter((r) => r.id !== 'original').map((r) => el('button', { class: `chip${recipe.ratio === r.id ? ' active' : ''}`, text: r.id === 'free' ? 'Any shape' : r.label, onclick: () => { recipe.ratio = r.id; changed(); } })))),
-      section('colors', 'Auto-Crop bar colors', recipe.barColors.map((c) => c.toUpperCase()).join(' or '),
-        el('p', { class: 'small muted', text: 'A bar is a flat band of one of these colors starting at the top or bottom edge. The cut goes at its clean inner line, so the whole middle stays.' }),
+      section('colors', 'Auto-Crop app colors', recipe.barColors.map((c) => c.toUpperCase()).join(' or '),
+        el('p', { class: 'small muted', text: 'Auto-Crop reads the app\'s colors from the edges of each screenshot by itself; these colors count as app too when they show up there. A crop it isn\'t sure of is left for you to check.' }),
         barColorsPicker(recipe.barColors, () => changed())),
       section('files', 'File type & size', fileText,
         el('div', { class: 'row wrap' }, typeSel, sizeSel),
@@ -263,13 +263,13 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
       label.textContent = `Editing ${i + 1} of ${sel.length}: ${it.name}`;
       try {
         const type = outputType(recipe, it.type ?? await sniffType(it.file));
-        const { canvas, notes } = await renderEdited(it.file, base, { ...opts(), maxEdge: recipe.maxEdge });
+        const { canvas, notes, review } = await renderEdited(it.file, base, { ...opts(), maxEdge: recipe.maxEdge });
         const blob = await encodeCanvas(canvas, type, recipe.quality);
         const name = uniqueName(it.name, EXT[type], taken);
         const file = new File([blob], name, { type: blob.type, lastModified: Date.now() });
         const fit = fitSize(canvas.width, canvas.height, THUMB);
         const url = track(URL.createObjectURL(await canvasToBlob(drawToCanvas(canvas, fit.width, fit.height, '#ffffff'), 'image/jpeg', 0.8)));
-        results.push({ item: it, file, url, note: notes.join(' · '), w: canvas.width, h: canvas.height });
+        results.push({ item: it, file, url, note: notes.join(' · '), w: canvas.width, h: canvas.height, review: review ? { ...base, crop: review, ratio: 'free' } : null });
         canvas.width = canvas.height = 0; // free the memory now, not at garbage collection
       } catch (err) {
         results.push({ item: it, error: err.message });
@@ -308,7 +308,9 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
           el('strong', { class: 'small', text: r.file.name }),
           el('span', { class: 'small muted', text: `${r.w}×${r.h} · ${formatBytes(r.file.size)}` }),
           r.note ? el('span', { class: 'small', text: r.note }) : null),
-        el('button', { class: 'btn small-btn', text: shareable ? 'Share' : 'Save', onclick: () => saveOne(r.file) })))),
+        el('div', { class: 'bt-result-actions' },
+          r.review ? el('button', { class: 'btn small-btn primary', text: '✂️ Check crop', onclick: () => { if (confirm('Open this photo with the crop handles on the suggested crop? Bulk results you haven\'t saved will be lost.')) onEditOne(r.item.file, r.review); } }) : null,
+          el('button', { class: 'btn small-btn', text: shareable ? 'Share' : 'Save', onclick: () => saveOne(r.file) }))))),
     ].filter(Boolean));
     resultsBox.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }

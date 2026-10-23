@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fox Games">
+<meta name="theme-color" content="#1F2430">
+<title>Fox Games</title>
+<link rel="icon" href="../../../icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../../icons/apple-touch-icon.png">
+<link rel="stylesheet" href="fox.css">
+<link rel="stylesheet" href="cc-frame.css">
+</head>
+<body>
+<a class="cc-home" href="../../../index.html#/">‹ Home</a>
+<div id="app">
+
+  <div id="favoritesPage" class="page active">
+    <p class="eyebrow">Fox Games</p>
+    <h1>Favorites</h1>
+    <div class="game-grid" id="favoritesGrid"></div>
+  </div>
+
+  <div id="newGamesPage" class="page">
+    <p class="eyebrow">Fox Games</p>
+    <h1>New Games</h1>
+    <div class="game-grid" id="newGamesGrid"></div>
+  </div>
+
+  <div id="statsPage" class="page">
+    <p class="eyebrow">Fox Games</p>
+    <h1>Statistics</h1>
+    <div id="statsBody"></div>
+  </div>
+
+  <div id="settingsPage" class="page">
+    <p class="eyebrow">Fox Games</p>
+    <h1>Settings</h1>
+    <div class="setting-row">
+      <div class="setting-label">Appearance</div>
+      <div class="theme-toggle">
+        <button class="theme-btn" id="themeLightBtn">Light</button>
+        <button class="theme-btn" id="themeDarkBtn">Dark</button>
+      </div>
+    </div>
+    <div class="section-title">Games</div>
+    <div id="gameSettingsList"></div>
+  </div>
+
+  <div id="chessPage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="chessBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Daily Challenge</p>
+        <h1 style="margin-bottom:0;">Best Move</h1>
+      </div>
+    </div>
+    <p class="chess-status" id="chessStatus"></p>
+    <div class="board" id="chessBoard"></div>
+    <div class="chess-result" id="chessResult" style="display:none;"></div>
+  </div>
+
+  <div id="checkersPage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="checkersBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Vs. Robot</p>
+        <h1 style="margin-bottom:0;">Checkers</h1>
+      </div>
+    </div>
+    <p class="chess-status" id="checkersStatus"></p>
+    <div class="board" id="checkersBoard"></div>
+    <div class="chess-result" id="checkersResult" style="display:none;"></div>
+    <button class="text-btn" id="checkersNewGameBtn">New Game</button>
+  </div>
+
+  <div id="solitairePage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="solBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Klondike</p>
+        <h1 style="margin-bottom:0;">Solitaire</h1>
+      </div>
+    </div>
+    <p class="chess-status" id="solStatus"></p>
+    <div class="sol-draw-toggle">
+      <button class="sol-draw-btn" id="solDraw1Btn">Draw 1</button>
+      <button class="sol-draw-btn" id="solDraw3Btn">Draw 3</button>
+    </div>
+    <div class="sol-top-row" id="solTopRow"></div>
+    <div class="sol-tableau" id="solTableau"></div>
+    <div class="chess-result" id="solResult" style="display:none;"></div>
+    <div class="sol-action-row">
+      <button class="text-btn" id="solHintBtn" style="margin-top:0;">Hint</button>
+      <button class="text-btn" id="solNewGameBtn" style="margin-top:0;">New Game</button>
+    </div>
+  </div>
+
+  <div id="blackjackPage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="bjBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Vs. Dealer</p>
+        <h1 style="margin-bottom:0;">Blackjack</h1>
+      </div>
+    </div>
+    <p class="chess-status" id="bjMessage">&nbsp;</p>
+
+    <div class="bj-hand-label">Dealer <span class="bj-value" id="bjDealerValue"></span></div>
+    <div class="bj-hand" id="bjDealerHand"></div>
+
+    <div class="bj-hand-label" style="margin-top:20px;">You <span class="bj-value" id="bjPlayerValue"></span></div>
+    <div class="bj-hand" id="bjPlayerHand"></div>
+
+    <div class="sol-action-row" style="margin-top:22px;" id="bjPlayRow">
+      <button class="text-btn" id="bjHitBtn" style="margin-top:0;">Hit</button>
+      <button class="text-btn" id="bjStandBtn" style="margin-top:0;">Stand</button>
+    </div>
+
+    <div class="bj-betting" id="bjBetting" style="display:none;">
+      <div class="bj-bet-display">Current Bet: <span id="bjCurrentBet">$0</span></div>
+      <div class="bj-chip-row">
+        <button class="bj-chip" id="bjChip1" data-value="1">$1</button>
+        <button class="bj-chip" id="bjChip5" data-value="5">$5</button>
+        <button class="bj-chip" id="bjChip10" data-value="10">$10</button>
+      </div>
+      <div class="sol-action-row" style="margin-top:4px;">
+        <button class="text-btn" id="bjClearBetBtn" style="margin-top:0;">Clear</button>
+        <button class="text-btn" id="bjDealBtn" style="margin-top:0;">Deal</button>
+      </div>
+      <button class="text-btn" id="bjResetBalanceBtn" style="display:none;">Reset Bankroll to $100</button>
+    </div>
+
+    <button class="text-btn" id="bjNewHandBtn" style="display:none;">Next Hand</button>
+
+    <div class="bj-balance-bar">
+      <div class="bj-balance-label">Total</div>
+      <div class="bj-balance-num" id="bjBalance">$100</div>
+    </div>
+  </div>
+
+  <div id="bballPage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="bballBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Random Roster Draft</p>
+        <h1 style="margin-bottom:0;">Basketball Draft</h1>
+      </div>
+    </div>
+
+    <div id="bballSetup">
+      <div class="bball-pick-row">
+        <div class="bball-pick-card">
+          <div class="bball-pick-label">Era</div>
+          <div class="bball-pick-value" id="bballEraValue">—</div>
+          <button class="text-btn" id="bballSpinEraBtn" style="margin-top:10px;">Spin Era</button>
+        </div>
+        <div class="bball-pick-card">
+          <div class="bball-pick-label">Team</div>
+          <div class="bball-pick-value" id="bballTeamValue">—</div>
+          <button class="text-btn" id="bballSpinTeamBtn" style="margin-top:10px;">Spin Team</button>
+        </div>
+      </div>
+      <p class="chess-status" id="bballSetupMsg">Spin both to begin.</p>
+      <button class="text-btn" id="bballBeginBtn" disabled>Begin Draft</button>
+    </div>
+
+    <div id="bballDraft" style="display:none;">
+      <div class="bball-sticky-head">
+        <div class="bball-draft-banner" id="bballDraftBanner"></div>
+      </div>
+
+      <div class="bball-roster" id="bballRoster"></div>
+      <button class="text-btn" id="bballSpinPlayerBtn" style="margin-top:10px;">Re-Spin for Next Player</button>
+      <p class="bball-respin-note" id="bballRespinNote"></p>
+
+      <p class="bball-pick-hint" id="bballPickHint"></p>
+      <div class="bball-eligible-list" id="bballEligibleList"></div>
+    </div>
+
+    <div id="bballComplete" style="display:none;">
+      <p class="chess-status">Your Starting Five</p>
+      <div class="bball-roster" id="bballFinalList"></div>
+      <div class="bball-grade-card" id="bballGradeCard"></div>
+      <div class="sol-action-row">
+        <button class="text-btn" id="bballPlayAgainBtn" style="margin-top:0;">Play Again</button>
+        <button class="text-btn" id="bballMainMenuBtn" style="margin-top:0;">Draft Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tileMatchPage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="tmBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Memory Game</p>
+        <h1 style="margin-bottom:0;">Tile Match</h1>
+      </div>
+    </div>
+
+    <div class="tm-status-row">
+      <div class="tm-stat">
+        <div class="tm-stat-num" id="tmTimer">0:00</div>
+        <div class="tm-stat-label">Time</div>
+      </div>
+      <div class="tm-stat">
+        <div class="tm-stat-num" id="tmPoints">0</div>
+        <div class="tm-stat-label">Points</div>
+      </div>
+    </div>
+    <div class="tm-message" id="tmMessage">&nbsp;</div>
+
+    <div class="tm-wrap" id="tmWrap">
+      <div class="tm-picker" id="tmPicker" style="display:none;">
+        <div class="road-overlay-title" style="color:var(--ink);">Tile Match</div>
+        <div class="road-overlay-sub" style="color:var(--ink-soft);">Choose a difficulty to begin.</div>
+        <div id="tmPickerButtons"></div>
+      </div>
+      <div class="tm-grid" id="tmGrid"></div>
+      <div class="road-overlay" id="tmOverlay" style="display:none;">
+        <div class="road-overlay-card">
+          <div class="road-overlay-title" id="tmOverlayTitle">All matched!</div>
+          <div class="road-overlay-sub" id="tmOverlaySub"></div>
+          <div id="tmOverlayButtons"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="text-btn" id="tmNewGameBtn">Main Menu</button>
+  </div>
+
+  <div id="roadPage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="roadBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Endless Dodge</p>
+        <h1 style="margin-bottom:0;">That One Ad</h1>
+      </div>
+    </div>
+    <div class="road-wrap" id="roadWrap">
+      <canvas id="roadCanvas"></canvas>
+      <div class="road-hud">
+        <div class="road-timer" id="roadTimer">0:00</div>
+        <div class="road-active-bar" id="roadActiveBar"></div>
+      </div>
+      <div class="road-tier-popup" id="roadTierPopup"></div>
+      <div class="road-overlay" id="roadOverlay">
+        <div class="road-overlay-card">
+          <div class="road-overlay-title" id="roadOverlayTitle">That One Ad</div>
+          <div class="road-overlay-sub" id="roadOverlaySub">Drag left and right. Avoid the black walls.</div>
+          <div id="roadOverlayButtons"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="spellingbeePage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="beeBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Daily Puzzle</p>
+        <h1 style="margin-bottom:0;">Spelling Bee</h1>
+      </div>
+    </div>
+
+    <div class="bee-tier-wrap">
+      <div class="bee-tier-head">
+        <span class="bee-tier-label" id="beeRank">Freshman</span>
+        <span class="bee-tier-score"><span id="beeScore">0</span> pts</span>
+      </div>
+      <div class="bee-tier-track"><div class="bee-tier-fill" id="beeTierFill"></div></div>
+      <div class="bee-tier-ticks" id="beeTierTicks"></div>
+    </div>
+
+    <div class="bee-word-display" id="beeWordDisplay">&nbsp;</div>
+    <div class="bee-message" id="beeMessage"></div>
+
+    <div class="bee-hex-wrap" id="beeHexWrap"></div>
+
+    <div class="bee-controls">
+      <button class="bee-ctrl-btn" id="beeDeleteBtn">Delete</button>
+      <button class="bee-ctrl-btn bee-shuffle-btn" id="beeShuffleBtn" aria-label="Shuffle">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
+      </button>
+      <button class="bee-ctrl-btn bee-enter-btn" id="beeEnterBtn">Enter</button>
+    </div>
+
+    <div class="bee-found-header">
+      <span id="beeFoundCount">0 words found</span>
+    </div>
+    <div class="bee-found-list" id="beeFoundList"></div>
+  </div>
+
+  <div id="dailyFivePage" class="page">
+    <div class="top-bar">
+      <button class="icon-btn" id="dfBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+      <div>
+        <p class="eyebrow">Daily Puzzle</p>
+        <h1 style="margin-bottom:0;">Daily Word</h1>
+      </div>
+    </div>
+
+    <div class="df-message" id="dfMessage">&nbsp;</div>
+    <div class="df-board" id="dfBoard"></div>
+    <div class="df-keyboard" id="dfKeyboard"></div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabFavorites" data-page="favoritesPage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.9 6.4.6-4.8 4.3 1.4 6.2L12 16.9 6.4 20l1.4-6.2L3 9.5l6.4-.6L12 3z"></path></svg>
+      <span class="tab-btn-label">Favorites</span>
+    </button>
+    <button class="tab-btn" id="tabNewGames" data-page="newGamesPage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+      <span class="tab-btn-label">New Games</span>
+    </button>
+    <button class="tab-btn" id="tabStats" data-page="statsPage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="11"></line><line x1="12" y1="20" x2="12" y2="6"></line><line x1="19" y1="20" x2="19" y2="14"></line></svg>
+      <span class="tab-btn-label">Statistics</span>
+    </button>
+    <button class="tab-btn" id="tabSettings" data-page="settingsPage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1h.1a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"></path></svg>
+      <span class="tab-btn-label">Settings</span>
+    </button>
+  </div>
+
+</div>
+
+<script src="fox.js"></script>
+</body>
+</html>

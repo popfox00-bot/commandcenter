@@ -1,7 +1,7 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen of app icons: **Tools**, **Updates** and
-**Jobs**.
+A personal, phone-first app. It opens on a home screen of app icons: **Tools**, **Updates**,
+**Notes**, **Games** and **Jobs**.
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
   Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
@@ -13,6 +13,10 @@ A personal, phone-first app. It opens on a home screen of app icons: **Tools**, 
 - **[Updates](#updates)**: weather (Weather Service alerts, forecast, freezes, wind, air quality for
   ZIP 80214 by default) and sports (your teams' live scores, next games with TV and line, results).
   Works on the phone with no setup; the same rules drive push notifications from two jobs.
+- **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
+  store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
+- **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
+  Solitaire, Tile Match, Blackjack, Basketball Draft).
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -38,6 +42,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Tools](#tools)
+- [Notes](#notes) · [Games](#games)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -259,6 +264,34 @@ change a job or the Updates app.
 the schedule in `cc-scheduled.yml` (it runs every 20 minutes; the weather job is due every run, the
 sports job hourly).
 
+## Notes
+
+Open **Notes** on the home screen. Everything is stored on the phone (IndexedDB) and works offline.
+
+- **Notes**: a title and text, or a **checklist** (Enter adds the next item; switch between text and
+  checklist any time), photos from the camera or library, **pin** to the top, search across titles,
+  text and checklist items, and **Share** (text plus photos). Empty notes are discarded.
+- **Grocery**: type what you need ("2 lb ground beef", "milk x2", "a loaf of bread"); the quantity is
+  split off, the item gets its own icon (🍌 🥛 🧀 🥩 🧻 …) and lands in its store section (Produce,
+  Fruit, Bakery, Meat, Dairy & Eggs, … in walking order). Tap the circle to put it in the cart;
+  **Clear cart** when you're done. Tap an item to change quantity, section or a note for this trip.
+- **Brand photos ("My items")**: on any item, add the **exact product** (brand, size) and a **photo**
+  of it. It's remembered: next time you type a few letters, it's suggested with its photo, and the
+  thumbnail in the list opens full screen so whoever shops can match the label on the shelf. Items
+  you clear from the cart are added to My items, most-bought first as one-tap suggestions.
+- **Share** sends the list as text grouped by section, with brands, e.g. to Messages.
+
+## Games
+
+**Games** opens **Fox Games** (all nine games, favorites, statistics and settings, unchanged) as its
+own page inside the app, with a **‹ Home** link back. Its code lives in `web/apps/games/fox/`
+(`fox.js` and `fox.css` are the original script and styles, byte for byte). The only changes from
+the original single file: the script and styles moved into those files so the page can use the same
+strict Content Security Policy as the rest of the app, its own manifest and service worker were
+dropped (Command Center's cover it, so the games work offline), and the Home link and icon were
+added. Scores and settings are saved in this app's storage under `foxGames`; progress from the old
+standalone Fox Games site doesn't carry over (browsers keep each site's storage separate).
+
 ## Repository layout
 
 ```
@@ -277,7 +310,7 @@ shared/                     Code shared by runner and Worker: SQL store, HMAC si
 worker/                     Cloudflare Worker (API, ingest, cron) + D1 migrations
 web/                        PWA (no build step): app.js shell (home screen), jobs.js dashboard,
                             tools/ (Editor, QR), apps/updates/ (weather + sports; *-core.js shared
-                            with the jobs), lib/, vendor/
+                            with the jobs), apps/notes/, apps/games/fox/ (Fox Games), lib/, vendor/
 index.html                  Redirects the GitHub Pages root to web/
 test/                       node:test suites; test/browser/ = Playwright tests for the tools
 .github/workflows/          cc-scheduled, cc-dispatch, cc-ci (tests + secret scan), cc-pages,

@@ -4,10 +4,16 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "d52d5a5ab2c6",
+  "version": "5ce31baa992f",
   "files": [
     "app.js",
+    "apps/games/fox/cc-frame.css",
+    "apps/games/fox/fox.css",
+    "apps/games/fox/fox.js",
+    "apps/games/fox/index.html",
     "apps/index.js",
+    "apps/notes/notes-core.js",
+    "apps/notes/notes.js",
     "apps/updates/sports-core.js",
     "apps/updates/updates.js",
     "apps/updates/weather-core.js",

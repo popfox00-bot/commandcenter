@@ -49,6 +49,8 @@ test('bulk Auto-Crop, offline: each photo cropped at its own bars, saved as sepa
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const external = [];
+  page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) external.push(r.url()); });
   // Load once so the service worker caches the app, then go offline.
   await page.goto(`${origin}${BASE}#/tools/editor`);
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -92,6 +94,7 @@ test('bulk Auto-Crop, offline: each photo cropped at its own bars, saved as sepa
   assert.deepEqual(shared.map((f) => [f.w, f.h <= 382 && f.h >= 378 ? 380 : f.h]), [[300, 400], [300, 380], [300, 500]]);
   assert.deepEqual(shared.map((f) => f.type), ['image/png', 'image/jpeg', 'image/png'], 'same file type as each photo');
 
+  assert.deepEqual(external, [], 'photos never leave the phone: no request outside the app');
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -101,6 +104,8 @@ test('single photo: Auto-Crop in the Crop panel, then export at the cropped size
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const external = [];
+  page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) external.push(r.url()); });
   await page.goto(`${origin}${BASE}#/tools/editor`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   await page.setInputFiles('#ed-file', { name: 'shot.png', mimeType: 'image/png', buffer: await barred(page, { color: '#022157', top: 70, bottom: 30 }) });
@@ -110,6 +115,7 @@ test('single photo: Auto-Crop in the Crop panel, then export at the cropped size
   await page.waitForFunction(() => /Cropped top 70 px, bottom 30 px/.test(document.querySelector('.ed-autocrop-note')?.textContent ?? ''));
   await page.getByRole('button', { name: 'Done' }).click();
   await page.waitForFunction(() => /300×400/.test(document.querySelector('.ed-dialog .muted')?.textContent ?? ''));
+  assert.deepEqual(external, [], 'photos never leave the phone: no request outside the app');
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -119,6 +125,8 @@ test('bulk: the same edit (Mono filter, rotate, square) goes to every selected p
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const external = [];
+  page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) external.push(r.url()); });
   await page.goto(`${origin}${BASE}#/tools/editor`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   await page.evaluate(() => { localStorage.removeItem('cc.editor.prefs'); });
@@ -138,6 +146,7 @@ test('bulk: the same edit (Mono filter, rotate, square) goes to every selected p
   await page.waitForFunction(() => window.__shared);
   const shared = await page.evaluate(() => window.__shared);
   assert.deepEqual(shared.map((f) => [f.name, f.w, f.h, f.gray]), [['a-edited.png', 300, 300, true], ['c-edited.png', 300, 300, true]]);
+  assert.deepEqual(external, [], 'photos never leave the phone: no request outside the app');
   assert.deepEqual(errors, []);
   await context.close();
 });

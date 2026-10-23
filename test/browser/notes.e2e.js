@@ -124,6 +124,8 @@ test('notes: text note, checklist, photo, pin, search; saved across reloads', as
   await page.getByRole('button', { name: '‹ Notes' }).click();
 
   await page.getByRole('button', { name: 'New checklist' }).click();
+  // A new checklist puts the cursor in its first item on the next frame; type the title after that.
+  await page.waitForFunction(() => document.activeElement?.matches('.nt-checklist input'));
   await page.fill('.nt-title', 'Camping');
   await page.locator('.nt-checklist input').first().fill('Tent');
   await page.locator('.nt-checklist input').first().press('Enter');

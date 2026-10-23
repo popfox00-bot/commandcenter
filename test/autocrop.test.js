@@ -77,9 +77,65 @@ test('either boundary color: navy #022157 or near-black #0B1014, even both in on
   assert.deepEqual(dark, { top: 25, bottom: 180, foundTop: true, foundBottom: true });
   const mixed = findBars(image(w, h, (x, y) => (y < 20 ? NAVY : y >= 170 ? DARK : photo(x, y))), w, h);
   assert.deepEqual(mixed, { top: 20, bottom: 170, foundTop: true, foundBottom: true });
-  // A bar that is half navy, half near-black across the row still counts.
-  const split = findBars(image(w, h, (x, y) => (y < 15 ? (x < 30 ? NAVY : DARK) : photo(x, y))), w, h);
-  assert.equal(split.top, 15);
+  // Each bar is one flat color; either boundary color works on either side.
+  const flipped = findBars(image(w, h, (x, y) => (y < 15 ? DARK : y >= 185 ? NAVY : photo(x, y))), w, h);
+  assert.deepEqual(flipped, { top: 15, bottom: 185, foundTop: true, foundBottom: true });
+});
+
+// ---------- the cases that cut into pictures before ----------
+
+// Deterministic noise, -n..+n per channel.
+const noise = (n) => (x, y, k) => (((x * 73856093) ^ (y * 19349663) ^ (k * 83492791)) >>> 0) % (2 * n + 1) - n;
+const tex = (base, n) => (x, y) => base.map((v, k) => Math.max(0, Math.min(255, v + noise(n)(x, y, k))));
+
+test('dark picture content next to the bar is not cropped: the cut is at the bar\'s clean line', () => {
+  const w = 120; const h = 400;
+  const BLACK = [0, 0, 0];
+  // Letterbox: pure black bars (40 rows) around a night photo whose top is dark blue-gray sky.
+  const sky = tex([20, 25, 40], 12);
+  const img = image(w, h, (x, y) => (y < 40 || y >= 360 ? BLACK : y < 140 ? sky(x, y) : photo(x, y)));
+  assert.deepEqual(findBars(img, w, h), { top: 40, bottom: 360, foundTop: true, foundBottom: true });
+});
+
+test('a dark band inside the picture (shadow, road) is ignored: the outermost bar is used', () => {
+  const w = 120; const h = 400;
+  const DARK = hexToRgb('#0B1014');
+  // Navy header 30 rows, then picture with a near-black band at rows 110-130 across 80% of the width.
+  const img = image(w, h, (x, y) => (y < 30 ? NAVY : y >= 110 && y < 130 && x < 96 ? DARK : photo(x, y)));
+  const bars = findBars(img, w, h);
+  assert.equal(bars.top, 30, 'cut at the header, not at the dark band in the picture');
+  assert.equal(bars.foundBottom, false);
+});
+
+test('a textured dark area at the edge of a photo without bars is left alone', () => {
+  const w = 120; const h = 400;
+  const night = tex([12, 16, 22], 25);
+  const img = image(w, h, (x, y) => (y < 100 ? night(x, y) : photo(x, y)));
+  assert.deepEqual(findBars(img, w, h), { top: 0, bottom: 400, foundTop: false, foundBottom: false });
+});
+
+test('screenshot layouts: light status bar above the bar, a separator line inside it, a tab bar with icons', () => {
+  const w = 120; const h = 600;
+  const DARK = hexToRgb('#0B1014');
+  const img = image(w, h, (x, y) => {
+    if (y < 20) return [250, 250, 250];                                        // light status bar
+    if (y < 70) return y === 45 ? [90, 110, 140] : NAVY;                       // navy bar with a 1px separator
+    if (y >= 520) return y > 540 && y < 560 && x % 30 < 10 ? [200, 200, 200] : DARK; // tab bar with icons
+    return photo(x, y);
+  });
+  assert.deepEqual(findBars(img, w, h), { top: 70, bottom: 520, foundTop: true, foundBottom: true });
+});
+
+test('heavy compression and a soft edge: the line is found within a pixel or two, never deep in the picture', () => {
+  const w = 120; const h = 400;
+  const img = image(w, h, (x, y) => {
+    if (y < 50 || y >= 350) return tex(NAVY, 6)(x, y);
+    if (y === 50 || y === 349) return NAVY.map((v, k) => Math.round((v + photo(x, y)[k]) / 2)); // blended row
+    return photo(x, y);
+  });
+  const bars = findBars(img, w, h);
+  assert.ok(bars.top >= 50 && bars.top <= 52, `top ${bars.top}`);
+  assert.ok(bars.bottom <= 350 && bars.bottom >= 348, `bottom ${bars.bottom}`);
 });
 
 test('the existing horizontal crop is kept', () => {

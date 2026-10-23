@@ -118,23 +118,29 @@ an on-device model.
 than one, the editor opens the bulk screen:
 
 - Thumbnails with a circle to include or skip each photo; tap a photo to preview the edits on it.
-- One set of edits for all: **Auto-Crop bars**, **Auto-enhance** (tuned per photo), a filter and its
-  strength, every light & color slider, rotate/flip, and a shape (square, 4:5, 16:9, …, centered).
-- **Files**: same type as each photo (HEIC becomes JPEG), or JPEG/PNG/WebP; full size or 4096/2048/1080
-  px; quality.
+- Two big buttons up front: **✂️ Auto-Crop** (on by default) and **✨ Auto-Enhance** (tuned per photo).
+  That's all most batches need.
+- **More edits ▾** (optional, closed by default) holds drop-downs for precise changes, each showing its
+  current setting: Filter, Light & color, Rotate & shape (square, 4:5, 16:9, …, centered), Auto-Crop
+  bar colors, and File type & size (same type as each photo — HEIC becomes JPEG — or JPEG/PNG/WebP;
+  full size or 4096/2048/1080 px; quality).
 - **Apply** edits them one by one with progress (Stop is possible), then lists every result with its
   size and what Auto-Crop did. **Save to Photos** / **Save to Files** open the iPhone share sheet with
   all of them, each as its own file (no zip); names are unique ("IMG_1-edited.jpg", or
   "image-edited-2.png" when the Photos picker gives every photo the same name). If the sheet can't take
   them all at once, they come in groups of 20. Each result can also be shared on its own.
 
-**Auto-Crop bars** (bulk screen, and Crop → "Auto-Crop bars" for one photo): finds solid bars of the
+**Auto-Crop** (bulk screen, and the ✂️ button under a single photo): finds the solid bars of the
 boundary colors — **#022157** (navy) or **#0B1014** (near-black), either one, even both in the same photo
-— in the top and bottom 45% of the photo and keeps only the middle. A row counts as bar when at least
-60% of it is one of those colors (within a small tolerance for JPEG compression), so a logo or text on
-the bar is fine; the blurred edge next to a bar goes with it, and a thin straight line counts too.
-Each photo is measured on its own at full resolution, so every photo gets its own top and bottom.
-Photos without bars are left uncropped. The colors are editable (add up to four, or back to defaults).
+— and cuts at their clean straight line, keeping all of the middle. Each side is scanned from the edge
+inward: a bar must start within the outer 25% with a solid, flat row of one of those colors; its exact
+color is measured, and it is followed inward only while rows stay that color (text or a logo on the bar
+is fine, a 1-px separator inside it is bridged). The first row that isn't bar color is the cut, plus at
+most two rows of blurred edge. Dark parts of the picture itself (night sky, shadows, a road) are
+textured or a different shade, so they never extend a bar, and the cut never reaches past 48% from
+either edge. Each photo is measured on its own at full resolution. Photos without bars are left
+uncropped. The colors are editable under More edits (add up to four, or back to defaults).
+The single-photo editor also has **✨ Auto-Enhance** next to it, with the full tools below.
 
 Everything happens on the phone: photos are decoded, edited and encoded locally, kept in memory until
 you save them, and nothing is uploaded. It works offline.

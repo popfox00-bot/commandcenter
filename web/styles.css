@@ -479,3 +479,23 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .ed-autocrop-note { flex-basis: 100%; }
 .bt-colors { gap: 6px; align-items: center; }
 .bt-color { display: inline-flex; align-items: center; gap: 4px; }
+.bt-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 10px; }
+.bt-quick-btn { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 10px 12px; border: 2px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); font: inherit; text-align: left; }
+.bt-quick-btn.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 16%, var(--surface)); }
+.bt-quick-icon { font-size: 1.6rem; flex: none; }
+.bt-quick-text { display: grid; min-width: 0; }
+.bt-quick-text .small { color: var(--muted); }
+.bt-quick-btn.on .bt-quick-text .small { color: var(--primary); }
+.bt-more { margin: 4px 0 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.bt-more > summary, .bt-section > summary { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px; cursor: pointer; font-weight: 600; list-style: none; }
+.bt-more > summary::-webkit-details-marker, .bt-section > summary::-webkit-details-marker { display: none; }
+.bt-more > summary::after, .bt-section > summary::after { content: '▾'; color: var(--muted); }
+.bt-more[open] > summary::after, .bt-section[open] > summary::after { content: '▴'; }
+.bt-summary { margin-left: auto; color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.bt-section { border-top: 1px solid var(--border); }
+.bt-section > :not(summary) { margin: 0 14px 12px; }
+.bt-section .chips { margin-bottom: 8px; }
+.bt-section select { min-height: 40px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 0 8px; font-size: 16px; }
+.ed-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
+.ed-quick .btn { min-height: 44px; }
+.ed-quick-note { grid-column: 1 / -1; margin: 0; min-height: 1.2em; }

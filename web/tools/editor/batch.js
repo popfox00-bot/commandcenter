@@ -79,7 +79,9 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
   const count = el('strong');
   const previewCanvas = el('canvas', { class: 'bt-preview-canvas' });
   const previewNote = el('p', { class: 'small muted bt-preview-note' });
-  const recipeBox = el('div', { class: 'bt-recipe' });
+  const recipeBox = el('details', { class: 'bt-more' });
+  const quickBox = el('div', { class: 'bt-quick' });
+  const openSections = new Set();
   const runBox = el('div', { class: 'bt-run' });
   const resultsBox = el('section', { class: 'bt-results', hidden: true });
   const addInput = el('input', { type: 'file', accept: 'image/*,.heic,.heif', multiple: true, class: 'visually-hidden', id: 'bt-add' });
@@ -90,14 +92,13 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
       el('button', { class: 'btn small-btn ghost', text: '‹ Back', onclick: () => { if (!results.length || confirm('Leave? Edited photos you haven\'t saved will be lost.')) onExit(); } }),
       count,
       el('label', { class: 'btn small-btn', for: 'bt-add', text: '+ Add' })),
-    el('div', { class: 'row wrap bt-select' },
-      el('button', { class: 'btn small-btn ghost', text: 'Select all', onclick: () => { items.forEach((i) => { i.selected = true; }); drawGrid(); } }),
-      el('button', { class: 'btn small-btn ghost', text: 'Select none', onclick: () => { items.forEach((i) => { i.selected = false; }); drawGrid(); } }),
-      el('span', { class: 'muted small', text: 'Tap a photo to preview it; tap its circle to include or skip it.' })),
     grid,
+    el('div', { class: 'row space bt-select' },
+      el('span', { class: 'muted small', text: 'Tap a photo to preview · circle = include' }),
+      el('button', { class: 'linkish small', text: 'All / none', onclick: () => { const all = items.every((i) => i.selected); items.forEach((i) => { i.selected = !all; }); drawGrid(); } })),
     el('section', { class: 'bt-preview' }, previewCanvas, previewNote,
-      el('button', { class: 'btn small-btn ghost', text: 'Edit just this photo in the full editor', onclick: () => { if (focus && (!results.length || confirm('Open the full editor? Bulk results you haven\'t saved will be lost.'))) onEditOne(focus.file); } })),
-    recipeBox, runBox, resultsBox, addInput);
+      el('button', { class: 'linkish small', text: 'Fine-tune just this photo', onclick: () => { if (focus && (!results.length || confirm('Open the full editor? Bulk results you haven\'t saved will be lost.'))) onEditOne(focus.file); } })),
+    quickBox, runBox, recipeBox, resultsBox, addInput);
 
   // ---------- photos ----------
 
@@ -172,11 +173,21 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
 
   // ---------- recipe ----------
 
-  function toggle(label, key, hint) {
-    const id = `bt-${key}`;
-    const box = el('input', { type: 'checkbox', class: 'qr-check-input', id, checked: !!recipe[key] });
-    box.addEventListener('change', () => { recipe[key] = box.checked; changed(); });
-    return el('div', { class: 'bt-opt' }, el('label', { class: 'qr-checkbox', for: id }, box, ` ${label}`), hint ? el('span', { class: 'small muted', text: hint }) : null);
+  /** A big on/off button for the main actions. */
+  function quick(icon, label, key, hint) {
+    const on = !!recipe[key];
+    return el('button', {
+      class: `bt-quick-btn${on ? ' on' : ''}`, id: `bt-${key}`, 'aria-pressed': String(on),
+      onclick: () => { recipe[key] = !recipe[key]; changed(); },
+    }, el('span', { class: 'bt-quick-icon', 'aria-hidden': 'true', text: icon }),
+    el('span', { class: 'bt-quick-text' }, el('strong', { text: label }), el('span', { class: 'small', text: on ? hint : 'Off' })));
+  }
+  /** A collapsible section ("drop-down") that remembers being open across redraws. */
+  function section(id, title, summary, ...body) {
+    const d = el('details', { class: 'bt-section', open: openSections.has(id) },
+      el('summary', {}, el('span', { text: title }), summary ? el('span', { class: 'small bt-summary', text: summary }) : null), ...body.filter(Boolean));
+    d.addEventListener('toggle', () => { if (d.open) openSections.add(id); else openSections.delete(id); });
+    return d;
   }
   function slider(value, min, onCommit, label) {
     const out = el('output', { text: String(value) });
@@ -193,28 +204,38 @@ export function mountBatch(host, files, { prefs, savePrefs, onExit, onEditOne })
     const sizeSel = el('select', { 'aria-label': 'Size' }, ...[[0, 'Full size'], [4096, '4096 px'], [2048, '2048 px'], [1080, '1080 px']].map(([v, l]) => el('option', { value: String(v), text: l, selected: recipe.maxEdge === v })));
     sizeSel.addEventListener('change', () => { recipe.maxEdge = Number(sizeSel.value); changed(); });
 
-    recipeBox.replaceChildren(...[
-      el('h3', { text: 'Edits for every selected photo' }),
-      el('div', { class: 'bt-opt' },
-        toggle('Auto-Crop bars', 'autoCrop'),
-        el('span', { class: 'small muted', text: 'Finds solid bars of these colors (either one) at the top and bottom of each photo and keeps the middle. Each photo gets its own crop.' }),
+    quickBox.replaceChildren(
+      quick('✂️', 'Auto-Crop', 'autoCrop', 'Cut at the bars, keep the middle'),
+      quick('✨', 'Auto-Enhance', 'autoEnhance', 'Light & color per photo'));
+
+    const adjusted = ADJUSTMENTS.filter((a) => recipe.adjust[a.id]).map((a) => a.label);
+    const filterName = FILTERS.find((f) => f.id === recipe.filter)?.label;
+    const shape = RATIOS.find((r) => r.id === recipe.ratio);
+    const turnText = [recipe.turns % 4 ? `${(recipe.turns % 4) * 90}°` : '', recipe.flipH ? 'flipped' : '', recipe.ratio !== 'free' ? shape?.label : ''].filter(Boolean).join(', ');
+    const fileText = [TYPES.find(([v]) => v === recipe.type)?.[1], recipe.maxEdge ? `${recipe.maxEdge} px` : 'full size'].join(', ');
+    const any = recipe.filter !== 'original' || adjusted.length || turnText;
+    recipeBox.open = openSections.has('more');
+    recipeBox.ontoggle = () => { if (recipeBox.open) openSections.add('more'); else openSections.delete('more'); };
+    recipeBox.replaceChildren(
+      el('summary', {}, el('span', { text: 'More edits' }), el('span', { class: 'small bt-summary', text: any ? 'some set' : 'optional' })),
+      section('filter', 'Filter', recipe.filter !== 'original' ? filterName : '',
+        el('div', { class: 'chips' }, ...FILTERS.map((f) => el('button', { class: `chip${recipe.filter === f.id ? ' active' : ''}`, text: f.label, onclick: () => { recipe.filter = f.id; changed(); } }))),
+        recipe.filter !== 'original' ? slider(Math.round(recipe.filterIntensity * 100), 0, (v) => { recipe.filterIntensity = v / 100; changed(); }, 'Filter intensity') : null),
+      section('light', 'Light & color', adjusted.length ? adjusted.join(', ') : '',
+        el('div', { class: 'chips' }, ...ADJUSTMENTS.map((a) => el('button', { class: `chip${a.id === activeAdjust ? ' active' : ''}${recipe.adjust[a.id] ? ' changed' : ''}`, text: `${a.icon} ${a.label}`, onclick: () => { activeAdjust = a.id; drawRecipe(); } }))),
+        slider(Math.round(recipe.adjust[activeAdjust] * 100), def.min === 0 ? 0 : -100, (v) => { recipe.adjust = { ...recipe.adjust, [activeAdjust]: v / 100 }; changed(); }, def.label),
+        adjusted.length ? el('button', { class: 'linkish small', text: 'Reset light & color', onclick: () => { recipe.adjust = defaultState().adjust; changed(); } }) : null),
+      section('turn', 'Rotate & shape', turnText,
+        el('div', { class: 'row wrap' },
+          el('button', { class: 'btn small-btn', text: `⟳ Rotate${recipe.turns % 4 ? ` (${(recipe.turns % 4) * 90}°)` : ''}`, onclick: () => { recipe.turns = (recipe.turns + 1) % 4; changed(); } }),
+          el('button', { class: `btn small-btn${recipe.flipH ? ' primary' : ''}`, text: '⇋ Flip', onclick: () => { recipe.flipH = !recipe.flipH; changed(); } })),
+        el('div', { class: 'chips' }, ...RATIOS.filter((r) => r.id !== 'original').map((r) => el('button', { class: `chip${recipe.ratio === r.id ? ' active' : ''}`, text: r.id === 'free' ? 'Any shape' : r.label, onclick: () => { recipe.ratio = r.id; changed(); } })))),
+      section('colors', 'Auto-Crop bar colors', recipe.barColors.map((c) => c.toUpperCase()).join(' or '),
+        el('p', { class: 'small muted', text: 'A bar is a flat band of one of these colors starting at the top or bottom edge. The cut goes at its clean inner line, so the whole middle stays.' }),
         barColorsPicker(recipe.barColors, () => changed())),
-      toggle('Auto-enhance', 'autoEnhance', 'Light and color tuned for each photo.'),
-      el('strong', { class: 'small', text: 'Filter' }),
-      el('div', { class: 'chips' }, ...FILTERS.map((f) => el('button', { class: `chip${recipe.filter === f.id ? ' active' : ''}`, text: f.label, onclick: () => { recipe.filter = f.id; changed(); } }))),
-      recipe.filter !== 'original' ? slider(Math.round(recipe.filterIntensity * 100), 0, (v) => { recipe.filterIntensity = v / 100; changed(); }, 'Filter intensity') : null,
-      el('div', { class: 'row space' }, el('strong', { class: 'small', text: 'Light & color' }), el('button', { class: 'linkish small', text: 'Reset', onclick: () => { recipe.adjust = defaultState().adjust; changed(); } })),
-      el('div', { class: 'chips' }, ...ADJUSTMENTS.map((a) => el('button', { class: `chip${a.id === activeAdjust ? ' active' : ''}${recipe.adjust[a.id] ? ' changed' : ''}`, text: `${a.icon} ${a.label}`, onclick: () => { activeAdjust = a.id; drawRecipe(); } }))),
-      slider(Math.round(recipe.adjust[activeAdjust] * 100), def.min === 0 ? 0 : -100, (v) => { recipe.adjust = { ...recipe.adjust, [activeAdjust]: v / 100 }; changed(); }, def.label),
-      el('strong', { class: 'small', text: 'Turn & shape' }),
-      el('div', { class: 'row wrap' },
-        el('button', { class: 'btn small-btn', text: `⟳ Rotate${recipe.turns % 4 ? ` (${(recipe.turns % 4) * 90}°)` : ''}`, onclick: () => { recipe.turns = (recipe.turns + 1) % 4; changed(); } }),
-        el('button', { class: `btn small-btn${recipe.flipH ? ' primary' : ''}`, text: '⇋ Flip', onclick: () => { recipe.flipH = !recipe.flipH; changed(); } })),
-      el('div', { class: 'chips' }, ...RATIOS.filter((r) => r.id !== 'original').map((r) => el('button', { class: `chip${recipe.ratio === r.id ? ' active' : ''}`, text: r.id === 'free' ? 'Any shape' : r.label, onclick: () => { recipe.ratio = r.id; changed(); } }))),
-      el('strong', { class: 'small', text: 'Files' }),
-      el('div', { class: 'row wrap' }, typeSel, sizeSel),
-      recipe.type !== 'image/png' ? slider(Math.round(recipe.quality * 100), 50, (v) => { recipe.quality = v / 100; changed(); }, 'Quality') : null,
-    ].filter(Boolean));
+      section('files', 'File type & size', fileText,
+        el('div', { class: 'row wrap' }, typeSel, sizeSel),
+        recipe.type !== 'image/png' ? slider(Math.round(recipe.quality * 100), 50, (v) => { recipe.quality = v / 100; changed(); }, 'Quality') : null));
   }
 
   // ---------- run ----------

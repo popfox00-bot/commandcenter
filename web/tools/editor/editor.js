@@ -127,7 +127,13 @@ export function mount(host, { file: initialFile } = {}) {
       el('button', { class: 'btn primary small-btn', text: 'Done', onclick: openExport }));
     panel = el('div', { class: 'ed-panel' });
     modeBar = el('div', { class: 'segmented ed-modes', role: 'tablist' });
-    host.replaceChildren(top, stage, modeBar, panel);
+    // The two one-tap fixes up front; Adjust/Filters/Crop/Markup below are for precise edits.
+    const quickNote = el('p', { class: 'small muted ed-quick-note' });
+    const quick = el('div', { class: 'ed-quick' },
+      el('button', { class: 'btn', text: '✨ Auto-Enhance', onclick: () => { autoEnhance(); quickNote.textContent = 'Light & color tuned. Fine-tune in Adjust.'; } }),
+      el('button', { class: 'btn', text: '✂️ Auto-Crop', onclick: (e) => runAutoCrop(e.currentTarget, quickNote) }),
+      quickNote);
+    host.replaceChildren(top, stage, quick, modeBar, panel);
     bindPointer();
     renderModes();
     renderPanel();
@@ -492,12 +498,14 @@ export function mount(host, { file: initialFile } = {}) {
       r = await loadFullRenderer(file);
       const found = detectAutoCrop(r, state(), { colors: [...prefs.autoCropColors] });
       autoCropNote = found.note;
+      note.textContent = found.note;
       if (found.crop) commit({ ...state(), crop: found.crop, ratio: 'free' });
       else renderPanel();
     } catch (err) {
       autoCropNote = `Auto-Crop failed: ${err.message}`;
+      note.textContent = autoCropNote;
       renderPanel();
-    } finally { r?.destroy(); }
+    } finally { r?.destroy(); btn.disabled = false; }
   }
 
   function markupPanel() {

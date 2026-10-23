@@ -68,7 +68,8 @@ test('bulk Auto-Crop, offline: each photo cropped at its own bars, saved as sepa
   await page.waitForSelector('.bt-grid .bt-tile');
   assert.match(await page.textContent('.bt-top'), /3 photos · 3 selected/);
   await page.waitForFunction(() => /Cropped top 40 px, bottom 60 px/.test(document.querySelector('.bt-preview-note')?.textContent ?? ''));
-  assert.match(await page.textContent('.bt-recipe'), /#022157[\s\S]*#0B1014/i, 'both boundary colors are on');
+  assert.match(await page.textContent('.bt-more'), /#022157 or #0B1014/i, 'both boundary colors are on');
+  assert.equal(await page.getAttribute('#bt-autoCrop', 'aria-pressed'), 'true', 'Auto-Crop is on by default');
 
   // Like an iPhone: a share sheet is available (mocked to capture what would be saved).
   await page.evaluate(() => {
@@ -135,10 +136,18 @@ test('bulk: the same edit (Mono filter, rotate, square) goes to every selected p
   await page.setInputFiles('#ed-file', files);
   await page.waitForSelector('.bt-tile');
   await page.locator('.bt-check').nth(1).click(); // skip b.png
-  await page.locator('#bt-autoCrop').uncheck();
+  // Minimal by default: two big buttons; everything else is under "More edits".
+  assert.equal(await page.getByRole('button', { name: 'Mono', exact: true }).isVisible(), false, 'detailed edits are tucked away');
+  await page.click('#bt-autoCrop'); // turn Auto-Crop off
+  assert.equal(await page.getAttribute('#bt-autoCrop', 'aria-pressed'), 'false');
+  await page.click('.bt-more > summary');
+  await page.click('.bt-section > summary >> text=Filter');
   await page.getByRole('button', { name: 'Mono', exact: true }).click();
+  assert.match(await page.textContent('.bt-section:has-text("Filter") > summary'), /Mono/, 'the drop-down shows what is set');
+  await page.click('.bt-section > summary >> text=Rotate & shape');
   await page.getByRole('button', { name: /Rotate/ }).click();
   await page.getByRole('button', { name: 'Square', exact: true }).click();
+  assert.equal(await page.isVisible('.bt-section:has-text("Filter") >> text=Mono'), true, 'open drop-downs stay open while editing');
   await page.evaluate(() => { window.__shared = null; navigator.canShare = () => true; navigator.share = async (d) => { window.__shared = await Promise.all(d.files.map(async (f) => { const b = await createImageBitmap(f); const c = new OffscreenCanvas(b.width, b.height); const x = c.getContext('2d'); x.drawImage(b, 0, 0); const p = x.getImageData(Math.floor(b.width / 2), Math.floor(b.height / 2), 1, 1).data; return { name: f.name, w: b.width, h: b.height, gray: Math.abs(p[0] - p[1]) < 4 && Math.abs(p[1] - p[2]) < 4 }; })); }; });
   await page.getByRole('button', { name: 'Apply to 2 photos' }).click();
   await page.waitForSelector('.bt-result:nth-child(2)', { timeout: 60000 });
@@ -147,6 +156,46 @@ test('bulk: the same edit (Mono filter, rotate, square) goes to every selected p
   const shared = await page.evaluate(() => window.__shared);
   assert.deepEqual(shared.map((f) => [f.name, f.w, f.h, f.gray]), [['a-edited.png', 300, 300, true], ['c-edited.png', 300, 300, true]]);
   assert.deepEqual(external, [], 'photos never leave the phone: no request outside the app');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Auto-Crop cuts at the clean bar line even when the picture itself has dark areas (JPEG, real renderer)', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  const make = (spec) => page.evaluate(async (spec) => {
+    const c = new OffscreenCanvas(400, 700); const x = c.getContext('2d');
+    if (spec === 'night') {
+      x.fillStyle = '#000'; x.fillRect(0, 0, 400, 700);                       // letterbox bars
+      const g = x.createLinearGradient(0, 120, 0, 580); g.addColorStop(0, '#141a2a'); g.addColorStop(0.45, '#2b3550'); g.addColorStop(1, '#c08040');
+      x.fillStyle = g; x.fillRect(0, 120, 400, 460);                           // dark sky at the top of the photo
+      for (let i = 0; i < 60; i++) { x.fillStyle = `rgba(255,255,240,${(i % 5) / 6})`; x.fillRect((i * 67) % 400, 125 + ((i * 41) % 120), 2, 2); } // stars
+    } else {
+      x.fillStyle = '#022157'; x.fillRect(0, 0, 400, 90);                      // navy header with a title
+      x.fillStyle = '#fff'; x.font = 'bold 30px sans-serif'; x.fillText('Gallery', 20, 58);
+      x.fillStyle = '#9cc5a1'; x.fillRect(0, 90, 400, 610);                    // picture
+      x.fillStyle = '#0B1014'; x.fillRect(0, 230, 330, 40);                    // a dark road across most of it
+      x.fillStyle = '#e07a5f'; x.fillRect(60, 400, 120, 120);
+    }
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: 0.8 })).arrayBuffer()));
+  }, spec);
+  await page.setInputFiles('#ed-file', [
+    { name: 'night.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make('night')) },
+    { name: 'gallery.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make('gallery')) },
+  ]);
+  await page.waitForSelector('.bt-tile');
+  await page.getByRole('button', { name: 'Apply to 2 photos' }).click();
+  await page.waitForSelector('.bt-result:nth-child(2)', { timeout: 60000 });
+  const rows = await page.$$eval('.bt-result-text', (els) => els.map((e) => e.textContent));
+  const dims = rows.map((t) => /(\d+)×(\d+)/.exec(t).slice(1).map(Number));
+  // Night: bars 120 rows top and bottom -> 460 tall (±2 for JPEG edges), not cut into the dark sky.
+  assert.ok(Math.abs(dims[0][1] - 460) <= 2, `night photo height ${dims[0][1]} (${rows[0]})`);
+  // Gallery: only the 90-row header goes -> 610 tall; the dark road is part of the picture.
+  assert.ok(Math.abs(dims[1][1] - 610) <= 2, `gallery height ${dims[1][1]} (${rows[1]})`);
   assert.deepEqual(errors, []);
   await context.close();
 });

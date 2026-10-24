@@ -140,9 +140,14 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
    2%). Rows that are mostly that color are app (flat bars, or text and icons on them); everything
    else is content. This goes by distance from the chrome color, not flatness, so a flat gray photo is
    still a photo.
-3. The media is the largest run of content rows: gaps under 1% of the height merge (thin lines in a
-   photo), and runs under 15% are dropped (banners, buttons). Only the rows above
-   and below it are cut: the crop always keeps the full width, never the sides.
+3. The media is a run of content rows: gaps under 1% of the height merge (thin lines in a photo), and
+   runs under 15% are dropped (banners, buttons). It works out from the middle of the screenshot:
+   the post's account header (round avatar and name) nearest above the middle and its action icons
+   (like, comment, share) nearest below it frame the media, so posts peeking in above or below are
+   ignored. Where the photo looks like the app at its sides (a night sky, a dark backdrop), the media
+   is stretched up to just under the header and down to just over the action icons, since that's
+   where Instagram puts it. Only the rows above and below it are cut: the crop always keeps the
+   full width, never the sides.
 4. Each edge snaps to the strongest color step near it, and the result gets a confidence from how
    clean and straight the edges are.
 5. When the photo's own background is the app's color (a white photo in light mode), its edges can't
@@ -162,7 +167,11 @@ spot whose surroundings best match is copied in and blended at the edges (seamle
 textures, grain and patterns continue through. Where a line or an edge runs into it (a pole, a
 cable, the horizon), it's filled patch by patch from the edge inward instead, lines first, each small
 patch copied from the best match nearby (exemplar inpainting), so the line carries straight through
-and lines up on both sides. A smooth fill is used only when there's no room to copy from. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
+and lines up on both sides. A smooth fill is used only when there's no room to copy from. Then the
+fill is **rebuilt like a content-aware clean-up**: coarse to fine, every small patch over it is
+swapped for the best-matching patch from the picture around it, until they all agree where they
+overlap (PatchMatch with voting). That takes out blur, seams and color steps, so it fits in with the
+surroundings. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
 without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).
 
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the

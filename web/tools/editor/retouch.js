@@ -502,6 +502,194 @@ export function inpaint(rgba, w, h, unknown, bx0, by0, bx1, by1, R) {
 }
 
 /**
+ * Content-aware completion of a hole (`unknown(x, y)`, inside the box bx0..bx1 × by0..by1 of `rgba`),
+ * starting from a first guess `init` (RGBA, same size as `rgba`): the hole is rebuilt from small
+ * patches of the picture around it so that every patch over it looks like one from outside, and they
+ * agree where they overlap (multi-scale PatchMatch with voting, after Wexler, Shechtman & Irani, and
+ * Barnes et al.). Coarse to fine: the layout settles first, then the detail. Returns a copy of `rgba`
+ * with the hole filled.
+ */
+export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init) {
+  const P = 3; // patches are 7×7
+  const margin = Math.max(24, Math.round(2 * R));
+  const rx0 = Math.max(0, bx0 - margin); const ry0 = Math.max(0, by0 - margin);
+  const rx1 = Math.min(w, bx1 + margin); const ry1 = Math.min(h, by1 + margin);
+  const out = Uint8ClampedArray.from(rgba);
+  if (rx1 - rx0 < 4 * P + 4 || ry1 - ry0 < 4 * P + 4) return init ? Uint8ClampedArray.from(init) : out;
+  // Level 0: the region at full size; each further level half the size, down to a hole ~8 px across.
+  const levels = [];
+  {
+    const rw = rx1 - rx0; const rh = ry1 - ry0;
+    const img = new Float32Array(rw * rh * 3); const hole = new Uint8Array(rw * rh);
+    const src = init ?? rgba;
+    for (let y = 0; y < rh; y++) {
+      for (let x = 0; x < rw; x++) {
+        const i = y * rw + x; const o = ((y + ry0) * w + x + rx0) * 4;
+        hole[i] = unknown(x + rx0, y + ry0) ? 1 : 0;
+        const s = hole[i] ? src : rgba;
+        img[i * 3] = s[o]; img[i * 3 + 1] = s[o + 1]; img[i * 3 + 2] = s[o + 2];
+      }
+    }
+    levels.push({ w: rw, h: rh, img, hole });
+  }
+  while (levels.length < 4) {
+    const f = levels.at(-1);
+    if (R / 2 ** levels.length < 6 || f.w < 48 || f.h < 48) break;
+    const cw = f.w >> 1; const ch = f.h >> 1;
+    const img = new Float32Array(cw * ch * 3); const hole = new Uint8Array(cw * ch);
+    for (let y = 0; y < ch; y++) {
+      for (let x = 0; x < cw; x++) {
+        const i = y * cw + x;
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+          const j = (2 * y + dy) * f.w + 2 * x + dx;
+          if (f.hole[j]) hole[i] = 1;
+          for (let c = 0; c < 3; c++) img[i * 3 + c] += f.img[j * 3 + c] / 4;
+        }
+      }
+    }
+    levels.push({ w: cw, h: ch, img, hole });
+  }
+  // Deterministic random numbers (the same input always gives the same fill).
+  let seed = 0x9e3779b9;
+  const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
+  let nnf = null; let prevW = 0; let prevH = 0; // offsets of the coarser level's matches (x, y per pixel)
+  const NONE = -1 << 30;
+  if (!init) {
+    // No first guess: the coarsest level's hole is filled in from its edge inwards, ring by ring.
+    const { w: lw, h: lh, img, hole } = levels.at(-1);
+    const known = Uint8Array.from(hole, (v) => 1 - v);
+    for (let left = hole.reduce((s, v) => s + v, 0); left > 0;) {
+      const next = [];
+      for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
+        const i = y * lw + x; if (known[i]) continue;
+        let n = 0; const sum = [0, 0, 0];
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+          const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= lw || Y >= lh || !known[Y * lw + X]) continue;
+          const j = (Y * lw + X) * 3; sum[0] += img[j]; sum[1] += img[j + 1]; sum[2] += img[j + 2]; n++;
+        }
+        if (n) next.push([i, sum.map((v) => v / n)]);
+      }
+      if (!next.length) break;
+      for (const [i, c] of next) { img.set(c, i * 3); known[i] = 1; }
+      left -= next.length;
+    }
+  }
+  for (let L = levels.length - 1; L >= 0; L--) {
+    const { w: lw, h: lh, img, hole } = levels[L];
+    // Source patches: entirely outside the hole. Target patches: any that cover some of it.
+    const sat = new Int32Array((lw + 1) * (lh + 1));
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) sat[(y + 1) * (lw + 1) + x + 1] = hole[y * lw + x] + sat[y * (lw + 1) + x + 1] + sat[(y + 1) * (lw + 1) + x] - sat[y * (lw + 1) + x];
+    const holeIn = (x, y) => sat[(y + P + 1) * (lw + 1) + x + P + 1] - sat[(y - P) * (lw + 1) + x + P + 1] - sat[(y + P + 1) * (lw + 1) + x - P] + sat[(y - P) * (lw + 1) + x - P];
+    const okSrc = (x, y) => x >= P && y >= P && x < lw - P && y < lh - P && holeIn(x, y) === 0;
+    const targets = [];
+    for (let y = P; y < lh - P; y++) for (let x = P; x < lw - P; x++) if (holeIn(x, y) > 0) targets.push(y * lw + x);
+    const T = targets.length;
+    const sx = new Int32Array(T); const sy = new Int32Array(T); const sd = new Float32Array(T);
+    const tIndex = new Int32Array(lw * lh).fill(-1);
+    targets.forEach((t, k) => { tIndex[t] = k; });
+    const dist = (tx, ty, qx, qy, cap) => {
+      let d = 0;
+      for (let dy = -P; dy <= P; dy++) {
+        let a = ((ty + dy) * lw + tx - P) * 3; let b = ((qy + dy) * lw + qx - P) * 3;
+        for (let n = 0; n < (2 * P + 1) * 3; n++, a++, b++) { const e = img[a] - img[b]; d += e * e; }
+        if (d >= cap) return d;
+      }
+      return d;
+    };
+    const randomSrc = () => { for (;;) { const x = P + Math.floor(rand() * (lw - 2 * P)); const y = P + Math.floor(rand() * (lh - 2 * P)); if (okSrc(x, y)) return [x, y]; } };
+    let anySrc = false;
+    for (let y = P; y < lh - P && !anySrc; y += 2) for (let x = P; x < lw - P; x += 2) if (okSrc(x, y)) { anySrc = true; break; }
+    if (!anySrc) return init ? Uint8ClampedArray.from(init) : out;
+    // Start: from the coarser level's matches (offsets doubled), else at random.
+    for (let k = 0; k < T; k++) {
+      const tx = targets[k] % lw; const ty = (targets[k] / lw) | 0;
+      let q = null;
+      if (nnf) {
+        const c = Math.min(prevH - 1, ty >> 1) * prevW + Math.min(prevW - 1, tx >> 1);
+        if (nnf[c * 2] !== NONE) { const qx = tx + 2 * nnf[c * 2]; const qy = ty + 2 * nnf[c * 2 + 1]; if (okSrc(qx, qy)) q = [qx, qy]; }
+      }
+      q ??= randomSrc();
+      sx[k] = q[0]; sy[k] = q[1]; sd[k] = dist(tx, ty, q[0], q[1], Infinity);
+    }
+    const vote = () => {
+      // Each hole pixel: the weighted mean of what the patches over it say it should be.
+      const sorted = Float32Array.from(sd).sort();
+      const s2 = Math.max(1, sorted[Math.floor(T * 0.75)]);
+      const acc = new Float32Array(lw * lh * 3); const wsum = new Float32Array(lw * lh);
+      for (let k = 0; k < T; k++) {
+        const tx = targets[k] % lw; const ty = (targets[k] / lw) | 0;
+        const wt = Math.exp(-sd[k] / (2 * s2)) + 1e-6;
+        for (let dy = -P; dy <= P; dy++) {
+          for (let dx = -P; dx <= P; dx++) {
+            const i = (ty + dy) * lw + tx + dx;
+            if (!hole[i]) continue;
+            const j = ((sy[k] + dy) * lw + sx[k] + dx) * 3;
+            acc[i * 3] += wt * img[j]; acc[i * 3 + 1] += wt * img[j + 1]; acc[i * 3 + 2] += wt * img[j + 2]; wsum[i] += wt;
+          }
+        }
+      }
+      for (let i = 0; i < lw * lh; i++) if (hole[i] && wsum[i] > 0) for (let c = 0; c < 3; c++) img[i * 3 + c] = acc[i * 3 + c] / wsum[i];
+    };
+    const improve = (pass) => {
+      const fwd = pass % 2 === 0;
+      for (let n = 0; n < T; n++) {
+        const k = fwd ? n : T - 1 - n;
+        const t = targets[k]; const tx = t % lw; const ty = (t / lw) | 0;
+        const step = fwd ? -1 : 1;
+        // Propagation: a neighbour's match, shifted along.
+        for (const nb of [t + step, t + step * lw]) {
+          const m = nb >= 0 && nb < lw * lh ? tIndex[nb] : -1;
+          if (m < 0) continue;
+          const qx = sx[m] + (nb === t + step ? -step : 0); const qy = sy[m] + (nb === t + step ? 0 : -step);
+          if (!okSrc(qx, qy) || (qx === sx[k] && qy === sy[k])) continue;
+          const d = dist(tx, ty, qx, qy, sd[k]);
+          if (d < sd[k]) { sd[k] = d; sx[k] = qx; sy[k] = qy; }
+        }
+        // Random search around the current match, in shrinking windows.
+        for (let rad = nnf ? Math.max(4, (Math.max(lw, lh) >> 3)) : Math.max(lw, lh); rad >= 1; rad >>= 1) {
+          const qx = sx[k] + Math.round((rand() * 2 - 1) * rad); const qy = sy[k] + Math.round((rand() * 2 - 1) * rad);
+          if (!okSrc(qx, qy)) continue;
+          const d = dist(tx, ty, qx, qy, sd[k]);
+          if (d < sd[k]) { sd[k] = d; sx[k] = qx; sy[k] = qy; }
+        }
+      }
+    };
+    const iters = L === levels.length - 1 ? 6 : L === 0 ? 2 : 3;
+    if (nnf) vote(); // the finer detail of the coarser layout, straight away
+    for (let it = 0; it < iters; it++) {
+      improve(it);
+      if (L > 0) improve(it + 1);
+      // Distances against the updated picture.
+      vote();
+      for (let k = 0; k < T; k++) { const t = targets[k]; sd[k] = dist(t % lw, (t / lw) | 0, sx[k], sy[k], Infinity); }
+    }
+    // Hand the matches down (as offsets) to the finer level, which starts from this level's picture.
+    nnf = new Int32Array(lw * lh * 2).fill(NONE);
+    for (let k = 0; k < T; k++) { const t = targets[k]; nnf[t * 2] = sx[k] - (t % lw); nnf[t * 2 + 1] = sy[k] - ((t / lw) | 0); }
+    prevW = lw; prevH = lh;
+    if (L > 0) {
+      const f = levels[L - 1];
+      for (let y = 0; y < f.h; y++) {
+        for (let x = 0; x < f.w; x++) {
+          const i = y * f.w + x; if (!f.hole[i]) continue;
+          const j = (Math.min(lh - 1, y >> 1) * lw + Math.min(lw - 1, x >> 1)) * 3;
+          for (let c = 0; c < 3; c++) f.img[i * 3 + c] = img[j + c];
+        }
+      }
+    }
+  }
+  const { w: rw, img, hole } = levels[0];
+  for (let y = ry0; y < ry1; y++) {
+    for (let x = rx0; x < rx1; x++) {
+      const i = (y - ry0) * rw + x - rx0; if (!hole[i]) continue;
+      const o = (y * w + x) * 4;
+      out[o] = img[i * 3]; out[o + 1] = img[i * 3 + 1]; out[o + 2] = img[i * 3 + 2];
+    }
+  }
+  return out;
+}
+
+/**
  * Fill a pill (stadium: the points within R of the segment x1..x2 on row cy, in pixels of `rgba`)
  * with background copied from beside it, so its texture continues: of the nearby spots, the few whose
  * surroundings best match the pill's are kept, each part of the hole copies from the one that best
@@ -513,6 +701,30 @@ export function inpaint(rgba, w, h, unknown, bx0, by0, bx1, by1, R) {
  * (1 px soft edge), 0 outside.
  */
 export function fillPill(rgba, w, h, x1, x2, cy, R) {
+  const first = roughFill(rgba, w, h, x1, x2, cy, R);
+  // Then rebuilt patch by patch from the picture around it, starting from that first fill, so it
+  // fits in seamlessly: no blur, no seams, edges and texture running on.
+  const { x0, y0, pw, ph } = first;
+  const init = Uint8ClampedArray.from(rgba);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const s = (y * pw + x) * 4; if (!first.rgba[s + 3]) continue;
+    const o = ((y0 + y) * w + x0 + x) * 4; init[o] = first.rgba[s]; init[o + 1] = first.rgba[s + 1]; init[o + 2] = first.rgba[s + 2];
+  }
+  const near = (x) => Math.min(x2, Math.max(x1, x));
+  const in2 = (R + 1) * (R + 1);
+  const unknown = (x, y) => (x - near(x)) ** 2 + (y - cy) ** 2 < in2;
+  const done = complete(rgba, w, h, unknown, x0, y0, x0 + pw, y0 + ph, R, init);
+  const out = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const s = (y * pw + x) * 4; if (!first.rgba[s + 3]) continue;
+    const o = ((y0 + y) * w + x0 + x) * 4;
+    out[s] = done[o]; out[s + 1] = done[o + 1]; out[s + 2] = done[o + 2]; out[s + 3] = first.rgba[s + 3];
+  }
+  return { x0, y0, pw, ph, rgba: out };
+}
+
+/** The first fill of a pill (see fillPill): copied in from the best-matching spots nearby. */
+function roughFill(rgba, w, h, x1, x2, cy, R) {
   const x0 = Math.max(0, Math.floor(x1 - R - 1)); const y0 = Math.max(0, Math.floor(cy - R - 1));
   const xe = Math.min(w, Math.ceil(x2 + R + 2)); const ye = Math.min(h, Math.ceil(cy + R + 2));
   const pw = xe - x0; const ph = ye - y0;

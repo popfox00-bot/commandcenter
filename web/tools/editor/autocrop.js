@@ -8,8 +8,10 @@
 //  3. Rows that are mostly chrome color are chrome (flat bars, or text and icons on chrome); the rest
 //     are content. Classification is by distance from the chrome color, never by flatness, so a flat
 //     gray photo is still content.
-//  4. The media is the largest run of content rows (small gaps merged, short runs rejected). The crop
-//     only ever removes rows above and below it: it always keeps the full width, never cuts the sides.
+//  4. The media is a run of content rows (small gaps merged, short runs rejected), worked out from the
+//     middle of the screenshot: between the post's header nearest above the middle and its action bar
+//     nearest below, stretched up to them when the photo just looks like the app at its sides (a night
+//     sky). The crop only ever removes rows above and below it: it always keeps the full width.
 //  5. Each edge snaps to the strongest color step near it on the full-size image.
 //  6. When the media's own background is the chrome color (white photo in light mode), the edges are
 //     invisible: fall back to the account header above and the action icons below.
@@ -366,12 +368,55 @@ export function findAnchors(A, mask, stats, cfg = AUTO_CROP_DEFAULTS) {
     const round = a.x0 <= w * 0.12 && bh(a) >= h * 0.012 && bw(a) / bh(a) >= 0.7 && bw(a) / bh(a) <= 1.4 && fill >= 0.45 && fill <= 0.9;
     if (round && blobs.length >= 2 && blobs[1].x0 - a.x1 <= w * 0.2) out.push({ type: 'header', top: a.y0, bottom: a.y1, size: bh(a) });
   }
-  // The first header that has an action bar below it, far enough apart to hold the media.
-  for (const hd of out.filter((b) => b.type === 'header')) {
-    const act = out.find((b) => b.type === 'action' && b.top - hd.bottom >= h * cfg.minRun);
-    if (act) return { header: hd, action: act };
+  // Working out from the middle of the screenshot (where the post being shared is): the nearest
+  // header above it and the nearest action bar below it, with room between them for the media. Posts
+  // peeking in above or below are left out.
+  const mid = h / 2;
+  const headers = out.filter((b) => b.type === 'header'); const actions = out.filter((b) => b.type === 'action');
+  let header = headers.filter((b) => b.bottom <= mid).at(-1) ?? null;
+  let action = actions.find((b) => b.top >= mid) ?? null;
+  // The middle in a caption or a header: the post whose photo is nearest the middle.
+  if (!header && !action) return null;
+  if (header && action && action.top - header.bottom < h * cfg.minRun) {
+    if (mid - header.bottom < action.top - mid) action = null; else header = null;
   }
-  return null;
+  if (header && !action) action = actions.find((b) => b.top - header.bottom >= h * cfg.minRun && !headers.some((o) => o.top > header.bottom && o.bottom <= b.top)) ?? null;
+  if (action && !header) header = headers.filter((b) => action.top - b.bottom >= h * cfg.minRun && !actions.some((o) => o.top >= b.bottom && o.bottom < action.top)).at(-1) ?? null;
+  // A header with another post's action bar between it and this one's (or the other way): not a pair.
+  if (header && action && (headers.some((o) => o.top > header.bottom && o.bottom <= action.top) || actions.some((o) => o.top >= header.bottom && o.bottom < action.top))) return null;
+  return { header, action };
+}
+
+/** Share of row y's pixels that aren't chrome, outside the middle 40% (carousel dots sit there). */
+function sideInk(mask, w, y) {
+  let n = 0; const a = Math.floor(w * 0.3); const b = Math.ceil(w * 0.7);
+  for (let x = 0, p = y * w; x < w; x++, p++) if ((x < a || x >= b) && !mask[p]) n++;
+  return n / (w - (b - a));
+}
+
+/**
+ * Stretch a content run out to the app's header above it and its action bar below it, when the rows
+ * in between aren't empty app background: the photo just looks like the app at its sides there (a
+ * night sky, a dark backdrop). Instagram puts the media right under the header and right above the
+ * action bar, so content reaching close to them is the photo. Returns the run and which edges are
+ * bracketed by an anchor.
+ */
+function stretchToAnchors(run, anchors, mask, stats, w, cfg) {
+  const out = { ...run, top: false, bottom: false };
+  if (!anchors) return out;
+  const blank = (y) => 1 - stats.chromeShare[y] <= cfg.uiInkMin;
+  const { header, action } = anchors;
+  if (header && header.bottom <= run.start) {
+    let y = header.bottom;
+    while (y < run.start && blank(y)) y++;
+    if (y - header.bottom <= header.size * 1.5) { out.start = Math.min(out.start, y); out.top = true; }
+  }
+  if (action && action.top >= run.end) {
+    let y = action.top - 1;
+    while (y >= run.end && (blank(y) || sideInk(mask, w, y) <= cfg.uiInkMin)) y--;
+    if (action.top - (y + 1) <= action.size * 2.5) { out.end = Math.max(out.end, y + 1); out.bottom = true; }
+  }
+  return out;
 }
 
 /** Rows of chrome with no ink directly above `y` (dir -1) or from `y` down (dir +1). */
@@ -403,10 +448,20 @@ export function detectMedia(A, sample, W, H, opts = {}) {
   const candidates = [];
 
   // Strategy 1: chrome contrast.
-  let run = contentRuns(classifyRows(stats, cfg), Math.max(1, A.h * cfg.mergeGap), Math.max(1, A.h * cfg.minRun))[0];
   const anchors = findAnchors(A, mask, stats, cfg);
+  // The run that is this post's media: between its header and action bar when they're found, else the
+  // one across the middle of the screenshot, else the longest.
+  const runs = contentRuns(classifyRows(stats, cfg), Math.max(1, A.h * cfg.mergeGap), Math.max(1, A.h * cfg.minRun));
+  const lo = anchors?.header ? anchors.header.bottom : 0; const hi = anchors?.action ? anchors.action.top : A.h;
+  const within = (r) => Math.min(r.end, hi) - Math.max(r.start, lo);
+  let run = (anchors ? runs.filter((r) => within(r) > 0).sort((a, b) => within(b) - within(a))[0] : null)
+    ?? runs.find((r) => r.start <= A.h / 2 && r.end > A.h / 2) ?? runs[0];
   if (run) {
+    if (anchors) run = { start: Math.max(run.start, lo), end: Math.min(run.end, hi) };
     run = trimFloatingBar(A, run, cfg);
+    const stretched = stretchToAnchors(run, anchors, mask, stats, A.w, cfg);
+    const anchored = stretched.top && stretched.bottom;
+    run = { start: stretched.start, end: stretched.end };
     // Full width, always: only the rows above and below the media are cut.
     const top = snapRows(sample, W, H, 0, W, Math.round(run.start * sy), cfg);
     const bottom = snapRows(sample, W, H, 0, W, Math.round(run.end * sy), cfg);
@@ -419,21 +474,24 @@ export function detectMedia(A, sample, W, H, opts = {}) {
     for (let y = run.start; y < run.end; y++) purity += stats.chromeShare[y] < cfg.chromeRow ? 1 : 0;
     purity /= run.end - run.start;
     let confidence = 0.6 * (edges.reduce((s, e) => s + e, 0) / edges.length) + 0.25 * separation + 0.15 * purity;
+    // Right under this post's header and right over its action bar: that's where the media is, even
+    // when its edges are hard to see.
+    if (anchored) confidence = Math.max(confidence, 0.8);
     // A box with edges that aren't clean full-width lines and wide empty chrome gaps both above it (to
     // the header) and below it (to the action bar): the media's own background is chrome-colored and
     // only an object inside it was found.
-    if (anchors && !edges.every((e) => e >= 0.9) && blankRun(stats, run.start, -1, cfg) >= A.h * cfg.blankGap && blankRun(stats, run.end, 1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
+    if (anchors?.header && anchors.action && !anchored && !edges.every((e) => e >= 0.9) && blankRun(stats, run.start, -1, cfg) >= A.h * cfg.blankGap && blankRun(stats, run.end, 1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
     // App chrome always ends at a visible line; a box whose every edge is a gradual fade is just a
     // photo with a smooth sky or backdrop, not a screenshot.
     const seen = [top, bottom].filter((e) => e.straight != null);
     const noLine = seen.length > 0 && seen.every((e) => edgeScore(e) < 0.2);
-    if (!noLine && bottom.at - top.at > 0) {
+    if ((!noLine || anchored) && bottom.at - top.at > 0) {
       candidates.push({ x: 0, y: top.at, width: W, height: bottom.at - top.at, confidence, method: 'chrome-contrast' });
     }
   }
 
   // Strategy 2: between the account header and the action icons.
-  if (anchors) {
+  if (anchors?.header && anchors.action) {
     const y0 = Math.round((anchors.header.bottom + Math.round(anchors.header.size * 0.3)) * sy);
     const y1 = Math.round((anchors.action.top - Math.round(anchors.action.size * 0.3)) * sy);
     if (y1 > y0) candidates.push({ x: 0, y: y0, width: W, height: y1 - y0, confidence: cfg.anchorConfidence, method: 'ui-anchor-fallback' });

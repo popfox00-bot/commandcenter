@@ -48,10 +48,11 @@ async function barred(page, { color, top, bottom, type = 'image/png' }) {
 /**
  * A 393×852 feed screenshot (an iPhone screenshot at 1/3 size). Media at rows 148..639, full width.
  * theme: 'dark' (#0d1117), 'navy' (#022157) or 'light' (white). media: 'slab' (flat gray, a graded
- * coin slab in the middle), 'photo' (colorful), 'white' (white background with an object).
+ * coin slab in the middle), 'photo' (colorful), 'white' (white background with an object). actions:
+ * false leaves out the like/comment/share icons.
  */
-async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/png', icons = false } = {}) {
-  return Buffer.from(await page.evaluate(async ({ theme, media, type, icons }) => {
+async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/png', icons = false, actions = true } = {}) {
+  return Buffer.from(await page.evaluate(async ({ theme, media, type, icons, actions }) => {
     const c = new OffscreenCanvas(393, 852); const x = c.getContext('2d');
     const chrome = { dark: '#0d1117', navy: '#022157', light: '#ffffff' }[theme];
     const ink = theme === 'light' ? '#141414' : '#ebebeb';
@@ -81,15 +82,17 @@ async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/p
       rr(329, 160, 52, 26, 13, 'rgba(0,0,0,0.6)'); x.fillStyle = '#fff'; x.font = '13px sans-serif'; x.fillText('1/3', 345, 178);
     }
     for (const cx of [190, 200, 210]) dot(cx, 655, 3, cx === 190 ? '#5865f2' : '#5a5a5a');                    // dots
-    for (const l of [13, 83, 133, 183]) { rr(l, 673, 19, 19, 5, ink); x.fillStyle = ink; x.font = '13px sans-serif'; x.fillText('227', l + 24, 687); }
-    rr(367, 673, 16, 19, 2, ink);                                                                                 // action bar
+    if (actions) {
+      for (const l of [13, 83, 133, 183]) { rr(l, 673, 19, 19, 5, ink); x.fillStyle = ink; x.font = '13px sans-serif'; x.fillText('227', l + 24, 687); }
+      rr(367, 673, 16, 19, 2, ink);                                                                               // action bar
+    }
     x.fillStyle = ink; x.fillText('pcgscoin Obey your thirst — for silver… more', 12, 722);
     x.fillStyle = '#828282'; x.fillText('2 days ago', 12, 744);
     dot(27, 790, 13, '#4670dc'); x.fillStyle = ink; x.fillText('muse', 50, 795);                                // next post
     x.fillStyle = '#f2f2f2'; x.fillRect(10, 817, 250, 35);
     rr(50, 777, 293, 47, 23, '#24262e'); for (const l of [70, 127, 184, 241, 298]) rr(l, 791, 19, 19, 4, '#dcdcdc'); // tab bar
     return Array.from(new Uint8Array(await (await c.convertToBlob({ type, quality: 0.9 })).arrayBuffer()));
-  }, { theme, media, type, icons }));
+  }, { theme, media, type, icons, actions }));
 }
 
 test('bulk Auto-Crop, offline: each screenshot cropped to its own post media, saved as separate uniquely named files', async () => {
@@ -109,7 +112,8 @@ test('bulk Auto-Crop, offline: each screenshot cropped to its own post media, sa
     { name: 'image.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'dark', media: 'slab' }) },
     { name: 'image.jpg', mimeType: 'image/jpeg', buffer: await feedShot(page, { theme: 'navy', media: 'photo', type: 'image/jpeg' }) },
     { name: 'image.png', mimeType: 'image/png', buffer: await barred(page, {}) },
-    { name: 'light.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'light', media: 'white' }) },
+    // A white photo in light mode with no action icons below it: its bottom edge can't be told.
+    { name: 'light.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'light', media: 'white', actions: false }) },
   ];
   await context.setOffline(true);
   await page.goto(`${origin}${BASE}#/tools/editor`);
@@ -147,14 +151,14 @@ test('bulk Auto-Crop, offline: each screenshot cropped to its own post media, sa
   assert.deepEqual(shared.map((f) => f.name), ['image-edited.png', 'image-edited.jpg', 'image-edited-2.png', 'light-edited.png']);
   assert.deepEqual(shared.map((f) => f.type), ['image/png', 'image/jpeg', 'image/png', 'image/png'], 'same file type as each photo');
 
-  // "Check crop" opens the photo with the crop handles on the suggested crop: between the header and the action bar.
+  // "Check crop" opens the photo with the crop handles on the suggested crop: from under the header.
   await page.locator('.bt-result').nth(3).getByRole('button', { name: /Check crop/ }).click();
   await page.waitForSelector('.ed-canvas');
   assert.equal(await page.getAttribute('[role=tab]:has-text("Crop")', 'aria-selected'), 'true', 'opens in Crop, handles showing');
   await page.getByRole('button', { name: 'Done' }).click();
   await page.waitForFunction(() => /393×\d+/.test(document.querySelector('.ed-dialog .muted')?.textContent ?? ''));
   const h = Number(/393×(\d+)/.exec(await page.textContent('.ed-dialog .muted'))[1]);
-  assert.ok(h >= 470 && h <= 535, `suggested crop height ${h}: the media (491) without the header or the action bar`);
+  assert.ok(h >= 380 && h <= 535, `suggested crop height ${h}: from the media's top, without the header`);
 
   assert.deepEqual(external, [], 'photos never leave the phone: no request outside the app');
   assert.deepEqual(errors, []);
@@ -180,8 +184,8 @@ test('single photo: Auto-Crop applies a sure crop; an unsure one shows the crop 
   await page.waitForFunction(() => /393×491/.test(document.querySelector('.ed-dialog .muted')?.textContent ?? ''));
   await page.locator('dialog[open]').getByRole('button', { name: 'Close' }).click();
 
-  // Light mode, white photo: the edges can't be seen. The best guess gets the crop handles.
-  const light = await feedShot(page, { theme: 'light', media: 'white' });
+  // Light mode, white photo, no action icons below: its bottom edge can't be seen. The best guess gets the crop handles.
+  const light = await feedShot(page, { theme: 'light', media: 'white', actions: false });
   const context2 = await browser.newContext({ viewport: { width: 390, height: 844 } }); // fresh: no edit in progress to resume
   const page2 = await context2.newPage();
   page2.on('pageerror', (e) => errors.push(e.message));

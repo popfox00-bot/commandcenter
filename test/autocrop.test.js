@@ -51,14 +51,17 @@ function feed({ chrome = DARK, ink = [235, 235, 235], my0 = 445, my1 = 1918, mx0
   const img = canvas(W, H, chrome);
   text(img, 140, 45, 260, 36, ink); rect(img, 940, 50, 1100, 80, ink);                       // status bar
   roundRect(img, 98, 110, 1082, 210, 30, [79, 91, 230]); text(img, 480, 145, 700, 30, [255, 255, 255]); // "Try Muse"
-  circle(img, 80, 370, 48, [200, 170, 90]); text(img, 160, 352, 400, 36, ink);               // header
-  for (const y of [358, 370, 382]) rect(img, 1080, y, 1140, y + 6, ink);
+  // As in the app, the header sits a fixed distance above the media and the action bar a fixed
+  // distance below it, whatever the media's size.
+  const a = my1 + 102;
+  circle(img, 80, my0 - 75, 48, [200, 170, 90]); text(img, 160, my0 - 93, 400, 36, ink);    // header
+  for (const y of [my0 - 87, my0 - 75, my0 - 63]) rect(img, 1080, y, 1140, y + 6, ink);
   if (card) roundRect(img, mx0, my0, mx1, my1, card, paint); else rect(img, mx0, my0, mx1, my1, paint); // media
-  for (const x of [570, 600, 630]) circle(img, x, 1965, 8, x === 570 ? [88, 101, 242] : [90, 90, 90]); // dots
-  for (const x of [40, 250, 400, 550]) { roundRect(img, x, 2020, x + 56, 2076, 14, ink); text(img, x + 70, 2032, x + 120, 34, ink); }
-  roundRect(img, 1100, 2020, 1148, 2076, 6, ink);                                             // action bar
-  text(img, 36, 2130, 900, 34, ink); text(img, 36, 2195, 220, 28, [130, 130, 130]);        // caption, time
-  if (nextPost) { circle(img, 80, 2370, 40, [70, 110, 220]); text(img, 150, 2352, 420, 34, ink); rect(img, 30, 2450, 780, H, [242, 242, 242]); rect(img, 800, 2450, W, H, [180, 160, 140]); }
+  for (const x of [570, 600, 630]) circle(img, x, my1 + 47, 8, x === 570 ? [88, 101, 242] : [90, 90, 90]); // dots
+  for (const x of [40, 250, 400, 550]) { roundRect(img, x, a, x + 56, a + 56, 14, ink); text(img, x + 70, a + 12, x + 120, 34, ink); }
+  roundRect(img, 1100, a, 1148, a + 56, 6, ink);                                              // action bar
+  text(img, 36, a + 110, 900, 34, ink); text(img, 36, a + 175, 220, 28, [130, 130, 130]);  // caption, time
+  if (nextPost) { circle(img, 80, a + 350, 40, [70, 110, 220]); text(img, 150, a + 332, 420, 34, ink); rect(img, 30, a + 430, 780, H, [242, 242, 242]); rect(img, 800, a + 430, W, H, [180, 160, 140]); }
   if (tabBar) { roundRect(img, 150, 2330, 1030, 2470, 70, [36, 38, 46]); for (const x of [230, 400, 570, 740, 910]) roundRect(img, x - 28, 2372, x + 28, 2428, 10, [220, 220, 220]); }
   return img;
 }
@@ -127,17 +130,15 @@ test('light mode with a colored photo: same logic, exact bounds', () => {
 });
 
 for (const [label, ox0, ox1] of [['a narrow object', 300, 880], ['a wide object', 180, 1000]]) {
-  test(`light mode, white photo with ${label}: falls back to the header above and the action icons below, and asks to check`, () => {
+  test(`light mode, white photo with ${label}: placed from the header above and the action icons below`, () => {
     const white = [255, 255, 255];
-    // The media's background is the chrome's white; only the object inside it can be seen.
+    // The media's background is the app's white; only the object inside it can be seen. The header and
+    // action icons sit a fixed distance from the media, so the crop still goes to its true edges.
     const img = feed({ chrome: white, ink: [20, 20, 20], paint: (x, y) => (x >= ox0 && x < ox1 && y >= 745 && y < 1618 ? [40, 120, 200] : white) });
     const m = findMedia(img.px, W, H);
-    assert.equal(m.method, 'ui-anchor-fallback');
-    assert.ok(m.confidence < AUTO_CROP_DEFAULTS.sure, `confidence ${m.confidence}: the edges can't be seen, so the crop is offered for checking`);
-    assert.ok(m.y >= 418 && m.y <= 445 + H * 0.02, `top ${m.y}: below the header, at the media top`);
-    const bottom = m.y + m.height;
-    assert.ok(bottom >= 1918 - H * 0.01 && bottom <= 2020, `bottom ${bottom}: above the action bar`);
-    assert.ok(m.y <= 745 && bottom >= 1618, 'the whole object is kept');
+    assert.ok(Math.abs(m.y - 445) <= 10, `top ${m.y}: at the media top`);
+    assert.ok(Math.abs(m.y + m.height - 1918) <= 12, `bottom ${m.y + m.height}: at the media bottom`);
+    assert.ok(m.confidence >= AUTO_CROP_DEFAULTS.sure, `confidence ${m.confidence}`);
   });
 }
 
@@ -192,6 +193,17 @@ test('no margin left: a divider under the header and a shaded band over the acti
   const m = findMedia(img.px, W, H);
   assert.ok(Math.abs(m.y - 445) <= 2, `top ${m.y}: the photo's top, not the divider`);
   assert.ok(Math.abs(m.y + m.height - 1918) <= 2, `bottom ${m.y + m.height}: the photo's bottom, not the band`);
+});
+
+test('an almost pitch-black photo (only a lit subject in the middle shows): the crop still goes to the photo\'s edges', () => {
+  // Black like the app everywhere but a lit subject; its edges can't be seen at all. The header and
+  // the action icons are a fixed distance from the media, so they say where it is.
+  const img = feed({ paint: (x, y) => (Math.hypot(x - 590, y - 1150) < 260 ? textured(x, y) : [13 + Math.round(2 * noise(x, y, 0)), 17, 23]) });
+  const m = findMedia(img.px, W, H);
+  assert.deepEqual([m.x, m.width], [0, W]);
+  assert.ok(Math.abs(m.y - 445) <= 10, `top ${m.y}: not cut at the subject`);
+  assert.ok(Math.abs(m.y + m.height - 1918) <= 12, `bottom ${m.y + m.height}`);
+  assert.ok(m.confidence >= AUTO_CROP_DEFAULTS.sure, `confidence ${m.confidence}`);
 });
 
 test('starts from the middle: a taller photo from the next post peeking in below is not the one cropped to', () => {

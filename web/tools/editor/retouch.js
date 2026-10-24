@@ -22,6 +22,7 @@ export const ICON_DEFAULTS = Object.freeze({
   margin: 0.08,    // the fill covers the disc plus this share of its radius (soft edge), at least 2 px
   pillMin: 0.025,  // counter pill height, as a share of the image width: from 2.5%...
   pillMax: 0.1,    // ...to 10% (Instagram's is ~6% on a phone screenshot)
+  pillCorner: 0.09, // ...and at most this share of the width from the media's top and right edges
   pillEdge: 12,    // the pill is see-through, so it's only this much darker than just outside it
   faint: 5,        // from the symbol out, the disc only needs to be this much darker than around it
   match: 0.72,     // a white symbol is the person or speaker when its shape correlates this well
@@ -70,8 +71,8 @@ function correlate(a, b) {
 }
 
 /** White, neutral pixels in groups (the parts of one symbol, or the letters of one word). */
-function whiteGroups(rgba, w, h, L, maxSize, join) {
-  const white = (i) => L[i] >= 190 && Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) - Math.min(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) <= 45;
+function whiteGroups(rgba, w, h, L, maxSize, join, minL = 190) {
+  const white = (i) => L[i] >= minL && Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) - Math.min(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) <= 45;
   const seen = new Uint8Array(w * h); const parts = [];
   for (let i = 0; i < w * h; i++) {
     if (seen[i] || !white(i)) continue;
@@ -120,7 +121,12 @@ export function findSymbols(rgba, w, h, { rMin, rMax, kinds = ['person', 'sound'
   for (let i = 0; i < w * h; i++) L[i] = lum(rgba, i * 4);
   const sMin = rMin * cfg.glyphRatio * 0.8; const sMax = rMax * cfg.glyphRatio * 1.2;
   const out = [];
-  for (const g of whiteGroups(rgba, w, h, L, sMax * 1.2, (A, B) => Math.max(2, 0.25 * Math.max(A.x1 - A.x0, A.y1 - A.y0, B.x1 - B.x0, B.y1 - B.y0)))) {
+  // White is looked for twice: from light gray up (a symbol softened by compression), then only
+  // near-pure white, which the symbol is and a photo's light parts next to it (a white stripe, a
+  // bright window) mostly aren't, so the symbol isn't lumped in with them.
+  const join = (A, B) => Math.max(2, 0.25 * Math.max(A.x1 - A.x0, A.y1 - A.y0, B.x1 - B.x0, B.y1 - B.y0));
+  const groups = [...whiteGroups(rgba, w, h, L, sMax * 1.2, join), ...whiteGroups(rgba, w, h, L, sMax * 1.2, join, 235)];
+  for (const g of groups) {
     const gw = g.x1 - g.x0; const gh = g.y1 - g.y0; const size = Math.max(gw, gh);
     if (size < sMin || size > sMax || gw / gh < 0.7 || gw / gh > 1.45) continue;
     // Coverage grid of the symbol's box (soft: anti-aliased edges count partly).
@@ -157,6 +163,7 @@ export function findSymbols(rgba, w, h, { rMin, rMax, kinds = ['person', 'sound'
       if (ok && pass / 64 >= 0.6 && (!fit || pass > fit.pass + 2 || (pass >= fit.pass - 2 && step > fit.step))) fit = { rr, pass, step };
     }
     if (fit) r = fit.rr;
+    if (out.some((o) => Math.hypot(o.cx - cx, o.cy - cy) < o.r / 2)) continue; // found on the first look
     out.push({ cx: Math.round(cx * 10) / 10, cy: Math.round(cy * 10) / 10, r: Math.round(r * 10) / 10, kind: best.kind, fitted: !!fit });
   }
   return out;
@@ -1009,6 +1016,64 @@ function roughFill(rgba, w, h, x1, x2, cy, R) {
 }
 
 /**
+ * How far a counter pill's inside reaches when it's one even color (Instagram's is a near-opaque dark
+ * tint): from the text out along the pill's middle row and down its middle column, while pixels stay
+ * close to the color just around the text. Returns { left, right } (its ends' x) or null when the
+ * inside isn't even (a see-through pill over a varied background).
+ */
+function evenReach(rgba, w, h, t, fit) {
+  const th = t.y1 - t.y0; const cy = Math.round(fit.cy);
+  // The inside's color: pixels just left and right of the text, on its rows.
+  const sample = [];
+  for (let y = t.y0; y < t.y1; y++) for (const x of [t.x0 - 3, t.x0 - 4, t.x1 + 2, t.x1 + 3]) if (x >= 0 && x < w && y >= 0 && y < h) sample.push(y * w + x);
+  if (sample.length < 8) return null;
+  const med = [0, 1, 2].map((c) => { const v = sample.map((i) => rgba[i * 4 + c]).sort((a, b) => a - b); return v[v.length >> 1]; });
+  const spread = sample.filter((i) => Math.hypot(rgba[i * 4] - med[0], rgba[i * 4 + 1] - med[1], rgba[i * 4 + 2] - med[2]) > 20).length / sample.length;
+  if (spread > 0.2) return null;
+  const like = (x, y) => { if (x < 0 || y < 0 || x >= w || y >= h) return false; const i = (y * w + x) * 4; return Math.hypot(rgba[i] - med[0], rgba[i + 1] - med[1], rgba[i + 2] - med[2]) <= 26; };
+  // Along a few rows near the middle, how far the color runs; the median row (one row may run on
+  // into a dark leaf just past the end).
+  const ends = (x0, dir, limit) => {
+    const all = [];
+    for (let dy = -Math.round(th * 0.2); dy <= Math.round(th * 0.2); dy++) {
+      let x = x0; let miss = 0; let last = x0;
+      while (Math.abs(x - x0) <= limit) { if (like(x, cy + dy)) { last = x; miss = 0; } else if (++miss > 2) break; x += dir; }
+      all.push(last);
+    }
+    return all.sort((a, b) => a - b)[all.length >> 1];
+  };
+  const left = ends(t.x0 - 3, -1, th * 3); const right = ends(t.x1 + 2, 1, th * 3);
+  // Up and down from the text, over columns across it: the median column.
+  const vert = (y0, dir) => {
+    const all = [];
+    for (let x = t.x0; x < t.x1; x += 2) {
+      let y = y0; let miss = 0; let last = y0;
+      while (Math.abs(y - y0) <= th * 1.5) { if (like(x, y)) { last = y; miss = 0; } else if (++miss > 2) break; y += dir; }
+      all.push(last);
+    }
+    return all.sort((a, b) => a - b)[all.length >> 1];
+  };
+  const top = vert(t.y0 - 3, -1); const bottom = vert(t.y1 + 2, 1);
+  // Ran into a background of the same color: no edge to go by.
+  if (right - left > th * 6) return null;
+  if (bottom - top > th * 4) return null;
+  return { left: left - 0.5, right: right + 0.5, top: top - 0.5, bottom: bottom + 0.5 };
+}
+
+/**
+ * A pill (center cx, cy, half-length a, radius rho) grown to also cover the even color's reach, each
+ * way by at most a quarter: a slightly bigger fill costs nothing, a dark rim left showing does.
+ */
+function widen(cx, cy, a, rho, reach) {
+  let t = cy - rho; let b = cy + rho;
+  if (reach.top != null && Math.max(b, reach.bottom) - Math.min(t, reach.top) <= 2 * rho * 1.25) { t = Math.min(t, reach.top); b = Math.max(b, reach.bottom); }
+  const r2 = (b - t) / 2;
+  let l = cx - a - rho; let r = cx + a + rho;
+  if (Math.max(r, reach.right) - Math.min(l, reach.left) <= 2 * (a + rho) * 1.25) { l = Math.min(l, reach.left); r = Math.max(r, reach.right); }
+  return { cx: (l + r) / 2, cy: (t + b) / 2, rho: r2, a: Math.max(0, (r - l) / 2 - r2) };
+}
+
+/**
  * Counter pills ("11/13") in an RGBA image (w×h): white text on a flat, dark, see-through pill with
  * round ends. `hMin`/`hMax` are pill heights in pixels. Returns [{ x1, x2, cy, rho }] (the pill is the
  * points within rho of the segment x1..x2 on row cy). Found from the text outwards: the text's line,
@@ -1040,11 +1105,44 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
     if (rn && ring / rn > top - 70) continue;
     blobs.push({ x0, x1: x1 + 1, y0, y1: y1 + 1, slant: vx > 0 && vy > 0 ? cov / Math.sqrt(vx * vy) : 0 });
   }
+  // Small text can break apart (a "3" into its top and bottom halves): pieces stacked right on top of
+  // each other are one character.
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < blobs.length && !merged; i++) {
+      for (let j = i + 1; j < blobs.length; j++) {
+        const a = blobs[i]; const b = blobs[j];
+        const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+        const gap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
+        if (overlap < 0.5 * Math.min(a.x1 - a.x0, b.x1 - b.x0) || gap > 2 || gap < -1 || (a.y1 - a.y0) + (b.y1 - b.y0) > hMax * 0.7) continue;
+        const big = (a.x1 - a.x0) * (a.y1 - a.y0) >= (b.x1 - b.x0) * (b.y1 - b.y0) ? a : b;
+        blobs[i] = { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), y0: Math.min(a.y0, b.y0), y1: Math.max(a.y1, b.y1), slant: big.slant };
+        blobs.splice(j, 1); merged = true; break;
+      }
+    }
+  }
   blobs.sort((a, b) => a.x0 - b.x0 || a.y0 - b.y0);
-  const lines = [];
-  for (const b of blobs) {
-    const line = lines.find((l) => Math.min(l.y1, b.y1) - Math.max(l.y0, b.y0) >= 0.5 * Math.min(l.y1 - l.y0, b.y1 - b.y0) && b.x0 - l.x1 <= Math.max(l.y1 - l.y0, b.y1 - b.y0));
-    if (line) { line.x1 = Math.max(line.x1, b.x1); line.y0 = Math.min(line.y0, b.y0); line.y1 = Math.max(line.y1, b.y1); line.parts.push(b); } else lines.push({ ...b, parts: [b] });
+  // Lines of text: from each blob, the characters beside it that share its top and bottom (within a
+  // quarter of its height; the slash may reach a little past) and are about as tall, each close to
+  // the last. Bright specks in leaves or a sky around the pill don't line up like that, so they stay
+  // out of the counter's line.
+  const lines = []; const keys = new Set();
+  for (const seed of blobs) {
+    const sh = seed.y1 - seed.y0;
+    if (sh < 4) continue;
+    const fits = (b) => { const bh = b.y1 - b.y0; return bh >= sh * 0.6 && bh <= sh * 1.45 && Math.abs(b.y1 - seed.y1) <= sh * 0.3 + 1 && Math.abs(b.y0 - seed.y0) <= sh * 0.45 + 1; };
+    const line = { ...seed, parts: [seed] };
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const b of blobs) {
+        if (line.parts.includes(b) || !fits(b)) continue;
+        const gap = b.x0 >= line.x1 ? b.x0 - line.x1 : line.x0 >= b.x1 ? line.x0 - b.x1 : 0;
+        if (gap > sh * 0.8) continue;
+        line.x0 = Math.min(line.x0, b.x0); line.x1 = Math.max(line.x1, b.x1); line.y0 = Math.min(line.y0, b.y0); line.y1 = Math.max(line.y1, b.y1); line.parts.push(b); grew = true;
+      }
+    }
+    const key = line.parts.map((b) => blobs.indexOf(b)).sort((a, b) => a - b).join(',');
+    if (!keys.has(key)) { keys.add(key); lines.push(line); }
   }
   const out = [];
   for (const t of lines) {
@@ -1117,7 +1215,12 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
     if (fit) {
       // Refine the center by a pixel either way.
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const sc = outline(fit.cx + dx, fit.cy + dy, fit.rho, fit.a); if (sc > fit.score + 1e-9) fit = { ...fit, cx: fit.cx + dx, cy: fit.cy + dy, score: sc }; }
-      out.push({ x1: round1(fit.cx - fit.a), x2: round1(fit.cx + fit.a), cy: round1(fit.cy), rho: round1(fit.rho) });
+      // Over busy backgrounds (leaves) the outline can lock a little inside the true edge. Where the
+      // pill's inside is one even color, how far that color reaches along its middle row and column
+      // says where its ends are: the outline is widened to cover it.
+      const reach = evenReach(rgba, w, h, t, fit);
+      if (reach) fit = { ...fit, ...widen(fit.cx, fit.cy, fit.a, fit.rho, reach) };
+      out.push({ x1: round1(fit.cx - fit.a), x2: round1(fit.cx + fit.a), cy: round1(fit.cy), rho: round1(fit.rho), score: fit.score });
       continue;
     }
     // The pill's edge doesn't show (a background as dark as the pill): the "n/m" text still does.
@@ -1128,10 +1231,20 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
     if (t.parts.length >= 3 && slash && tw >= th * 1.2 && tw <= th * 5) {
       const rho = th * 1.2; const cy = (t.y0 + t.y1) / 2;
       if (rho * 2 < hMin || rho * 2 > hMax) continue;
-      out.push({ x1: round1(t.x0 - th * 0.7 + rho), x2: round1(t.x1 + th * 0.7 - rho), cy: round1(cy), rho: round1(rho) });
+      let g = { cx: (t.x0 + t.x1) / 2, cy, a: Math.max(0, tw / 2 + th * 0.7 - rho), rho };
+      const reach = evenReach(rgba, w, h, t, { cy });
+      if (reach) g = widen(g.cx, g.cy, g.a, g.rho, reach);
+      out.push({ x1: round1(g.cx - g.a), x2: round1(g.cx + g.a), cy: round1(g.cy), rho: round1(g.rho), score: 0 });
     }
   }
-  return out;
+  // One pill per place: where outlines overlap (found from different lines of the same text), the
+  // one that holds best.
+  const kept = [];
+  for (const p of out.sort((a, b) => b.score - a.score)) {
+    if (kept.some((k) => Math.abs(k.cy - p.cy) < k.rho + p.rho && Math.min(k.x2 + k.rho, p.x2 + p.rho) > Math.max(k.x1 - k.rho, p.x1 - p.rho))) continue;
+    kept.push(p);
+  }
+  return kept.map(({ score, ...p }) => p);
 }
 
 /** The rounded outline holds all the way around: pill-colored just inside, lighter just outside. */
@@ -1212,6 +1325,8 @@ export function removeIcons(sample, W, H, box, opts = {}) {
   // The counter pill, top right.
   const tr = sample(right, box.y, z, z);
   for (const p of findPills(tr, z, z, { ...cfg, hMin: Math.round(W * cfg.pillMin), hMax: Math.round(W * cfg.pillMax) })) {
+    // Instagram draws it tight in the corner: anything pill-like farther in is part of the photo.
+    if (p.cy - p.rho > W * cfg.pillCorner || z - (p.x2 + p.rho) > W * cfg.pillCorner) continue;
     fill(right, box.y, p.x1, p.x2, p.cy, fillRadius(p.rho, cfg));
   }
   // The person button bottom left, the sound button bottom right: by symbol first, then by disc.

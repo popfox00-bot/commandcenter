@@ -149,7 +149,9 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
    (the same share of the screen's width whatever the photo's size; carousel dots sit in the gap
    below), so an edge that lands outside that window is moved into it, onto the strongest line
    there: no leftover margin from a divider or shaded band, and a photo that looks like the app at
-   its sides (a night sky, a dark backdrop) is stretched out to the window instead of cut short. Only the rows above and below it are cut: the crop always keeps the
+   its sides (a night sky, an almost black or a white photo) is stretched out to the window instead
+   of cut short. With no line there at all, the edge goes where the layout puts it (2.7% of the
+   width under the avatar, 8% over the action icons). Only the rows above and below it are cut: the crop always keeps the
    full width, never the sides.
 4. Each edge snaps to the strongest color step near it, and the result gets a confidence from how
    clean and straight the edges are.
@@ -160,11 +162,16 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
 the **person** (tagged people) button bottom left, the **sound** button bottom right, and the carousel
 counter pill ("11/13") top right. The buttons are recognized by their white symbol's shape (compared
 with the person and speaker symbols measured from real screenshots), whatever the background: on
-white, black or busy photos, even where the see-through gray disc can't be seen. The disc is placed
+white, black or busy photos, even where the see-through gray disc can't be seen. The symbol is
+looked for twice, the second time as pure white only, so a light stripe, glints in hair or a bright
+window right next to the button don't get lumped in with it. The disc is placed
 from the symbol and fitted to its edge where that shows. The pill is traced around its white text, or
 fitted to its whole rounded outline (a see-through pill darkens whatever is behind it by the same
 amount, so its edge shows over gradients and lines too), or placed from the "n/m" text itself when
-its edge doesn't show. White words, signs and logos without a
+its edge doesn't show. Its text is the characters that share one top and bottom line and height, so
+bright specks in leaves around it aren't mistaken for it; where its inside is one even tint, the fill
+is widened to everything that tint reaches, so no dark rim is left; and only a pill tight in the
+top-right corner counts. White words, signs and logos without a
 button's shape stay. Each one is filled by **copying background from just beside it**: the nearby
 spot whose surroundings best match is copied in and blended at the edges (seamless cloning), so
 textures, grain and patterns continue through. Where a line or an edge runs into it (a pole, a

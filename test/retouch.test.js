@@ -278,6 +278,58 @@ test('the fill copies the background in: stripes continue through, not a blur', 
   assert.ok(err / n < 12, `mean difference from the true stripes ${(err / n).toFixed(1)} (a blur would be ~40)`);
 });
 
+test('a button tight in the corner over a dark post\'s edge on a beige wall: the edge carries through sharp, not a blur', () => {
+  const r = 42; const cx = W - 8 - r; const cy = MH - 8 - r; const edge = cx + 18;
+  const post = (x, y) => (x < edge ? [28, 27, 24] : [184 - (x - 900) * 0.05, 160, 112]).map((v, k) => v + 10 * noise(x >> 1, y >> 1, k));
+  const img = media(W, MH, withButtons(post, [realButton(cx, cy, r, SOUND_PTS, 0.55)]));
+  const out = applied(img, removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH }));
+  const truth = media(W, MH, post);
+  let diff = 0; let n = 0;
+  for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+    if (Math.hypot(x - cx, y - cy) > r) continue;
+    for (let k = 0; k < 3; k++) { diff += Math.abs(out.px[(y * W + x) * 4 + k] - truth.px[(y * W + x) * 4 + k]); n++; }
+  }
+  assert.ok(diff / n < 8, `mean difference from the true background ${(diff / n).toFixed(1)} (a blur would be ~40)`);
+  for (let y = cy - r + 6; y < cy + r - 6; y += 6) {
+    assert.ok(lum(out.px, (y * W + edge - 4) * 4) < 60 && lum(out.px, (y * W + edge + 3) * 4) > 130, `post edge sharp at row ${y}`);
+  }
+});
+
+// ---------- lines running behind the counter pill (a pole, a cable, the horizon) ----------
+
+/** A see-through counter pill ("11/13") at the top right of W×H media, over `under`. */
+const counter = (under) => (x, y) => {
+  const c0 = under(x, y); const x1 = 1010; const x2 = 1090; const cy = 110; const rho = 36;
+  const qx = Math.min(x2, Math.max(x1, x)); const d = Math.hypot(x - qx, y - cy);
+  if (d > rho + 0.5) return c0;
+  const k = Math.min(1, rho + 0.5 - d); const u = x - 1000; const v = y - 96;
+  const text = v >= 0 && v < 28 && ((u > 10 && u < 15) || (u > 22 && u < 27) || (Math.abs((u - 38) - (28 - v) * 0.4) < 2.5 && u > 34 && u < 52) || (u > 58 && u < 63) || (u > 70 && u < 86 && (v < 4 || v > 24 || (v > 12 && v < 16) || u > 82)));
+  const c = text ? [255, 255, 255] : c0.map((t) => t * 0.45);
+  return c0.map((t, i) => t * (1 - k) + c[i] * k);
+};
+const LH = 900;
+const BEHIND = {
+  'a pale pole over light going from dark to golden': (x) => { const t = Math.min(1, Math.max(0, (x - 960) / 160)); return Math.abs(x - 1020) <= 5 ? [150, 180, 215] : [40 + 120 * t, 45 + 105 * t, 50 + 60 * t]; },
+  'a diagonal cable': (x, y) => (Math.abs((x - 1000) - (y - 110) * 0.6) <= 3 ? [30, 30, 30] : [170, 190, 210]),
+  'the horizon': (x, y) => (y < 112 ? [120, 160, 220] : [90, 120, 70]),
+};
+for (const [name, scene] of Object.entries(BEHIND)) {
+  test(`the counter pill over ${name}: traced exactly, and the lines carry straight through the fill`, () => {
+    const under = (x, y) => scene(x, y).map((v, k) => v + 5 * noise(x, y, k));
+    const img = media(W, LH, counter(under)); const truth = media(W, LH, under);
+    const z = 354; const zone = sampler(img)(W - z, 0, z, z);
+    const [p] = findPills(zone, z, z, { hMin: 29, hMax: 118 });
+    assert.ok(p && Math.abs(p.x1 + W - z - 1010) <= 3 && Math.abs(p.x2 + W - z - 1090) <= 3 && Math.abs(p.cy - 110) <= 1 && Math.abs(p.rho - 36) <= 1.5, JSON.stringify(p));
+    const out = applied(img, removeIcons(sampler(img), W, LH, { x: 0, y: 0, width: W, height: LH }));
+    let diff = 0; let n = 0;
+    for (let y = 74; y < 147; y++) for (let x = 974; x < 1127; x++) {
+      if (Math.hypot(x - Math.min(1090, Math.max(1010, x)), y - 110) > 36) continue;
+      for (let k = 0; k < 3; k++) { diff += Math.abs(out.px[(y * W + x) * 4 + k] - truth.px[(y * W + x) * 4 + k]); n++; }
+    }
+    assert.ok(diff / n < 4, `mean difference from the true background ${(diff / n).toFixed(1)}`);
+  });
+}
+
 test('white symbols without a disc stay: a white logo and letters on a dark, plain corner', () => {
   const dark = (x, y) => [28 + 6 * noise(x, y, 0), 30, 34];
   const logo = (x, y, under) => (Math.hypot(x - 100, y - (MH - 100)) < 14 || (Math.abs(x - 100) < 22 && y > MH - 84 && y < MH - 72) ? [255, 255, 255] : under);

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "8ea7c2e9896c",
+  "version": "3e3b36a35cd5",
   "files": [
     "app.js",
     "apps/games/fox/cc-frame.css",

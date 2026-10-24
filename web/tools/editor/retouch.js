@@ -1,7 +1,8 @@
-// Overlay icons: the round buttons apps draw on top of a post's media (Instagram's mute and "tagged
-// people" buttons: a dark translucent disc with a white symbol), and the carousel counter pill in the
-// top right ("11/13": a dark translucent rounded pill with white text). Auto-Crop finds them in the
-// media's corners and fills each one in from the background just around it.
+// Overlay icons: the buttons apps draw on top of a post's media, each in its own corner: the "tagged
+// people" button (a person symbol) bottom left, the sound button (a speaker symbol) bottom right, both
+// a see-through gray disc with a white symbol, and the carousel counter pill ("11/13", white text on a
+// see-through gray pill) top right. Auto-Crop finds them by their white symbol or text, whatever the
+// background, and fills each one in with background copied from just beside it, blended seamlessly.
 //
 // The fill is a retouch patch kept in the edit state (`state.patches`), in source-image coordinates,
 // so the original is never changed: patches are painted onto the source before every other edit
@@ -23,7 +24,141 @@ export const ICON_DEFAULTS = Object.freeze({
   pillMax: 0.1,    // ...to 10% (Instagram's is ~6% on a phone screenshot)
   pillEdge: 12,    // the pill is see-through, so it's only this much darker than just outside it
   faint: 5,        // from the symbol out, the disc only needs to be this much darker than around it
+  match: 0.72,     // a white symbol is the person or speaker when its shape correlates this well
+  glyphRatio: 0.835, // the symbol is this share of the disc's radius across (measured on real buttons)
 });
+
+// The white symbols, as 16×16 coverage grids (0-f), measured from real screenshots of the buttons.
+const PERSON = `000006ffff600000 00007ffffff70000 0002dffffffd2000 0004ffffffff4000 0004ffffffff4000 0002dffffffd2000
+00007ffffff70000 0000018ff8100000 0000000000000000 0000288cf8820000 003affffffffa300 03effffffffffe70 4ffffffffffffff4
+ffffffffffffffff bffffffffffffffb 078effffffffe870`;
+const MUTED = `8700007f40000000 ffa007ff40000000 3efa7fff40003c50 04efffff40115fc1 104effff43ea0df8 8604efff42df35fd
+8f604eff407f90ef 8ff604efa15f90ef 8fff604efa6f90ef 8ffff604efdf72ef 8fffff604eff29f9 8ffffff604efaef5 1223dfff304eff90
+00002dff4004efb0 000002df40004ef7 00000028200003f8`;
+const parseGrid = (t) => Float32Array.from(t.replace(/\s+/g, ''), (c) => parseInt(c, 16) / 15);
+/** A speaker with sound waves (sound on): drawn, as no screenshot of it was at hand. */
+function soundOnGrid() {
+  const g = new Float32Array(256);
+  for (let j = 0; j < 16; j++) {
+    for (let i = 0; i < 16; i++) {
+      let hit = 0;
+      for (let sy = 0; sy < 4; sy++) {
+        for (let sx = 0; sx < 4; sx++) {
+          const x = (i + (sx + 0.5) / 4) / 16; const y = (j + (sy + 0.5) / 4) / 16;
+          const box = x < 0.22 && Math.abs(y - 0.5) < 0.17;
+          const cone = x >= 0.22 && x < 0.5 && Math.abs(y - 0.5) < 0.17 + (x - 0.22) * 1.2;
+          const d = Math.hypot(x - 0.45, y - 0.5);
+          const waves = x > 0.58 && (Math.abs(d - 0.28) < 0.05 || Math.abs(d - 0.5) < 0.05) && Math.abs(y - 0.5) < 0.42;
+          if (box || cone || waves) hit++;
+        }
+      }
+      g[j * 16 + i] = hit / 16;
+    }
+  }
+  return g;
+}
+const TEMPLATES = { person: [parseGrid(PERSON)], sound: [parseGrid(MUTED), soundOnGrid()] };
+
+/** Pearson correlation of two grids. */
+function correlate(a, b) {
+  let ma = 0; let mb = 0;
+  for (let i = 0; i < a.length; i++) { ma += a[i]; mb += b[i]; }
+  ma /= a.length; mb /= b.length;
+  let ab = 0; let aa = 0; let bb = 0;
+  for (let i = 0; i < a.length; i++) { const x = a[i] - ma; const y = b[i] - mb; ab += x * y; aa += x * x; bb += y * y; }
+  return aa && bb ? ab / Math.sqrt(aa * bb) : 0;
+}
+
+/** White, neutral pixels in groups (the parts of one symbol, or the letters of one word). */
+function whiteGroups(rgba, w, h, L, maxSize, join) {
+  const white = (i) => L[i] >= 190 && Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) - Math.min(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) <= 45;
+  const seen = new Uint8Array(w * h); const parts = [];
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i] || !white(i)) continue;
+    let x0 = w; let x1 = 0; let y0 = h; let y1 = 0; let n = 0; let sx = 0; let sy = 0; let sxy = 0; let sxx = 0; let syy = 0;
+    const stack = [i]; seen[i] = 1;
+    while (stack.length) {
+      const j = stack.pop(); const x = j % w; const y = (j - x) / w; n++;
+      sx += x; sy += y; sxy += x * y; sxx += x * x; syy += y * y;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && !seen[j - 1] && white(j - 1)) { seen[j - 1] = 1; stack.push(j - 1); }
+      if (x < w - 1 && !seen[j + 1] && white(j + 1)) { seen[j + 1] = 1; stack.push(j + 1); }
+      if (y > 0 && !seen[j - w] && white(j - w)) { seen[j - w] = 1; stack.push(j - w); }
+      if (y < h - 1 && !seen[j + w] && white(j + w)) { seen[j + w] = 1; stack.push(j + w); }
+    }
+    if (n < 3 || x1 - x0 >= maxSize || y1 - y0 >= maxSize) continue;
+    // How diagonal the part is ("/" in "11/13"): the x–y correlation of its pixels.
+    const cov = sxy / n - (sx / n) * (sy / n); const vx = sxx / n - (sx / n) ** 2; const vy = syy / n - (sy / n) ** 2;
+    parts.push({ x0, x1: x1 + 1, y0, y1: y1 + 1, n, slant: vx > 0 && vy > 0 ? cov / Math.sqrt(vx * vy) : 0 });
+  }
+  const groups = parts.map((p) => ({ ...p, parts: [p] }));
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let a = 0; a < groups.length && !merged; a++) {
+      for (let b = a + 1; b < groups.length; b++) {
+        const A = groups[a]; const B = groups[b];
+        const gap = join(A, B);
+        if (B.x0 <= A.x1 + gap && B.x1 >= A.x0 - gap && B.y0 <= A.y1 + gap && B.y1 >= A.y0 - gap) {
+          groups[a] = { x0: Math.min(A.x0, B.x0), x1: Math.max(A.x1, B.x1), y0: Math.min(A.y0, B.y0), y1: Math.max(A.y1, B.y1), n: A.n + B.n, parts: [...A.parts, ...B.parts] };
+          groups.splice(b, 1); merged = true; break;
+        }
+      }
+    }
+  }
+  return groups;
+}
+
+/**
+ * The person and speaker buttons, found by their white symbol's shape (whatever the background):
+ * white groups of a button's size whose 16×16 coverage correlates with a symbol template. The disc is
+ * then where the symbol says it is (centered on it, symbol/0.835 in radius), fitted to its edge where
+ * that edge shows. `kinds`: which symbols to accept. Returns [{ cx, cy, r, kind }] in pixels.
+ */
+export function findSymbols(rgba, w, h, { rMin, rMax, kinds = ['person', 'sound'], ...opts }) {
+  const cfg = { ...ICON_DEFAULTS, ...opts };
+  const L = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) L[i] = lum(rgba, i * 4);
+  const sMin = rMin * cfg.glyphRatio * 0.8; const sMax = rMax * cfg.glyphRatio * 1.2;
+  const out = [];
+  for (const g of whiteGroups(rgba, w, h, L, sMax * 1.2, (A, B) => Math.max(2, 0.25 * Math.max(A.x1 - A.x0, A.y1 - A.y0, B.x1 - B.x0, B.y1 - B.y0)))) {
+    const gw = g.x1 - g.x0; const gh = g.y1 - g.y0; const size = Math.max(gw, gh);
+    if (size < sMin || size > sMax || gw / gh < 0.7 || gw / gh > 1.45) continue;
+    // Coverage grid of the symbol's box (soft: anti-aliased edges count partly).
+    const grid = new Float32Array(256);
+    for (let j = 0; j < 16; j++) {
+      for (let i = 0; i < 16; i++) {
+        let s = 0; let n = 0;
+        for (let y = Math.floor(g.y0 + (gh * j) / 16); y < Math.max(Math.floor(g.y0 + (gh * j) / 16) + 1, Math.floor(g.y0 + (gh * (j + 1)) / 16)); y++) {
+          for (let x = Math.floor(g.x0 + (gw * i) / 16); x < Math.max(Math.floor(g.x0 + (gw * i) / 16) + 1, Math.floor(g.x0 + (gw * (i + 1)) / 16)); x++) {
+            s += Math.max(0, Math.min(1, (L[y * w + x] - 110) / 100)); n++;
+          }
+        }
+        grid[j * 16 + i] = s / n;
+      }
+    }
+    let best = null;
+    for (const kind of kinds) for (const t of TEMPLATES[kind]) { const c = correlate(grid, t); if (!best || c > best.score) best = { kind, score: c }; }
+    if (!best || best.score < cfg.match) continue;
+    const cx = (g.x0 + g.x1) / 2; const cy = (g.y0 + g.y1) / 2;
+    let r = size / cfg.glyphRatio;
+    // Fit the disc's edge where it shows: the radius where the ring just inside is darker than outside.
+    const at = (x, y) => { const xi = Math.round(x); const yi = Math.round(y); return xi < 0 || yi < 0 || xi >= w || yi >= h ? -1 : L[yi * w + xi]; };
+    let fit = null;
+    for (let rr = Math.floor(r * 0.88); rr <= Math.ceil(r * 1.15); rr++) {
+      let pass = 0; let ok = true;
+      for (const [ux, uy] of A64) {
+        let a = 0; let b = 0;
+        for (let k = 1; k <= 3 && ok; k++) { const ai = at(cx + (rr - k) * ux, cy + (rr - k) * uy); const bi = at(cx + (rr + k) * ux, cy + (rr + k) * uy); if (ai < 0 || bi < 0) ok = false; a += ai; b += bi; }
+        if (!ok) break;
+        if ((b - a) / 3 >= cfg.faint) pass++;
+      }
+      if (ok && pass / 64 >= 0.6 && (!fit || pass > fit.pass)) fit = { rr, pass };
+    }
+    if (fit) r = fit.rr;
+    out.push({ cx: Math.round(cx * 10) / 10, cy: Math.round(cy * 10) / 10, r: Math.round(r * 10) / 10, kind: best.kind, fitted: !!fit });
+  }
+  return out;
+}
 
 const lum = (p, i) => 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
 
@@ -252,13 +387,27 @@ export function fillDisc(rgba, w, h, cx, cy, R) {
   return fillPill(rgba, w, h, cx, cx, cy, R);
 }
 
+/** Relax (Gauss-Seidel, fixed sweeps): free cells become the average of their neighbours. */
+function relax(buf, free, bw, bh, sweeps) {
+  for (let it = 0; it < sweeps; it++) {
+    for (let j = 1; j < bh - 1; j++) {
+      for (let i = 1; i < bw - 1; i++) {
+        if (!free[j * bw + i]) continue;
+        const k = (j * bw + i) * 3; const l = k - 3; const rr = k + 3; const u = k - bw * 3; const d = k + bw * 3;
+        for (let c = 0; c < 3; c++) buf[k + c] = (buf[l + c] + buf[rr + c] + buf[u + c] + buf[d + c]) / 4;
+      }
+    }
+  }
+}
+
 /**
  * Fill a pill (stadium: the points within R of the segment x1..x2 on row cy, in pixels of `rgba`)
- * from the pixels around it, so the background continues through as if it was never there:
- *  1. a smooth membrane fill: each pixel the average of its neighbours, with the pixels just outside
- *     held fixed (Laplace relaxation, started from a blend of the boundary in 8 directions);
- *  2. the background's own grain on top: the fine detail of a spot just outside, mirrored in.
- * Returns the patch pixels { x0, y0, pw, ph, rgba }: alpha 255 inside (1 px soft edge), 0 outside.
+ * with background copied from beside it, so its texture continues: of 72 nearby spots, the one whose
+ * surroundings best match the pill's surroundings is copied in, and any difference in color at the
+ * edge is spread smoothly over the copy (seamless cloning: the membrane of the edge differences), so
+ * no seam shows. With no clean spot nearby (the edge of the picture), a smooth fill with the
+ * background's grain instead. Returns the patch pixels { x0, y0, pw, ph, rgba }: alpha 255 inside
+ * (1 px soft edge), 0 outside.
  */
 export function fillPill(rgba, w, h, x1, x2, cy, R) {
   const x0 = Math.max(0, Math.floor(x1 - R - 1)); const y0 = Math.max(0, Math.floor(cy - R - 1));
@@ -268,11 +417,75 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
   const dist2 = (x, y) => { const dx = x - near(x); const dy = y - cy; return dx * dx + dy * dy; };
   const in2 = (R + 1) * (R + 1);
   const inside = (x, y) => dist2(x, y) < in2;
-  const clampI = (x, y) => (Math.min(h - 1, Math.max(0, Math.round(y))) * w + Math.min(w - 1, Math.max(0, Math.round(x)))) * 4;
-  // Working buffer over the patch area plus a 1 px frame of original pixels (the fixed boundary).
+  const px = (x, y) => (Math.min(h - 1, Math.max(0, Math.round(y))) * w + Math.min(w - 1, Math.max(0, Math.round(x)))) * 4;
   const bw = pw + 2; const bh = ph + 2;
-  const buf = new Float32Array(bw * bh * 3);
   const free = new Uint8Array(bw * bh);
+  for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) if (inside(x0 - 1 + i, y0 - 1 + j)) free[j * bw + i] = 1;
+
+  // 1. Where to copy from: the spot whose surrounding band best matches this one's.
+  const band = Math.max(4, Math.round(R * 0.35));
+  const ext = R + 1 + band;
+  const ring = [];
+  for (let y = Math.floor(cy - ext); y <= Math.ceil(cy + ext); y += 2) {
+    for (let x = Math.floor(x1 - ext); x <= Math.ceil(x2 + ext); x += 2) { const d2 = dist2(x, y); if (d2 >= in2 && d2 < ext * ext && x >= 0 && y >= 0 && x < w && y < h) ring.push(x, y); }
+  }
+  let best = null;
+  for (let k = 0; k < 24; k++) {
+    const ux = Math.cos((Math.PI * k) / 12); const uy = Math.sin((Math.PI * k) / 12);
+    for (const mult of [1, 1.3, 1.7]) {
+      const len = (2 * ext + Math.abs(ux) * (x2 - x1)) * mult;
+      const ox = Math.round(len * ux); const oy = Math.round(len * uy);
+      if (x1 - ext + ox < 0 || x2 + ext + ox >= w || cy - ext + oy < 0 || cy + ext + oy >= h) continue;
+      let ssd = 0;
+      for (let i = 0; i < ring.length; i += 2) {
+        const a = (ring[i + 1] * w + ring[i]) * 4; const b = ((ring[i + 1] + oy) * w + ring[i] + ox) * 4;
+        ssd += (rgba[a] - rgba[b]) ** 2 + (rgba[a + 1] - rgba[b + 1]) ** 2 + (rgba[a + 2] - rgba[b + 2]) ** 2;
+      }
+      if (!best || ssd < best.ssd) best = { ox, oy, ssd };
+    }
+  }
+
+  const buf = new Float32Array(bw * bh * 3);
+  if (best) {
+    // 2. Copy it in, then spread the edge's color differences smoothly over it (no seam). The
+    // differences are of local averages (5×5): broad color and light, not the texture's own grain.
+    const { ox, oy } = best;
+    // The difference of local averages over the same outside-the-hole pixels on both sides.
+    const diff = (x, y, c) => {
+      let t = 0; let n = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { if (inside(x + dx, y + dy)) continue; t += rgba[px(x + dx, y + dy) + c] - rgba[px(x + dx + ox, y + dy + oy) + c]; n++; }
+      return n ? t / n : 0;
+    };
+    let mean = [0, 0, 0]; let n = 0;
+    for (let j = 0; j < bh; j++) {
+      for (let i = 0; i < bw; i++) {
+        if (free[j * bw + i]) continue;
+        // Only the cells next to the hole matter for the relaxation; the rest just hold their value.
+        const x = x0 - 1 + i; const y = y0 - 1 + j; const k = (j * bw + i) * 3;
+        const edge = (i > 0 && free[j * bw + i - 1]) || (i < bw - 1 && free[j * bw + i + 1]) || (j > 0 && free[(j - 1) * bw + i]) || (j < bh - 1 && free[(j + 1) * bw + i]);
+        if (!edge) continue;
+        for (let c = 0; c < 3; c++) { buf[k + c] = diff(x, y, c); mean[c] += buf[k + c]; }
+        n++;
+      }
+    }
+    mean = mean.map((v) => v / Math.max(1, n));
+    for (let i = 0; i < bw * bh; i++) if (free[i]) for (let c = 0; c < 3; c++) buf[i * 3 + c] = mean[c];
+    relax(buf, free, bw, bh, 80);
+    const out = new Uint8ClampedArray(pw * ph * 4);
+    for (let y = y0; y < ye; y++) {
+      for (let x = x0; x < xe; x++) {
+        const d = Math.sqrt(dist2(x, y));
+        const alpha = Math.max(0, Math.min(1, R + 0.5 - d));
+        if (alpha <= 0) continue;
+        const k = ((y - y0 + 1) * bw + (x - x0 + 1)) * 3; const o = ((y - y0) * pw + (x - x0)) * 4; const s = px(x + ox, y + oy);
+        for (let c = 0; c < 3; c++) out[o + c] = rgba[s + c] + buf[k + c];
+        out[o + 3] = Math.round(alpha * 255);
+      }
+    }
+    return { x0, y0, pw, ph, rgba: out };
+  }
+
+  // Fallback: a smooth membrane fill from the boundary (started from 8 directions), plus grain.
   const B = R + 2; const B2 = B * B;
   const DX = new Float64Array(8); const DY = new Float64Array(8);
   for (let i = 0; i < 8; i++) { DX[i] = Math.cos((Math.PI * i) / 4); DY[i] = Math.sin((Math.PI * i) / 4); }
@@ -280,45 +493,31 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
   for (let j = 0; j < bh; j++) {
     for (let i = 0; i < bw; i++) {
       const x = x0 - 1 + i; const y = y0 - 1 + j; const k = (j * bw + i) * 3;
-      if (!inside(x, y)) { const o = clampI(x, y); buf[k] = rgba[o]; buf[k + 1] = rgba[o + 1]; buf[k + 2] = rgba[o + 2]; continue; }
-      free[j * bw + i] = 1;
-      // Start: the boundary in 8 directions, weighted by 1/distance². The grown pill is convex, so
-      // along a ray "outside" starts once: binary search for it.
+      if (!free[j * bw + i]) { const o = px(x, y); buf[k] = rgba[o]; buf[k + 1] = rgba[o + 1]; buf[k + 2] = rgba[o + 2]; continue; }
       let sw = 0; let r = 0; let g = 0; let b = 0;
       for (let di = 0; di < 8; di++) {
         const ux = DX[di]; const uy = DY[di];
         let lo = 0; let hi = span;
         for (let it = 0; it < 8; it++) { // to within span/256: under a pixel
-          const mid = (lo + hi) / 2; const px = x + mid * ux; const py = y + mid * uy;
-          const qx = px < x1 ? x1 : px > x2 ? x2 : px;
-          if ((px - qx) * (px - qx) + (py - cy) * (py - cy) < B2) lo = mid; else hi = mid;
+          const mid = (lo + hi) / 2; const qx = x + mid * ux; const qy = y + mid * uy;
+          const nx = qx < x1 ? x1 : qx > x2 ? x2 : qx;
+          if ((qx - nx) * (qx - nx) + (qy - cy) * (qy - cy) < B2) lo = mid; else hi = mid;
         }
         const t = Math.max(1, hi);
-        const o = clampI(x + t * ux, y + t * uy);
+        const o = px(x + t * ux, y + t * uy);
         const wgt = 1 / (t * t);
         r += rgba[o] * wgt; g += rgba[o + 1] * wgt; b += rgba[o + 2] * wgt; sw += wgt;
       }
       buf[k] = r / sw; buf[k + 1] = g / sw; buf[k + 2] = b / sw;
     }
   }
-  // Relax: Gauss-Seidel, a fixed number of sweeps (deterministic).
-  for (let it = 0; it < 80; it++) {
-    for (let j = 1; j < bh - 1; j++) {
-      for (let i = 1; i < bw - 1; i++) {
-        if (!free[j * bw + i]) continue;
-        const k = (j * bw + i) * 3; const l = k - 3; const rr = k + 3; const u = k - bw * 3; const d = k + bw * 3;
-        for (let c = 0; c < 3; c++) buf[k + c] = (buf[l + c] + buf[rr + c] + buf[u + c] + buf[d + c]) / 4;
-      }
-    }
-  }
-  // Grain: the fine detail (pixel minus its 3×3 mean, capped so edges never come through) of a spot
-  // in a thin band just outside, mirrored across the nearest edge.
-  const band = Math.max(3, Math.min(8, Math.round(R / 4)));
+  relax(buf, free, bw, bh, 80);
+  const grainBand = Math.max(3, Math.min(8, Math.round(R / 4)));
   const detail = (x, y, c) => {
     if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1 || inside(x, y)) return 0;
-    let s = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += rgba[((y + dy) * w + x + dx) * 4 + c];
-    return Math.max(-8, Math.min(8, rgba[(y * w + x) * 4 + c] - s / 9));
+    let t = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) t += rgba[((y + dy) * w + x + dx) * 4 + c];
+    return Math.max(-8, Math.min(8, rgba[(y * w + x) * 4 + c] - t / 9));
   };
   const out = new Uint8ClampedArray(pw * ph * 4);
   for (let y = y0; y < ye; y++) {
@@ -328,7 +527,7 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
       if (alpha <= 0) continue;
       const k = ((y - y0 + 1) * bw + (x - x0 + 1)) * 3; const o = ((y - y0) * pw + (x - x0)) * 4;
       const ux = d > 0 ? (x - qx) / d : 0; const uy = d > 0 ? (y - cy) / d : 1;
-      const out2 = B + ((B - d) % band);
+      const out2 = B + ((B - d) % grainBand);
       const mx = Math.round(qx + ux * out2); const my = Math.round(cy + uy * out2);
       for (let c = 0; c < 3; c++) out[o + c] = buf[k + c] + detail(mx, my, c);
       out[o + 3] = Math.round(alpha * 255);
@@ -353,18 +552,22 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
   for (let i = 0; i < w * h; i++) {
     if (seen[i] || !bright(i)) continue;
     let x0 = w; let x1 = 0; let y0 = h; let y1 = 0; let n = 0; const stack = [i]; seen[i] = 1;
+    let sx = 0; let sy = 0; let sxy = 0; let sxx = 0; let syy = 0;
     while (stack.length && n < 4000) {
       const j = stack.pop(); const x = j % w; const y = (j - x) / w; n++;
+      sx += x; sy += y; sxy += x * y; sxx += x * x; syy += y * y;
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
       for (const k of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (k >= 0 && !seen[k] && bright(k)) { seen[k] = 1; stack.push(k); }
     }
-    if (n < 4000 && y1 - y0 + 1 <= hMax * 0.7) blobs.push({ x0, x1: x1 + 1, y0, y1: y1 + 1 });
+    // How diagonal the blob is (the "/" in "11/13"): the x–y correlation of its pixels.
+    const cov = sxy / n - (sx / n) * (sy / n); const vx = sxx / n - (sx / n) ** 2; const vy = syy / n - (sy / n) ** 2;
+    if (n < 4000 && y1 - y0 + 1 <= hMax * 0.7) blobs.push({ x0, x1: x1 + 1, y0, y1: y1 + 1, slant: vx > 0 && vy > 0 ? cov / Math.sqrt(vx * vy) : 0 });
   }
   blobs.sort((a, b) => a.x0 - b.x0 || a.y0 - b.y0);
   const lines = [];
   for (const b of blobs) {
     const line = lines.find((l) => Math.min(l.y1, b.y1) - Math.max(l.y0, b.y0) >= 0.5 * Math.min(l.y1 - l.y0, b.y1 - b.y0) && b.x0 - l.x1 <= Math.max(l.y1 - l.y0, b.y1 - b.y0));
-    if (line) { line.x1 = Math.max(line.x1, b.x1); line.y0 = Math.min(line.y0, b.y0); line.y1 = Math.max(line.y1, b.y1); } else lines.push({ ...b });
+    if (line) { line.x1 = Math.max(line.x1, b.x1); line.y0 = Math.min(line.y0, b.y0); line.y1 = Math.max(line.y1, b.y1); line.parts.push(b); } else lines.push({ ...b, parts: [b] });
   }
   const out = [];
   for (const t of lines) {
@@ -394,12 +597,27 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
     const rowsY = [cyT - (th >> 2), cyT, cyT + (th >> 2)]; const colsX = [cxT - (th >> 1), cxT, cxT + (th >> 1)];
     const l = median(rowsY.map((y) => walk(t.x0, y, -1, 0, 3 * th))); const r = median(rowsY.map((y) => walk(t.x1 - 1, y, 1, 0, 3 * th)));
     const u = median(colsX.map((x) => walk(x, t.y0, 0, -1, 2 * th))); const d = median(colsX.map((x) => walk(x, t.y1 - 1, 0, 1, 2 * th)));
-    if (l < 0 || r < 0 || u < 0 || d < 0) continue;
-    const xL = t.x0 - l + 1; const xR = t.x1 - 1 + r; const yT = t.y0 - u + 1; const yB = t.y1 - 1 + d;
-    const H = yB - yT; const rho = H / 2; const cy = (yT + yB) / 2;
-    if (H < hMin || H > hMax || H < th * 1.3 || H > th * 4 || xR - xL < H * 1.1) continue;
-    const x1 = xL + rho; const x2 = xR - rho;
-    if (pillOutline(L, w, h, x1, x2, cy, rho, P, cfg)) out.push({ x1: Math.round(x1 * 10) / 10, x2: Math.round(x2 * 10) / 10, cy: Math.round(cy * 10) / 10, rho: Math.round(rho * 10) / 10 });
+    const round1 = (v) => Math.round(v * 10) / 10;
+    if (l > 0 && r > 0 && u > 0 && d > 0) {
+      const xL = t.x0 - l + 1; const xR = t.x1 - 1 + r; const yT = t.y0 - u + 1; const yB = t.y1 - 1 + d;
+      const H = yB - yT; const rho = H / 2; const cy = (yT + yB) / 2;
+      const x1 = xL + rho; const x2 = xR - rho;
+      if (H >= hMin && H <= hMax && H >= th * 1.3 && H <= th * 4 && xR - xL >= H * 1.1 && pillOutline(L, w, h, x1, x2, cy, rho, P, cfg)) {
+        out.push({ x1: round1(x1), x2: round1(x2), cy: round1(cy), rho: round1(rho) });
+        continue;
+      }
+    }
+    // The pill's edge doesn't show (a background as dark as the pill): the "n/m" text still does.
+    // Three or more white characters, one of them a slash, as wide as a counter: the pill is where
+    // that text says (measured on real ones: 2.4× the text's height, the text plus 0.7× its height
+    // on each side).
+    const slash = t.parts.some((b) => b.slant <= -0.75 && b.y1 - b.y0 >= th * 0.7 && b.x1 - b.x0 <= th * 0.8);
+    const tw = t.x1 - t.x0;
+    if (t.parts.length >= 3 && slash && tw >= th * 1.2 && tw <= th * 5) {
+      const rho = th * 1.2; const cy = (t.y0 + t.y1) / 2;
+      if (rho * 2 < hMin || rho * 2 > hMax) continue;
+      out.push({ x1: round1(t.x0 - th * 0.7 + rho), x2: round1(t.x1 + th * 0.7 - rho), cy: round1(cy), rho: round1(rho) });
+    }
   }
   return out;
 }
@@ -457,40 +675,38 @@ export function setPatchedSource(r, base, patches) {
 }
 
 /**
- * Find overlay icons in the corners of `box` (the media, in pixels of a W×H frame) and the counter
- * pill in its top-right corner, and fill them in.
- * `sample(x, y, w, h)` returns full-size RGBA pixels of that rectangle. Returns patches.
+ * Find the overlay buttons in their corners of `box` (the media, in pixels of a W×H frame) and fill
+ * them in: the person button bottom left, the sound button bottom right (each by its white symbol,
+ * then by its disc as a fallback), the counter pill top right. `sample(x, y, w, h)` returns full-size
+ * RGBA pixels of that rectangle. Returns patches.
  */
 export function removeIcons(sample, W, H, box, opts = {}) {
   const cfg = { ...ICON_DEFAULTS, ...opts };
   const rMin = Math.max(6, Math.round(W * cfg.rMin)); const rMax = Math.max(rMin, Math.round(W * cfg.rMax));
   const z = Math.min(Math.round(W * cfg.zone), Math.floor(box.height / 2), Math.floor(box.width / 2));
   if (z < rMin * 3) return [];
-  const zones = [[box.x, box.y], [box.x + box.width - z, box.y], [box.x, box.y + box.height - z], [box.x + box.width - z, box.y + box.height - z]];
+  const right = box.x + box.width - z; const bottom = box.y + box.height - z;
   const patches = [];
-  // The carousel counter pill, in the top-right corner.
-  const [px0, py0] = zones[1];
-  const tr = sample(px0, py0, z, z);
+  // Fill a shape found at zone-relative coordinates, copying background from within the media only.
+  const fill = (zx, zy, x1, x2, cy, R) => {
+    const m = Math.ceil(4.5 * R) + 8;
+    const gx = Math.max(box.x, Math.round(zx + x1) - m); const gy = Math.max(box.y, Math.round(zy + cy) - m);
+    const gw = Math.min(box.x + box.width, Math.round(zx + x2) + m) - gx; const gh = Math.min(box.y + box.height, Math.round(zy + cy) + m) - gy;
+    const f = fillPill(sample(gx, gy, gw, gh), gw, gh, zx + x1 - gx, zx + x2 - gx, zy + cy - gy, R);
+    patches.push(makePatch({ ...f, x0: f.x0 + gx, y0: f.y0 + gy }, W, H));
+  };
+  // The counter pill, top right.
+  const tr = sample(right, box.y, z, z);
   for (const p of findPills(tr, z, z, { ...cfg, hMin: Math.round(W * cfg.pillMin), hMax: Math.round(W * cfg.pillMax) })) {
-    const R = fillRadius(p.rho, cfg);
-    const m = Math.ceil(2 * R) + 8;
-    const gx = Math.max(0, Math.round(px0 + p.x1) - m); const gy = Math.max(0, Math.round(py0 + p.cy) - m);
-    const gw = Math.min(W, Math.round(px0 + p.x2) + m) - gx; const gh = Math.min(H, Math.round(py0 + p.cy) + m) - gy;
-    const fill = fillPill(sample(gx, gy, gw, gh), gw, gh, px0 + p.x1 - gx, px0 + p.x2 - gx, py0 + p.cy - gy, R);
-    patches.push(makePatch({ ...fill, x0: fill.x0 + gx, y0: fill.y0 + gy }, W, H));
+    fill(right, box.y, p.x1, p.x2, p.cy, fillRadius(p.rho, cfg));
   }
-  for (const [zx, zy] of zones) {
+  // The person button bottom left, the sound button bottom right: by symbol first, then by disc.
+  for (const [zx, zy, kinds] of [[box.x, bottom, ['person', 'sound']], [right, bottom, ['sound', 'person']]]) {
     const px = sample(zx, zy, z, z);
-    for (const c of findIcons(px, z, z, { ...cfg, rMin, rMax })) {
-      const R = fillRadius(c.r, cfg);
-      // Fill from the pixels around the icon, sampled with room for the boundary and the mirrored grain.
-      const m = Math.ceil(2 * R) + 8;
-      const gx = Math.max(0, Math.round(zx + c.cx) - m); const gy = Math.max(0, Math.round(zy + c.cy) - m);
-      const gw = Math.min(W, Math.round(zx + c.cx) + m) - gx; const gh = Math.min(H, Math.round(zy + c.cy) + m) - gy;
-      const around = sample(gx, gy, gw, gh);
-      const fill = fillDisc(around, gw, gh, zx + c.cx - gx, zy + c.cy - gy, R);
-      patches.push(makePatch({ ...fill, x0: fill.x0 + gx, y0: fill.y0 + gy }, W, H));
-    }
+    const found = findSymbols(px, z, z, { ...cfg, rMin, rMax, kinds });
+    for (const c of findIcons(px, z, z, { ...cfg, rMin, rMax })) if (!found.some((o) => Math.hypot(o.cx - c.cx, o.cy - c.cy) < o.r + c.r)) found.push(c);
+    // A disc fitted to its edge needs the usual margin; one placed from its symbol alone a little more.
+    for (const c of found) fill(zx, zy, c.cx, c.cx, c.cy, fillRadius(c.r, cfg) + (c.fitted === false ? Math.round(c.r * 0.06) : 0));
   }
   return patches;
 }

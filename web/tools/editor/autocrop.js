@@ -49,8 +49,11 @@ export const AUTO_CROP_DEFAULTS = Object.freeze({
                           // background matches the chrome: the header/action anchors are used instead
   anchorConfidence: 0.55, // confidence of the header/action fallback (its edges can't be seen, so: check it)
   tabZone: 0.82,          // a floating tab bar is only looked for below 82% of the height
-  headerGap: [0.012, 0.045], // the media's top is this far under the avatar (share of the width; 0.027 measured)
-  actionGap: [0.018, 0.095], // its bottom this far over the action icons (0.078 measured with carousel dots)
+  headerGap: [0.012, 0.045], // the media's top is this far under the avatar (share of the width)...
+  headerAt: 0.027,           // ...0.027 measured on real screenshots
+  actionGap: [0.018, 0.095], // its bottom this far over the action icons...
+  actionAt: 0.08,            // ...0.078-0.082 measured (carousel dots sit in that gap)
+  lineMin: 0.3,              // within those ranges, a line across less than 30% of the width isn't the edge
 });
 
 export function hexToRgb(hex) {
@@ -412,18 +415,18 @@ function anchorRanges(anchors, w, cfg) {
 /**
  * Fit a content run to the post's header and action bar. An edge outside where the media can be is
  * moved into that range: above it, the run took in app rows (a divider, a shaded band: a margin
- * would be left); below it, the photo just looks like the app at its edge (a night sky, a dark
- * backdrop), so it's stretched there when the rows in between are content all the way. Returns the
+ * would be left); short of it, the photo just looks like the app at its edge (a night sky, a dark
+ * backdrop, an almost black or a white photo whose edges can't be seen), so it's stretched there: the
+ * header and the action bar are a fixed distance from the media, so they say where it is. Returns the
  * run and which edges are now set by an anchor.
  */
 function fitToAnchors(run, ranges, mask, stats, w, cfg) {
   const out = { ...run, top: false, bottom: false };
   const content = (y) => 1 - stats.chromeShare[y] > cfg.uiInkMin && sideInk(mask, w, y) > cfg.uiInkMin;
-  const mostly = (a, b) => { let n = 0; for (let y = a; y < b; y++) n += content(y) ? 1 : 0; return b <= a || n >= (b - a) * 0.9; };
   if (ranges.top) {
     const lo = Math.ceil(ranges.top[0]); const hi = Math.floor(ranges.top[1]);
     if (run.start < lo) { out.start = lo; out.top = true; } else if (run.start <= hi) out.top = true;
-    else if (mostly(hi, run.start)) {
+    else {
       let y = lo; while (y < hi && !content(y)) y++;
       out.start = y; out.top = true;
     }
@@ -431,7 +434,7 @@ function fitToAnchors(run, ranges, mask, stats, w, cfg) {
   if (ranges.bottom) {
     const lo = Math.ceil(ranges.bottom[0]); const hi = Math.floor(ranges.bottom[1]);
     if (run.end > hi) { out.end = hi; out.bottom = true; } else if (run.end >= lo) out.bottom = true;
-    else if (mostly(run.end, lo)) {
+    else {
       let y = hi; while (y > lo && !content(y - 1)) y--;
       out.end = y; out.bottom = true;
     }
@@ -476,10 +479,13 @@ export function detectMedia(A, sample, W, H, opts = {}) {
   const within = (r) => Math.min(r.end, hi) - Math.max(r.start, lo);
   let run = (anchors ? runs.filter((r) => within(r) > 0).sort((a, b) => within(b) - within(a))[0] : null)
     ?? runs.find((r) => r.start <= A.h / 2 && r.end > A.h / 2) ?? runs[0];
+  const ranges = anchorRanges(anchors, A.w, cfg);
+  // No content rows at all between this post's header and action bar (a photo almost all as dark as
+  // the app): the media is still between them, where the layout puts it.
+  if (!run && anchors?.header && anchors.action && ranges.bottom[1] > ranges.top[1]) run = { start: Math.round(ranges.top[1]) + 1, end: Math.round(ranges.bottom[0]) - 1 };
   if (run) {
     if (anchors) run = { start: Math.max(run.start, lo), end: Math.min(run.end, hi) };
     run = trimFloatingBar(A, run, cfg);
-    const ranges = anchorRanges(anchors, A.w, cfg);
     const fitted = fitToAnchors(run, ranges, mask, stats, A.w, cfg);
     const anchored = fitted.top && fitted.bottom;
     run = { start: fitted.start, end: fitted.end };
@@ -487,9 +493,16 @@ export function detectMedia(A, sample, W, H, opts = {}) {
     let top = snapRows(sample, W, H, 0, W, Math.round(run.start * sy), cfg);
     let bottom = snapRows(sample, W, H, 0, W, Math.round(run.end * sy), cfg);
     // An edge still outside where the media can be: the strongest line inside that range instead.
-    const inRange = (r, at) => { const lo = Math.ceil(r[0] * sy); const hi = Math.floor(r[1] * sy); if (at >= lo && at <= hi) return null; const mid = Math.round((lo + hi) / 2); return snapRows(sample, W, H, 0, W, mid, { ...cfg, refine: Math.ceil((hi - lo) / 2) }); };
-    if (fitted.top) top = inRange(ranges.top, top.at) ?? top;
-    if (fitted.bottom) bottom = inRange(ranges.bottom, bottom.at) ?? bottom;
+    // With no visible line there either (an almost black photo), where the layout puts it.
+    const inRange = (r, edge, expected) => {
+      const lo = Math.ceil(r[0] * sy); const hi = Math.floor(r[1] * sy);
+      const line = (e) => e.straight == null || e.straight >= cfg.lineMin;
+      if (edge.at >= lo && edge.at <= hi && line(edge)) return null;
+      const e = snapRows(sample, W, H, 0, W, Math.round((lo + hi) / 2), { ...cfg, refine: Math.ceil((hi - lo) / 2) });
+      return line(e) ? e : { at: Math.round(expected * sy), straight: null };
+    };
+    if (fitted.top) top = inRange(ranges.top, top, anchors.header.bottom + cfg.headerAt * A.w) ?? top;
+    if (fitted.bottom) bottom = inRange(ranges.bottom, bottom, anchors.action.top - cfg.actionAt * A.w) ?? bottom;
     const edgeScore = (e) => (e.straight == null ? 0.6 : clamp((e.straight - 0.35) / 0.5, 0, 1));
     const edges = [top, bottom].map(edgeScore);
     const k = Math.max(1, Math.round(A.h * 0.01));
@@ -506,6 +519,10 @@ export function detectMedia(A, sample, W, H, opts = {}) {
     // the header) and below it (to the action bar): the media's own background is chrome-colored and
     // only an object inside it was found.
     if (anchors?.header && anchors.action && !anchored && !edges.every((e) => e >= 0.9) && blankRun(stats, run.start, -1, cfg) >= A.h * cfg.blankGap && blankRun(stats, run.end, 1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
+    // Only one of them in the screenshot, and on the other side a wide empty gap: that edge couldn't be
+    // seen (a white photo in light mode), so the crop there is a guess.
+    if (fitted.top && !fitted.bottom && edges[1] < 0.9 && blankRun(stats, run.end, 1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
+    if (fitted.bottom && !fitted.top && edges[0] < 0.9 && blankRun(stats, run.start, -1, cfg) >= A.h * cfg.blankGap) confidence *= 0.5;
     // App chrome always ends at a visible line; a box whose every edge is a gradual fade is just a
     // photo with a smooth sky or backdrop, not a screenshot.
     const seen = [top, bottom].filter((e) => e.straight != null);

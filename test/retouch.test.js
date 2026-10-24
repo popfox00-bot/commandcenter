@@ -330,6 +330,59 @@ for (const [name, scene] of Object.entries(BEHIND)) {
   });
 }
 
+// ---------- from real screenshots that slipped through ----------
+
+/** Whether any near-white symbol pixels are left within r of (cx, cy). */
+const whiteLeft = (img, cx, cy, r) => {
+  let n = 0;
+  for (let y = Math.round(cy - r); y <= cy + r; y++) for (let x = Math.round(cx - r); x <= cx + r; x++) if (Math.hypot(x - cx, y - cy) <= r && lum(img.px, (y * img.w + x) * 4) > 235) n++;
+  return n;
+};
+
+for (const [name, scene] of [
+  // A black photo with a light-gray stripe running right past the button (as in a shared screenshot).
+  ['a light stripe running right past it', (x, y) => { const d = (x - 1000) + (y - (MH - 120)) * 0.9; return d > -70 && d < 0 ? [205, 205, 205] : [8, 8, 8]; }],
+  // Dark hair with light-gray glints between the strands all around it, a bright window and a scroll
+  // bar next to it.
+  ['light glints in dark hair, a bright window and a scroll bar', (x, y) => (x >= W - 14 && x < W - 8 && y > MH - 330 && y < MH - 200 ? [235, 235, 235] : x > W - 160 && x < W - 118 && y < MH - 60 ? [250, 250, 248] : noise(x >> 2, y >> 3, 4) > 0.8 ? [212, 210, 206] : [30 + 20 * noise(x >> 1, y >> 1, 0), 26, 24])],
+]) {
+  test(`the sound button is found next to ${name}`, () => {
+    const r = 39; const cx = W - 36 - r; const cy = MH - 36 - r;
+    const img = media(W, MH, withButtons(scene, [realButton(cx, cy, r, SOUND_PTS, 0.55)]));
+    const patches = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
+    assert.equal(patches.length, 1);
+    assert.equal(whiteLeft(applied(img, patches), cx, cy, r * 0.7), 0, 'no symbol left');
+  });
+}
+
+/** A near-opaque olive counter pill (as Instagram draws it over leaves), centered (cx, cy), with "3/3"-like text. */
+const olivePill = (cx, cy, half, rho) => (x, y, under) => {
+  const qx = Math.min(cx + half - rho, Math.max(cx - half + rho, x)); const d = Math.hypot(x - qx, y - cy);
+  if (d > rho + 0.5) return under;
+  const u = x - (cx - 26); const v = y - (cy - 16);
+  const text = v >= 0 && v < 32 && ((u >= 0 && u < 16 && (v < 4 || v > 27 || (v > 13 && v < 18) || u > 12)) || (Math.abs((u - 20) - (32 - v) * 0.35) < 2.5 && u > 18 && u < 34) || (u >= 36 && u < 52 && (v < 4 || v > 27 || (v > 13 && v < 18) || u > 48)));
+  const k = Math.min(1, rho + 0.5 - d);
+  const c = text ? [255, 255, 250] : [70, 72, 50];
+  return under.map((t, i) => t * (1 - k) + c[i] * k);
+};
+/** Sunlit leaves: bright specks and dark leaves, high contrast everywhere. */
+const leaves = (x, y) => (noise(x >> 2, y >> 2, 1) > 0.55 ? [225 + 25 * noise(x, y, 2), 235, 170] : [55 + 30 * noise(x >> 1, y >> 1, 3), 80, 30]);
+
+test('the counter pill over sunlit leaves is found, whole, and filled: bright specks around it aren\'t taken for its text', () => {
+  const cx = W - 140; const cy = 78; const half = 51; const rho = 39;
+  const img = media(W, LH, withButtons(leaves, [olivePill(cx, cy, half, rho)]));
+  const patches = removeIcons(sampler(img), W, LH, { x: 0, y: 0, width: W, height: LH });
+  assert.equal(patches.length, 1);
+  const out = applied(img, patches);
+  // Nothing of the pill left: no olive pixels along its ends and edges, no text.
+  let olive = 0;
+  for (let y = cy - rho - 2; y <= cy + rho + 2; y++) for (let x = cx - half - 2; x <= cx + half + 2; x++) {
+    const i = (y * W + x) * 4; if (Math.abs(out.px[i] - 70) + Math.abs(out.px[i + 1] - 72) + Math.abs(out.px[i + 2] - 50) < 12) olive++;
+  }
+  assert.ok(olive < 15, `olive pixels left: ${olive}`);
+  assert.equal(whiteLeft(out, cx, cy, 20), 0, 'no text left');
+});
+
 test('white symbols without a disc stay: a white logo and letters on a dark, plain corner', () => {
   const dark = (x, y) => [28 + 6 * noise(x, y, 0), 30, 34];
   const logo = (x, y, under) => (Math.hypot(x - 100, y - (MH - 100)) < 14 || (Math.abs(x - 100) < 22 && y > MH - 84 && y < MH - 72) ? [255, 255, 255] : under);

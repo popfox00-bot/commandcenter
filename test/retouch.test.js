@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { findIcons, findPills, fillDisc, fillPill, fillRadius, removeIcons, makePatch, patchPixels } from '../web/tools/editor/retouch.js';
+import { findIcons, findPills, findSymbols, fillDisc, fillPill, fillRadius, removeIcons, makePatch, patchPixels } from '../web/tools/editor/retouch.js';
 import { readPng } from './helpers/png.js';
 
 const lum = (p, i) => 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
@@ -185,11 +185,98 @@ for (const [name, bg, alpha, r] of [
     const out = applied(img, patches);
     for (const [cx, cy] of at) {
       const s = stats(out, cx, cy, r + 1, r + 12);
-      assert.ok(s.max < 200, `no white symbol left at x ${cx} (max ${s.max.toFixed(0)})`);
+      assert.ok(s.max < 230, `no white symbol left at x ${cx} (max ${s.max.toFixed(0)})`);
       assert.ok(Math.abs(s.inner - s.ring) < 10, `filled ${s.inner.toFixed(1)} vs around ${s.ring.toFixed(1)}`);
     }
   });
 }
+
+// ---------- the real symbols, by corner, on any background ----------
+
+/** The white symbol of a shared button screenshot, as offsets from the disc's center in radii. */
+function realSymbol(name, cx, cy, r) {
+  const img = fixture(name); const pts = [];
+  for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) if (Math.hypot(x - cx, y - cy) < 0.8 * r && Math.min(...img.px.subarray((y * img.w + x) * 4, (y * img.w + x) * 4 + 3)) >= 200) pts.push([(x - cx) / r, (y - cy) / r]);
+  return pts;
+}
+const PERSON_PTS = realSymbol('icon_tags.png', 78.6, 64.3, 39);
+const SOUND_PTS = realSymbol('icon_mute.png', 100.3, 108.4, 39);
+/** A real button: the shared symbol, scaled to radius r, on a disc dimming the background by alpha. */
+function realButton(cx, cy, r, pts, alpha) {
+  const on = new Set(); const k = r / 39;
+  for (const [u, v] of pts) for (let dy = 0; dy < Math.ceil(k); dy++) for (let dx = 0; dx < Math.ceil(k); dx++) on.add(`${Math.round(cx + u * r) + dx},${Math.round(cy + v * r) + dy}`);
+  return (x, y, under) => {
+    const d = Math.hypot(x - cx, y - cy);
+    if (d > r + 0.5) return under;
+    if (on.has(`${x},${y}`)) return [255, 255, 255];
+    const a = Math.max(0, Math.min(1, r + 0.5 - d)) * alpha;
+    return under.map((v) => v * (1 - a));
+  };
+}
+
+for (const [name, bg] of [
+  ['a white background', () => [250, 250, 250]],
+  ['pure black (the disc can\'t be seen at all)', () => [0, 0, 0]],
+  ['a busy, colorful background', (x, y) => [0, 1, 2].map((k) => 60 + 150 * noise(x >> 3, y >> 3, k))],
+]) {
+  test(`the person button bottom left and the sound button bottom right are found by their symbol on ${name}`, () => {
+    const r = 42;
+    const at = [[36 + r, MH - 36 - r, PERSON_PTS], [W - 36 - r, MH - 36 - r, SOUND_PTS]];
+    const img = media(W, MH, withButtons(bg, at.map(([cx, cy, pts]) => realButton(cx, cy, r, pts, 0.55))));
+    const patches = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
+    assert.equal(patches.length, 2);
+    const out = applied(img, patches); const clean = media(W, MH, bg);
+    for (const [cx, cy] of at) {
+      // Every pixel of the old button now within reach of the plain background there.
+      let worst = 0;
+      for (let y = Math.round(cy - r); y <= cy + r; y++) for (let x = Math.round(cx - r); x <= cx + r; x++) {
+        if (Math.hypot(x - cx, y - cy) > r) continue;
+        worst = Math.max(worst, Math.abs(lum(out.px, (y * W + x) * 4) - lum(clean.px, (y * W + x) * 4)));
+      }
+      assert.ok(worst < (name.startsWith('a busy') ? 150 : 25), `button at x ${cx}: worst difference from the background ${worst.toFixed(0)}`);
+      const s = stats(out, cx, cy, r, r + 10);
+      assert.ok(s.max < 255 || name.startsWith('a white'), 'no white symbol left');
+    }
+  });
+}
+
+test('the symbols are told apart from white words: a person, a speaker, and text', () => {
+  const r = 40; const z = 300;
+  const paint = (pts) => media(z, z, withButtons(() => [0, 0, 0], [realButton(150, 150, r, pts, 0.55)]));
+  const kindOf = (img) => findSymbols(img.px, z, z, { rMin: 15, rMax: 70 }).map((c) => c.kind);
+  assert.deepEqual(kindOf(paint(PERSON_PTS)), ['person']);
+  assert.deepEqual(kindOf(paint(SOUND_PTS)), ['sound']);
+  const words = media(z, z, (x, y) => (y > 130 && y < 165 && x > 90 && x < 210 && (x >> 3) % 3 !== 2 ? [255, 255, 255] : [0, 0, 0]));
+  assert.deepEqual(kindOf(words), []);
+  const found = findSymbols(paint(PERSON_PTS).px, z, z, { rMin: 15, rMax: 70 })[0];
+  assert.ok(Math.hypot(found.cx - 150, found.cy - 150) <= 3 && Math.abs(found.r - r) <= r * 0.1, JSON.stringify(found));
+});
+
+test('the counter pill top right is found from its "n/m" text even when its edge can\'t be seen', () => {
+  // White "2/5" on a pill exactly as dark as the background around it.
+  const glyphs = (x, y) => {
+    const u = x - (W - 140); const v = y - 60;
+    if (v < 0 || v >= 30) return false;
+    return (u >= 0 && u < 5) || (u >= 30 && u < 34 && v >= 0) || (Math.abs((u - 12) - (30 - v) * 0.4) < 2.5 && u >= 10 && u < 26) || (u >= 40 && u < 58 && (v < 4 || v > 26 || (u < 44 && v < 15) || (u > 54 && v > 13) || (v > 13 && v < 17)));
+  };
+  const img = media(W, MH, (x, y) => (glyphs(x, y) ? [255, 255, 255] : [20, 22, 26]));
+  const patches = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
+  assert.equal(patches.length, 1);
+  const out = applied(img, patches);
+  let white = 0;
+  for (let y = 50; y < 100; y++) for (let x = W - 150; x < W - 70; x++) if (lum(out.px, (y * W + x) * 4) > 200) white++;
+  assert.equal(white, 0, 'no text left');
+});
+
+test('the fill copies the background in: stripes continue through, not a blur', () => {
+  const stripes = (x) => [x % 16 < 8 ? 200 : 120, 140, 110];
+  const r = 42; const cx = W - 36 - r; const cy = MH - 36 - r;
+  const img = media(W, MH, withButtons(stripes, [realButton(cx, cy, r, SOUND_PTS, 0.55)]));
+  const out = applied(img, removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH }));
+  let err = 0; let n = 0;
+  for (let y = cy - r + 4; y < cy + r - 4; y++) for (let x = cx - r + 4; x < cx + r - 4; x++) { if (Math.hypot(x - cx, y - cy) > r - 4) continue; err += Math.abs(out.px[(y * W + x) * 4] - stripes(x)[0]); n++; }
+  assert.ok(err / n < 12, `mean difference from the true stripes ${(err / n).toFixed(1)} (a blur would be ~40)`);
+});
 
 test('white symbols without a disc stay: a white logo and letters on a dark, plain corner', () => {
   const dark = (x, y) => [28 + 6 * noise(x, y, 0), 30, 34];

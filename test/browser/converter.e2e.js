@@ -59,7 +59,7 @@ test('home screen of apps; Tools holds Editor and QR; no setup needed (no settin
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Tools', 'Updates', 'Notes', 'Games', 'Jobs']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Tools', 'Updates', 'Notes', 'Games', 'Settings', 'Jobs']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   await page.click('.app-tile >> text=Tools');
   await page.waitForSelector('.tool-card');

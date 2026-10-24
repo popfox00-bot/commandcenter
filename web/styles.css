@@ -17,8 +17,12 @@
   --radius: 14px;
   color-scheme: light dark;
 }
+/* A background chosen in Settings (web/theme.js) sets data-theme and the background, card, border and
+   text colors on <html>; the dark set below follows the chosen scheme rather than the system's. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f1115;
     --surface: #181b21;
     --text: #e8eaee;
@@ -34,6 +38,22 @@
     --run-bg: #172a4a;
     --idle-bg: #242830;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #181b21;
+  --text: #e8eaee;
+  --muted: #9aa3b2;
+  --border: #2a2f38;
+  --primary: #3b82f6;
+  --ok: #4ade80;
+  --ok-bg: #14301f;
+  --bad: #f87171;
+  --bad-bg: #3a1717;
+  --warn: #fbbf24;
+  --run: #93c5fd;
+  --run-bg: #172a4a;
+  --idle-bg: #242830;
 }
 
 * { box-sizing: border-box; }
@@ -390,6 +410,17 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .app-tile { align-content: start; }
 .tint-green { background: linear-gradient(160deg, #86efac, #15803d); }
 .tint-fox { background: linear-gradient(160deg, #E2793D, #B85A24); }
+.tint-gray { background: linear-gradient(160deg, #a1a1aa, #3f3f46); }
+
+/* Settings */
+.st { max-width: 560px; margin: 16px auto 0; padding: 0 16px; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 12px 8px; margin: 14px 0; }
+.st-swatch { display: grid; justify-items: center; gap: 6px; padding: 4px; border: 0; background: none; color: var(--text); font: inherit; }
+.st-chip { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
+.st-swatch[aria-pressed="true"] .st-chip { outline: 3px solid var(--primary); outline-offset: 3px; }
+.st-name { text-align: center; }
+.st-custom { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 8px; }
+.st-color { width: 64px; min-height: 44px; margin: 0; padding: 2px; flex: none; }
 
 /* ---------- Notes + Grocery ---------- */
 .nt-tabs { margin: 4px 0 12px; }

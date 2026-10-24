@@ -166,6 +166,38 @@ test('never cuts the sides: a photo whose left part is the app\'s own color keep
   assert.deepEqual([m.y, m.y + m.height], [445, 1918]);
 });
 
+/** A night sky: as dark as the app at its sides, a glow down the middle, stars; dark hills below. */
+const nightSky = (horizon) => (x, y) => {
+  if (y >= horizon) return [40 + 30 * noise(x, y, 0), 45 + 25 * noise(x, y, 1), 35 + 20 * noise(x, y, 2)];
+  if (noise(x, y, 7) > 0.997) return [230, 230, 240];
+  const glow = Math.max(0, 1 - Math.abs(x - 590) / 260);
+  return [13 + 70 * glow + 2 * noise(x, y, 0), 17 + 60 * glow, 23 + 90 * glow];
+};
+
+test('a night sky as dark as the app at its sides: the header above and the action icons below keep the whole photo', () => {
+  const img = feed({ paint: nightSky(1500) });
+  const m = findMedia(img.px, W, H);
+  assert.deepEqual([m.x, m.width], [0, W], 'full width');
+  assert.ok(Math.abs(m.y - 445) <= 4, `top ${m.y}: at the media's top, not halfway down at the horizon`);
+  assert.ok(Math.abs(m.y + m.height - 1918) <= 4, `bottom ${m.y + m.height}`);
+  assert.ok(m.confidence >= AUTO_CROP_DEFAULTS.sure, `confidence ${m.confidence}`);
+});
+
+test('starts from the middle: a taller photo from the next post peeking in below is not the one cropped to', () => {
+  // A landscape photo across the middle row (1278); below it, the next post's longer photo.
+  const ink = [235, 235, 235];
+  const img = canvas(W, H, DARK);
+  text(img, 140, 45, 260, 36, ink);
+  circle(img, 80, 620, 48, [200, 170, 90]); text(img, 160, 602, 400, 36, ink);
+  rect(img, 0, 700, W, 1300, textured);
+  for (const x of [40, 250, 400]) roundRect(img, x, 1340, x + 56, 1396, 14, ink);
+  text(img, 36, 1440, 900, 34, ink);
+  circle(img, 80, 1560, 48, [70, 110, 220]); text(img, 160, 1542, 420, 36, ink);
+  rect(img, 0, 1640, W, H, gradient(1640, H));
+  const m = findMedia(img.px, W, H);
+  assert.ok(Math.abs(m.y - 700) <= 4 && Math.abs(m.y + m.height - 1300) <= 4, `${m.y}..${m.y + m.height}`);
+});
+
 test('media running under a floating tab bar: cut above the bar, nothing blurred behind it', () => {
   const img = feed({ my0: 900, my1: H, nextPost: false, paint: textured });
   const m = findMedia(img.px, W, H);

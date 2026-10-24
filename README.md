@@ -1,7 +1,7 @@
 # Command Center
 
 A personal, phone-first app. It opens on a home screen of app icons: **Tools**, **Updates**,
-**Notes**, **Games** and **Jobs**.
+**Notes**, **Games**, **Settings** and **Jobs**.
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
   Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
@@ -17,6 +17,7 @@ A personal, phone-first app. It opens on a home screen of app icons: **Tools**, 
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
   Solitaire, Tile Match, Blackjack, Basketball Draft).
+- **[Settings](#settings)**: the app's background color, a preset or any color.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -42,7 +43,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Tools](#tools)
-- [Notes](#notes) · [Games](#games)
+- [Notes](#notes) · [Games](#games) · [Settings](#settings)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -140,9 +141,14 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
    2%). Rows that are mostly that color are app (flat bars, or text and icons on them); everything
    else is content. This goes by distance from the chrome color, not flatness, so a flat gray photo is
    still a photo.
-3. The media is the largest run of content rows: gaps under 1% of the height merge (thin lines in a
-   photo), and runs under 15% are dropped (banners, buttons). Only the rows above
-   and below it are cut: the crop always keeps the full width, never the sides.
+3. The media is a run of content rows: gaps under 1% of the height merge (thin lines in a photo), and
+   runs under 15% are dropped (banners, buttons). It works out from the middle of the screenshot:
+   the post's account header (round avatar and name) nearest above the middle and its action icons
+   (like, comment, share) nearest below it frame the media, so posts peeking in above or below are
+   ignored. Where the photo looks like the app at its sides (a night sky, a dark backdrop), the media
+   is stretched up to just under the header and down to just over the action icons, since that's
+   where Instagram puts it. Only the rows above and below it are cut: the crop always keeps the
+   full width, never the sides.
 4. Each edge snaps to the strongest color step near it, and the result gets a confidence from how
    clean and straight the edges are.
 5. When the photo's own background is the app's color (a white photo in light mode), its edges can't
@@ -162,7 +168,11 @@ spot whose surroundings best match is copied in and blended at the edges (seamle
 textures, grain and patterns continue through. Where a line or an edge runs into it (a pole, a
 cable, the horizon), it's filled patch by patch from the edge inward instead, lines first, each small
 patch copied from the best match nearby (exemplar inpainting), so the line carries straight through
-and lines up on both sides. A smooth fill is used only when there's no room to copy from. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
+and lines up on both sides. A smooth fill is used only when there's no room to copy from. Then the
+fill is **rebuilt like a content-aware clean-up**: coarse to fine, every small patch over it is
+swapped for the best-matching patch from the picture around it, until they all agree where they
+overlap (PatchMatch with voting). That takes out blur, seams and color steps, so it fits in with the
+surroundings. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
 without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).
 
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the
@@ -382,6 +392,16 @@ strict Content Security Policy as the rest of the app, its own manifest and serv
 dropped (Command Center's cover it, so the games work offline), and the Home link and icon were
 added. Scores and settings are saved in this app's storage under `foxGames`; progress from the old
 standalone Fox Games site doesn't carry over (browsers keep each site's storage separate).
+
+## Settings
+
+**Settings** on the home screen sets the **background color** for the whole app: System (follows
+the phone's light or dark mode), ten presets (Midnight, Charcoal, Navy, Forest, Plum, Slate, Sand,
+Mint, Blush, White) or any custom color. Text, cards, borders and muted text follow it so everything
+stays readable (at least 7:1 contrast on the presets, 4.5:1 on any color): light text on dark
+backgrounds, dark text on light ones. It's saved on the phone only (`localStorage`) and applied by
+`web/theme.js` before the page draws, so there's no flash of the old color. **Reset to default** goes
+back to System. Fox Games keeps its own colors.
 
 ## Repository layout
 

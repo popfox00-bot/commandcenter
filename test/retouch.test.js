@@ -278,6 +278,23 @@ test('the fill copies the background in: stripes continue through, not a blur', 
   assert.ok(err / n < 12, `mean difference from the true stripes ${(err / n).toFixed(1)} (a blur would be ~40)`);
 });
 
+test('a button tight in the corner over a dark post\'s edge on a beige wall: the edge carries through sharp, not a blur', () => {
+  const r = 42; const cx = W - 8 - r; const cy = MH - 8 - r; const edge = cx + 18;
+  const post = (x, y) => (x < edge ? [28, 27, 24] : [184 - (x - 900) * 0.05, 160, 112]).map((v, k) => v + 10 * noise(x >> 1, y >> 1, k));
+  const img = media(W, MH, withButtons(post, [realButton(cx, cy, r, SOUND_PTS, 0.55)]));
+  const out = applied(img, removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH }));
+  const truth = media(W, MH, post);
+  let diff = 0; let n = 0;
+  for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+    if (Math.hypot(x - cx, y - cy) > r) continue;
+    for (let k = 0; k < 3; k++) { diff += Math.abs(out.px[(y * W + x) * 4 + k] - truth.px[(y * W + x) * 4 + k]); n++; }
+  }
+  assert.ok(diff / n < 8, `mean difference from the true background ${(diff / n).toFixed(1)} (a blur would be ~40)`);
+  for (let y = cy - r + 6; y < cy + r - 6; y += 6) {
+    assert.ok(lum(out.px, (y * W + edge - 4) * 4) < 60 && lum(out.px, (y * W + edge + 3) * 4) > 130, `post edge sharp at row ${y}`);
+  }
+});
+
 // ---------- lines running behind the counter pill (a pole, a cable, the horizon) ----------
 
 /** A see-through counter pill ("11/13") at the top right of W×H media, over `under`. */

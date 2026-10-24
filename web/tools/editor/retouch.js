@@ -503,11 +503,13 @@ export function inpaint(rgba, w, h, unknown, bx0, by0, bx1, by1, R) {
 
 /**
  * Fill a pill (stadium: the points within R of the segment x1..x2 on row cy, in pixels of `rgba`)
- * with background copied from beside it, so its texture continues: of 72 nearby spots, the one whose
- * surroundings best match the pill's surroundings is copied in, and any difference in color at the
- * edge is spread smoothly over the copy (seamless cloning: the membrane of the edge differences), so
- * no seam shows. With no clean spot nearby (the edge of the picture), a smooth fill with the
- * background's grain instead. Returns the patch pixels { x0, y0, pw, ph, rgba }: alpha 255 inside
+ * with background copied from beside it, so its texture continues: of the nearby spots, the few whose
+ * surroundings best match the pill's are kept, each part of the hole copies from the one that best
+ * lines up with the edges nearest it (so where a ledge meets a post, both carry on), and any difference
+ * in color at the edge is spread smoothly over the copy (seamless cloning: the membrane of the edge
+ * differences), so no seam shows. Copies may come from anywhere in the picture, so a button tight in a
+ * corner still gets one. With no clean spot at all (a tiny picture), a smooth fill with the background's
+ * grain instead. Returns the patch pixels { x0, y0, pw, ph, rgba }: alpha 255 inside
  * (1 px soft edge), 0 outside.
  */
 export function fillPill(rgba, w, h, x1, x2, cy, R) {
@@ -523,14 +525,18 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
   const free = new Uint8Array(bw * bh);
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) if (inside(x0 - 1 + i, y0 - 1 + j)) free[j * bw + i] = 1;
 
-  // 1. Where to copy from: the spot whose surrounding band best matches this one's, in color and in
-  //    the direction of its edges.
+  // 1. Where to copy from: spots whose surrounding band matches this one's, in color and in the
+  //    direction of its edges.
   const band = Math.max(4, Math.round(R * 0.35));
   const ext = R + 1 + band;
   const ring = [];
   for (let y = Math.floor(cy - ext); y <= Math.ceil(cy + ext); y += 2) {
     for (let x = Math.floor(x1 - ext); x <= Math.ceil(x2 + ext); x += 2) { const d2 = dist2(x, y); if (d2 >= in2 && d2 < ext * ext && x >= 0 && y >= 0 && x < w && y < h) ring.push(x, y); }
   }
+  // The band's extent (it stops at the picture's edges, so a button near an edge still has copies).
+  let rx0 = Infinity; let rx1 = -Infinity; let ry0 = Infinity; let ry1 = -Infinity;
+  for (let i = 0; i < ring.length; i += 2) { rx0 = Math.min(rx0, ring[i]); rx1 = Math.max(rx1, ring[i]); ry0 = Math.min(ry0, ring[i + 1]); ry1 = Math.max(ry1, ring[i + 1]); }
+  const hx0 = Math.min(rx0, x0); const hx1 = Math.max(rx1, xe - 1); const hy0 = Math.min(ry0, y0); const hy1 = Math.max(ry1, ye - 1);
   // Brightness gradients, worked out once over the area copies may come from.
   const gxs = new Float32Array(w * h); const gys = new Float32Array(w * h);
   {
@@ -540,7 +546,7 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
   }
   const grad = (x, y) => { const i = Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x)); return [gxs[i], gys[i]]; };
   const score = (ox, oy) => {
-    if (x1 - ext + ox < 0 || x2 + ext + ox >= w || cy - ext + oy < 0 || cy + ext + oy >= h) return Infinity;
+    if (!ring.length || hx0 + ox < 0 || hx1 + ox >= w || hy0 + oy < 0 || hy1 + oy >= h) return Infinity;
     // Colors, plus the edges' directions (so a line next to the hole lines up with the copy's).
     let ssd = 0;
     for (let i = 0; i < ring.length; i += 2) {
@@ -557,25 +563,54 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
     const len = (2 * ext + Math.abs(ux) * (x2 - x1)) * mult;
     return [Math.round(len * ux), Math.round(len * uy)];
   };
-  let best = null;
-  const tryAt = (deg, mult) => { const [ox, oy] = along(deg, mult); const ssd = score(ox, oy); if (ssd < Infinity && (!best || ssd < best.ssd)) best = { ox, oy, ssd, deg, mult }; };
-  // Every 15°, at three distances; then within 7° and 10% of the best, finely (a line at any angle
-  // stays straight only when the copy comes from exactly along it).
-  for (let k = 0; k < 24; k++) for (const mult of [1, 1.3, 1.7]) tryAt(k * 15, mult);
-  if (best) { const c = best; for (let d = -7; d <= 7; d++) for (const m of [0.9, 1, 1.1]) tryAt(c.deg + d, c.mult * m); }
-
-  // Lines or edges running into the hole: inpaint patch by patch, so they carry straight through.
-  // That's when, at the band's strong edges, even the best copy's edges don't line up with them.
-  // (A few strong edges are lines; strong edges everywhere are texture, which a copy carries fine.)
-  let edgeErr = 0; let edgeMag = 0; let strong = 0;
-  for (let i = 0; i < ring.length; i += 2) {
-    const g = grad(ring[i], ring[i + 1]); const m = Math.hypot(g[0], g[1]);
-    if (m < 40) continue;
-    edgeMag += m; strong++;
-    const c = best ? grad(ring[i] + best.ox, ring[i + 1] + best.oy) : [0, 0];
-    edgeErr += Math.hypot(g[0] - c[0], g[1] - c[1]);
+  // Candidate copies every 15° at three distances, then finely around the best few (a line stays
+  // straight only when the copy comes from exactly along it). Keep up to six good, different ones.
+  const cands = [];
+  const add = (deg, mult) => {
+    const [ox, oy] = along(deg, mult);
+    if (cands.some((c) => c.ox === ox && c.oy === oy)) return;
+    const ssd = score(ox, oy);
+    if (ssd < Infinity) cands.push({ ox, oy, ssd, deg: ((deg % 360) + 360) % 360, mult });
+  };
+  for (let k = 0; k < 24; k++) for (const mult of [0.5, 0.7, 1, 1.3, 1.7]) add(k * 15, mult);
+  cands.sort((p, q) => p.ssd - q.ssd);
+  for (const c of cands.filter((c) => c.mult >= 1).slice(0, 2).concat(cands.slice(0, 2))) for (let d = -7; d <= 7; d++) for (const m of [0.9, 1, 1.1]) add(c.deg + d, c.mult * m);
+  cands.sort((p, q) => p.ssd - q.ssd || p.deg - q.deg);
+  // Short copies (closer than the hole is wide) can only be used where they come from outside it,
+  // so the best long one is always kept.
+  const picks = [];
+  const long = cands.find((c) => c.mult >= 1);
+  if (long) picks.push(long);
+  for (const c of long ? cands : []) {
+    if (picks.length >= 6) break;
+    if (picks.every((p) => Math.min(Math.abs(p.deg - c.deg), 360 - Math.abs(p.deg - c.deg)) >= 20 || (p.mult >= 1) !== (c.mult >= 1) && (p.ox !== c.ox || p.oy !== c.oy))) picks.push(c);
   }
-  if (edgeMag > 0 && strong / (ring.length / 2) <= 0.15 && (!best || edgeErr / edgeMag > 0.5)) {
+
+  // How well each pick matches at each point of the band around the hole (color and edges).
+  const npts = ring.length / 2;
+  const errs = picks.map(({ ox, oy }) => {
+    const e = new Float32Array(npts);
+    for (let j = 0; j < npts; j++) {
+      const x = ring[j * 2]; const y = ring[j * 2 + 1];
+      const a = (y * w + x) * 4; const b = ((y + oy) * w + x + ox) * 4; const ia = y * w + x; const ib = (y + oy) * w + x + ox;
+      e[j] = (rgba[a] - rgba[b]) ** 2 + (rgba[a + 1] - rgba[b + 1]) ** 2 + (rgba[a + 2] - rgba[b + 2]) ** 2 + 2 * ((gxs[ia] - gxs[ib]) ** 2 + (gys[ia] - gys[ib]) ** 2);
+    }
+    return e;
+  });
+
+  // Lines or edges running into the hole that no copy lines up (a cable in a corner, where the copy
+  // along it would come from outside the picture): inpaint patch by patch, so they carry through.
+  // (A few strong edges are lines; strong edges everywhere are texture, which copies carry fine.)
+  let strong = 0; let unexplained = 0;
+  for (let j = 0; j < npts; j++) {
+    const ia = ring[j * 2 + 1] * w + ring[j * 2]; const m = Math.hypot(gxs[ia], gys[ia]);
+    if (m < 40) continue;
+    strong++;
+    let fit = Infinity;
+    for (const { ox, oy } of picks) { const ib = ia + oy * w + ox; fit = Math.min(fit, Math.hypot(gxs[ia] - gxs[ib], gys[ia] - gys[ib]) / m); }
+    if (fit > 0.5) unexplained++;
+  }
+  if (strong > 0 && strong / npts <= 0.15 && (!picks.length || unexplained / strong >= 0.3)) {
     const filled = inpaint(rgba, w, h, inside, x0, y0, xe, ye, R);
     const out = new Uint8ClampedArray(pw * ph * 4);
     for (let y = y0; y < ye; y++) {
@@ -590,26 +625,70 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
     return { x0, y0, pw, ph, rgba: out };
   }
 
-  const buf = new Float32Array(bw * bh * 3);
-  if (best) {
-    // 2. Copy it in, then spread the edge's color differences smoothly over it (no seam). The
-    // differences are of local averages (5×5): broad color and light, not the texture's own grain.
-    const { ox, oy } = best;
-    // The difference of local averages over the same outside-the-hole pixels on both sides.
-    const diff = (x, y, c) => {
-      let t = 0; let n = 0;
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { if (inside(x + dx, y + dy)) continue; t += rgba[px(x + dx, y + dy) + c] - rgba[px(x + dx + ox, y + dy + oy) + c]; n++; }
-      return n ? t / n : 0;
+  if (picks.length) {
+    // 2. Each part of the hole (and of the band just outside it) copies from the pick that best
+    //    matches the band nearest to it, so where two edges meet inside (a ledge across a post), each
+    //    one is continued by the copy that lines it up. Worked out on a 3 px grid, blended between
+    //    grid points.
+    const G = 3; const gx0 = x0 - 3; const gy0 = y0 - 3;
+    const gw = Math.ceil((pw + 6) / G) + 2; const gh = Math.ceil((ph + 6) / G) + 2;
+    const sigma2 = Math.max(36, (R / 2.5) ** 2);
+    const clear2 = (R + 1 + 2 * G) ** 2;
+    const label = new Uint8Array(gw * gh);
+    for (let gj = 0; gj < gh; gj++) {
+      for (let gi = 0; gi < gw; gi++) {
+        const x = gx0 + gi * G; const y = gy0 + gj * G;
+        if (dist2(x, y) > (R + 1 + 3 * G) ** 2) continue;
+        let bestK = 0; let bestS = Infinity;
+        for (let k = 0; k < picks.length; k++) {
+          const { ox, oy, mult } = picks[k];
+          if (mult < 1 && dist2(x + ox, y + oy) < clear2) continue; // would copy the icon itself
+          let sum = 0; let wsum = 0;
+          for (let j = 0; j < npts; j += 2) {
+            const d2 = (ring[j * 2] - x) ** 2 + (ring[j * 2 + 1] - y) ** 2;
+            const wt = 1 / (1 + d2 / sigma2) ** 2;
+            sum += errs[k][j] * wt; wsum += wt;
+          }
+          const sc = sum / wsum + picks[k].ssd / npts * 0.05; // a little of the overall match too
+          if (sc < bestS) { bestS = sc; bestK = k; }
+        }
+        label[gj * gw + gi] = bestK;
+      }
+    }
+    const copy = (x, y, val) => {
+      const fx = Math.max(0, Math.min(gw - 1.001, (x - gx0) / G)); const fy = Math.max(0, Math.min(gh - 1.001, (y - gy0) / G));
+      const gi = Math.floor(fx); const gj = Math.floor(fy); const tx = fx - gi; const ty = fy - gj;
+      val[0] = val[1] = val[2] = 0;
+      for (const [di, dj, wt] of [[0, 0, (1 - tx) * (1 - ty)], [1, 0, tx * (1 - ty)], [0, 1, (1 - tx) * ty], [1, 1, tx * ty]]) {
+        if (wt <= 0) continue;
+        const { ox, oy } = picks[label[(gj + dj) * gw + gi + di]]; const s = px(x + ox, y + oy);
+        for (let c = 0; c < 3; c++) val[c] += wt * rgba[s + c];
+      }
+      return val;
     };
+    // 3. Seamless correction: the membrane of the edge differences between the picture and the
+    //    blended copy, of local averages (broad color and light, not grain).
+    const buf = new Float32Array(bw * bh * 3);
+    const tmp = [0, 0, 0];
+    const diff = new Float32Array(3);
     let mean = [0, 0, 0]; let n = 0;
     for (let j = 0; j < bh; j++) {
       for (let i = 0; i < bw; i++) {
         if (free[j * bw + i]) continue;
-        // Only the cells next to the hole matter for the relaxation; the rest just hold their value.
-        const x = x0 - 1 + i; const y = y0 - 1 + j; const k = (j * bw + i) * 3;
         const edge = (i > 0 && free[j * bw + i - 1]) || (i < bw - 1 && free[j * bw + i + 1]) || (j > 0 && free[(j - 1) * bw + i]) || (j < bh - 1 && free[(j + 1) * bw + i]);
         if (!edge) continue;
-        for (let c = 0; c < 3; c++) { buf[k + c] = diff(x, y, c); mean[c] += buf[k + c]; }
+        const x = x0 - 1 + i; const y = y0 - 1 + j;
+        diff.fill(0); let m = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (inside(x + dx, y + dy)) continue;
+            copy(x + dx, y + dy, tmp); const o = px(x + dx, y + dy);
+            for (let c = 0; c < 3; c++) diff[c] += rgba[o + c] - tmp[c];
+            m++;
+          }
+        }
+        const kk = (j * bw + i) * 3;
+        for (let c = 0; c < 3; c++) { buf[kk + c] = m ? diff[c] / m : 0; mean[c] += buf[kk + c]; }
         n++;
       }
     }
@@ -617,13 +696,15 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
     for (let i = 0; i < bw * bh; i++) if (free[i]) for (let c = 0; c < 3; c++) buf[i * 3 + c] = mean[c];
     relax(buf, free, bw, bh, 80);
     const out = new Uint8ClampedArray(pw * ph * 4);
+    const val = [0, 0, 0];
     for (let y = y0; y < ye; y++) {
       for (let x = x0; x < xe; x++) {
         const d = Math.sqrt(dist2(x, y));
         const alpha = Math.max(0, Math.min(1, R + 0.5 - d));
         if (alpha <= 0) continue;
-        const k = ((y - y0 + 1) * bw + (x - x0 + 1)) * 3; const o = ((y - y0) * pw + (x - x0)) * 4; const s = px(x + ox, y + oy);
-        for (let c = 0; c < 3; c++) out[o + c] = rgba[s + c] + buf[k + c];
+        const kk = ((y - y0 + 1) * bw + (x - x0 + 1)) * 3; const o = ((y - y0) * pw + (x - x0)) * 4;
+        copy(x, y, val);
+        out[o] = val[0] + buf[kk]; out[o + 1] = val[1] + buf[kk + 1]; out[o + 2] = val[2] + buf[kk + 2];
         out[o + 3] = Math.round(alpha * 255);
       }
     }
@@ -631,6 +712,7 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
   }
 
   // Fallback: a smooth membrane fill from the boundary (started from 8 directions), plus grain.
+  const buf = new Float32Array(bw * bh * 3);
   const B = R + 2; const B2 = B * B;
   const DX = new Float64Array(8); const DY = new Float64Array(8);
   for (let i = 0; i < 8; i++) { DX[i] = Math.cos((Math.PI * i) / 4); DY[i] = Math.sin((Math.PI * i) / 4); }

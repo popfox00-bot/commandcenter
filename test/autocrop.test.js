@@ -108,7 +108,7 @@ for (const [name, paint, my0, my1] of [
   ['gradient media', gradient(445, 1918), 445, 1918],
   ['noisy photo media', textured, 445, 1918],
   ['landscape media (a short 16:9 band)', textured, 700, 1363],
-  ['tall 4:5 media', gradient(420, 1894), 420, 1894],
+  ['tall 4:5 media', gradient(445, 1919), 445, 1919], // a fixed gap under the avatar, as in the app
 ]) {
   test(`dark mode, ${name}: exact media bounds, no header, banner, dots or action bar`, () => {
     const img = feed({ paint, my0, my1 });
@@ -181,6 +181,17 @@ test('a night sky as dark as the app at its sides: the header above and the acti
   assert.ok(Math.abs(m.y - 445) <= 4, `top ${m.y}: at the media's top, not halfway down at the horizon`);
   assert.ok(Math.abs(m.y + m.height - 1918) <= 4, `bottom ${m.y + m.height}`);
   assert.ok(m.confidence >= AUTO_CROP_DEFAULTS.sure, `confidence ${m.confidence}`);
+});
+
+test('no margin left: a divider under the header and a shaded band over the action icons stay out', () => {
+  // App rows that aren't the app's plain color, right against the photo: a thin divider just under
+  // the avatar and a shaded band from the photo's bottom down to the icons (like a "Learn more" bar).
+  const img = feed({ paint: textured });
+  rect(img, 0, 427, W, 431, [44, 48, 58]);
+  rect(img, 0, 1918, W, 2012, [30, 34, 44]);
+  const m = findMedia(img.px, W, H);
+  assert.ok(Math.abs(m.y - 445) <= 2, `top ${m.y}: the photo's top, not the divider`);
+  assert.ok(Math.abs(m.y + m.height - 1918) <= 2, `bottom ${m.y + m.height}: the photo's bottom, not the band`);
 });
 
 test('starts from the middle: a taller photo from the next post peeking in below is not the one cropped to', () => {

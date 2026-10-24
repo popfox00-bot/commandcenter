@@ -49,6 +49,8 @@ export const AUTO_CROP_DEFAULTS = Object.freeze({
                           // background matches the chrome: the header/action anchors are used instead
   anchorConfidence: 0.55, // confidence of the header/action fallback (its edges can't be seen, so: check it)
   tabZone: 0.82,          // a floating tab bar is only looked for below 82% of the height
+  headerGap: [0.012, 0.045], // the media's top is this far under the avatar (share of the width; 0.027 measured)
+  actionGap: [0.018, 0.095], // its bottom this far over the action icons (0.078 measured with carousel dots)
 });
 
 export function hexToRgb(hex) {
@@ -395,26 +397,44 @@ function sideInk(mask, w, y) {
 }
 
 /**
- * Stretch a content run out to the app's header above it and its action bar below it, when the rows
- * in between aren't empty app background: the photo just looks like the app at its sides there (a
- * night sky, a dark backdrop). Instagram puts the media right under the header and right above the
- * action bar, so content reaching close to them is the photo. Returns the run and which edges are
- * bracketed by an anchor.
+ * Where the media's top and bottom can be, from this post's header and action bar (analysis rows):
+ * Instagram lays the media out a fixed distance under the avatar and over the action icons (in
+ * points, so a fixed share of the screen's width whatever the photo's size; a carousel's dots sit in
+ * the gap below). { top: [lo, hi] | null, bottom: [lo, hi] | null }.
  */
-function stretchToAnchors(run, anchors, mask, stats, w, cfg) {
+function anchorRanges(anchors, w, cfg) {
+  const out = { top: null, bottom: null };
+  if (anchors?.header) out.top = [anchors.header.bottom + cfg.headerGap[0] * w, anchors.header.bottom + cfg.headerGap[1] * w];
+  if (anchors?.action) out.bottom = [anchors.action.top - cfg.actionGap[1] * w, anchors.action.top - cfg.actionGap[0] * w];
+  return out;
+}
+
+/**
+ * Fit a content run to the post's header and action bar. An edge outside where the media can be is
+ * moved into that range: above it, the run took in app rows (a divider, a shaded band: a margin
+ * would be left); below it, the photo just looks like the app at its edge (a night sky, a dark
+ * backdrop), so it's stretched there when the rows in between are content all the way. Returns the
+ * run and which edges are now set by an anchor.
+ */
+function fitToAnchors(run, ranges, mask, stats, w, cfg) {
   const out = { ...run, top: false, bottom: false };
-  if (!anchors) return out;
-  const blank = (y) => 1 - stats.chromeShare[y] <= cfg.uiInkMin;
-  const { header, action } = anchors;
-  if (header && header.bottom <= run.start) {
-    let y = header.bottom;
-    while (y < run.start && blank(y)) y++;
-    if (y - header.bottom <= header.size * 1.5) { out.start = Math.min(out.start, y); out.top = true; }
+  const content = (y) => 1 - stats.chromeShare[y] > cfg.uiInkMin && sideInk(mask, w, y) > cfg.uiInkMin;
+  const mostly = (a, b) => { let n = 0; for (let y = a; y < b; y++) n += content(y) ? 1 : 0; return b <= a || n >= (b - a) * 0.9; };
+  if (ranges.top) {
+    const lo = Math.ceil(ranges.top[0]); const hi = Math.floor(ranges.top[1]);
+    if (run.start < lo) { out.start = lo; out.top = true; } else if (run.start <= hi) out.top = true;
+    else if (mostly(hi, run.start)) {
+      let y = lo; while (y < hi && !content(y)) y++;
+      out.start = y; out.top = true;
+    }
   }
-  if (action && action.top >= run.end) {
-    let y = action.top - 1;
-    while (y >= run.end && (blank(y) || sideInk(mask, w, y) <= cfg.uiInkMin)) y--;
-    if (action.top - (y + 1) <= action.size * 2.5) { out.end = Math.max(out.end, y + 1); out.bottom = true; }
+  if (ranges.bottom) {
+    const lo = Math.ceil(ranges.bottom[0]); const hi = Math.floor(ranges.bottom[1]);
+    if (run.end > hi) { out.end = hi; out.bottom = true; } else if (run.end >= lo) out.bottom = true;
+    else if (mostly(run.end, lo)) {
+      let y = hi; while (y > lo && !content(y - 1)) y--;
+      out.end = y; out.bottom = true;
+    }
   }
   return out;
 }
@@ -459,12 +479,17 @@ export function detectMedia(A, sample, W, H, opts = {}) {
   if (run) {
     if (anchors) run = { start: Math.max(run.start, lo), end: Math.min(run.end, hi) };
     run = trimFloatingBar(A, run, cfg);
-    const stretched = stretchToAnchors(run, anchors, mask, stats, A.w, cfg);
-    const anchored = stretched.top && stretched.bottom;
-    run = { start: stretched.start, end: stretched.end };
+    const ranges = anchorRanges(anchors, A.w, cfg);
+    const fitted = fitToAnchors(run, ranges, mask, stats, A.w, cfg);
+    const anchored = fitted.top && fitted.bottom;
+    run = { start: fitted.start, end: fitted.end };
     // Full width, always: only the rows above and below the media are cut.
-    const top = snapRows(sample, W, H, 0, W, Math.round(run.start * sy), cfg);
-    const bottom = snapRows(sample, W, H, 0, W, Math.round(run.end * sy), cfg);
+    let top = snapRows(sample, W, H, 0, W, Math.round(run.start * sy), cfg);
+    let bottom = snapRows(sample, W, H, 0, W, Math.round(run.end * sy), cfg);
+    // An edge still outside where the media can be: the strongest line inside that range instead.
+    const inRange = (r, at) => { const lo = Math.ceil(r[0] * sy); const hi = Math.floor(r[1] * sy); if (at >= lo && at <= hi) return null; const mid = Math.round((lo + hi) / 2); return snapRows(sample, W, H, 0, W, mid, { ...cfg, refine: Math.ceil((hi - lo) / 2) }); };
+    if (fitted.top) top = inRange(ranges.top, top.at) ?? top;
+    if (fitted.bottom) bottom = inRange(ranges.bottom, bottom.at) ?? bottom;
     const edgeScore = (e) => (e.straight == null ? 0.6 : clamp((e.straight - 0.35) / 0.5, 0, 1));
     const edges = [top, bottom].map(edgeScore);
     const k = Math.max(1, Math.round(A.h * 0.01));

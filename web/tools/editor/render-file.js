@@ -79,9 +79,9 @@ export function prepareState(r, state, { autoCrop = null, autoEnhance = false, r
   }
   if (autoEnhance) {
     const out = outputPixelSize(s, r.srcW, r.srcH);
-    const w = Math.min(160, out.width);
-    r.render({ ...s, adjust: defaultState().adjust, filter: 'original' }, w, Math.max(1, Math.round(out.height * (w / out.width))));
-    s = { ...s, adjust: { ...s.adjust, ...autoAdjust(r.readPixels()) } };
+    const w = Math.min(320, out.width); const h = Math.max(1, Math.round(out.height * (w / out.width)));
+    r.render({ ...s, adjust: defaultState().adjust, filter: 'original' }, w, h);
+    s = { ...s, adjust: { ...s.adjust, ...autoAdjust(r.readPixels(), w, h) } };
     notes.push('Auto-enhanced');
   }
   return { state: s, notes, review };

@@ -408,10 +408,11 @@ export function mount(host, { file: initialFile } = {}) {
   }
 
   function autoEnhance() {
-    // Render a small version without adjustments and derive settings from its histogram.
+    // Render a small version without adjustments and work out this photo's settings from it.
     const base = { ...state(), adjust: defaultState().adjust, filter: 'original' };
-    renderer.render(base, 128, Math.max(1, Math.round(128 * glCanvas.height / glCanvas.width)));
-    const auto = autoAdjust(renderer.readPixels());
+    const w = 320; const h = Math.max(1, Math.round(320 * glCanvas.height / glCanvas.width));
+    renderer.render(base, w, h);
+    const auto = autoAdjust(renderer.readPixels(), w, h);
     commit({ ...state(), adjust: { ...state().adjust, ...auto } });
   }
 

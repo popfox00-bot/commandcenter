@@ -663,6 +663,39 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init) {
       vote();
       for (let k = 0; k < T; k++) { const t = targets[k]; sd[k] = dist(t % lw, (t / lw) | 0, sx[k], sy[k], Infinity); }
     }
+    if (L === 0) {
+      // Finally, each hole pixel straight from the best-matching patch over it: no averaging, so the
+      // grain and detail stay as sharp as the picture around it.
+      const best = new Float32Array(lw * lh).fill(Infinity);
+      const val = new Float32Array(lw * lh * 3);
+      for (let k = 0; k < T; k++) {
+        const tx = targets[k] % lw; const ty = (targets[k] / lw) | 0;
+        for (let dy = -P; dy <= P; dy++) {
+          for (let dx = -P; dx <= P; dx++) {
+            const i = (ty + dy) * lw + tx + dx; if (!hole[i] || sd[k] >= best[i]) continue;
+            best[i] = sd[k]; const j = ((sy[k] + dy) * lw + sx[k] + dx) * 3;
+            val[i * 3] = img[j]; val[i * 3 + 1] = img[j + 1]; val[i * 3 + 2] = img[j + 2];
+          }
+        }
+      }
+      // Right at the hole's edge the averaged fill is kept (it agrees with the picture there, so no
+      // outline shows), going over to the sharp one within a few pixels.
+      const depth = new Uint8Array(lw * lh);
+      for (let i = 0; i < lw * lh; i++) depth[i] = hole[i] ? 255 : 0;
+      for (let d = 1; d <= 4; d++) {
+        for (let y = 0; y < lh; y++) {
+          for (let x = 0; x < lw; x++) {
+            const i = y * lw + x; if (depth[i] !== 255) continue;
+            if ((x > 0 && depth[i - 1] === d - 1) || (x < lw - 1 && depth[i + 1] === d - 1) || (y > 0 && depth[i - lw] === d - 1) || (y < lh - 1 && depth[i + lw] === d - 1)) depth[i] = d;
+          }
+        }
+      }
+      for (let i = 0; i < lw * lh; i++) {
+        if (!hole[i] || best[i] === Infinity) continue;
+        const t = Math.min(1, (depth[i] - 1) / 4);
+        for (let c = 0; c < 3; c++) img[i * 3 + c] += t * (val[i * 3 + c] - img[i * 3 + c]);
+      }
+    }
     // Hand the matches down (as offsets) to the finer level, which starts from this level's picture.
     nnf = new Int32Array(lw * lh * 2).fill(NONE);
     for (let k = 0; k < T; k++) { const t = targets[k]; nnf[t * 2] = sx[k] - (t % lw); nnf[t * 2 + 1] = sy[k] - ((t / lw) | 0); }

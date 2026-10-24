@@ -145,9 +145,11 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
    runs under 15% are dropped (banners, buttons). It works out from the middle of the screenshot:
    the post's account header (round avatar and name) nearest above the middle and its action icons
    (like, comment, share) nearest below it frame the media, so posts peeking in above or below are
-   ignored. Where the photo looks like the app at its sides (a night sky, a dark backdrop), the media
-   is stretched up to just under the header and down to just over the action icons, since that's
-   where Instagram puts it. Only the rows above and below it are cut: the crop always keeps the
+   ignored. Instagram places the media a fixed distance under the avatar and over the action icons
+   (the same share of the screen's width whatever the photo's size; carousel dots sit in the gap
+   below), so an edge that lands outside that window is moved into it, onto the strongest line
+   there: no leftover margin from a divider or shaded band, and a photo that looks like the app at
+   its sides (a night sky, a dark backdrop) is stretched out to the window instead of cut short. Only the rows above and below it are cut: the crop always keeps the
    full width, never the sides.
 4. Each edge snaps to the strongest color step near it, and the result gets a confidence from how
    clean and straight the edges are.
@@ -171,8 +173,9 @@ patch copied from the best match nearby (exemplar inpainting), so the line carri
 and lines up on both sides. A smooth fill is used only when there's no room to copy from. Then the
 fill is **rebuilt like a content-aware clean-up**: coarse to fine, every small patch over it is
 swapped for the best-matching patch from the picture around it, until they all agree where they
-overlap (PatchMatch with voting). That takes out blur, seams and color steps, so it fits in with the
-surroundings. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
+overlap (PatchMatch with voting). The last pass takes each pixel from its single best-matching patch
+rather than an average, so the grain and detail come out as sharp as the photo around it. That takes
+out blur, seams and color steps, so it fits in with the surroundings. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
 without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).
 
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the

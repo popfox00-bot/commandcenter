@@ -151,8 +151,10 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
 **Overlay icons:** the round buttons apps draw on the media (Instagram's mute and tagged-people
 buttons: a dark see-through disc with a white symbol) are found in the media's corners, and the
 carousel counter pill ("11/13") in its top-right corner. Each is filled in from the background just
-around it, with its grain, so it disappears. A circle counts only if it's a flat disc clearly darker
-than its surroundings all the way around, with a white symbol inside. A pill counts only if its
+around it, with its grain, so it disappears. A button is found either way round: as a flat disc
+clearly darker than its surroundings with a white symbol inside, or (where the see-through disc barely
+shows: a dark or busy background, a small button) from its white sound or person symbol outwards, with
+a faint but even darker ring all around it. A pill counts only if its
 rounded outline closes around white text. So a dark round object, a sign or a caption band in the
 photo stays. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
 without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).

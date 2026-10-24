@@ -158,6 +158,47 @@ test('pill look-alikes stay: a caption band across the picture, a square-cornere
   assert.deepEqual(removeIcons(sampler(img2), W, MH, { x: 0, y: 0, width: W, height: MH }), []);
 });
 
+/** A button whose gray disc dims the background by `alpha` (Instagram's is about 0.5–0.6). */
+function faintButton(cx, cy, r, kind, alpha) {
+  const b = button(cx, cy, r, kind);
+  return (x, y, under) => {
+    const full = b(x, y, under);
+    if (full === under) return under;
+    const white = full.every((v) => v > 230);
+    return white ? full : under.map((v, i) => under[i] - (under[i] - full[i]) * (alpha / 0.6));
+  };
+}
+
+// The gray disc barely shows on these backgrounds; the white symbol always does.
+for (const [name, bg, alpha, r] of [
+  ['a dark background', (x, y) => [30 + 10 * noise(x, y, 0), 34, 40], 0.5, 40],
+  ['a very dark background', (x, y) => [16 + 6 * noise(x, y, 0), 18, 22], 0.5, 40],
+  ['a busy, textured background', (x, y) => [0, 1, 2].map((k) => 90 + 120 * noise(x >> 2, y >> 2, k)), 0.45, 40],
+  ['a faint disc on mid gray', (x, y) => [120 + 8 * noise(x, y, 0), 124, 130], 0.3, 40],
+  ['small buttons (radius 1.7% of the width)', (x, y) => [150 + 20 * Math.sin(x / 50), 160, 170], 0.55, 20],
+]) {
+  test(`low contrast: the sound and person buttons are found and filled on ${name}`, () => {
+    const at = [[36 + r, MH - 36 - r, 'tags'], [W - 36 - r, MH - 36 - r, 'mute']];
+    const img = media(W, MH, withButtons(bg, at.map(([cx, cy, kind]) => faintButton(cx, cy, r, kind, alpha))));
+    const patches = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
+    assert.equal(patches.length, 2);
+    const out = applied(img, patches);
+    for (const [cx, cy] of at) {
+      const s = stats(out, cx, cy, r + 1, r + 12);
+      assert.ok(s.max < 200, `no white symbol left at x ${cx} (max ${s.max.toFixed(0)})`);
+      assert.ok(Math.abs(s.inner - s.ring) < 10, `filled ${s.inner.toFixed(1)} vs around ${s.ring.toFixed(1)}`);
+    }
+  });
+}
+
+test('white symbols without a disc stay: a white logo and letters on a dark, plain corner', () => {
+  const dark = (x, y) => [28 + 6 * noise(x, y, 0), 30, 34];
+  const logo = (x, y, under) => (Math.hypot(x - 100, y - (MH - 100)) < 14 || (Math.abs(x - 100) < 22 && y > MH - 84 && y < MH - 72) ? [255, 255, 255] : under);
+  const letters = (x, y, under) => (y > MH - 110 && y < MH - 80 && x > W - 260 && x < W - 60 && (x >> 3) % 3 === 0 ? [250, 250, 250] : under);
+  const img = media(W, MH, (x, y) => letters(x, y, logo(x, y, dark(x, y))));
+  assert.deepEqual(removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH }), []);
+});
+
 test('look-alikes stay: a dark round object without a symbol, white text, a plain photo, a top-corner logo', () => {
   const ball = (x, y, under) => (Math.hypot(x - 90, y - (MH - 90)) <= 40 ? [60, 58, 62] : under);         // dark ball, no symbol
   const text = (x, y, under) => (y > MH - 120 && y < MH - 90 && x > W - 300 && x < W - 40 && (x >> 3) % 2 ? [255, 255, 255] : under);
@@ -175,7 +216,7 @@ test('patches: source-relative, round-trip their pixels, and the same input give
   const a = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
   assert.equal(a.length, 1);
   const [p] = a;
-  assert.ok(p.x > 0.85 && p.x < 0.95 && p.y > 0.9 && p.w * W === p.pw && p.h * MH === p.ph, JSON.stringify({ ...p, data: '…' }));
+  assert.ok(p.x > 0.85 && p.x < 0.95 && p.y > 0.9 && Math.round(p.w * W) === p.pw && Math.round(p.h * MH) === p.ph, JSON.stringify({ ...p, data: '…' }));
   assert.equal(patchPixels(p).length, p.pw * p.ph * 4);
   const fill = { x0: 3, y0: 4, pw: 2, ph: 1, rgba: Uint8ClampedArray.from([1, 2, 3, 255, 4, 5, 6, 0]) };
   assert.deepEqual([...patchPixels(makePatch(fill, 10, 10))], [1, 2, 3, 255, 4, 5, 6, 0]);

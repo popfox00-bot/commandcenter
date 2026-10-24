@@ -148,15 +148,17 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
 5. When the photo's own background is the app's color (a white photo in light mode), its edges can't
    be seen. Then it falls back to the account header above and the action icons below.
 
-**Overlay icons:** the round buttons apps draw on the media (Instagram's mute and tagged-people
-buttons: a dark see-through disc with a white symbol) are found in the media's corners, and the
-carousel counter pill ("11/13") in its top-right corner. Each is filled in from the background just
-around it, with its grain, so it disappears. A button is found either way round: as a flat disc
-clearly darker than its surroundings with a white symbol inside, or (where the see-through disc barely
-shows: a dark or busy background, a small button) from its white sound or person symbol outwards, with
-a faint but even darker ring all around it. A pill counts only if its
-rounded outline closes around white text. So a dark round object, a sign or a caption band in the
-photo stays. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
+**Overlay icons:** the buttons apps draw on the media are removed, each looked for in its own corner:
+the **person** (tagged people) button bottom left, the **sound** button bottom right, and the carousel
+counter pill ("11/13") top right. The buttons are recognized by their white symbol's shape (compared
+with the person and speaker symbols measured from real screenshots), whatever the background: on
+white, black or busy photos, even where the see-through gray disc can't be seen. The disc is placed
+from the symbol and fitted to its edge where that shows. The pill is traced around its white text, or
+placed from the "n/m" text itself when its edge doesn't show. White words, signs and logos without a
+button's shape stay. Each one is filled by **copying background from just beside it**: the nearby
+spot whose surroundings best match is copied in and blended at the edges (seamless cloning), so
+textures, grain and patterns continue through; a smooth fill is used only when there's no room to
+copy from. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
 without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).
 
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the
@@ -226,6 +228,22 @@ Photograph paper documents (camera or library) and get a clean PDF. Edges are fo
 and the page is flattened; drag the corners to adjust (**Auto** / **Whole photo**). Each page has a
 filter (**Clean**, **Gray**, **B&W**, **Original**), rotate, reorder and remove. **Make PDF** at
 US Letter, A4 or the scan's own size, then Share, Save, or **Sign / write on it** (opens Write on PDF).
+
+### Draw
+
+A blank canvas to sketch and design on (Tools → **Draw**):
+
+- **Pages:** square, portrait, phone or landscape (2048 px on the long side), on plain, dotted,
+  grid or lined paper.
+- **Tools:** pen (its line follows Apple Pencil pressure), marker, highlighter (see-through), eraser
+  (takes ink away, the paper stays); line, arrow, box and circle (outlined or filled); text.
+  Twelve colors plus any color, size and opacity.
+- **Moving around:** one finger draws; two fingers pinch to zoom and move the page; **Fit page**
+  brings it back.
+- **Undo and redo** for every step, **Clear page** (undoable), **Duplicate**, **Delete**.
+- **My drawings:** every drawing is saved on the phone as you go (with a thumbnail) and opens again
+  later, also offline. **Save image** saves a full-size PNG to Photos or Files through the share
+  sheet. Nothing is uploaded.
 
 ### QR & Barcode
 

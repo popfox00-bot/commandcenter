@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "3636a0953c19",
+  "version": "c77580e19cfb",
   "files": [
     "app.js",
     "apps/games/fox/cc-frame.css",
@@ -14,6 +14,7 @@ const PRECACHE = {
     "apps/index.js",
     "apps/notes/notes-core.js",
     "apps/notes/notes.js",
+    "apps/settings/settings.js",
     "apps/updates/sports-core.js",
     "apps/updates/updates.js",
     "apps/updates/weather-core.js",
@@ -36,6 +37,7 @@ const PRECACHE = {
     "lib/zip.js",
     "manifest.webmanifest",
     "styles.css",
+    "theme.js",
     "tools/collage/collage-core.js",
     "tools/collage/collage.js",
     "tools/convert/convert-core.js",

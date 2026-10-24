@@ -1,7 +1,7 @@
 # Command Center
 
 A personal, phone-first app. It opens on a home screen of app icons: **Tools**, **Updates**,
-**Notes**, **Games** and **Jobs**.
+**Notes**, **Games**, **Settings** and **Jobs**.
 
 - **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
   Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
@@ -17,6 +17,7 @@ A personal, phone-first app. It opens on a home screen of app icons: **Tools**, 
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
   Solitaire, Tile Match, Blackjack, Basketball Draft).
+- **[Settings](#settings)**: the app's background color, a preset or any color.
 - **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -42,7 +43,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Tools](#tools)
-- [Notes](#notes) · [Games](#games)
+- [Notes](#notes) · [Games](#games) · [Settings](#settings)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -391,6 +392,16 @@ strict Content Security Policy as the rest of the app, its own manifest and serv
 dropped (Command Center's cover it, so the games work offline), and the Home link and icon were
 added. Scores and settings are saved in this app's storage under `foxGames`; progress from the old
 standalone Fox Games site doesn't carry over (browsers keep each site's storage separate).
+
+## Settings
+
+**Settings** on the home screen sets the **background color** for the whole app: System (follows
+the phone's light or dark mode), ten presets (Midnight, Charcoal, Navy, Forest, Plum, Slate, Sand,
+Mint, Blush, White) or any custom color. Text, cards, borders and muted text follow it so everything
+stays readable (at least 7:1 contrast on the presets, 4.5:1 on any color): light text on dark
+backgrounds, dark text on light ones. It's saved on the phone only (`localStorage`) and applied by
+`web/theme.js` before the page draws, so there's no flash of the old color. **Reset to default** goes
+back to System. Fox Games keeps its own colors.
 
 ## Repository layout
 

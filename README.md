@@ -154,11 +154,15 @@ counter pill ("11/13") top right. The buttons are recognized by their white symb
 with the person and speaker symbols measured from real screenshots), whatever the background: on
 white, black or busy photos, even where the see-through gray disc can't be seen. The disc is placed
 from the symbol and fitted to its edge where that shows. The pill is traced around its white text, or
-placed from the "n/m" text itself when its edge doesn't show. White words, signs and logos without a
+fitted to its whole rounded outline (a see-through pill darkens whatever is behind it by the same
+amount, so its edge shows over gradients and lines too), or placed from the "n/m" text itself when
+its edge doesn't show. White words, signs and logos without a
 button's shape stay. Each one is filled by **copying background from just beside it**: the nearby
 spot whose surroundings best match is copied in and blended at the edges (seamless cloning), so
-textures, grain and patterns continue through; a smooth fill is used only when there's no room to
-copy from. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
+textures, grain and patterns continue through. Where a line or an edge runs into it (a pole, a
+cable, the horizon), it's filled patch by patch from the edge inward instead, lines first, each small
+patch copied from the best match nearby (exemplar inpainting), so the line carries straight through
+and lines up on both sides. A smooth fill is used only when there's no room to copy from. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
 without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).
 
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the

@@ -143,16 +143,18 @@ export function findSymbols(rgba, w, h, { rMin, rMax, kinds = ['person', 'sound'
     let r = size / cfg.glyphRatio;
     // Fit the disc's edge where it shows: the radius where the ring just inside is darker than outside.
     const at = (x, y) => { const xi = Math.round(x); const yi = Math.round(y); return xi < 0 || yi < 0 || xi >= w || yi >= h ? -1 : L[yi * w + xi]; };
+    // (Several radii near the edge pass; the strongest step across, right at the line, is the edge.)
     let fit = null;
-    for (let rr = Math.floor(r * 0.88); rr <= Math.ceil(r * 1.15); rr++) {
-      let pass = 0; let ok = true;
+    for (let rr = Math.floor(r * 0.88); rr <= Math.ceil(r * 1.15); rr += 0.5) {
+      let pass = 0; let step = 0; let ok = true;
       for (const [ux, uy] of A64) {
         let a = 0; let b = 0;
         for (let k = 1; k <= 3 && ok; k++) { const ai = at(cx + (rr - k) * ux, cy + (rr - k) * uy); const bi = at(cx + (rr + k) * ux, cy + (rr + k) * uy); if (ai < 0 || bi < 0) ok = false; a += ai; b += bi; }
         if (!ok) break;
         if ((b - a) / 3 >= cfg.faint) pass++;
+        step += at(cx + (rr + 1) * ux, cy + (rr + 1) * uy) - at(cx + (rr - 1) * ux, cy + (rr - 1) * uy);
       }
-      if (ok && pass / 64 >= 0.6 && (!fit || pass > fit.pass)) fit = { rr, pass };
+      if (ok && pass / 64 >= 0.6 && (!fit || pass > fit.pass + 2 || (pass >= fit.pass - 2 && step > fit.step))) fit = { rr, pass, step };
     }
     if (fit) r = fit.rr;
     out.push({ cx: Math.round(cx * 10) / 10, cy: Math.round(cy * 10) / 10, r: Math.round(r * 10) / 10, kind: best.kind, fitted: !!fit });
@@ -401,6 +403,105 @@ function relax(buf, free, bw, bh, sweeps) {
 }
 
 /**
+ * Exemplar-based inpainting (after Criminisi, Pérez & Toyama): the hole is filled from its edge
+ * inward, a small patch at a time, each one copied from the best-matching patch nearby. The edge
+ * points where a line or an edge runs into the hole go first (priority: how much of the patch is
+ * already known × how strongly an edge points into the hole), so lines are carried straight through
+ * from both sides and meet. `unknown(x, y)` says which pixels of the w×h image to fill; only the
+ * box [bx0, bx1) × [by0, by1) is touched. Returns the filled RGBA image (a copy).
+ */
+export function inpaint(rgba, w, h, unknown, bx0, by0, bx1, by1, R) {
+  const img = Uint8ClampedArray.from(rgba);
+  const hp = Math.max(3, Math.min(5, Math.round(R / 6))); // patch half-size: 7–11 px patches
+  const U = new Uint8Array(w * h); let left = 0;
+  for (let y = Math.max(0, by0); y < Math.min(h, by1); y++) for (let x = Math.max(0, bx0); x < Math.min(w, bx1); x++) if (unknown(x, y)) { U[y * w + x] = 1; left++; }
+  const conf = new Float32Array(w * h).fill(1);
+  for (let i = 0; i < w * h; i++) if (U[i]) conf[i] = 0;
+  const L = new Float32Array(w * h);
+  const lumAt = (i) => 0.299 * img[i * 4] + 0.587 * img[i * 4 + 1] + 0.114 * img[i * 4 + 2];
+  for (let i = 0; i < w * h; i++) L[i] = lumAt(i);
+  // Source patches: wholly outside the hole (as it was at the start), anywhere within reach.
+  const sat = new Int32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += U[y * w + x]; sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row; } }
+  const holeIn = (x0, y0, x1, y1) => sat[y1 * (w + 1) + x1] - sat[y0 * (w + 1) + x1] - sat[y1 * (w + 1) + x0] + sat[y0 * (w + 1) + x0];
+  const S = Math.max(24, Math.round(R * 1.6)); // search reach around the hole's edge point
+  const cx0 = Math.max(hp, bx0 - S); const cx1 = Math.min(w - hp - 1, bx1 + S); const cy0 = Math.max(hp, by0 - S); const cy1 = Math.min(h - hp - 1, by1 + S);
+  const isFront = (x, y) => U[y * w + x] && ((x > 0 && !U[y * w + x - 1]) || (x < w - 1 && !U[y * w + x + 1]) || (y > 0 && !U[(y - 1) * w + x]) || (y < h - 1 && !U[(y + 1) * w + x]));
+  // Priorities are cached and only recomputed near the last patch filled.
+  const pri = new Float32Array(w * h).fill(NaN); const priC = new Float32Array(w * h);
+  for (let guard = 0; left > 0 && guard < 20000; guard++) {
+    // 1. The edge point to fill next.
+    let best = null;
+    for (let y = Math.max(0, by0); y < Math.min(h, by1); y++) {
+      for (let x = Math.max(0, bx0); x < Math.min(w, bx1); x++) {
+        if (!isFront(x, y)) continue;
+        const pi = y * w + x;
+        if (!Number.isNaN(pri[pi])) { if (!best || pri[pi] > best.P) best = { x, y, P: pri[pi], C: priC[pi] }; continue; }
+        let c = 0; let gx = 0; let gy = 0; let gm = 0; let nx = 0; let ny = 0;
+        for (let dy = -hp; dy <= hp; dy++) {
+          for (let dx = -hp; dx <= hp; dx++) {
+            const xx = x + dx; const yy = y + dy;
+            if (xx < 1 || yy < 1 || xx >= w - 1 || yy >= h - 1) continue;
+            const i = yy * w + xx;
+            c += conf[i];
+            nx += U[i] * dx; ny += U[i] * dy; // points into the hole
+            if (U[i] || U[i - 1] || U[i + 1] || U[i - w] || U[i + w]) continue;
+            const ix = L[i + 1] - L[i - 1]; const iy = L[i + w] - L[i - w]; const m = ix * ix + iy * iy;
+            if (m > gm) { gm = m; gx = ix; gy = iy; }
+          }
+        }
+        const nl = Math.hypot(nx, ny) || 1;
+        // The isophote (along the edge) is perpendicular to the gradient: (-gy, gx).
+        const D = Math.abs((-gy * nx + gx * ny) / nl) / 255 + 0.001;
+        const P = (c / ((2 * hp + 1) ** 2)) * D;
+        pri[pi] = P; priC[pi] = c / ((2 * hp + 1) ** 2);
+        if (!best || P > best.P) best = { x, y, P, C: priC[pi] };
+      }
+    }
+    if (!best) break;
+    // 2. The best-matching source patch (on its known pixels; coarse, then fine around the best).
+    const { x: px, y: py } = best;
+    const known = [];
+    for (let dy = -hp; dy <= hp; dy++) for (let dx = -hp; dx <= hp; dx++) {
+      const xx = px + dx; const yy = py + dy;
+      if (xx >= 0 && yy >= 0 && xx < w && yy < h && !U[yy * w + xx]) known.push(dx, dy);
+    }
+    let src = null;
+    // Every 2 px, then a pixel either way around the best (in full color: brightness alone mismatches).
+    const tryAt = (qx, qy, color) => {
+      if (qx < cx0 || qy < cy0 || qx > cx1 || qy > cy1 || holeIn(qx - hp, qy - hp, qx + hp + 1, qy + hp + 1)) return;
+      let ssd = 0;
+      for (let k = 0; k < known.length; k += 2) {
+        const ia = (py + known[k + 1]) * w + px + known[k]; const ib = (qy + known[k + 1]) * w + qx + known[k];
+        if (color) { const a = ia * 4; const b = ib * 4; ssd += (img[a] - img[b]) ** 2 + (img[a + 1] - img[b + 1]) ** 2 + (img[a + 2] - img[b + 2]) ** 2; } else ssd += 3 * (L[ia] - L[ib]) ** 2;
+        if (src && ssd >= src.ssd) return;
+      }
+      // Nearer sources win ties: they're likelier to share the light.
+      ssd += ((qx - px) ** 2 + (qy - py) ** 2) * 1e-3;
+      if (!src || ssd < src.ssd) src = { qx, qy, ssd };
+    };
+    for (let qy = Math.max(cy0, py - S); qy <= Math.min(cy1, py + S); qy += 2) for (let qx = Math.max(cx0, px - S); qx <= Math.min(cx1, px + S); qx += 2) tryAt(qx, qy, true);
+    if (!src) break;
+    const c0 = src; src = null;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) tryAt(c0.qx + dx, c0.qy + dy, true);
+    if (!src) break;
+    // 3. Copy its pixels into the unknown part of the patch.
+    for (let dy = -hp; dy <= hp; dy++) {
+      for (let dx = -hp; dx <= hp; dx++) {
+        const xx = px + dx; const yy = py + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h || !U[yy * w + xx]) continue;
+        const i = yy * w + xx; const j = (src.qy + dy) * w + src.qx + dx;
+        img[i * 4] = img[j * 4]; img[i * 4 + 1] = img[j * 4 + 1]; img[i * 4 + 2] = img[j * 4 + 2];
+        U[i] = 0; conf[i] = best.C; L[i] = lumAt(i); left--;
+      }
+    }
+    const reach = 2 * hp + 2;
+    for (let y = Math.max(0, py - reach); y <= Math.min(h - 1, py + reach); y++) for (let x = Math.max(0, px - reach); x <= Math.min(w - 1, px + reach); x++) pri[y * w + x] = NaN;
+  }
+  return img;
+}
+
+/**
  * Fill a pill (stadium: the points within R of the segment x1..x2 on row cy, in pixels of `rgba`)
  * with background copied from beside it, so its texture continues: of 72 nearby spots, the one whose
  * surroundings best match the pill's surroundings is copied in, and any difference in color at the
@@ -422,27 +523,71 @@ export function fillPill(rgba, w, h, x1, x2, cy, R) {
   const free = new Uint8Array(bw * bh);
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) if (inside(x0 - 1 + i, y0 - 1 + j)) free[j * bw + i] = 1;
 
-  // 1. Where to copy from: the spot whose surrounding band best matches this one's.
+  // 1. Where to copy from: the spot whose surrounding band best matches this one's, in color and in
+  //    the direction of its edges.
   const band = Math.max(4, Math.round(R * 0.35));
   const ext = R + 1 + band;
   const ring = [];
   for (let y = Math.floor(cy - ext); y <= Math.ceil(cy + ext); y += 2) {
     for (let x = Math.floor(x1 - ext); x <= Math.ceil(x2 + ext); x += 2) { const d2 = dist2(x, y); if (d2 >= in2 && d2 < ext * ext && x >= 0 && y >= 0 && x < w && y < h) ring.push(x, y); }
   }
-  let best = null;
-  for (let k = 0; k < 24; k++) {
-    const ux = Math.cos((Math.PI * k) / 12); const uy = Math.sin((Math.PI * k) / 12);
-    for (const mult of [1, 1.3, 1.7]) {
-      const len = (2 * ext + Math.abs(ux) * (x2 - x1)) * mult;
-      const ox = Math.round(len * ux); const oy = Math.round(len * uy);
-      if (x1 - ext + ox < 0 || x2 + ext + ox >= w || cy - ext + oy < 0 || cy + ext + oy >= h) continue;
-      let ssd = 0;
-      for (let i = 0; i < ring.length; i += 2) {
-        const a = (ring[i + 1] * w + ring[i]) * 4; const b = ((ring[i + 1] + oy) * w + ring[i] + ox) * 4;
-        ssd += (rgba[a] - rgba[b]) ** 2 + (rgba[a + 1] - rgba[b + 1]) ** 2 + (rgba[a + 2] - rgba[b + 2]) ** 2;
-      }
-      if (!best || ssd < best.ssd) best = { ox, oy, ssd };
+  // Brightness gradients, worked out once over the area copies may come from.
+  const gxs = new Float32Array(w * h); const gys = new Float32Array(w * h);
+  {
+    const Lm = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) Lm[i] = 0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2];
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x; gxs[i] = Lm[i + 1] - Lm[i - 1]; gys[i] = Lm[i + w] - Lm[i - w]; }
+  }
+  const grad = (x, y) => { const i = Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x)); return [gxs[i], gys[i]]; };
+  const score = (ox, oy) => {
+    if (x1 - ext + ox < 0 || x2 + ext + ox >= w || cy - ext + oy < 0 || cy + ext + oy >= h) return Infinity;
+    // Colors, plus the edges' directions (so a line next to the hole lines up with the copy's).
+    let ssd = 0;
+    for (let i = 0; i < ring.length; i += 2) {
+      const x = ring[i]; const y = ring[i + 1];
+      const a = (y * w + x) * 4; const b = ((y + oy) * w + x + ox) * 4;
+      ssd += (rgba[a] - rgba[b]) ** 2 + (rgba[a + 1] - rgba[b + 1]) ** 2 + (rgba[a + 2] - rgba[b + 2]) ** 2;
+      const ia = y * w + x; const ib = (y + oy) * w + x + ox;
+      ssd += 2 * ((gxs[ia] - gxs[ib]) ** 2 + (gys[ia] - gys[ib]) ** 2);
     }
+    return ssd;
+  };
+  const along = (deg, mult) => {
+    const ux = Math.cos((deg * Math.PI) / 180); const uy = Math.sin((deg * Math.PI) / 180);
+    const len = (2 * ext + Math.abs(ux) * (x2 - x1)) * mult;
+    return [Math.round(len * ux), Math.round(len * uy)];
+  };
+  let best = null;
+  const tryAt = (deg, mult) => { const [ox, oy] = along(deg, mult); const ssd = score(ox, oy); if (ssd < Infinity && (!best || ssd < best.ssd)) best = { ox, oy, ssd, deg, mult }; };
+  // Every 15°, at three distances; then within 7° and 10% of the best, finely (a line at any angle
+  // stays straight only when the copy comes from exactly along it).
+  for (let k = 0; k < 24; k++) for (const mult of [1, 1.3, 1.7]) tryAt(k * 15, mult);
+  if (best) { const c = best; for (let d = -7; d <= 7; d++) for (const m of [0.9, 1, 1.1]) tryAt(c.deg + d, c.mult * m); }
+
+  // Lines or edges running into the hole: inpaint patch by patch, so they carry straight through.
+  // That's when, at the band's strong edges, even the best copy's edges don't line up with them.
+  // (A few strong edges are lines; strong edges everywhere are texture, which a copy carries fine.)
+  let edgeErr = 0; let edgeMag = 0; let strong = 0;
+  for (let i = 0; i < ring.length; i += 2) {
+    const g = grad(ring[i], ring[i + 1]); const m = Math.hypot(g[0], g[1]);
+    if (m < 40) continue;
+    edgeMag += m; strong++;
+    const c = best ? grad(ring[i] + best.ox, ring[i + 1] + best.oy) : [0, 0];
+    edgeErr += Math.hypot(g[0] - c[0], g[1] - c[1]);
+  }
+  if (edgeMag > 0 && strong / (ring.length / 2) <= 0.15 && (!best || edgeErr / edgeMag > 0.5)) {
+    const filled = inpaint(rgba, w, h, inside, x0, y0, xe, ye, R);
+    const out = new Uint8ClampedArray(pw * ph * 4);
+    for (let y = y0; y < ye; y++) {
+      for (let x = x0; x < xe; x++) {
+        const d = Math.sqrt(dist2(x, y));
+        const alpha = Math.max(0, Math.min(1, R + 0.5 - d));
+        if (alpha <= 0) continue;
+        const o = ((y - y0) * pw + (x - x0)) * 4; const s = (y * w + x) * 4;
+        out[o] = filled[s]; out[o + 1] = filled[s + 1]; out[o + 2] = filled[s + 2]; out[o + 3] = Math.round(alpha * 255);
+      }
+    }
+    return { x0, y0, pw, ph, rgba: out };
   }
 
   const buf = new Float32Array(bw * bh * 3);
@@ -552,16 +697,21 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
   for (let i = 0; i < w * h; i++) {
     if (seen[i] || !bright(i)) continue;
     let x0 = w; let x1 = 0; let y0 = h; let y1 = 0; let n = 0; const stack = [i]; seen[i] = 1;
-    let sx = 0; let sy = 0; let sxy = 0; let sxx = 0; let syy = 0;
+    let sx = 0; let sy = 0; let sxy = 0; let sxx = 0; let syy = 0; let top = 0;
     while (stack.length && n < 4000) {
       const j = stack.pop(); const x = j % w; const y = (j - x) / w; n++;
-      sx += x; sy += y; sxy += x * y; sxx += x * x; syy += y * y;
+      sx += x; sy += y; sxy += x * y; sxx += x * x; syy += y * y; if (L[j] > top) top = L[j];
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
       for (const k of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (k >= 0 && !seen[k] && bright(k)) { seen[k] = 1; stack.push(k); }
     }
     // How diagonal the blob is (the "/" in "11/13"): the x–y correlation of its pixels.
     const cov = sxy / n - (sx / n) * (sy / n); const vx = sxx / n - (sx / n) ** 2; const vy = syy / n - (sy / n) ** 2;
-    if (n < 4000 && y1 - y0 + 1 <= hMax * 0.7) blobs.push({ x0, x1: x1 + 1, y0, y1: y1 + 1, slant: vx > 0 && vy > 0 ? cov / Math.sqrt(vx * vy) : 0 });
+    if (n >= 4000 || y1 - y0 + 1 > hMax * 0.7 || top < 200) continue; // text reaches near-white somewhere
+    // ...and stands out from what's right around it (white text on a dark pill, not a bright sky).
+    let ring = 0; let rn = 0;
+    for (let x = Math.max(0, x0 - 2); x <= Math.min(w - 1, x1 + 2); x++) for (const y of [y0 - 2, y1 + 2]) if (y >= 0 && y < h) { ring += L[y * w + x]; rn++; }
+    if (rn && ring / rn > top - 70) continue;
+    blobs.push({ x0, x1: x1 + 1, y0, y1: y1 + 1, slant: vx > 0 && vy > 0 ? cov / Math.sqrt(vx * vy) : 0 });
   }
   blobs.sort((a, b) => a.x0 - b.x0 || a.y0 - b.y0);
   const lines = [];
@@ -573,46 +723,81 @@ export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
   for (const t of lines) {
     const th = t.y1 - t.y0;
     if (th < hMin * 0.25 || th > hMax * 0.7) continue;
-    // The pill's own color: the median of the gaps between the letters.
-    const gaps = [];
-    for (let y = t.y0; y < t.y1; y++) for (let x = t.x0; x < t.x1; x++) if (!bright(y * w + x) && L[y * w + x] < 150) gaps.push(L[y * w + x]);
-    if (gaps.length < 8) continue;
-    gaps.sort((a, b) => a - b);
-    const P = gaps[gaps.length >> 1];
-    // Walk out from the text until the background starts: 3 pixels in a row clearly lighter than the
-    // pill (and not text), so the soft edge of a letter isn't taken for the pill's edge.
-    const walk = (x, y, dx, dy, max) => {
-      let run = 0;
-      for (let k = 1; k <= max; k++) {
-        const xx = x + dx * k; const yy = y + dy * k;
-        if (xx < 0 || yy < 0 || xx >= w || yy >= h) return -1; // ran off the zone: not a closed pill
-        const v = L[yy * w + xx];
-        run = v - P >= cfg.pillEdge && Math.abs(v - L[(yy - dy) * w + xx - dx]) <= 20 ? run + 1 : 0;
-        if (run === 3) return k - 2;
-      }
-      return -1;
-    };
-    const cyT = Math.round((t.y0 + t.y1) / 2); const cxT = Math.round((t.x0 + t.x1) / 2);
-    const median = (vals) => { const v = vals.filter((k) => k > 0).sort((a, b) => a - b); return v.length >= 2 ? v[v.length >> 1] : -1; };
-    const rowsY = [cyT - (th >> 2), cyT, cyT + (th >> 2)]; const colsX = [cxT - (th >> 1), cxT, cxT + (th >> 1)];
-    const l = median(rowsY.map((y) => walk(t.x0, y, -1, 0, 3 * th))); const r = median(rowsY.map((y) => walk(t.x1 - 1, y, 1, 0, 3 * th)));
-    const u = median(colsX.map((x) => walk(x, t.y0, 0, -1, 2 * th))); const d = median(colsX.map((x) => walk(x, t.y1 - 1, 0, 1, 2 * th)));
+    // The pill around the text: of all rounded outlines centered on it (heights from 1.3 to 4 times the
+    // text's, lengths from the text's own on), the one that holds all the way round: just inside
+    // darker than just outside. A see-through pill darkens whatever is behind it by the same factor,
+    // so this holds over gradients and lines behind it too, and only at the pill's true edge.
     const round1 = (v) => Math.round(v * 10) / 10;
-    if (l > 0 && r > 0 && u > 0 && d > 0) {
-      const xL = t.x0 - l + 1; const xR = t.x1 - 1 + r; const yT = t.y0 - u + 1; const yB = t.y1 - 1 + d;
-      const H = yB - yT; const rho = H / 2; const cy = (yT + yB) / 2;
-      const x1 = xL + rho; const x2 = xR - rho;
-      if (H >= hMin && H <= hMax && H >= th * 1.3 && H <= th * 4 && xR - xL >= H * 1.1 && pillOutline(L, w, h, x1, x2, cy, rho, P, cfg)) {
-        out.push({ x1: round1(x1), x2: round1(x2), cy: round1(cy), rho: round1(rho) });
-        continue;
+    const cx0 = (t.x0 + t.x1) / 2; const cy0 = (t.y0 + t.y1) / 2; const tw = t.x1 - t.x0;
+    const at = (x, y) => { const xi = Math.round(x); const yi = Math.round(y); return xi < 0 || yi < 0 || xi >= w || yi >= h ? -1 : L[yi * w + xi]; };
+    const outline = (cx, cy, rho, a) => {
+      let pass = 0; let n = 0;
+      const test = (ox, oy, ux, uy) => {
+        const i = at(ox + ux * (rho - 2.5), oy + uy * (rho - 2.5)); const o = at(ox + ux * (rho + 2.5), oy + uy * (rho + 2.5));
+        if (i < 0 || o < 0) return false;
+        n++; if (o - i >= cfg.pillEdge * 0.6 && o >= i * 1.25) pass++;
+        return true;
+      };
+      for (let k = 0; k < 16; k++) {
+        const ang = Math.PI / 2 + (Math.PI * k) / 15;
+        if (!test(cx - a, cy, Math.cos(ang), Math.sin(ang)) || !test(cx + a, cy, -Math.cos(ang), Math.sin(ang))) return 0;
       }
+      for (let k = 1; k < 10; k++) { const x = cx - a + (2 * a * k) / 10; if (!test(x, cy, 0, -1) || !test(x, cy, 0, 1)) return 0; }
+      return pass / n;
+    };
+    let fit = null;
+    const rLo = Math.max(hMin / 2, th * 0.65); const rHi = Math.min(hMax / 2, th * 2);
+    const dyMax = Math.ceil(th * 0.35); // digits sit a little off the pill's middle
+    // Straight part's half-length a: the pill is the text plus some padding (0 to 1.5× the text's
+    // height) each side, and its round ends take rho of that.
+    const aRange = (rho) => [Math.max(0, tw / 2 - rho), Math.max(0, tw / 2 + th * 1.5 - rho)];
+    // Coarse (every 2 px, loosely, as the score peaks sharply), then fine around the best.
+    for (let rho = rLo; rho <= rHi; rho += 2) {
+      const [aLo, aHi] = aRange(rho);
+      for (let a = aLo; a <= aHi; a += 2) {
+        for (let dy = -dyMax; dy <= dyMax; dy += 2) {
+          const score = outline(cx0, cy0 + dy, rho, a);
+          if (score >= 0.5 && (!fit || score > fit.score + 1e-9)) fit = { cx: cx0, cy: cy0 + dy, rho, a, score };
+        }
+      }
+    }
+    if (fit) {
+      const c = fit;
+      for (let rho = c.rho - 2; rho <= c.rho + 2; rho++) for (let a = Math.max(0, c.a - 2); a <= c.a + 2; a++) for (let dy = -2; dy <= 2; dy++) {
+        const score = outline(c.cx, c.cy + dy, rho, a);
+        if (score > fit.score + 1e-9) fit = { cx: c.cx, cy: c.cy + dy, rho, a, score };
+      }
+      if (fit.score < 0.85) fit = null; // a true pill's outline holds nearly all the way round
+    }
+    if (fit) {
+      // Lock onto the edge exactly: the nearby outline with the strongest step across it, sampled
+      // close to the line (the pass rate above is flat within a pixel or two of it).
+      const strength = (cy, rho, a) => {
+        let sum = 0; let n = 0;
+        const add = (ox, oy, ux, uy) => { const i = at(ox + ux * (rho - 1.5), oy + uy * (rho - 1.5)); const o = at(ox + ux * (rho + 1.5), oy + uy * (rho + 1.5)); if (i >= 0 && o >= 0) { sum += o - i; n++; } };
+        for (let k = 0; k < 16; k++) { const ang = Math.PI / 2 + (Math.PI * k) / 15; add(fit.cx - a, cy, Math.cos(ang), Math.sin(ang)); add(fit.cx + a, cy, -Math.cos(ang), Math.sin(ang)); }
+        for (let k = 1; k < 10; k++) { const x = fit.cx - a + (2 * a * k) / 10; add(x, cy, 0, -1); add(x, cy, 0, 1); }
+        return n ? sum / n : -Infinity;
+      };
+      let sharp = { cy: fit.cy, rho: fit.rho, a: fit.a, s: strength(fit.cy, fit.rho, fit.a) };
+      const c = { ...sharp };
+      for (let dy = -2; dy <= 2; dy += 0.5) for (let dr = -2; dr <= 2; dr += 0.5) for (let da = -2; da <= 2; da += 1) {
+        const v = strength(c.cy + dy, c.rho + dr, Math.max(0, c.a + da));
+        if (v > sharp.s + 1e-9) sharp = { cy: c.cy + dy, rho: c.rho + dr, a: Math.max(0, c.a + da), s: v };
+      }
+      fit = { ...fit, cy: sharp.cy, rho: sharp.rho, a: sharp.a };
+    }
+    if (fit) {
+      // Refine the center by a pixel either way.
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const sc = outline(fit.cx + dx, fit.cy + dy, fit.rho, fit.a); if (sc > fit.score + 1e-9) fit = { ...fit, cx: fit.cx + dx, cy: fit.cy + dy, score: sc }; }
+      out.push({ x1: round1(fit.cx - fit.a), x2: round1(fit.cx + fit.a), cy: round1(fit.cy), rho: round1(fit.rho) });
+      continue;
     }
     // The pill's edge doesn't show (a background as dark as the pill): the "n/m" text still does.
     // Three or more white characters, one of them a slash, as wide as a counter: the pill is where
     // that text says (measured on real ones: 2.4× the text's height, the text plus 0.7× its height
     // on each side).
     const slash = t.parts.some((b) => b.slant <= -0.75 && b.y1 - b.y0 >= th * 0.7 && b.x1 - b.x0 <= th * 0.8);
-    const tw = t.x1 - t.x0;
     if (t.parts.length >= 3 && slash && tw >= th * 1.2 && tw <= th * 5) {
       const rho = th * 1.2; const cy = (t.y0 + t.y1) / 2;
       if (rho * 2 < hMin || rho * 2 > hMax) continue;
@@ -689,7 +874,9 @@ export function removeIcons(sample, W, H, box, opts = {}) {
   const patches = [];
   // Fill a shape found at zone-relative coordinates, copying background from within the media only.
   const fill = (zx, zy, x1, x2, cy, R) => {
-    const m = Math.ceil(4.5 * R) + 8;
+    // Room for the farthest copy the fill may try (1.7× the shape and its band, in any direction).
+    const ext = R + 1 + Math.max(4, Math.round(R * 0.35));
+    const m = Math.ceil(1.7 * (2 * ext + (x2 - x1)) + ext) + 4;
     const gx = Math.max(box.x, Math.round(zx + x1) - m); const gy = Math.max(box.y, Math.round(zy + cy) - m);
     const gw = Math.min(box.x + box.width, Math.round(zx + x2) + m) - gx; const gh = Math.min(box.y + box.height, Math.round(zy + cy) + m) - gy;
     const f = fillPill(sample(gx, gy, gw, gh), gw, gh, zx + x1 - gx, zx + x2 - gx, zy + cy - gy, R);

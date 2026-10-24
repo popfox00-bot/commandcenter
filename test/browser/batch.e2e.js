@@ -77,6 +77,8 @@ async function feedShot(page, { theme = 'dark', media = 'photo', type = 'image/p
       dot(26, 613, 14, 'rgba(0,0,0,0.6)'); dot(26, 609, 4, '#fff'); x.beginPath(); x.ellipse(26, 619, 7, 4, 0, Math.PI, 0); x.fill();
       dot(367, 613, 14, 'rgba(0,0,0,0.6)'); x.fillStyle = '#fff'; x.fillRect(360, 609, 4, 8); x.beginPath(); x.moveTo(364, 609); x.lineTo(369, 605); x.lineTo(369, 621); x.lineTo(364, 617); x.fill();
       x.strokeStyle = '#fff'; x.lineWidth = 2; x.beginPath(); x.moveTo(359, 605); x.lineTo(375, 621); x.stroke();
+      // The carousel counter pill, top right.
+      rr(329, 160, 52, 26, 13, 'rgba(0,0,0,0.6)'); x.fillStyle = '#fff'; x.font = '13px sans-serif'; x.fillText('1/3', 345, 178);
     }
     for (const cx of [190, 200, 210]) dot(cx, 655, 3, cx === 190 ? '#5865f2' : '#5a5a5a');                    // dots
     for (const l of [13, 83, 133, 183]) { rr(l, 673, 19, 19, 5, ink); x.fillStyle = ink; x.font = '13px sans-serif'; x.fillText('227', l + 24, 687); }
@@ -254,19 +256,19 @@ test('overlay icons on the media (mute, tagged people) are filled in from the ba
         const b = await createImageBitmap(f); const c = new OffscreenCanvas(b.width, b.height); const x = c.getContext('2d'); x.drawImage(b, 0, 0);
         const at = (px, py) => [...x.getImageData(px, py, 1, 1).data.slice(0, 3)];
         // The button centers (y 613 in the screenshot, 465 in the crop) and their symbols.
-        return { w: b.width, h: b.height, left: at(26, 465), leftSymbol: at(26, 461), right: at(367, 465), rightSymbol: at(366, 469) };
+        return { w: b.width, h: b.height, left: at(26, 465), leftSymbol: at(26, 461), right: at(367, 465), rightSymbol: at(366, 469), pill: at(355, 25), pillText: at(352, 26) };
       }));
     };
   });
   await page.getByRole('button', { name: 'Apply to 2 photos' }).click();
   await page.waitForSelector('.bt-result:nth-child(2)', { timeout: 60000 });
   const notes = await page.$$eval('.bt-result-text', (els) => els.map((e) => e.textContent));
-  assert.match(notes[0], /393×491.*removed 2 icons/);
+  assert.match(notes[0], /393×491.*removed 3 icons/, 'two buttons and the counter pill');
   assert.doesNotMatch(notes[1], /removed/);
   await page.getByRole('button', { name: 'Save to Files' }).click();
   await page.waitForFunction(() => window.__shared);
   const [filled] = await page.evaluate(() => window.__shared);
-  for (const k of ['left', 'leftSymbol', 'right', 'rightSymbol']) {
+  for (const k of ['left', 'leftSymbol', 'right', 'rightSymbol', 'pill', 'pillText']) {
     assert.ok(filled[k].every((v) => Math.abs(v - 0xc4) <= 8), `${k}: ${filled[k]} should be the background #c4c4c4`);
   }
 
@@ -279,11 +281,44 @@ test('overlay icons on the media (mute, tagged people) are filled in from the ba
   await page2.setInputFiles('#ed-file', { name: 'icons.png', mimeType: 'image/png', buffer: await feedShot(page2, { theme: 'dark', media: 'slab', icons: true }) });
   await page2.waitForSelector('.ed-canvas');
   await page2.locator('.ed-quick').getByRole('button', { name: /Auto-Crop/ }).click();
-  await page2.waitForFunction(() => /removed 2 icons/.test(document.querySelector('.ed-quick-note')?.textContent ?? ''));
+  await page2.waitForFunction(() => /removed 3 icons/.test(document.querySelector('.ed-quick-note')?.textContent ?? ''));
   assert.equal(await page2.getAttribute('[aria-label=Undo]', 'disabled'), null, 'undo is available');
   assert.deepEqual(errors, []);
   await context.close();
   await context2.close();
+});
+
+test('Auto-Enhance plans with an exact copy of the renderer\'s color math: the GPU gives the same colors', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`${origin}${BASE}#/tools/editor`);
+  const worst = await page.evaluate(async () => {
+    const { Renderer } = await import('./tools/editor/renderer.js');
+    const { simulate } = await import('./tools/editor/enhance.js');
+    const { defaultState } = await import('./tools/editor/state.js');
+    // 8×8 patches of colors across the range, 16 px each.
+    const colors = Array.from({ length: 64 }, (_, i) => [(i * 37) % 256, (i * 91 + 40) % 256, (i * 53 + 90) % 256]);
+    const c = new OffscreenCanvas(128, 128); const x = c.getContext('2d');
+    colors.forEach(([r, g, b], i) => { x.fillStyle = `rgb(${r},${g},${b})`; x.fillRect((i % 8) * 16, Math.floor(i / 8) * 16, 16, 16); });
+    const r = new Renderer(document.createElement('canvas')); r.setSource(c);
+    let worst = 0;
+    for (const adjust of [
+      { exposure: 0.3, highlights: -0.25, shadows: 0.2, contrast: 0.15, blackPoint: 0.2, vibrance: 0.2, warmth: 0.2, tint: -0.1 },
+      { exposure: -0.2, brightness: 0.2, saturation: 0.1, blackPoint: -0.2, brilliance: 0.3, warmth: -0.3, tint: 0.3 },
+    ]) {
+      const st = { ...defaultState(), adjust: { ...defaultState().adjust, ...adjust } };
+      r.render(st, 128, 128);
+      const px = r.readPixels();
+      colors.forEach(([cr, cg, cb], i) => {
+        const o = ((Math.floor(i / 8) * 16 + 8) * 128 + (i % 8) * 16 + 8) * 4;
+        const want = simulate(cr / 255, cg / 255, cb / 255, st.adjust).map((v) => v * 255);
+        for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(px[o + k] - want[k]));
+      });
+    }
+    return worst;
+  });
+  assert.ok(worst <= 3, `largest difference ${worst} of 255`);
+  await context.close();
 });
 
 test('reference screenshot (dark feed, flat gray coin slab) through the real renderer: just the media', async () => {

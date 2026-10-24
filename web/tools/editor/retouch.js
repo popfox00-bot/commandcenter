@@ -1,6 +1,7 @@
 // Overlay icons: the round buttons apps draw on top of a post's media (Instagram's mute and "tagged
-// people" buttons: a dark translucent disc with a white symbol). Auto-Crop finds them in the media's
-// corners and fills each one in from the background just around it.
+// people" buttons: a dark translucent disc with a white symbol), and the carousel counter pill in the
+// top right ("11/13": a dark translucent rounded pill with white text). Auto-Crop finds them in the
+// media's corners and fills each one in from the background just around it.
 //
 // The fill is a retouch patch kept in the edit state (`state.patches`), in source-image coordinates,
 // so the original is never changed: patches are painted onto the source before every other edit
@@ -9,7 +10,7 @@
 // Detection and filling are pure (RGBA in, circles and pixels out); applyPatches() needs a canvas.
 
 export const ICON_DEFAULTS = Object.freeze({
-  rMin: 0.02,      // icon radius, as a share of the image width: from 2%...
+  rMin: 0.015,     // icon radius, as a share of the image width: from 1.5%...
   rMax: 0.06,      // ...to 6% (Instagram's are ~3.6% on a phone screenshot)
   zone: 0.3,       // icons are looked for in each corner of the media, this share of the width square
   edge: 20,        // the disc is at least this much darker (luminance) than just outside it...
@@ -18,6 +19,10 @@ export const ICON_DEFAULTS = Object.freeze({
   glyphMin: 0.04,  // the white symbol fills 4%...
   glyphMax: 0.6,   // ...to 60% of the disc's middle
   margin: 0.08,    // the fill covers the disc plus this share of its radius (soft edge), at least 2 px
+  pillMin: 0.025,  // counter pill height, as a share of the image width: from 2.5%...
+  pillMax: 0.1,    // ...to 10% (Instagram's is ~6% on a phone screenshot)
+  pillEdge: 12,    // the pill is see-through, so it's only this much darker than just outside it
+  faint: 5,        // from the symbol out, the disc only needs to be this much darker than around it
 });
 
 const lum = (p, i) => 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
@@ -37,7 +42,7 @@ function lumMap(rgba, w, h, f) {
 }
 
 const ANGLES = (n) => Array.from({ length: n }, (_, i) => [Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n)]);
-const A8 = ANGLES(8); const A32 = ANGLES(32); const A64 = ANGLES(64);
+const A8 = ANGLES(8); const A16 = ANGLES(16); const A32 = ANGLES(32); const A64 = ANGLES(64);
 
 /**
  * Overlay-icon circles in an RGBA image (w×h). `rMin`/`rMax` are radii in pixels. Returns
@@ -46,7 +51,7 @@ const A8 = ANGLES(8); const A32 = ANGLES(32); const A64 = ANGLES(64);
  */
 export function findIcons(rgba, w, h, { rMin, rMax, ...opts }) {
   const cfg = { ...ICON_DEFAULTS, ...opts };
-  const f = Math.max(1, Math.floor(rMin / 6));
+  const f = Math.max(1, Math.floor(rMax / 12)); // coarse search scale (small buttons: the symbol-first path)
   const M = lumMap(rgba, w, h, f);
   const at = (x, y) => { const xi = Math.round(x); const yi = Math.round(y); return xi < 0 || yi < 0 || xi >= M.w || yi >= M.h ? -1 : M.L[yi * M.w + xi]; };
   const r0 = Math.max(3, Math.floor(rMin / f)); const r1 = Math.max(r0, Math.ceil(rMax / f));
@@ -94,12 +99,104 @@ export function findIcons(rgba, w, h, { rMin, rMax, ...opts }) {
     if (!spot) spots.push([c]); else if (spot.length < 3) spot.push(c);
   }
   const out = [];
+  // Symbol first: the white sound or person symbol always stands out, even where the gray disc
+  // around it barely does (a dark or busy background). Then a faint, even disc around it is enough.
+  for (const c of symbolCircles(rgba, w, h, rMin, rMax, cfg)) if (!out.some((o) => Math.hypot(o.cx - c.cx, o.cy - c.cy) < o.r + c.r)) out.push(c);
   for (const spot of spots) {
     for (const c of spot) {
       if (out.some((o) => Math.hypot(o.cx - c.cx, o.cy - c.cy) < o.r + c.r)) break;
       const fine = refine(rgba, w, h, c);
       if (fine && hasSymbol(rgba, w, h, fine, cfg) && !out.some((o) => Math.hypot(o.cx - fine.cx, o.cy - fine.cy) < o.r + fine.r)) { out.push(fine); break; }
     }
+  }
+  return out;
+}
+
+/**
+ * Circles found from their symbol: clusters of white, neutral pixels (the symbol's parts: a head and
+ * shoulders, a speaker and a slash) of a plausible size; around each, the radius at which the ring
+ * just inside is darker than just outside on most of the circle (radially averaged, so a faint step
+ * on a noisy background still shows), with an even disc between the symbol and the ring.
+ */
+function symbolCircles(rgba, w, h, rMin, rMax, cfg) {
+  const L = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) L[i] = lum(rgba, i * 4);
+  const white = (i) => L[i] >= 200 && Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) - Math.min(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) <= 40;
+  const seen = new Uint8Array(w * h); const parts = [];
+  const cap = Math.ceil((rMax * 2) ** 2);
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i] || !white(i)) continue;
+    let x0 = w; let x1 = 0; let y0 = h; let y1 = 0; let n = 0; const stack = [i]; seen[i] = 1;
+    while (stack.length) {
+      const j = stack.pop(); const x = j % w; const y = (j - x) / w; n++;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && !seen[j - 1] && white(j - 1)) { seen[j - 1] = 1; stack.push(j - 1); }
+      if (x < w - 1 && !seen[j + 1] && white(j + 1)) { seen[j + 1] = 1; stack.push(j + 1); }
+      if (y > 0 && !seen[j - w] && white(j - w)) { seen[j - w] = 1; stack.push(j - w); }
+      if (y < h - 1 && !seen[j + w] && white(j + w)) { seen[j + w] = 1; stack.push(j + w); }
+    }
+    if (n >= 4 && n <= cap && x1 - x0 < rMax * 1.6 && y1 - y0 < rMax * 1.6) parts.push({ x0, x1: x1 + 1, y0, y1: y1 + 1 });
+  }
+  // Group the parts of one symbol (close together), then try a circle around each group.
+  const groups = [];
+  for (const p of parts) {
+    const g = groups.find((q) => p.x0 <= q.x1 + rMin && p.x1 >= q.x0 - rMin && p.y0 <= q.y1 + rMin && p.y1 >= q.y0 - rMin);
+    if (g) { g.x0 = Math.min(g.x0, p.x0); g.x1 = Math.max(g.x1, p.x1); g.y0 = Math.min(g.y0, p.y0); g.y1 = Math.max(g.y1, p.y1); } else groups.push({ ...p });
+  }
+  const at = (x, y) => { const xi = Math.round(x); const yi = Math.round(y); return xi < 0 || yi < 0 || xi >= w || yi >= h ? -1 : L[yi * w + xi]; };
+  const out = [];
+  for (const g of groups) {
+    const size = Math.max(g.x1 - g.x0, g.y1 - g.y0);
+    if (size < rMin * 0.6) continue;
+    // The symbol is about 0.8–1.4 of the radius across.
+    const rLo = Math.max(rMin, Math.floor(size / 1.5)); const rHi = Math.min(rMax, Math.ceil(size / 0.7));
+    // Score a circle: the share of directions where the ring just inside is darker than just
+    // outside (each side averaged over 3 px), plus an even disc between the symbol and the edge.
+    const ring = (cx, cy, r, dirs) => {
+      let pass = 0; let sum = 0;
+      for (const [ux, uy] of dirs) {
+        let a = 0; let b = 0;
+        for (let k = 1; k <= 3; k++) {
+          const ai = at(cx + (r - k) * ux, cy + (r - k) * uy); const bi = at(cx + (r + k) * ux, cy + (r + k) * uy);
+          if (ai < 0 || bi < 0) return null;
+          a += ai; b += bi;
+        }
+        const d = (b - a) / 3;
+        if (d >= cfg.faint) pass++;
+        sum += d;
+      }
+      return { share: pass / dirs.length, mean: sum / dirs.length };
+    };
+    const even = (cx, cy, r) => {
+      const rim = A64.map(([ux, uy]) => at(cx + r * 0.85 * ux, cy + r * 0.85 * uy)).sort((p, q) => p - q);
+      const med = rim[32];
+      return rim.filter((v) => Math.abs(v - med) <= Math.max(cfg.flat, med * 0.25)).length / 64 >= 0.75;
+    };
+    // Coarse: centers on a 2 px grid, every other radius, 16 directions. Then fine around the best.
+    const gx = (g.x0 + g.x1) / 2; const gy = (g.y0 + g.y1) / 2;
+    let coarse = null;
+    for (let oy = -2; oy <= 2; oy += 2) {
+      for (let ox = -2; ox <= 2; ox += 2) {
+        for (let r = rLo; r <= rHi; r += 2) {
+          const t = ring(gx + ox, gy + oy, r, A16);
+          if (t && t.share >= 0.7 && (!coarse || t.share + t.mean / 100 > coarse.score)) coarse = { cx: gx + ox, cy: gy + oy, r, score: t.share + t.mean / 100 };
+        }
+      }
+    }
+    if (!coarse) continue;
+    let best = null;
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let r = Math.max(rLo, coarse.r - 2); r <= Math.min(rHi, coarse.r + 2); r++) {
+          const cx = coarse.cx + ox; const cy = coarse.cy + oy;
+          const t = ring(cx, cy, r, A64);
+          if (!t || t.share < 0.75 || !even(cx, cy, r)) continue;
+          const score = t.share + t.mean / 100;
+          if (!best || score > best.score) best = { cx, cy, r, score };
+        }
+      }
+    }
+    if (best) out.push({ cx: Math.round(best.cx * 10) / 10, cy: Math.round(best.cy * 10) / 10, r: best.r });
   }
   return out;
 }
@@ -150,46 +247,62 @@ function hasSymbol(rgba, w, h, { cx, cy, r }, cfg) {
   return bright >= cfg.glyphMin && bright <= cfg.glyphMax;
 }
 
-/**
- * Fill a disc (center cx, cy, radius R, in pixels of `rgba`) from the pixels around it, so the
- * background continues through as if the icon was never there:
- *  1. a smooth membrane fill: each pixel the average of its neighbours, with the pixels just outside
- *     the disc held fixed (Laplace relaxation, started from a blend of the boundary in 16 directions);
- *  2. the background's own grain on top: the fine detail of the mirror-image spot just outside.
- * Returns the patch pixels { x0, y0, pw, ph, rgba }: alpha 255 inside the disc (1 px soft edge), 0 outside.
- */
+/** Fill a disc (center cx, cy, radius R, in pixels of `rgba`): a pill of zero length, see fillPill. */
 export function fillDisc(rgba, w, h, cx, cy, R) {
-  const x0 = Math.max(0, Math.floor(cx - R - 1)); const y0 = Math.max(0, Math.floor(cy - R - 1));
-  const x1 = Math.min(w, Math.ceil(cx + R + 2)); const y1 = Math.min(h, Math.ceil(cy + R + 2));
-  const pw = x1 - x0; const ph = y1 - y0;
-  const inside = (x, y) => Math.hypot(x - cx, y - cy) < R + 1;
+  return fillPill(rgba, w, h, cx, cx, cy, R);
+}
+
+/**
+ * Fill a pill (stadium: the points within R of the segment x1..x2 on row cy, in pixels of `rgba`)
+ * from the pixels around it, so the background continues through as if it was never there:
+ *  1. a smooth membrane fill: each pixel the average of its neighbours, with the pixels just outside
+ *     held fixed (Laplace relaxation, started from a blend of the boundary in 8 directions);
+ *  2. the background's own grain on top: the fine detail of a spot just outside, mirrored in.
+ * Returns the patch pixels { x0, y0, pw, ph, rgba }: alpha 255 inside (1 px soft edge), 0 outside.
+ */
+export function fillPill(rgba, w, h, x1, x2, cy, R) {
+  const x0 = Math.max(0, Math.floor(x1 - R - 1)); const y0 = Math.max(0, Math.floor(cy - R - 1));
+  const xe = Math.min(w, Math.ceil(x2 + R + 2)); const ye = Math.min(h, Math.ceil(cy + R + 2));
+  const pw = xe - x0; const ph = ye - y0;
+  const near = (x) => Math.min(x2, Math.max(x1, x)); // nearest point of the segment (on row cy)
+  const dist2 = (x, y) => { const dx = x - near(x); const dy = y - cy; return dx * dx + dy * dy; };
+  const in2 = (R + 1) * (R + 1);
+  const inside = (x, y) => dist2(x, y) < in2;
   const clampI = (x, y) => (Math.min(h - 1, Math.max(0, Math.round(y))) * w + Math.min(w - 1, Math.max(0, Math.round(x)))) * 4;
   // Working buffer over the patch area plus a 1 px frame of original pixels (the fixed boundary).
   const bw = pw + 2; const bh = ph + 2;
   const buf = new Float32Array(bw * bh * 3);
   const free = new Uint8Array(bw * bh);
-  const B = R + 2;
-  const dirs = Array.from({ length: 16 }, (_, i) => [Math.cos((Math.PI * i) / 8), Math.sin((Math.PI * i) / 8)]);
+  const B = R + 2; const B2 = B * B;
+  const DX = new Float64Array(8); const DY = new Float64Array(8);
+  for (let i = 0; i < 8; i++) { DX[i] = Math.cos((Math.PI * i) / 4); DY[i] = Math.sin((Math.PI * i) / 4); }
+  const span = 2 * B + (x2 - x1);
   for (let j = 0; j < bh; j++) {
     for (let i = 0; i < bw; i++) {
       const x = x0 - 1 + i; const y = y0 - 1 + j; const k = (j * bw + i) * 3;
       if (!inside(x, y)) { const o = clampI(x, y); buf[k] = rgba[o]; buf[k + 1] = rgba[o + 1]; buf[k + 2] = rgba[o + 2]; continue; }
       free[j * bw + i] = 1;
-      // Start: the boundary in 16 directions, weighted by 1/distance².
+      // Start: the boundary in 8 directions, weighted by 1/distance². The grown pill is convex, so
+      // along a ray "outside" starts once: binary search for it.
       let sw = 0; let r = 0; let g = 0; let b = 0;
-      for (const [ux, uy] of dirs) {
-        // Distance along the ray to the boundary circle of radius B.
-        const px = x - cx; const py = y - cy;
-        const t = -(px * ux + py * uy) + Math.sqrt(Math.max(0, (px * ux + py * uy) ** 2 - (px * px + py * py - B * B)));
+      for (let di = 0; di < 8; di++) {
+        const ux = DX[di]; const uy = DY[di];
+        let lo = 0; let hi = span;
+        for (let it = 0; it < 8; it++) { // to within span/256: under a pixel
+          const mid = (lo + hi) / 2; const px = x + mid * ux; const py = y + mid * uy;
+          const qx = px < x1 ? x1 : px > x2 ? x2 : px;
+          if ((px - qx) * (px - qx) + (py - cy) * (py - cy) < B2) lo = mid; else hi = mid;
+        }
+        const t = Math.max(1, hi);
         const o = clampI(x + t * ux, y + t * uy);
-        const wgt = 1 / Math.max(1, t * t);
+        const wgt = 1 / (t * t);
         r += rgba[o] * wgt; g += rgba[o + 1] * wgt; b += rgba[o + 2] * wgt; sw += wgt;
       }
       buf[k] = r / sw; buf[k + 1] = g / sw; buf[k + 2] = b / sw;
     }
   }
   // Relax: Gauss-Seidel, a fixed number of sweeps (deterministic).
-  for (let it = 0; it < 120; it++) {
+  for (let it = 0; it < 80; it++) {
     for (let j = 1; j < bh - 1; j++) {
       for (let i = 1; i < bw - 1; i++) {
         if (!free[j * bw + i]) continue;
@@ -198,27 +311,113 @@ export function fillDisc(rgba, w, h, cx, cy, R) {
       }
     }
   }
-  // Grain: the detail (pixel minus its 3×3 mean) of the spot mirrored across the disc's edge.
+  // Grain: the fine detail (pixel minus its 3×3 mean, capped so edges never come through) of a spot
+  // in a thin band just outside, mirrored across the nearest edge.
+  const band = Math.max(3, Math.min(8, Math.round(R / 4)));
   const detail = (x, y, c) => {
     if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1 || inside(x, y)) return 0;
     let s = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += rgba[((y + dy) * w + x + dx) * 4 + c];
-    return rgba[(y * w + x) * 4 + c] - s / 9;
+    return Math.max(-8, Math.min(8, rgba[(y * w + x) * 4 + c] - s / 9));
   };
   const out = new Uint8ClampedArray(pw * ph * 4);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
-      const d = Math.hypot(x - cx, y - cy);
+  for (let y = y0; y < ye; y++) {
+    for (let x = x0; x < xe; x++) {
+      const qx = near(x); const d = Math.sqrt((x - qx) * (x - qx) + (y - cy) * (y - cy));
       const alpha = Math.max(0, Math.min(1, R + 0.5 - d));
       if (alpha <= 0) continue;
       const k = ((y - y0 + 1) * bw + (x - x0 + 1)) * 3; const o = ((y - y0) * pw + (x - x0)) * 4;
-      const m = d > 0 ? (2 * B - d) / d : 0;
-      const mx = Math.round(cx + (x - cx) * m); const my = Math.round(cy + (y - cy) * m);
-      for (let c = 0; c < 3; c++) out[o + c] = buf[k + c] + (d > 0 ? detail(mx, my, c) : 0);
+      const ux = d > 0 ? (x - qx) / d : 0; const uy = d > 0 ? (y - cy) / d : 1;
+      const out2 = B + ((B - d) % band);
+      const mx = Math.round(qx + ux * out2); const my = Math.round(cy + uy * out2);
+      for (let c = 0; c < 3; c++) out[o + c] = buf[k + c] + detail(mx, my, c);
       out[o + 3] = Math.round(alpha * 255);
     }
   }
   return { x0, y0, pw, ph, rgba: out };
+}
+
+/**
+ * Counter pills ("11/13") in an RGBA image (w×h): white text on a flat, dark, see-through pill with
+ * round ends. `hMin`/`hMax` are pill heights in pixels. Returns [{ x1, x2, cy, rho }] (the pill is the
+ * points within rho of the segment x1..x2 on row cy). Found from the text outwards: the text's line,
+ * then the pill around it in four directions, then the whole rounded outline must hold.
+ */
+export function findPills(rgba, w, h, { hMin, hMax, ...opts }) {
+  const cfg = { ...ICON_DEFAULTS, ...opts };
+  const L = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) L[i] = lum(rgba, i * 4);
+  const bright = (i) => L[i] >= 150; // small text is anti-aliased: its strokes don't all reach white
+  // Bright blobs (4-connected), then lines of them: the text.
+  const seen = new Uint8Array(w * h); const blobs = [];
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i] || !bright(i)) continue;
+    let x0 = w; let x1 = 0; let y0 = h; let y1 = 0; let n = 0; const stack = [i]; seen[i] = 1;
+    while (stack.length && n < 4000) {
+      const j = stack.pop(); const x = j % w; const y = (j - x) / w; n++;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      for (const k of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (k >= 0 && !seen[k] && bright(k)) { seen[k] = 1; stack.push(k); }
+    }
+    if (n < 4000 && y1 - y0 + 1 <= hMax * 0.7) blobs.push({ x0, x1: x1 + 1, y0, y1: y1 + 1 });
+  }
+  blobs.sort((a, b) => a.x0 - b.x0 || a.y0 - b.y0);
+  const lines = [];
+  for (const b of blobs) {
+    const line = lines.find((l) => Math.min(l.y1, b.y1) - Math.max(l.y0, b.y0) >= 0.5 * Math.min(l.y1 - l.y0, b.y1 - b.y0) && b.x0 - l.x1 <= Math.max(l.y1 - l.y0, b.y1 - b.y0));
+    if (line) { line.x1 = Math.max(line.x1, b.x1); line.y0 = Math.min(line.y0, b.y0); line.y1 = Math.max(line.y1, b.y1); } else lines.push({ ...b });
+  }
+  const out = [];
+  for (const t of lines) {
+    const th = t.y1 - t.y0;
+    if (th < hMin * 0.25 || th > hMax * 0.7) continue;
+    // The pill's own color: the median of the gaps between the letters.
+    const gaps = [];
+    for (let y = t.y0; y < t.y1; y++) for (let x = t.x0; x < t.x1; x++) if (!bright(y * w + x) && L[y * w + x] < 150) gaps.push(L[y * w + x]);
+    if (gaps.length < 8) continue;
+    gaps.sort((a, b) => a - b);
+    const P = gaps[gaps.length >> 1];
+    // Walk out from the text until the background starts: 3 pixels in a row clearly lighter than the
+    // pill (and not text), so the soft edge of a letter isn't taken for the pill's edge.
+    const walk = (x, y, dx, dy, max) => {
+      let run = 0;
+      for (let k = 1; k <= max; k++) {
+        const xx = x + dx * k; const yy = y + dy * k;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) return -1; // ran off the zone: not a closed pill
+        const v = L[yy * w + xx];
+        run = v - P >= cfg.pillEdge && Math.abs(v - L[(yy - dy) * w + xx - dx]) <= 20 ? run + 1 : 0;
+        if (run === 3) return k - 2;
+      }
+      return -1;
+    };
+    const cyT = Math.round((t.y0 + t.y1) / 2); const cxT = Math.round((t.x0 + t.x1) / 2);
+    const median = (vals) => { const v = vals.filter((k) => k > 0).sort((a, b) => a - b); return v.length >= 2 ? v[v.length >> 1] : -1; };
+    const rowsY = [cyT - (th >> 2), cyT, cyT + (th >> 2)]; const colsX = [cxT - (th >> 1), cxT, cxT + (th >> 1)];
+    const l = median(rowsY.map((y) => walk(t.x0, y, -1, 0, 3 * th))); const r = median(rowsY.map((y) => walk(t.x1 - 1, y, 1, 0, 3 * th)));
+    const u = median(colsX.map((x) => walk(x, t.y0, 0, -1, 2 * th))); const d = median(colsX.map((x) => walk(x, t.y1 - 1, 0, 1, 2 * th)));
+    if (l < 0 || r < 0 || u < 0 || d < 0) continue;
+    const xL = t.x0 - l + 1; const xR = t.x1 - 1 + r; const yT = t.y0 - u + 1; const yB = t.y1 - 1 + d;
+    const H = yB - yT; const rho = H / 2; const cy = (yT + yB) / 2;
+    if (H < hMin || H > hMax || H < th * 1.3 || H > th * 4 || xR - xL < H * 1.1) continue;
+    const x1 = xL + rho; const x2 = xR - rho;
+    if (pillOutline(L, w, h, x1, x2, cy, rho, P, cfg)) out.push({ x1: Math.round(x1 * 10) / 10, x2: Math.round(x2 * 10) / 10, cy: Math.round(cy * 10) / 10, rho: Math.round(rho * 10) / 10 });
+  }
+  return out;
+}
+
+/** The rounded outline holds all the way around: pill-colored just inside, lighter just outside. */
+function pillOutline(L, w, h, x1, x2, cy, rho, P, cfg) {
+  const pts = [];
+  for (let i = 0; i < 24; i++) { const a = Math.PI / 2 + (Math.PI * i) / 23; pts.push([x1, cy, Math.cos(a), Math.sin(a)]); pts.push([x2, cy, -Math.cos(a), Math.sin(a)]); }
+  for (let i = 1; i < 12; i++) { const x = x1 + ((x2 - x1) * i) / 12; pts.push([x, cy, 0, -1]); pts.push([x, cy, 0, 1]); }
+  let pass = 0; let flat = 0;
+  for (const [ox, oy, ux, uy] of pts) {
+    const at = (d) => { const x = Math.round(ox + ux * d); const y = Math.round(oy + uy * d); return x < 0 || y < 0 || x >= w || y >= h ? -1 : L[y * w + x]; };
+    const a = at(rho - 3); const b = at(rho + 3);
+    if (a < 0 || b < 0) return false;
+    if (b - a >= cfg.pillEdge) pass++;
+    if (Math.abs(a - P) <= cfg.flat) flat++;
+  }
+  return pass / pts.length >= cfg.ring && flat / pts.length >= cfg.ring;
 }
 
 /** The fill margin around an icon of radius r (its soft, anti-aliased edge). */
@@ -258,7 +457,8 @@ export function setPatchedSource(r, base, patches) {
 }
 
 /**
- * Find overlay icons in the corners of `box` (the media, in pixels of a W×H frame) and fill them in.
+ * Find overlay icons in the corners of `box` (the media, in pixels of a W×H frame) and the counter
+ * pill in its top-right corner, and fill them in.
  * `sample(x, y, w, h)` returns full-size RGBA pixels of that rectangle. Returns patches.
  */
 export function removeIcons(sample, W, H, box, opts = {}) {
@@ -268,6 +468,17 @@ export function removeIcons(sample, W, H, box, opts = {}) {
   if (z < rMin * 3) return [];
   const zones = [[box.x, box.y], [box.x + box.width - z, box.y], [box.x, box.y + box.height - z], [box.x + box.width - z, box.y + box.height - z]];
   const patches = [];
+  // The carousel counter pill, in the top-right corner.
+  const [px0, py0] = zones[1];
+  const tr = sample(px0, py0, z, z);
+  for (const p of findPills(tr, z, z, { ...cfg, hMin: Math.round(W * cfg.pillMin), hMax: Math.round(W * cfg.pillMax) })) {
+    const R = fillRadius(p.rho, cfg);
+    const m = Math.ceil(2 * R) + 8;
+    const gx = Math.max(0, Math.round(px0 + p.x1) - m); const gy = Math.max(0, Math.round(py0 + p.cy) - m);
+    const gw = Math.min(W, Math.round(px0 + p.x2) + m) - gx; const gh = Math.min(H, Math.round(py0 + p.cy) + m) - gy;
+    const fill = fillPill(sample(gx, gy, gw, gh), gw, gh, px0 + p.x1 - gx, px0 + p.x2 - gx, py0 + p.cy - gy, R);
+    patches.push(makePatch({ ...fill, x0: fill.x0 + gx, y0: fill.y0 + gy }, W, H));
+  }
   for (const [zx, zy] of zones) {
     const px = sample(zx, zy, z, z);
     for (const c of findIcons(px, z, z, { ...cfg, rMin, rMax })) {

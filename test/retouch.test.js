@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { findIcons, fillDisc, fillRadius, removeIcons, makePatch, patchPixels } from '../web/tools/editor/retouch.js';
+import { findIcons, findPills, fillDisc, fillPill, fillRadius, removeIcons, makePatch, patchPixels } from '../web/tools/editor/retouch.js';
 import { readPng } from './helpers/png.js';
 
 const lum = (p, i) => 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
@@ -52,6 +52,25 @@ for (const [name, cx, cy] of [['icon_mute.png', 100.5, 108.5], ['icon_tags.png',
     assert.ok(after.innerSd > 1 && after.innerSd < 20, `with the background's grain (sd ${after.innerSd.toFixed(1)})`);
   });
 }
+
+test('shared screenshot counter_pill.png: the "11/13" pill is found and filled to match the sky around it', () => {
+  const img = fixture('counter_pill.png');
+  const found = findPills(img.px, img.w, img.h, { hMin: 30, hMax: 120 });
+  assert.equal(found.length, 1, JSON.stringify(found));
+  const [p] = found; // measured: x 92..215, y 114..190
+  assert.ok(Math.abs(p.x1 - p.rho - 92) <= 3 && Math.abs(p.x2 + p.rho - 215) <= 3 && Math.abs(p.cy - 152) <= 3 && Math.abs(p.rho - 38) <= 3, JSON.stringify(p));
+  const R = fillRadius(p.rho);
+  const out = painted(img, fillPill(img.px, img.w, img.h, p.x1, p.x2, p.cy, R));
+  // Inside the old pill vs just around it, and no white text left.
+  const inner = []; const ring = [];
+  for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) {
+    const d = Math.hypot(x - Math.min(p.x2, Math.max(p.x1, x)), y - p.cy);
+    if (d <= R + 1) inner.push(lum(out.px, (y * img.w + x) * 4)); else if (d <= R + 12) ring.push(lum(out.px, (y * img.w + x) * 4));
+  }
+  const mean = (a) => a.reduce((t, v) => t + v, 0) / a.length;
+  assert.ok(Math.abs(mean(inner) - mean(ring)) < 5, `filled ${mean(inner).toFixed(1)} vs around ${mean(ring).toFixed(1)}`);
+  assert.ok(Math.max(...inner) < 140, 'no white text left');
+});
 
 // ---------- synthetic media ----------
 
@@ -108,6 +127,78 @@ test('media with the mute and tagged-people buttons in its bottom corners: both 
   assert.deepEqual([...out.px.subarray(far(700, 600), far(700, 600) + 4)], [...img.px.subarray(far(700, 600), far(700, 600) + 4)]);
 });
 
+/** An Instagram-style counter pill ("2/5") at the top right: 60% black, round ends, white digits. */
+const pill = (x0, y0, pw, ph) => (x, y, under) => {
+  const r = ph / 2; const cy = y0 + r; const qx = Math.min(x0 + pw - r, Math.max(x0 + r, x)); const d = Math.hypot(x - qx, y - cy);
+  if (d > r + 0.5) return under;
+  const k = Math.max(0, Math.min(1, r + 0.5 - d));
+  const u = (x - x0) / pw; const v = (y - y0) / ph;
+  const text = v > 0.3 && v < 0.7 && ((u > 0.3 && u < 0.36) || (u > 0.45 && u < 0.5 && Math.abs(v - 0.5) < 0.2) || (u > 0.6 && u < 0.7 && (v < 0.36 || Math.abs(v - 0.5) < 0.04 || v > 0.64 || u > 0.66)));
+  const c = text ? [255, 255, 255] : under.map((t) => t * 0.4);
+  return under.map((t, i) => t * (1 - k) + c[i] * k);
+};
+
+test('the carousel counter pill in the top-right corner is found and filled', () => {
+  const img = media(W, MH, withButtons(backdrop, [pill(W - 36 - 150, 36, 150, 72)]));
+  const patches = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
+  assert.equal(patches.length, 1);
+  const out = applied(img, patches);
+  const s = stats(out, W - 36 - 75, 72, 34, 50);
+  assert.ok(Math.abs(s.inner - s.ring) < 6 && s.max < 215, `filled ${s.inner.toFixed(1)} vs around ${s.ring.toFixed(1)}, max ${s.max.toFixed(0)}`);
+});
+
+test('pill look-alikes stay: a caption band across the picture, a square-cornered dark label', () => {
+  // A dark band with white text running off the side of the corner: part of the picture.
+  const band = (x, y, under) => (y >= 40 && y < 110 ? ((x >> 4) % 3 === 0 && y > 60 && y < 90 ? [255, 255, 255] : under.map((t) => t * 0.4)) : under);
+  const img = media(W, MH, (x, y) => band(x, y, backdrop(x, y)));
+  assert.deepEqual(removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH }), []);
+  // A square-cornered dark label with text (a sign in the photo).
+  const label = (x, y, under) => (x >= W - 190 && x < W - 40 && y >= 40 && y < 112 ? ((x >> 3) % 3 === 0 && y > 62 && y < 90 ? [255, 255, 255] : under.map((t) => t * 0.4)) : under);
+  const img2 = media(W, MH, (x, y) => label(x, y, backdrop(x, y)));
+  assert.deepEqual(removeIcons(sampler(img2), W, MH, { x: 0, y: 0, width: W, height: MH }), []);
+});
+
+/** A button whose gray disc dims the background by `alpha` (Instagram's is about 0.5–0.6). */
+function faintButton(cx, cy, r, kind, alpha) {
+  const b = button(cx, cy, r, kind);
+  return (x, y, under) => {
+    const full = b(x, y, under);
+    if (full === under) return under;
+    const white = full.every((v) => v > 230);
+    return white ? full : under.map((v, i) => under[i] - (under[i] - full[i]) * (alpha / 0.6));
+  };
+}
+
+// The gray disc barely shows on these backgrounds; the white symbol always does.
+for (const [name, bg, alpha, r] of [
+  ['a dark background', (x, y) => [30 + 10 * noise(x, y, 0), 34, 40], 0.5, 40],
+  ['a very dark background', (x, y) => [16 + 6 * noise(x, y, 0), 18, 22], 0.5, 40],
+  ['a busy, textured background', (x, y) => [0, 1, 2].map((k) => 90 + 120 * noise(x >> 2, y >> 2, k)), 0.45, 40],
+  ['a faint disc on mid gray', (x, y) => [120 + 8 * noise(x, y, 0), 124, 130], 0.3, 40],
+  ['small buttons (radius 1.7% of the width)', (x, y) => [150 + 20 * Math.sin(x / 50), 160, 170], 0.55, 20],
+]) {
+  test(`low contrast: the sound and person buttons are found and filled on ${name}`, () => {
+    const at = [[36 + r, MH - 36 - r, 'tags'], [W - 36 - r, MH - 36 - r, 'mute']];
+    const img = media(W, MH, withButtons(bg, at.map(([cx, cy, kind]) => faintButton(cx, cy, r, kind, alpha))));
+    const patches = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
+    assert.equal(patches.length, 2);
+    const out = applied(img, patches);
+    for (const [cx, cy] of at) {
+      const s = stats(out, cx, cy, r + 1, r + 12);
+      assert.ok(s.max < 200, `no white symbol left at x ${cx} (max ${s.max.toFixed(0)})`);
+      assert.ok(Math.abs(s.inner - s.ring) < 10, `filled ${s.inner.toFixed(1)} vs around ${s.ring.toFixed(1)}`);
+    }
+  });
+}
+
+test('white symbols without a disc stay: a white logo and letters on a dark, plain corner', () => {
+  const dark = (x, y) => [28 + 6 * noise(x, y, 0), 30, 34];
+  const logo = (x, y, under) => (Math.hypot(x - 100, y - (MH - 100)) < 14 || (Math.abs(x - 100) < 22 && y > MH - 84 && y < MH - 72) ? [255, 255, 255] : under);
+  const letters = (x, y, under) => (y > MH - 110 && y < MH - 80 && x > W - 260 && x < W - 60 && (x >> 3) % 3 === 0 ? [250, 250, 250] : under);
+  const img = media(W, MH, (x, y) => letters(x, y, logo(x, y, dark(x, y))));
+  assert.deepEqual(removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH }), []);
+});
+
 test('look-alikes stay: a dark round object without a symbol, white text, a plain photo, a top-corner logo', () => {
   const ball = (x, y, under) => (Math.hypot(x - 90, y - (MH - 90)) <= 40 ? [60, 58, 62] : under);         // dark ball, no symbol
   const text = (x, y, under) => (y > MH - 120 && y < MH - 90 && x > W - 300 && x < W - 40 && (x >> 3) % 2 ? [255, 255, 255] : under);
@@ -125,7 +216,7 @@ test('patches: source-relative, round-trip their pixels, and the same input give
   const a = removeIcons(sampler(img), W, MH, { x: 0, y: 0, width: W, height: MH });
   assert.equal(a.length, 1);
   const [p] = a;
-  assert.ok(p.x > 0.85 && p.x < 0.95 && p.y > 0.9 && p.w * W === p.pw && p.h * MH === p.ph, JSON.stringify({ ...p, data: '…' }));
+  assert.ok(p.x > 0.85 && p.x < 0.95 && p.y > 0.9 && Math.round(p.w * W) === p.pw && Math.round(p.h * MH) === p.ph, JSON.stringify({ ...p, data: '…' }));
   assert.equal(patchPixels(p).length, p.pw * p.ph * 4);
   const fill = { x0: 3, y0: 4, pw: 2, ph: 1, rgba: Uint8ClampedArray.from([1, 2, 3, 255, 4, 5, 6, 0]) };
   assert.deepEqual([...patchPixels(makePatch(fill, 10, 10))], [1, 2, 3, 255, 4, 5, 6, 0]);

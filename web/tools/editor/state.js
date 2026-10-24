@@ -121,28 +121,5 @@ export function createHistory(initial, limit = 100) {
   };
 }
 
-/** Auto-enhance from a luminance histogram of a small rendering (Uint8 RGBA pixels). */
-export function autoAdjust(rgba) {
-  const hist = new Uint32Array(256);
-  let n = 0; let sum = 0; let satSum = 0;
-  for (let i = 0; i < rgba.length; i += 4) {
-    const r = rgba[i]; const g = rgba[i + 1]; const b = rgba[i + 2];
-    const l = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
-    hist[l] += 1; n += 1; sum += l;
-    satSum += Math.max(r, g, b) - Math.min(r, g, b);
-  }
-  if (!n) return {};
-  const pct = (p) => { let acc = 0; for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= p * n) return i / 255; } return 1; };
-  const mean = sum / n / 255;
-  const lo = pct(0.02); const hi = pct(0.98);
-  const sat = satSum / n / 255;
-  const r2 = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 100) / 100;
-  return {
-    exposure: r2((0.48 - mean) * 1.1),
-    contrast: r2(hi - lo < 0.7 ? (0.7 - (hi - lo)) * 0.6 : 0),
-    shadows: r2(lo > 0.08 ? 0 : 0.25),
-    highlights: r2(hi > 0.97 ? -0.3 : 0),
-    blackPoint: r2(lo > 0.1 ? Math.min(0.3, lo) : 0),
-    vibrance: r2(sat < 0.25 ? 0.25 : 0.1),
-  };
-}
+/** Auto-Enhance (per-photo settings from a small rendering): see enhance.js. */
+export { autoAdjust } from './enhance.js';

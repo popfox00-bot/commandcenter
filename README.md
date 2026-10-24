@@ -149,12 +149,15 @@ peeking in. It's deterministic (no ML), in `web/tools/editor/autocrop.js`:
    be seen. Then it falls back to the account header above and the action icons below.
 
 **Overlay icons:** the round buttons apps draw on the media (Instagram's mute and tagged-people
-buttons: a dark see-through disc with a white symbol) are found in the media's corners and filled in
-from the background just around them, with its grain, so they disappear. A circle counts only if it is
-a flat disc clearly darker than its surroundings all the way around, with a white symbol inside, so a
-dark round object in the photo stays. The fill is a retouch patch in the edit, not a change to the
-original: Compare shows it without the patch, undo removes it, and it's part of every export
-(`web/tools/editor/retouch.js`).
+buttons: a dark see-through disc with a white symbol) are found in the media's corners, and the
+carousel counter pill ("11/13") in its top-right corner. Each is filled in from the background just
+around it, with its grain, so it disappears. A button is found either way round: as a flat disc
+clearly darker than its surroundings with a white symbol inside, or (where the see-through disc barely
+shows: a dark or busy background, a small button) from its white sound or person symbol outwards, with
+a faint but even darker ring all around it. A pill counts only if its
+rounded outline closes around white text. So a dark round object, a sign or a caption band in the
+photo stays. The fill is a retouch patch in the edit, not a change to the original: Compare shows it
+without the patch, undo removes it, and it's part of every export (`web/tools/editor/retouch.js`).
 
 A crop that's at least 60% sure is applied. A less sure one isn't applied: in the single editor the
 crop handles open on the best guess, and in bulk the photo is left uncropped with a **✂️ Check crop**
@@ -162,6 +165,20 @@ button. Photos that aren't screenshots are left alone. The app colors under More
 hints (#022157 and #0B1014 by default); the chrome color is read from each screenshot by itself.
 All thresholds are in one commented object, `AUTO_CROP_DEFAULTS`. The single-photo editor also has
 **✨ Auto-Enhance** next to it, with the full tools below.
+
+**✨ Auto-Enhance** makes slight but meaningful changes, worked out for each photo from its own pixels
+(`web/tools/editor/enhance.js`). It measures brightness, clipping, haze, color cast, saturation and fine
+detail, then solves for settings using an exact copy of the renderer's color math (checked against the
+GPU in the tests):
+- a darker photo is brightened part of the way, without newly clipping highlights; a bright photo is
+  never darkened for it;
+- large bright areas are recovered and large dark areas opened up;
+- haze gets its black point back and a flat photo some contrast, except where a big even backdrop
+  explains the flatness;
+- a color cast in gray areas is corrected about halfway, so a golden hour stays golden;
+- a muted photo gets more vibrance than a colorful one, plus a little sharpening and definition
+  (more for a soft photo, light noise reduction instead for a dark one being brightened).
+Everything is capped small, and running it again replaces its settings instead of stacking them.
 
 Everything happens on the phone: photos are decoded, edited and encoded locally, kept in memory until
 you save them, and nothing is uploaded. It works offline.

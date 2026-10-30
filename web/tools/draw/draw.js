@@ -8,7 +8,7 @@ import { el } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
-import { connected as savedFiles } from '../../lib/saved-files.js';
+import { connectedSecure as savedFiles } from '../../lib/saved-files.js';
 import { PAGES, PAPERS, TOOLS, COLORS, newDrawing, addPoint, drawPaper, drawItem, drawInk, createHistory, isShapeTool, normalizeDrawing } from './draw-core.js';
 
 const LIST_KEY = 'draw.list';            // [{ id, name, updated, w, h }]

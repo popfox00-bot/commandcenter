@@ -314,6 +314,20 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
   keeps everyone else out (every request without it is refused, and the script only touches files
   in that one folder). The URL and key are kept only on your phone. To lock a phone out, run
   **setup** again (a new key) and reconnect the phones you want.
+- **Encryption** (Settings → Saved Files → 🔒 Turn on encryption): files are encrypted on the phone
+  before they go to Drive, so Google, the script and the spreadsheet log only see scrambled data,
+  under scrambled names (`ccv.…`; the spreadsheet logs those). AES-256-GCM (which also catches any
+  change to a file), with a random data key per vault that's kept in Drive only wrapped twice: by a
+  key made from your password (PBKDF2-SHA-256, 600,000 rounds, slow to guess on purpose) and by one
+  made from a **recovery key** (160 random bits, shown once when you turn it on; keep it in a password
+  manager or written down). You unlock once per session (password or recovery key); the key is kept
+  in memory only, so closing or reloading the app locks it again (**🔒 Lock** does it now). **Change
+  password** keeps every file as it is; **New recovery key** replaces the old one. Files saved before
+  encryption show "not encrypted" with **🔒 Encrypt** (or **Encrypt all**): an encrypted copy is saved
+  and the plain one goes to Drive's trash. Each file also carries the wrapped key, so **Open an
+  encrypted file** (in Settings) opens a downloaded `ccv.` file with just the password or recovery key,
+  on any device and in any browser, with nothing uploaded. Without the password and the recovery
+  key, the files can't be opened by anyone, including you (`web/lib/vault.js`).
 - It needs a connection; the rest of Files works offline. Requests go as plain-text JSON, which
   Apps Script web apps accept from a web page without a CORS preflight.
 

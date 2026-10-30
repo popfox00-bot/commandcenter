@@ -196,3 +196,68 @@ test('Draw → Save to Files before Saved Files is connected: offers to connect 
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Saved Files encryption: turn it on (recovery key shown once), files encrypted on the phone, unlocked once a session, old files encrypted, a file opened anywhere', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  // An older file, saved before encryption.
+  script.files.push({ id: 'old1', name: 'old.txt', type: 'text/plain', size: 9, updated: NOW - 1000, data: Buffer.from('old plain').toString('base64'), from: 'Files' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/settings');
+  await page.waitForSelector('text=🔒 Turn on encryption');
+  await page.fill('[aria-label="Choose a password"]', 'short');
+  await page.fill('[aria-label="The same again"]', 'short');
+  await page.getByRole('button', { name: '🔒 Turn on encryption' }).click();
+  await page.waitForSelector('text=Choose a longer password');
+  await page.fill('[aria-label="Choose a password"]', 'maple river candle orbit');
+  await page.fill('[aria-label="The same again"]', 'maple river candle orbit');
+  await page.getByRole('button', { name: '🔒 Turn on encryption' }).click();
+  await page.waitForSelector('.vault-key', { timeout: 20000 });
+  const recovery = await page.textContent('.vault-key');
+  assert.match(recovery, /^([A-Z2-9]{4}-){7}[A-Z2-9]{4}$/);
+  assert.equal(await page.isDisabled('dialog[open] >> text=Done'), true, 'Done only once you\'ve kept it');
+  await page.check('#vault-saved');
+  await page.click('dialog[open] >> text=Done');
+  await page.waitForSelector('text=Encryption is on, and unlocked');
+  const vault = script.files.find((f) => f.name === 'command-center-vault.json');
+  assert.ok(vault && !Buffer.from(vault.data, 'base64').toString().includes('maple'), 'the vault file holds no password');
+
+  // Files → Saved Files: a new file is encrypted before it leaves the phone.
+  await page.goto(`${origin}${BASE}#/files/saved`);
+  await page.waitForSelector('.sv-item');
+  await page.setInputFiles('#sv-file', { name: 'bank notes.txt', mimeType: 'text/plain', buffer: Buffer.from('account 12345') });
+  await page.waitForSelector('text=Saved 1 file to your Drive.');
+  const stored = script.files.at(-1);
+  assert.match(stored.name, /^ccv\./); assert.equal(stored.type, 'application/octet-stream');
+  assert.ok(!stored.name.includes('bank') && !Buffer.from(stored.data, 'base64').toString('latin1').includes('12345'), 'Drive sees neither the name nor the content');
+  assert.match(await page.textContent('.sv-list'), /bank notes\.txt[\s\S]*🔒 encrypted/);
+  assert.equal(await page.isVisible('.sv-list >> text=command-center-vault.json'), false, 'the vault file isn\'t listed');
+
+  // The older plain file: encrypt it.
+  assert.match(await page.textContent('.sv-item:has-text("old.txt")'), /not encrypted/);
+  await page.getByRole('button', { name: 'Encrypt old.txt' }).click();
+  await page.waitForSelector('text=Encrypted 1 file');
+  assert.ok(!script.files.some((f) => f.name === 'old.txt'), 'the plain copy is gone (to Drive\'s trash)');
+
+  // Reloaded: locked. A wrong password doesn't open it; the recovery key does.
+  await page.reload();
+  await page.waitForSelector('text=🔒 Locked');
+  assert.match(await page.textContent('.sv-list'), /🔒 Locked file/);
+  await page.fill('[aria-label="Saved Files password"]', 'maple river candle orbiT');
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await page.waitForSelector('text=Wrong password or recovery key.');
+  await page.fill('[aria-label="Saved Files password"]', recovery.toLowerCase());
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await page.waitForSelector('text=bank notes.txt');
+  assert.match(await page.textContent('.sv-list'), /old\.txt/);
+
+  // Open anywhere: the downloaded encrypted file, with the password, in Settings.
+  await page.goto(`${origin}${BASE}#/settings`);
+  await page.click('summary >> text=Open an encrypted file');
+  await page.setInputFiles('[aria-label="Encrypted file"]', { name: stored.name, mimeType: 'application/octet-stream', buffer: Buffer.from(stored.data, 'base64') });
+  await page.fill('[aria-label="Password or recovery key for the file"]', 'maple river candle orbit');
+  await page.getByRole('button', { name: 'Open file' }).click();
+  await page.waitForSelector('text=Opened "bank notes.txt"', { timeout: 20000 });
+  assert.deepEqual(errors, []);
+  await context.close();
+});

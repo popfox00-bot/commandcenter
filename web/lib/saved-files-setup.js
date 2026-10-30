@@ -1,9 +1,10 @@
 // The Saved Files connection, shown in Settings: the web app URL and access key of the Apps Script in
 // your Saved Files spreadsheet (apps-script/saved-files.gs), checked before they're kept (on this
-// phone only), and Disconnect.
+// phone only), and Disconnect; encryption (web/lib/vault-ui.js); opening an encrypted file anywhere.
 
 import { el } from './dom.js';
-import { getConfig, setConfig, checkUrl, savedFiles } from './saved-files.js';
+import { getConfig, setConfig, checkUrl, savedFiles, connectedSecure } from './saved-files.js';
+import { encryptionSettings, openAnywhere } from './vault-ui.js';
 
 export function savedFilesSettings() {
   const box = el('section', { class: 'card sv-setup', id: 'saved-files' });
@@ -29,6 +30,7 @@ export function savedFilesSettings() {
       try {
         const folder = await savedFiles({ url: u, key: key.value.trim() }).ping();
         setConfig({ url: u, key: key.value.trim() });
+        await connectedSecure().refresh().catch(() => {}); // is encryption already on (another device)?
         render(`Connected to "${folder}". Files → Saved Files is ready.`);
       } catch (err) { status.textContent = err.message; status.className = 'small bad-text'; }
     });
@@ -41,7 +43,9 @@ export function savedFilesSettings() {
           el('li', { text: 'Run "setup" once and allow access. Copy the access key it shows in the log.' }),
           el('li', { text: 'Deploy → New deployment → Web app. Execute as: Me. Who has access: Anyone. Copy the web app URL.' }),
           el('li', { text: 'Paste both here.' }))),
-      form);
+      form,
+      cfg ? encryptionSettings() : null,
+      openAnywhere());
   }
   render();
   return box;

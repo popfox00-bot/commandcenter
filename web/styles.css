@@ -646,3 +646,12 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .sv-form { display: grid; gap: 8px; }
 .co-modes { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
 .co-modes .seg { font-size: .9rem; }
+
+/* Saved Files encryption */
+.vault-unlock { display: grid; gap: 8px; }
+.vault-unlock p { margin: 0; }
+.vault-settings { display: grid; gap: 8px; margin-top: 8px; }
+.vault-settings h3 { margin: 4px 0 0; }
+.vault-key { display: block; font-size: 1.05rem; font-weight: 700; letter-spacing: .04em; padding: 12px; border-radius: 10px; background: var(--idle-bg); overflow-wrap: anywhere; user-select: all; }
+.vault-recovery { display: grid; gap: 10px; }
+.sv-locked { opacity: .7; }

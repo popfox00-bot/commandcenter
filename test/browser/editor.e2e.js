@@ -30,7 +30,7 @@ async function openEditor() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(200, 100);

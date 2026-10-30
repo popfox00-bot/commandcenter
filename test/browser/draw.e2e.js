@@ -1,4 +1,4 @@
-// Draw, in the browser and offline: Tools → Draw, a new square page, a red pen stroke, a filled blue
+// Draw, in the browser and offline: Home → Draw, a new square page, a red pen stroke, a filled blue
 // box, the eraser through part of the stroke, undo/redo, text; back to My drawings (with a thumbnail),
 // a reload, the drawing opens again, and "Save image" hands a PNG to the share sheet whose pixels show
 // what was drawn. Nothing leaves the phone.
@@ -53,8 +53,7 @@ test('draw on a blank page, erase, undo, add text; it is saved, reopens, and sav
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await context.setOffline(true);
 
-  await page.click('.app-tile >> text=Tools');
-  await page.click('.tool-card >> text=Draw');
+  await page.click('.app-tile >> text=Draw');
   await page.waitForSelector('text=New drawing');
   await page.click('.dr-new .chip >> text=Square');
   await page.click('.dr-new .chip >> text=Grid');

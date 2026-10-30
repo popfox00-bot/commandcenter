@@ -1,18 +1,21 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen of app icons: **Tools**, **Updates**,
-**Notes**, **Games**, **Settings** and **Jobs**.
+A personal, phone-first app. It opens on a home screen of app icons: **Files**, **Draw**, **QR**,
+**Calendar**, **Updates**, **Notes**, **Games**, **Settings** and **Jobs**.
 
-- **Tools** that run entirely on your phone, offline, with no setup. Files never leave the device.
-  Today: the **Editor** app, with tabs for the [Photo Editor](#photo-editor),
-  [Collage](#collage--superimpose), [Cutout](#cutout-and-characters), [Write on PDF](#write-on-pdf),
-  [Scan](#scan) and the [File Converter](#file-converter). Converted images have an **Edit** button
-  (opens the photo editor) and converted PDFs a **Write on it** button. And
-  [QR & Barcode](#qr--barcode): scan codes with a link safety check before anything opens, and make
-  your own QR codes.
+- **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
+  setup. **Files** has tabs for the [Photo Editor](#photo-editor), [Collage](#collage--superimpose),
+  [Cutout](#cutout-and-characters), [Write on PDF](#write-on-pdf), [Scan](#scan), the
+  [File Converter](#file-converter) and [Saved Files](#saved-files) (your own Google Drive folder:
+  the one part that goes online, and only when you set it up). Converted images have an **Edit**
+  button (opens the photo editor) and converted PDFs a **Write on it** button. [Draw](#draw) is a
+  sketching canvas that saves to Photos or to Saved Files. [QR](#qr--barcode): scan codes with a
+  link safety check before anything opens, and make your own QR codes.
+- **[Calendar](#calendar)**: your own events, in a week, day or month view, kept on the phone.
 - **[Updates](#updates)**: weather (Weather Service alerts, forecast, freezes, wind, air quality for
-  ZIP 80214 by default) and sports (your teams' live scores, next games with TV and line, results).
-  Works on the phone with no setup; the same rules drive push notifications from two jobs.
+  ZIP 80214 by default) and sports (a calendar of your teams' games, plus college football near
+  your ZIP, with live scores, TV, lines and results). Works on the phone with no setup; the same
+  rules drive push notifications from two jobs.
 - **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
@@ -42,8 +45,8 @@ choices that keep usage under them.
 
 ## Contents
 
-- [Tools](#tools)
-- [Notes](#notes) · [Games](#games) · [Settings](#settings)
+- [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
+- [Calendar](#calendar) · [Notes](#notes) · [Games](#games) · [Settings](#settings)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -58,14 +61,15 @@ choices that keep usage under them.
 - [Assumptions to verify](#assumptions-to-verify)
 - [Troubleshooting](#troubleshooting)
 
-## Tools
+## Files, Draw and QR
 
 Open **https://popfox00-bot.github.io/commandcenter/** in Safari, then Share → **Add to Home
-Screen**. The Tools tab works immediately; the Jobs tab needs the cloud setup below.
+Screen**. Files, Draw and QR work immediately; the Jobs app needs the cloud setup below. (These
+three used to be under one **Tools** icon; old links and bookmarks to them still work.)
 
-Everything a tool does happens in the browser on your phone. Nothing is uploaded, and after the
-first visit every tool works offline: the service worker precaches the whole app, including its
-libraries.
+Everything they do happens in the browser on your phone. Nothing is uploaded (except what you save
+to [Saved Files](#saved-files), your own Drive), and after the first visit they work offline: the
+service worker precaches the whole app, including its libraries.
 
 ### File Converter
 
@@ -255,7 +259,7 @@ US Letter, A4 or the scan's own size, then Share, Save, or **Sign / write on it*
 
 ### Draw
 
-A blank canvas to sketch and design on (Tools → **Draw**):
+A blank canvas to sketch and design on (**Draw** on the home screen):
 
 - **Pages:** square, portrait, phone or landscape (2048 px on the long side), on plain, dotted,
   grid or lined paper.
@@ -267,7 +271,32 @@ A blank canvas to sketch and design on (Tools → **Draw**):
 - **Undo and redo** for every step, **Clear page** (undoable), **Duplicate**, **Delete**.
 - **My drawings:** every drawing is saved on the phone as you go (with a thumbnail) and opens again
   later, also offline. **Save image** saves a full-size PNG to Photos or Files through the share
-  sheet. Nothing is uploaded.
+  sheet. **☁️ Save to Files** puts the PNG in [Saved Files](#saved-files) (your Google Drive folder)
+  when that's set up; otherwise it offers to set it up. Nothing else is uploaded.
+
+### Saved Files
+
+**Files → Saved Files** keeps files in your own Google Drive folder: the folder that holds your
+"Saved Files" spreadsheet. A small Google Apps Script in that spreadsheet
+([`apps-script/saved-files.gs`](apps-script/saved-files.gs)) does the Drive work, so the app needs no
+Google sign-in, API key or client secret, and nothing about your Drive is in this repository.
+
+- **Save files to Drive** (any kind, up to 25 MB each), see them listed newest first, **Open** them
+  (photos and PDFs show right there), **Edit** a photo in the photo editor, **Write on** a PDF,
+  **Save to phone**, or **Delete** (to Drive's trash, for 30 days). Each save is logged in the
+  spreadsheet's "Saved Files" sheet (when, name, type, size, from which app, link; and when it was
+  deleted). Draw's **Save to Files** saves there too.
+- **Setup, once:** open the spreadsheet → Extensions → Apps Script; paste in
+  `apps-script/saved-files.gs` and save; run **setup** once (allow access) and copy the access key it
+  shows in the log; Deploy → New deployment → **Web app**, Execute as **Me**, Who has access
+  **Anyone**; copy the web app URL. On the phone: Files → Saved Files → paste the URL and the key →
+  **Connect**. The folder and spreadsheet stay **Restricted**: nothing is shared.
+- **Why "Anyone":** the phone calls the web app without signing in to Google; the access key is what
+  keeps everyone else out (every request without it is refused, and the script only touches files
+  in that one folder). The URL and key are kept only on your phone. To lock a phone out, run
+  **setup** again (a new key) and reconnect the phones you want.
+- It needs a connection; the rest of Files works offline. Requests go as plain-text JSON, which
+  Apps Script web apps accept from a web page without a CORS preflight.
 
 ### QR & Barcode
 
@@ -346,11 +375,21 @@ ZIP lookup: Zippopotam.us.
 
 ### Sports
 
-Starts with the Broncos, Nuggets, Avalanche and Rockies. Each team shows its record and standing, a
-**live** score while a game is on (refreshing every 45 seconds), the **next game** (time, TV and the
-betting line when ESPN lists one) and the **last result**; **Schedule** lists the season. **Edit**
-adds teams from the NFL, NBA, NHL, MLB, MLS, WNBA, college football and basketball, or the Premier
-League, removes them, or resets to the Denver teams. Data: ESPN's public site API (no key). Lines
+A **calendar of the games**: a **week** view by default (the view you pick is remembered), with
+**today** highlighted, and **Day** (each game with TV, the betting line and the venue) and **Month**
+views; tap a day to open it, ‹ › to move, **Today** to come back. A game shows once even when two of
+your teams play each other; live games show the score and refresh every 45 seconds.
+
+Under it, your teams: starts with the Broncos, Nuggets, Avalanche and Rockies, each with its record
+and standing, a **live** score while a game is on, the **next game** and the **last result**.
+**Edit** adds teams from the NFL, NBA, NHL, MLB, MLS, WNBA, college football and basketball, or the
+Premier League, removes them, or resets to the Denver teams.
+
+**Local college football** (on unless you turn it off): the FBS teams within 150 miles of the ZIP
+picked in Weather (for 80214: Colorado, Air Force, Colorado State, Wyoming), nearest first, or the
+two nearest when none is that close. Their games go in the calendar too. ESPN's team list has no
+locations, so the app matches it to a built-in table of where each FBS team plays
+(`web/apps/updates/college-sites.js`). Data: ESPN's public site API (no key). Lines
 are shown for information only; nothing logs into or automates a sportsbook.
 
 ### Push jobs: weather-alerts and sports
@@ -403,6 +442,30 @@ dropped (Command Center's cover it, so the games work offline), and the Home lin
 added. Scores and settings are saved in this app's storage under `foxGames`; progress from the old
 standalone Fox Games site doesn't carry over (browsers keep each site's storage separate).
 
+## Calendar
+
+**Calendar** on the home screen: your own events, in a **week** view by default with **today**
+highlighted, or **Day** and **Month** (tap a day to open it). **+ Event** (or the **+** on a day)
+adds one: title, date, all day or start and end times, repeat (every day, week, month or year,
+optionally until a date), location, notes and a color. Tap an event to change or delete it (a
+repeating event changes or goes for all its repeats). Events are kept on the phone (IndexedDB) and
+work offline; nothing is uploaded.
+
+**Reminders by email (not built; how it could work).** A web app on an iPhone can't send email or
+wake itself up at a set time, so reminders have to come from something that's always running:
+
+- **Apps Script (the simplest fit):** the Saved Files spreadsheet's script can also send mail from
+  your own Gmail (`MailApp`, about 100 emails a day on a free account) on a time-driven trigger (every
+  15 minutes, say). The phone would copy your events to the spreadsheet (a "Calendar" sheet) through
+  the same web app and access key; the script would email each reminder once. Free, no new accounts
+  or secrets in this repository; the cost is that event titles and times would then live in your
+  spreadsheet too, not only on the phone.
+- **The existing jobs (GitHub Actions + Worker):** possible, but they'd need the events stored in D1
+  and an email service (and its secret) added; more moving parts for the same result, and their
+  pushes already go by ntfy.
+- **Without email:** an event exported as an `.ics` file into the iPhone's own Calendar gets the
+  iPhone's normal alerts, with nothing running anywhere.
+
 ## Settings
 
 **Settings** on the home screen sets the **background color** for the whole app: System (follows
@@ -429,9 +492,11 @@ src/store/                  local (SQLite file) / remote (Worker) / d1-shim (nod
 src/exporters/sheets.js     Optional Google Sheets exporter
 shared/                     Code shared by runner and Worker: SQL store, HMAC signing
 worker/                     Cloudflare Worker (API, ingest, cron) + D1 migrations
-web/                        PWA (no build step): app.js shell (home screen), jobs.js dashboard,
-                            tools/ (Editor, QR), apps/updates/ (weather + sports; *-core.js shared
-                            with the jobs), apps/notes/, apps/games/fox/ (Fox Games), lib/, vendor/
+web/                        PWA (no build step): app.js shell (home screen, apps/index.js lists the
+                            apps), jobs.js dashboard, tools/ (Files' tabs, Draw, QR, Saved Files),
+                            apps/calendar/, apps/updates/ (weather + sports; *-core.js shared with
+                            the jobs), apps/notes/, apps/games/fox/ (Fox Games), lib/, vendor/
+apps-script/saved-files.gs  Google Apps Script for Saved Files (pasted into your spreadsheet)
 index.html                  Redirects the GitHub Pages root to web/
 test/                       node:test suites; test/browser/ = Playwright tests for the tools
 .github/workflows/          cc-scheduled, cc-dispatch, cc-ci (tests + secret scan), cc-pages,

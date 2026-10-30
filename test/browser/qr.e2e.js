@@ -45,7 +45,7 @@ async function open(context, tab) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript((t) => localStorage.setItem('cc.qr.prefs', JSON.stringify({ tab: t, history: true, pngSize: 1024 })), tab);
-  await page.goto(`${origin}${BASE}#/tools/qr`);
+  await page.goto(`${origin}${BASE}#/qr`);
   await page.waitForSelector('.qr-tabs .seg.active');
   return { page, errors };
 }

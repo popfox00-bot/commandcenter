@@ -55,28 +55,36 @@ async function convertTo(page, label) {
   return page.$$eval('.result strong', (els) => els.map((e) => e.textContent));
 }
 
-test('home screen of apps; Tools holds Editor and QR; no setup needed (no settings dialog)', async () => {
+test('home screen of apps: Files, Draw and QR are apps of their own; old Tools links still work; no setup needed', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Tools', 'Updates', 'Notes', 'Games', 'Settings', 'Jobs']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Files', 'Draw', 'QR', 'Calendar', 'Updates', 'Notes', 'Games', 'Settings', 'Jobs']);
   assert.equal(await page.textContent('#title'), 'Command Center');
-  await page.click('.app-tile >> text=Tools');
-  await page.waitForSelector('.tool-card');
-  assert.equal(await page.textContent('#title'), 'Tools');
-  assert.match(await page.textContent('#tool-list'), /QR & Barcode/);
-  await page.click('#view-tools .back');
+  await page.click('.app-tile >> text=Files');
+  await page.waitForSelector('.studio-tabs');
+  assert.equal(await page.textContent('#title'), 'Files');
+  assert.deepEqual(await page.$$eval('.studio-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Photo', 'Collage', 'Cutout', 'PDF', 'Scan', 'Convert', 'Saved Files']);
+  await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
+  await page.click('.app-tile >> text=QR');
+  await page.waitForSelector('#view-app:not([hidden]) >> text=QR & Barcode');
+  assert.equal(await page.textContent('#title'), 'QR');
+  await page.click('#view-app .back');
   await page.click('.app-tile >> text=Jobs');
   await page.waitForSelector('#view-jobs:not([hidden])');
   assert.equal(await page.isVisible('#jobs-actions'), true);
   await page.click('#view-jobs .back');
-  await page.click('.app-tile >> text=Tools');
-  await page.waitForSelector('.tool-card');
+  await page.click('.app-tile >> text=Draw');
+  await page.waitForSelector('text=New drawing');
   assert.equal(await page.isVisible('#settings[open]'), false);
-  assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden in Tools');
+  assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden in apps');
   assert.equal(await page.isVisible('#update'), false, 'no update prompt on a first visit');
-  assert.match(await page.textContent('#tool-list'), /Editor/);
+  // Bookmarks from before: Tools goes home, its tools to their own apps.
+  for (const [from, to] of [['#/tools', '#/'], ['#/tools/editor/pdf', '#/files/pdf'], ['#/tools/draw', '#/draw'], ['#/tools/qr', '#/qr']]) {
+    await page.goto(`${origin}${BASE_PATH}${from}`);
+    await page.waitForFunction((t) => location.hash === t, to);
+  }
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -142,16 +150,16 @@ test('works offline after the first visit', async () => {
   await context.close();
 });
 
-test('Editor app: old converter link redirects, and Edit sends a converted image to the photo editor', async () => {
+test('Files app: old converter link redirects, and Edit sends a converted image to the photo editor', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context, '#/tools/convert');
-  await page.waitForFunction(() => location.hash === '#/tools/editor/convert');
+  await page.waitForFunction(() => location.hash === '#/files/convert');
   await page.setInputFiles('#cv-files', [files[1]]);
   await convertTo(page, 'PNG');
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.waitForFunction(() => location.hash === '#/tools/editor');
+  await page.waitForFunction(() => location.hash === '#/files');
   await page.waitForSelector('.ed-canvas');
-  assert.equal(await page.getAttribute('[role=tab][aria-selected=true]', 'href'), '#/tools/editor');
+  assert.equal(await page.getAttribute('[role=tab][aria-selected=true]', 'href'), '#/files');
   // Switching back keeps the conversion results (tabs stay alive).
   await page.getByRole('tab', { name: 'Convert' }).click();
   await page.waitForSelector('.result');

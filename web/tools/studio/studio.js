@@ -1,5 +1,5 @@
-// "Editor" app: one app, several tools as tabs (photo, PDF, scan, convert, ...).
-// Routes: #/tools/editor (photo, default) and #/tools/editor/<tab>.
+// "Files" app: one app, several tools as tabs (photo, PDF, scan, convert, ...) plus Saved Files, the
+// files you keep in your own Google Drive. Routes: #/files (photo, default) and #/files/<tab>.
 // Each tab is mounted the first time it is opened and then kept alive while hidden, so switching
 // tabs never loses a conversion in progress or an open photo.
 
@@ -12,17 +12,18 @@ const TABS = [
   { id: 'pdf', label: 'PDF', load: () => import('../pdfwrite/pdfwrite.js') },
   { id: 'scan', label: 'Scan', load: () => import('../scan/scan.js') },
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
+  { id: 'saved', label: 'Saved Files', load: () => import('../saved/saved.js') },
 ];
-const hashFor = (id) => (id === 'photo' ? '#/tools/editor' : `#/tools/editor/${id}`);
+const hashFor = (id) => (id === 'photo' ? '#/files' : `#/files/${id}`);
 
 export function mount(host) {
   const panes = new Map(); // id -> { node, api }
-  const bar = el('div', { class: 'chips studio-tabs', role: 'tablist', 'aria-label': 'Editor' });
+  const bar = el('div', { class: 'chips studio-tabs', role: 'tablist', 'aria-label': 'Files' });
   const body = el('div', { class: 'studio-body' });
-  host.append(el('h2', { class: 'tool-title', text: 'Editor' }), bar, body);
+  host.append(bar, body);
 
   const current = () => {
-    const sub = location.hash.split('/')[3];
+    const sub = location.hash.split('/')[2];
     return TABS.some((t) => t.id === sub) ? sub : 'photo';
   };
 
@@ -46,6 +47,7 @@ export function mount(host) {
       scan: { onWrite: sendToPdf },
       cutout: { onPlace: (f) => sendTo('collage', f) },
       collage: { onEdit: sendToPhoto },
+      saved: { onEdit: sendToPhoto, onWrite: sendToPdf },
     }[id] ?? {};
     const pane = await ensure(id, opts);
     await pane.ready;
@@ -66,7 +68,7 @@ export function mount(host) {
   const sendToPhoto = (file) => sendTo('photo', file);
   const sendToPdf = (file) => sendTo('pdf', file);
 
-  const onHash = () => { if (location.hash.startsWith('#/tools/editor')) show(current()); };
+  const onHash = () => { if (/^#\/files(\/|$)/.test(location.hash)) show(current()); };
   window.addEventListener('hashchange', onHash);
   show(current());
 

@@ -1,4 +1,4 @@
-// Settings: pick an app-wide background color. It shows at once on every screen (home, Tools, an
+// Settings: pick an app-wide background color. It shows at once on every screen (home, Files, an
 // app), the text stays readable, it is still there after a reload (before the app's scripts run), a
 // custom color works, and Reset goes back to the phone's light/dark default. Nothing leaves the phone.
 import { test, before, after } from 'node:test';
@@ -46,9 +46,9 @@ test('a background color picked in Settings is used everywhere, readable, and ke
   assert.equal(await page.getAttribute('meta[name="theme-color"]', 'content'), '#0b1020');
 
   // Every screen, and still there after a reload.
-  await page.goto(`${origin}${BASE}#/tools`);
-  await page.waitForSelector('.tool-card');
-  assert.equal((await colors(page, '.tool-card')).bg, 'rgb(11, 16, 32)');
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('.studio-tabs');
+  assert.equal((await colors(page, '.studio-tabs')).bg, 'rgb(11, 16, 32)');
   await page.reload();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
   await page.goto(`${origin}${BASE}`);

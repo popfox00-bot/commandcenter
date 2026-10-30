@@ -28,7 +28,7 @@ test('scan a tilted page: edges found automatically, page flattened and cleaned,
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/tools/editor/scan`);
+  await page.goto(`${origin}${BASE}#/files/scan`);
   await page.waitForSelector('#sc-files', { state: 'attached' });
   const jpeg = await page.evaluate(async () => {
     // A 1200x900 "photo": wood-dark table, a slightly rotated sheet with shading and text lines.
@@ -60,7 +60,7 @@ test('scan a tilted page: edges found automatically, page flattened and cleaned,
   await page.getByRole('button', { name: /Make PDF/ }).click();
   await page.waitForSelector('text=1 page ·');
   await page.getByRole('button', { name: 'Sign / write on it' }).click();
-  await page.waitForFunction(() => location.hash === '#/tools/editor/pdf' && document.querySelectorAll('.pw-page').length === 1);
+  await page.waitForFunction(() => location.hash === '#/files/pdf' && document.querySelectorAll('.pw-page').length === 1);
   assert.deepEqual(errors, []);
   await context.close();
 });

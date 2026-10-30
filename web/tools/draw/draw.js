@@ -1,12 +1,14 @@
 // Draw: a blank canvas to sketch and design on. Pen (with Apple Pencil pressure), marker,
 // highlighter and eraser; lines, arrows, boxes and circles; text; colors, sizes and opacity; plain,
 // dotted, grid or lined paper. Two fingers pinch to zoom and move the page. Drawings are saved on
-// this phone (My drawings) and saved out as PNG to Photos or Files. Nothing leaves the phone.
+// this phone (My drawings) and saved out as PNG to Photos, or to Saved Files (your Google Drive,
+// through the Files app's Saved Files) when that's set up. Nothing else leaves the phone.
 
 import { el } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
+import { connected as savedFiles } from '../../lib/saved-files.js';
 import { PAGES, PAPERS, TOOLS, COLORS, newDrawing, addPoint, drawPaper, drawItem, drawInk, createHistory, isShapeTool, normalizeDrawing } from './draw-core.js';
 
 const LIST_KEY = 'draw.list';            // [{ id, name, updated, w, h }]
@@ -242,12 +244,28 @@ export function mount(host) {
     };
     drawTools(); updateUndo();
 
-    async function exportPng() {
+    async function pngFile() {
       const out = pageCanvas(doc); const c = out.getContext('2d');
       c.drawImage(paper, 0, 0); c.drawImage(ink, 0, 0);
       const blob = await canvasToBlob(out, 'image/png');
-      const file = new File([blob], `${(doc.name || 'drawing').replace(/[\\/:*?"<>|]+/g, '-')}.png`, { type: 'image/png' });
+      return new File([blob], `${(doc.name || 'drawing').replace(/[\\/:*?"<>|]+/g, '-')}.png`, { type: 'image/png' });
+    }
+    async function exportPng() {
+      const file = await pngFile();
       if (canShareFiles([file])) { try { await shareFiles([file], doc.name); } catch { /* cancelled */ } } else downloadBlob(file, file.name);
+    }
+    const saveNote = el('p', { class: 'small', 'aria-live': 'polite' });
+    async function saveToFiles() {
+      const api = savedFiles();
+      if (!api) {
+        if (confirm('Saved Files isn\'t set up on this phone yet. Set it up now in Files → Saved Files?')) { clearTimeout(saveTimer); await saveDoc(doc, thumbnail()); location.hash = '#/files/saved'; }
+        return;
+      }
+      saveNote.className = 'small muted'; saveNote.textContent = 'Saving to Saved Files…';
+      try {
+        const f = await api.upload(await pngFile(), 'Draw');
+        saveNote.className = 'small ok-text'; saveNote.textContent = `Saved "${f.name}" to Saved Files.`;
+      } catch (err) { saveNote.className = 'small bad-text'; saveNote.textContent = err.message; }
     }
     async function more() {
       const dlg = el('dialog', { class: 'ed-dialog' }, el('div', { class: 'sheet' },
@@ -269,8 +287,10 @@ export function mount(host) {
       stage, tools, colors, options,
       el('div', { class: 'row wrap dr-actions' },
         el('button', { class: 'btn primary', text: 'Save image', onclick: exportPng }),
+        el('button', { class: 'btn', text: '☁️ Save to Files', onclick: saveToFiles }),
         el('button', { class: 'btn small-btn ghost', text: 'Fit page', onclick: fit }),
         el('button', { class: 'btn small-btn ghost', text: '⋯ More', onclick: more })),
+      saveNote,
       el('p', { class: 'muted small', text: 'One finger draws (Apple Pencil pressure works with the pen); two fingers zoom and move the page. Saved on this phone as you go.' }));
     requestAnimationFrame(() => { window.scrollTo(0, 0); fit(); });
     const onResize = () => fit();

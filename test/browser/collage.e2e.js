@@ -53,7 +53,7 @@ test('cutout: trace around an object, save it as a Character, place it on a phot
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('dialog', (d) => d.accept('Red ball'));
-  await page.goto(`${origin}${BASE}#/tools/editor/cutout`);
+  await page.goto(`${origin}${BASE}#/files/cutout`);
   await page.waitForSelector('#co-file', { state: 'attached' });
   await page.setInputFiles('#co-file', { name: 'ball.png', mimeType: 'image/png', buffer: await makePng(page, { circle: '#e02020' }) });
   await page.waitForSelector('.co-canvas');
@@ -83,7 +83,7 @@ test('cutout: trace around an object, save it as a Character, place it on a phot
   assert.ok(px.w < 400, 'cropped to the object');
 
   await page.getByRole('button', { name: 'Place on a photo' }).click();
-  await page.waitForFunction(() => location.hash === '#/tools/editor/collage');
+  await page.waitForFunction(() => location.hash === '#/files/collage');
   await page.waitForSelector('.cl-canvas');
   // Add a blue background photo.
   const chooser = page.waitForEvent('filechooser');
@@ -113,7 +113,7 @@ test('cutout: trace around an object, save it as a Character, place it on a phot
 test('collage grid: two photos side by side with spacing on a white background', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
   const page = await context.newPage();
-  await page.goto(`${origin}${BASE}#/tools/editor/collage`);
+  await page.goto(`${origin}${BASE}#/files/collage`);
   await page.waitForSelector('.cl-canvas');
   await page.getByRole('button', { name: '2 side by side' }).click();
   const chooser = page.waitForEvent('filechooser');

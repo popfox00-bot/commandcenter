@@ -4,7 +4,7 @@
 
 import { el } from './dom.js';
 import { createVault, unlock, changePassword, newRecovery, openWithSecret, unlocked, setSession, lock, strength } from './vault.js';
-import { knownHeader, connectedSecure } from './saved-files.js';
+import { knownHeader, connectedSecure, connected, saveDecryptionKit } from './saved-files.js';
 import { shareFiles, canShareFiles, downloadBlob } from './files.js';
 
 /** A password box with Unlock; onUnlocked() once this session holds the key. */
@@ -82,7 +82,9 @@ export function encryptionSettings() {
           await api.saveHeader(h);
           setSession({ key, header: h });
           await showRecovery(recoveryKey, 'Encryption is on. New files you save are encrypted on this phone first. This is your recovery key, shown only now:');
-          render('Encryption is on, and unlocked until the app is closed or reloaded.');
+          let kit = '';
+          try { kit = ` The decryption kit (to open files without this app) is in ${(await saveDecryptionKit(connected())).where}.`; } catch (err) { kit = ` (The decryption kit couldn't be saved to Drive: ${err.message} Use "Save decryption kit" below.)`; }
+          render(`Encryption is on, and unlocked until the app is closed or reloaded.${kit}`);
         } catch (err) { render(err.message, true); }
       });
       box.replaceChildren(el('h3', { text: '🔒 Encryption' }), form);
@@ -109,7 +111,13 @@ export function encryptionSettings() {
       e.preventDefault();
       try { const { header: h, recoveryKey } = await newRecovery(knownHeader(), cur2.value); await api.saveHeader(h); await showRecovery(recoveryKey, 'Your new recovery key (the old one no longer unlocks Saved Files here, though it still opens files saved before today on their own):'); render('New recovery key made.'); } catch (err) { render(err.message, true); }
     });
+    const kitBtn = el('button', { class: 'btn small-btn', text: '💾 Save decryption kit to Drive', onclick: async () => {
+      kitBtn.disabled = true;
+      try { render(`Decryption kit saved in ${(await saveDecryptionKit(connected())).where}: decrypt.html (any browser), decrypt.py (Python) and FORMAT.md (how the files work).`); } catch (err) { render(err.message, true); }
+    } });
     kids.push(status,
+      el('p', { class: 'small muted', text: 'Decryption kit: a page, a Python script and a description of the format, to open your files without this app (with the password or recovery key). Saved to a "Decryption" folder in Drive when you turn encryption on.' }),
+      kitBtn,
       el('details', { class: 'small' }, el('summary', { text: 'Change password' }), change),
       el('details', { class: 'small' }, el('summary', { text: 'New recovery key' }), rec));
     box.replaceChildren(...kids);

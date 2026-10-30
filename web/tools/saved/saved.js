@@ -5,7 +5,7 @@
 // With encryption on (Settings), files are encrypted on the phone first and unlocked once per session.
 
 import { el } from '../../lib/dom.js';
-import { getConfig, savedFiles, secureFiles, knownHeader, size } from '../../lib/saved-files.js';
+import { getConfig, savedFiles, secureFiles, knownHeader, isKitFile, size } from '../../lib/saved-files.js';
 import { unlocked, lock } from '../../lib/vault.js';
 import { unlockForm } from '../../lib/vault-ui.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
@@ -83,14 +83,14 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     const picker = el('input', { type: 'file', multiple: true, hidden: true, id: 'sv-file' });
     picker.addEventListener('change', () => { upload(picker.files); picker.value = ''; });
     const vault = knownHeader(); const unlockedNow = !!unlocked();
-    const plain = vault && unlockedNow ? files.filter((f) => !f.encrypted) : [];
+    const plain = vault && unlockedNow ? files.filter((f) => !f.encrypted && !isKitFile(f.name)) : [];
     const list = files.length ? el('ul', { class: 'sv-list' }, ...files.map((f) => el('li', { class: `card sv-item${f.locked ? ' sv-locked' : ''}` },
       el('span', { class: 'sv-icon', 'aria-hidden': 'true', text: f.locked ? '🔒' : icon(f.type) }),
       el('span', { class: 'sv-meta' }, el('strong', { class: 'sv-name', text: f.name }),
-        el('span', { class: 'muted small', text: [f.locked ? '' : size(f.size), new Date(f.updated).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), f.encrypted && !f.locked ? '🔒 encrypted' : vault ? 'not encrypted' : ''].filter(Boolean).join(' · ') })),
+        el('span', { class: 'muted small', text: [f.locked ? '' : size(f.size), new Date(f.updated).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), f.encrypted && !f.locked ? '🔒 encrypted' : isKitFile(f.name) ? 'decryption kit' : vault ? 'not encrypted' : ''].filter(Boolean).join(' · ') })),
       f.locked ? null : el('span', { class: 'row wrap sv-actions' },
         el('button', { class: 'btn small-btn', text: 'Open', disabled: !!busy, onclick: () => open(f, view) }),
-        vault && unlockedNow && !f.encrypted ? el('button', { class: 'btn small-btn', text: '🔒 Encrypt', 'aria-label': `Encrypt ${f.name}`, disabled: !!busy, onclick: () => encrypt([f]) }) : null,
+        vault && unlockedNow && !f.encrypted && !isKitFile(f.name) ? el('button', { class: 'btn small-btn', text: '🔒 Encrypt', 'aria-label': `Encrypt ${f.name}`, disabled: !!busy, onclick: () => encrypt([f]) }) : null,
         f.type?.startsWith('image/') && onEdit ? el('button', { class: 'btn small-btn', text: 'Edit', disabled: !!busy, onclick: () => open(f, onEdit) }) : null,
         f.type === 'application/pdf' && onWrite ? el('button', { class: 'btn small-btn', text: 'Write on it', disabled: !!busy, onclick: () => open(f, onWrite) }) : null,
         el('button', { class: 'btn small-btn ghost', text: 'Save to phone', disabled: !!busy, onclick: () => open(f, toPhone) }),

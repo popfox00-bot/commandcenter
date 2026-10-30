@@ -15,7 +15,15 @@ const SCRIPT = readFileSync(resolve(import.meta.dirname, '../apps-script/saved-f
 function google() {
   let n = 0; let clock = Date.parse('2026-10-30T12:00:00Z');
   const files = new Map(); const props = new Map(); const logs = [];
-  const folder = (id, name) => ({ getId: () => id, getName: () => name, getFiles() { const list = [...files.values()].filter((f) => f.parent === id); let i = 0; return { hasNext: () => i < list.length, next: () => list[i++] }; }, createFile(blob) { return addFile(blob.name, blob.type, blob.bytes, id); } });
+  const iter = (list) => { let i = 0; return { hasNext: () => i < list.length, next: () => list[i++] }; };
+  const folder = (id, name, parent = null) => ({
+    id, parent, getId: () => id, getName: () => name,
+    getFiles() { return iter([...files.values()].filter((f) => f.parent === id)); },
+    getFilesByName(n) { return iter([...files.values()].filter((f) => f.parent === id && !f.trashed && f.getName() === n)); },
+    getFoldersByName(n) { return iter(Object.values(folders).filter((d) => d.parent === id && d.getName() === n)); },
+    createFolder(n) { const d = folder(`D${Object.keys(folders).length}`, n, id); folders[d.id] = d; return d; },
+    createFile(blob) { return addFile(blob.name, blob.type, blob.bytes, id); },
+  });
   const folders = { F: folder('F', 'Command Center'), OTHER: folder('OTHER', 'Elsewhere') };
   function addFile(name, type, bytes, parent) {
     const id = `id${++n}`; const at = new Date(clock += 60_000);
@@ -45,7 +53,7 @@ function google() {
     const out = g.doPost({ postData: { contents: init.body } });
     return { ok: true, status: 200, json: async () => JSON.parse(out.content) };
   };
-  return { g, files, sheet, logs, fetch, addFile, ss };
+  return { g, files, folders, sheet, logs, fetch, addFile, ss };
 }
 
 test('setup makes a key; with it the phone saves, lists, opens and deletes files; without it nothing', async () => {
@@ -112,4 +120,24 @@ test('client: URL check, settings kept on the phone, base64 both ways, readable 
   await assert.rejects(down.list(), /answered 404/);
   await assert.rejects(savedFiles({ url: 'u', key: 'k' }).upload({ size: 26 * 1024 * 1024, name: 'big.mov' }), /too big/);
   assert.equal(size(1536), '2 KB'); assert.equal(size(1.5 * 1024 * 1024), '1.5 MB');
+});
+
+test('the decryption kit goes into a "Decryption" folder (saved again, it replaces itself); the list stays the main folder\'s', async () => {
+  const G = google();
+  const key = G.g.setup();
+  const api = savedFiles({ url: 'https://script.google.com/macros/s/x/exec', key }, { fetch: G.fetch });
+  assert.deepEqual(await api.info(), { folder: 'Command Center', version: 2 });
+  const kitFiles = { 'decrypt.html': '<!doctype html>', 'decrypt.py': 'print(1)', 'FORMAT.md': '# format' };
+  const fakeFetch = async (url) => ({ ok: true, blob: async () => new Blob([kitFiles[String(url).split('/').pop()]]) });
+  const { saveDecryptionKit } = await import('../web/lib/saved-files.js');
+  for (let i = 0; i < 2; i++) {
+    const out = await saveDecryptionKit(api, { fetch: fakeFetch, base: 'https://app.example/decryption/' });
+    assert.match(out.where, /"Decryption" folder/);
+  }
+  const sub = Object.values(G.folders).find((d) => d.getName() === 'Decryption');
+  assert.ok(sub && sub.parent === 'F', 'a folder inside the Saved Files folder');
+  const inSub = [...G.files.values()].filter((f) => f.parent === sub.id && !f.trashed).map((f) => f.getName()).sort();
+  assert.deepEqual(inSub, ['FORMAT.md', 'decrypt.html', 'decrypt.py'], 'saved twice, still one of each');
+  assert.deepEqual(await api.list(), [], 'the main folder\'s list doesn\'t show them');
+  assert.match(G.sheet.rows.at(-1)[1], /^Decryption\//, 'logged with the folder');
 });

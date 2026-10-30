@@ -51,10 +51,12 @@ export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
   }
   return {
     ping: async () => (await call('ping')).folder,
+    /** { folder, version } (version 1: a script from before folders). */
+    info: async () => { const r = await call('ping'); return { folder: r.folder, version: r.version ?? 1 }; },
     list: async () => (await call('list')).files ?? [],
-    async upload(file, from = '') {
+    async upload(file, from = '', folder = '') {
       if (file.size > MAX_BYTES) throw new Error(`"${file.name}" is too big for Saved Files (25 MB at most).`);
-      return (await call('upload', { name: file.name, type: file.type || 'application/octet-stream', data: await toBase64(file), from })).file;
+      return (await call('upload', { name: file.name, type: file.type || 'application/octet-stream', data: await toBase64(file), from, ...(folder ? { folder } : {}) })).file;
     },
     async download(id) {
       const out = await call('download', { id });
@@ -83,6 +85,33 @@ const HEADER_KEY = 'cc.vault.header';
 export function knownHeader(storage = globalThis.localStorage) { try { return JSON.parse(storage.getItem(HEADER_KEY)) ?? null; } catch { return null; } }
 export function rememberHeader(h, storage = globalThis.localStorage) { try { if (h) storage.setItem(HEADER_KEY, JSON.stringify(h)); else storage.removeItem(HEADER_KEY); } catch { /* private mode */ } }
 
+// ---------- the decryption kit ----------
+
+export const KIT_FOLDER = 'Decryption';
+export const KIT_FILES = ['decrypt.html', 'decrypt.py', 'FORMAT.md'];
+const KIT_PREFIX = 'Decryption - ';
+/** Whether a file in the main folder is part of the kit (saved there by a script from before folders). */
+export const isKitFile = (name) => String(name).startsWith(KIT_PREFIX);
+
+/**
+ * Save the decryption kit (web/decryption/: decrypt.html, decrypt.py, FORMAT.md) to Drive, as plain
+ * files (they hold no keys): into a "Decryption" folder, or, with a script from before folders, into
+ * the main folder as "Decryption - …". Returns { where, files }.
+ */
+export async function saveDecryptionKit(api, { fetch: f = globalThis.fetch, base = new URL('../decryption/', import.meta.url) } = {}) {
+  const { version } = await api.info();
+  const folders = version >= 2;
+  const types = { html: 'text/html', py: 'text/x-python', md: 'text/markdown' };
+  const saved = [];
+  for (const name of KIT_FILES) {
+    const res = await f(new URL(name, base), { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`Couldn't read ${name} from the app.`);
+    const file = new File([await res.blob()], folders ? name : `${KIT_PREFIX}${name}`, { type: types[name.split('.').pop()] });
+    saved.push(await api.upload(file, 'Settings', folders ? KIT_FOLDER : ''));
+  }
+  return { where: folders ? `the "${KIT_FOLDER}" folder` : 'the Saved Files folder (as "Decryption - …"; update the script for a folder)', files: saved };
+}
+
 export class LockedError extends Error { constructor() { super('Saved Files are encrypted: unlock them first (Files → Saved Files, or Settings).'); this.name = 'LockedError'; } }
 
 /**
@@ -102,6 +131,7 @@ export function secureFiles(api) {
   }
   return {
     ping: api.ping,
+    info: api.info,
     remove: api.remove,
     /** The files, newest first, names decrypted: [{ id, name, type, size, updated, encrypted, locked }]. */
     async list() {

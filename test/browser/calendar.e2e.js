@@ -107,20 +107,21 @@ test('Calendar: week view with today highlighted; add, repeat, month and day vie
 
 /** A stand-in for the Saved Files Apps Script web app (same requests and answers). */
 async function fakeScript(context, key = 'k3y') {
-  const files = []; let n = 0; const calls = [];
+  const files = []; const kit = []; let n = 0; const calls = [];
   await context.route('https://script.google.com/macros/s/TEST/exec', async (route) => {
     const req = JSON.parse(route.request().postData());
     calls.push({ action: req.action, type: route.request().headers()['content-type'] });
     const send = (body) => route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*' } });
     if (req.key !== key) return send({ ok: false, error: 'Wrong access key' });
-    if (req.action === 'ping') return send({ ok: true, folder: 'Command Center' });
+    if (req.action === 'ping') return send({ ok: true, folder: 'Command Center', version: 2 });
     if (req.action === 'list') return send({ ok: true, files: files.map(({ data, ...f }) => f).reverse() });
+    if (req.action === 'upload' && req.folder) { kit.push({ folder: req.folder, name: req.name, data: req.data }); return send({ ok: true, file: { id: `k${kit.length}`, name: req.name, folder: req.folder } }); }
     if (req.action === 'upload') { const f = { id: `f${++n}`, name: req.name, type: req.type, size: Buffer.from(req.data, 'base64').length, updated: NOW + n, data: req.data, from: req.from }; files.push(f); const { data, ...info } = f; return send({ ok: true, file: info }); }
     if (req.action === 'download') { const f = files.find((x) => x.id === req.id); return send(f ? { ok: true, name: f.name, type: f.type, data: f.data } : { ok: false, error: 'No such file' }); }
     if (req.action === 'delete') { files.splice(files.findIndex((x) => x.id === req.id), 1); return send({ ok: true }); }
     return send({ ok: false, error: 'Unknown action' });
   });
-  return { files, calls };
+  return { files, kit, calls };
 }
 
 test('Files → Saved Files: connect in Settings with the URL and key, save, list, open, delete; Draw saves to it', async () => {
@@ -219,6 +220,9 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   await page.check('#vault-saved');
   await page.click('dialog[open] >> text=Done');
   await page.waitForSelector('text=Encryption is on, and unlocked');
+  await page.waitForSelector('text=The decryption kit (to open files without this app) is in the "Decryption" folder.');
+  assert.deepEqual(script.kit.map((k) => `${k.folder}/${k.name}`), ['Decryption/decrypt.html', 'Decryption/decrypt.py', 'Decryption/FORMAT.md']);
+  assert.match(Buffer.from(script.kit[0].data, 'base64').toString(), /Open encrypted Saved Files/, 'the real page, as plain files (they hold no keys)');
   const vault = script.files.find((f) => f.name === 'command-center-vault.json');
   assert.ok(vault && !Buffer.from(vault.data, 'base64').toString().includes('maple'), 'the vault file holds no password');
 

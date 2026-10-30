@@ -328,6 +328,17 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
   encrypted file** (in Settings) opens a downloaded `ccv.` file with just the password or recovery key,
   on any device and in any browser, with nothing uploaded. Without the password and the recovery
   key, the files can't be opened by anyone, including you (`web/lib/vault.js`).
+- **Decryption kit** (`web/decryption/`, also saved to a **Decryption** folder in your Drive when you
+  turn encryption on, or with **💾 Save decryption kit to Drive** in Settings): three ways to open
+  your files if this app ever stops working, each needing only a `ccv.` file and your password or
+  recovery key. **decrypt.html** is one page with no connection to anything: open it in any browser,
+  even offline, pick the files, enter the password. **decrypt.py** does the same on any computer with
+  Python 3 (`pip install cryptography`, then `python3 decrypt.py FILE…`). **FORMAT.md** describes the
+  file format byte by byte, so any programmer could write a decryptor. The kit holds no keys, so it's
+  safe to keep anywhere (they're plain files in Drive). The kit goes into its own folder with the
+  current Apps Script; a script from before that keeps it in the main folder as "Decryption - …"
+  (update it: paste the new `apps-script/saved-files.gs`, then Deploy → Manage deployments → edit →
+  New version; the URL and key stay the same).
 - It needs a connection; the rest of Files works offline. Requests go as plain-text JSON, which
   Apps Script web apps accept from a web page without a CORS preflight.
 

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "a365ce3e755f",
+  "version": "4db19bca30d7",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -65,6 +65,8 @@ const PRECACHE = {
     "tools/pdfwrite/pdfwrite.js",
     "tools/pdfwrite/signature.js",
     "tools/qr/link-check.js",
+    "tools/qr/qr-cards-core.js",
+    "tools/qr/qr-cards.js",
     "tools/qr/qr-make.js",
     "tools/qr/qr-parse.js",
     "tools/qr/qr.js",

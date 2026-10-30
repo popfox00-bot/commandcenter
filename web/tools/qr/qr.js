@@ -1,5 +1,6 @@
 // QR & Barcode: scan codes (camera or photo) and see exactly what they hold before anything opens,
-// with a link safety check; make your own QR codes (link, Wi-Fi, contact, event, ...) in your style.
+// with a link safety check; make your own QR codes (link, Wi-Fi, contact, event, ...) in your style;
+// keep your apps' "add me / pay me" codes (Snapchat, Venmo, ...) as branded cards (qr-cards.js).
 // Scanning and making codes run on the device. Only "Check where it leads" goes online, and only when tapped.
 
 import { el, store } from '../../lib/dom.js';
@@ -10,6 +11,7 @@ import { parsePayload } from './qr-parse.js';
 import { analyzeUrl, mergeOnline, parseRdap, VERDICT_TEXT, ageDays, ageText } from './link-check.js';
 import { KINDS, SOCIAL, DOT_STYLES, EYE_STYLES, drawQr, toSvg, colorWarnings } from './qr-make.js';
 import { encode } from '../../vendor/uqr/uqr.mjs';
+import { appCodes } from './qr-cards.js';
 
 const HISTORY_KEY = 'qr.history';
 const SAVED_KEY = 'qr.saved';
@@ -36,6 +38,20 @@ export function reader() {
 export async function decode(input, opts = PHOTO_OPTS) {
   const z = await reader();
   return (await z.readBarcodes(input, opts)).filter((r) => r.isValid && r.text);
+}
+
+/** The codes in a picture: the whole picture at a sensible size, then larger for small codes in big photos. */
+export async function codesInPicture(file) {
+  const bitmap = await decodeImage(file, await sniffType(file));
+  let hits = [];
+  for (const edge of [1600, 3000]) {
+    const fit = fitSize(bitmap.width, bitmap.height, edge);
+    const c = drawToCanvas(bitmap, fit.width, fit.height, '#ffffff');
+    hits = await decode(c.getContext('2d').getImageData(0, 0, c.width, c.height), PHOTO_OPTS);
+    if (hits.length || Math.max(bitmap.width, bitmap.height) <= edge) break;
+  }
+  bitmap.close?.();
+  return hits;
 }
 
 // ---------- Worker settings (shared with the Jobs tab) ----------
@@ -159,16 +175,7 @@ export function mount(host) {
       result.replaceChildren();
       status.textContent = 'Reading the photo…';
       try {
-        const bitmap = await decodeImage(file, await sniffType(file));
-        // Try the full picture at a sensible size, then a larger one for small codes in big photos.
-        let hits = [];
-        for (const edge of [1600, 3000]) {
-          const fit = fitSize(bitmap.width, bitmap.height, edge);
-          const c = drawToCanvas(bitmap, fit.width, fit.height, '#ffffff');
-          hits = await decode(c.getContext('2d').getImageData(0, 0, c.width, c.height), PHOTO_OPTS);
-          if (hits.length || Math.max(bitmap.width, bitmap.height) <= edge) break;
-        }
-        bitmap.close?.();
+        const hits = await codesInPicture(file);
         if (!hits.length) { status.textContent = 'No code found in that photo. Try a closer, sharper picture with the whole code in view.'; return; }
         const unique = [...new Map(hits.map((h) => [h.text, h])).values()];
         if (unique.length === 1) { showResult(unique[0].text, unique[0].format, { source: 'photo' }); return; }
@@ -709,10 +716,13 @@ export function mount(host) {
   })();
 
   // =====================================================================
-  // Saved: my codes and scan history
+  // Saved: app codes, my codes and scan history
   // =====================================================================
 
+  let cards = null;
   async function renderSaved() {
+    cards?.dispose();
+    cards = appCodes({ readCodes: codesInPicture });
     const [codes = [], history = []] = await Promise.all([idb.get(SAVED_KEY), idb.get(HISTORY_KEY)]);
     const urls = [];
     const keep = el('input', { type: 'checkbox', class: 'qr-check-input', id: 'qr-keep-history' });
@@ -746,6 +756,7 @@ export function mount(host) {
     for (const u of panes.saved._urls ?? []) URL.revokeObjectURL(u);
     panes.saved._urls = urls;
     panes.saved.replaceChildren(
+      cards.node,
       el('h3', { text: 'My codes' }), codeList,
       el('div', { class: 'row space' }, el('h3', { text: 'Scan history' }),
         history.length ? el('button', { class: 'btn small-btn ghost', text: 'Clear history', onclick: async () => { if (confirm('Clear the whole scan history?')) { await idb.del(HISTORY_KEY); renderSaved(); } } }) : null),
@@ -764,5 +775,6 @@ export function mount(host) {
     scanner.stop();
     for (const f of cleanups) f();
     for (const u of panes.saved._urls ?? []) URL.revokeObjectURL(u);
+    cards?.dispose();
   };
 }

@@ -55,11 +55,11 @@ async function convertTo(page, label) {
   return page.$$eval('.result strong', (els) => els.map((e) => e.textContent));
 }
 
-test('home screen of apps: Files, Draw and QR are apps of their own; old Tools links still work; no setup needed', async () => {
+test('home screen of apps: Files, Draw and QR are apps of their own, Jobs is in Settings; old Tools links still work; no setup needed', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Files', 'Draw', 'QR', 'Calendar', 'Updates', 'Notes', 'Games', 'Settings', 'Jobs']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Updates', 'Notes', 'Files', 'Draw', 'QR', 'Games', 'Settings']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   await page.click('.app-tile >> text=Files');
   await page.waitForSelector('.studio-tabs');
@@ -71,10 +71,14 @@ test('home screen of apps: Files, Draw and QR are apps of their own; old Tools l
   await page.waitForSelector('#view-app:not([hidden]) >> text=QR & Barcode');
   assert.equal(await page.textContent('#title'), 'QR');
   await page.click('#view-app .back');
-  await page.click('.app-tile >> text=Jobs');
+  // Jobs lives in Settings now, and goes back there.
+  await page.click('.app-tile >> text=Settings');
+  await page.click('.st-link >> text=Jobs');
   await page.waitForSelector('#view-jobs:not([hidden])');
   assert.equal(await page.isVisible('#jobs-actions'), true);
   await page.click('#view-jobs .back');
+  await page.waitForFunction(() => location.hash === '#/settings');
+  await page.click('#view-app .back');
   await page.click('.app-tile >> text=Draw');
   await page.waitForSelector('text=New drawing');
   assert.equal(await page.isVisible('#settings[open]'), false);

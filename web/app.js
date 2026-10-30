@@ -2,14 +2,14 @@
 // No build step; every module is plain ES modules served from this folder.
 
 import { $, el, store } from './lib/dom.js';
-import { APPS, redirect } from './apps/index.js';
+import { APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
 
 function renderHome() {
-  $('#app-grid').replaceChildren(...APPS.map((a) => el('a', { class: 'app-tile', href: a.href },
+  $('#app-grid').replaceChildren(...homeApps(store.json(HOME_ORDER_KEY, null)).map((a) => el('a', { class: 'app-tile', href: a.href },
     el('span', { class: `app-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
     el('span', { class: 'app-name', text: a.name }),
     el('span', { class: 'app-note muted', text: a.note }))));
@@ -21,6 +21,7 @@ async function route() {
   const [, section = ''] = (location.hash || '#/').split('/');
   const app = APPS.find((a) => a.id === section && a.load);
   const view = section === 'jobs' ? 'jobs' : app ? 'app' : 'home';
+  if (view === 'home') renderHome(); // the order may have changed in Settings
   for (const [name, node] of Object.entries(views)) node.hidden = name !== view;
   $('#title').textContent = { home: 'Command Center', jobs: 'Jobs', app: app?.name }[view];
   $('#jobs-actions').hidden = view !== 'jobs';

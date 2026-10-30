@@ -1,7 +1,8 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen of app icons: **Files**, **Draw**, **QR**,
-**Calendar**, **Updates**, **Notes**, **Games**, **Settings** and **Jobs**.
+A personal, phone-first app. It opens on a home screen of app icons: **Calendar**, **Updates**,
+**Notes**, **Files**, **Draw**, **QR**, **Games** and **Settings** (the order can be changed in
+Settings → Edit Home Screen; **Jobs** is opened from Settings).
 
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
   setup. **Files** has tabs for the [Photo Editor](#photo-editor), [Collage](#collage--superimpose),
@@ -21,7 +22,7 @@ A personal, phone-first app. It opens on a home screen of app icons: **Files**, 
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
   Solitaire, Tile Match, Blackjack, Basketball Draft).
 - **[Settings](#settings)**: the app's background color, a preset or any color.
-- **Jobs**, an automation dashboard. Jobs run on a schedule or on demand, results are
+- **Jobs** (in Settings), an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
 
@@ -334,6 +335,16 @@ size and error correction. Every design is **test-scanned** as you edit ("✓ Sc
 as PNG (1024 px) or SVG (any size), share it, or keep it under **Saved** (e.g. your home Wi-Fi). Codes are
 static: the content is in the code itself, with no QR service in between, so they never expire.
 
+**App codes** (Saved → 📇 App codes): your apps' "add me / pay me" codes (Snapchat, Venmo, Cash App,
+PayPal, Zelle, Instagram, TikTok, WhatsApp, Facebook, LinkedIn, X, Telegram, Discord, Spotify, or any
+other) kept as cards to show someone in person or share as a picture. **+ Add from screenshot**: take
+a screenshot of the code in the app, pick it, and the code in it is read on the phone; the app and
+your handle are worked out from it (`https://venmo.com/u/Alex-Fox` → Venmo, @Alex-Fox), and the code
+is redrawn sharp on a card in the app's colors with its name, your name and handle (only the apps'
+names and colors are used, not their logos). If the picture has no QR code in it (Snapchat's ghost
+Snapcode, for one), the picture itself goes on the card. Tap a card to show it big, **Share** it as a
+PNG (1080×1440), **Open in** the app, edit or delete it. Cards stay on the phone.
+
 ### Developing the tools
 
 ```bash
@@ -468,7 +479,11 @@ wake itself up at a set time, so reminders have to come from something that's al
 
 ## Settings
 
-**Settings** on the home screen sets the **background color** for the whole app: System (follows
+**Edit Home Screen** puts the apps in the order you like (↑ ↓ next to each; **Reset to default order**:
+Calendar, Updates, Notes, Files, Draw, QR, Games, Settings). **Jobs** (background runs, push
+notifications and their setup) opens from here too, and its **‹ Settings** leads back.
+
+**Settings** also sets the **background color** for the whole app: System (follows
 the phone's light or dark mode), ten presets (Midnight, Charcoal, Navy, Forest, Plum, Slate, Sand,
 Mint, Blush, White) or any custom color. Text, cards, borders and muted text follow it so everything
 stays readable (at least 7:1 contrast on the presets, 4.5:1 on any color): light text on dark

@@ -612,7 +612,20 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .sv-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 .sv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .sv-item { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
-.sv-icon { font-size: 1.6rem; }
+.sv-icon { display: inline-grid; place-items: center; align-content: center; width: 46px; height: 46px; border-radius: 11px; font-size: 1.35rem; line-height: 1; background: var(--k, #6b7280); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .08); }
+.sv-ext { margin-top: 2px; font-size: .58rem; font-weight: 800; letter-spacing: .03em; color: #fff; text-shadow: 0 1px 1px rgb(0 0 0 / .35); }
+.sv-k-folder { --k: #f2b134; }
+.sv-k-image { --k: #2f9e5b; }
+.sv-k-pdf { --k: #d6453d; }
+.sv-k-video { --k: #7c4dcc; }
+.sv-k-audio { --k: #e07a1f; }
+.sv-k-sheet { --k: #138a72; }
+.sv-k-doc { --k: #2b6fd6; }
+.sv-k-slides { --k: #c75a12; }
+.sv-k-archive { --k: #8a6a4a; }
+.sv-k-text { --k: #4a7aa8; }
+.sv-k-other { --k: #6b7280; }
+.sv-k-locked { --k: #3b3f47; }
 .sv-meta { display: grid; min-width: 0; }
 .sv-name { overflow-wrap: anywhere; }
 .sv-actions { grid-column: 1 / -1; margin: 0; gap: 6px; }

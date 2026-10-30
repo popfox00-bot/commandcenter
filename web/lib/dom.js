@@ -9,6 +9,12 @@ export const store = {
 };
 
 /** el('button', { class: 'btn', text: 'Go', onclick }, ...children). Text is always set via textContent. */
+/** node.replaceChildren(...kids), skipping null/false/undefined (which replaceChildren would show as text). */
+export function fill(node, ...kids) {
+  node.replaceChildren(...kids.flat().filter((c) => c != null && c !== false));
+  return node;
+}
+
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {

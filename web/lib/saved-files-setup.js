@@ -2,12 +2,12 @@
 // your Saved Files spreadsheet (apps-script/saved-files.gs), checked before they're kept (on this
 // phone only), and Disconnect; encryption (web/lib/vault-ui.js); opening an encrypted file anywhere.
 
-import { el } from './dom.js';
+import { el, fill } from './dom.js';
 import { getConfig, setConfig, checkUrl, savedFiles, connectedSecure } from './saved-files.js';
 import { encryptionSettings, openAnywhere } from './vault-ui.js';
 
 /** The newest apps-script/saved-files.gs (its VERSION). */
-const SCRIPT_VERSION = 3;
+const SCRIPT_VERSION = 4;
 
 export function savedFilesSettings() {
   const box = el('section', { class: 'card sv-setup', id: 'saved-files' });
@@ -34,10 +34,10 @@ export function savedFilesSettings() {
         const { folder, version } = await savedFiles({ url: u, key: key.value.trim() }).info();
         setConfig({ url: u, key: key.value.trim() });
         await connectedSecure().refresh().catch(() => {}); // is encryption already on (another device)?
-        render(`Connected to "${folder}". Files → Saved Files is ready.${version < SCRIPT_VERSION ? ` (Your script is version ${version}: paste the new apps-script/saved-files.gs and deploy a new version for folders.)` : ''}`);
+        render(`Connected to "${folder}". Files → Saved Files is ready.${version < SCRIPT_VERSION ? ` (Your script is version ${version}: paste the new apps-script/saved-files.gs and deploy a new version for the newest features, like moving folders.)` : ''}`);
       } catch (err) { status.textContent = err.message; status.className = 'small bad-text'; }
     });
-    box.replaceChildren(
+    fill(box,
       el('h2', { text: '☁️ Saved Files (Google Drive)' }),
       el('p', { class: 'small muted', text: 'Files → Saved Files keeps files in your own Google Drive folder, through a small script in your Saved Files spreadsheet. The URL and key stay on this phone only.' }),
       cfg ? null : el('details', { class: 'small' }, el('summary', { text: 'How to set it up (once)' }),

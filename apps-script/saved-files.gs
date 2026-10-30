@@ -5,7 +5,7 @@
  * in the Drive folder that should hold the files. The Files app on your phone then saves files into
  * that folder (or folders inside it), lists them, opens, moves and deletes them, through this script,
  * and each save is logged in the spreadsheet's "Saved Files" sheet. Folders inside it can be made,
- * renamed and deleted from the phone; nothing outside that folder is ever touched.
+ * renamed, moved and deleted from the phone; nothing outside that folder is ever touched.
  *
  * Setup (once):
  *   1. Paste this file in as Code.gs and save.
@@ -23,7 +23,7 @@
  * deployments → ✎ (edit) → Version: New version → Deploy. The web app URL and the key stay the same.
  */
 
-const VERSION = 3; // 2: uploads can go into a subfolder (the Decryption kit). 3: folders (list, make, rename, delete, move files)
+const VERSION = 4; // 2: uploads can go into a subfolder (the Decryption kit). 3: folders (list, make, rename, delete, move files). 4: move folders
 
 const KEY_PROPERTY = 'SAVED_FILES_KEY';
 const LOG_SHEET = 'Saved Files';
@@ -62,6 +62,7 @@ function doPost(e) {
       case 'rename': return json_({ ok: true, folder: renameFolder_(req.id, req.name) });
       case 'rmdir': rmdir_(req.id); return json_({ ok: true });
       case 'move': return json_({ ok: true, file: move_(req.id, req.to) });
+      case 'movedir': return json_({ ok: true, folder: moveFolder_(req.id, req.to) });
       default: return json_({ ok: false, error: 'Unknown action' });
     }
   } catch (err) {
@@ -192,6 +193,17 @@ function rmdir_(id) {
   const d = folderIn_(id);
   if (d.getId() === folder_().getId()) throw new Error('The main folder can\'t be deleted');
   d.setTrashed(true);
+}
+
+/** Move a folder (with everything in it) into another folder ('' : the main folder); never into itself. */
+function moveFolder_(id, to) {
+  const d = folderIn_(id);
+  const mainId = folder_().getId();
+  if (d.getId() === mainId) throw new Error('The main folder can\'t be moved');
+  const target = folderIn_(to);
+  if (target.getId() === d.getId() || path_(target).some(function (p) { return p.id === d.getId(); })) throw new Error('A folder can\'t go inside itself');
+  d.moveTo(target);
+  return Object.assign(folderInfo_(d), { parent: target.getId() === mainId ? '' : target.getId() });
 }
 
 /** Move a file into another folder ('' : the main folder). */

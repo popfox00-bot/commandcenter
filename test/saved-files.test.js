@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
-import { savedFiles, checkUrl, getConfig, setConfig, toBase64, fromBase64, size } from '../web/lib/saved-files.js';
+import { savedFiles, checkUrl, getConfig, setConfig, toBase64, fromBase64, size, fileKind } from '../web/lib/saved-files.js';
 
 const SCRIPT = readFileSync(resolve(import.meta.dirname, '../apps-script/saved-files.gs'), 'utf8');
 
@@ -21,7 +21,7 @@ function google() {
     const d = {
       id, parent, trashed: false, getId: () => id, getName: () => name, setName: (v) => { name = v; return d; },
       getLastUpdated: () => at, isTrashed: () => d.trashed, setTrashed: (v) => { d.trashed = v; },
-      getParents: () => iter(parent ? [folders[parent]] : []),
+      getParents: () => iter(d.parent ? [folders[d.parent]] : []), moveTo: (to) => { d.parent = to.getId(); return d; },
       getFiles() { return iter([...files.values()].filter((f) => f.parent === id)); },
       getFolders() { return iter(Object.values(folders).filter((k) => k.parent === id)); },
       getFilesByName(n) { return iter([...files.values()].filter((f) => f.parent === id && !f.trashed && f.getName() === n)); },
@@ -136,7 +136,7 @@ test('the decryption kit goes into a "Decryption" folder (saved again, it replac
   const G = google();
   const key = G.g.setup();
   const api = savedFiles({ url: 'https://script.google.com/macros/s/x/exec', key }, { fetch: G.fetch });
-  assert.deepEqual(await api.info(), { folder: 'Command Center', version: 3 });
+  assert.deepEqual(await api.info(), { folder: 'Command Center', version: 4 });
   const kitFiles = { 'decrypt.html': '<!doctype html>', 'decrypt.py': 'print(1)', 'FORMAT.md': '# format' };
   const fakeFetch = async (url) => ({ ok: true, blob: async () => new Blob([kitFiles[String(url).split('/').pop()]]) });
   const { saveDecryptionKit } = await import('../web/lib/saved-files.js');
@@ -206,6 +206,42 @@ test('folders: make, open, upload into, move between, rename and delete; nothing
   await assert.rejects(api.rmdir('F'), /main folder can't be deleted/);
   await assert.rejects(api.rename('F', 'X'), /main folder can't be renamed/);
   assert.equal(elsewhere.parent, 'OTHER'); assert.equal(G.folders.OTHER.getName(), 'Elsewhere');
+});
+
+test('folders move into folders (with all in them), never into themselves or out of the main folder', async () => {
+  const G = google();
+  const key = G.g.setup();
+  const api = savedFiles({ url: 'https://script.google.com/macros/s/x/exec', key }, { fetch: G.fetch });
+  const a = await api.mkdir('A'); const b = await api.mkdir('B'); const a1 = await api.mkdir('A1', a.id);
+  const doc = await api.upload(new File(['x'], 'x.txt', { type: 'text/plain' }), '', { id: a1.id });
+  const moved = await api.moveFolder(a.id, b.id);
+  assert.equal(moved.parent, b.id);
+  assert.deepEqual((await api.folders()).map((d) => d.path), ['B', 'B/A', 'B/A/A1'], 'everything inside comes along');
+  assert.deepEqual((await api.browse(a1.id)).path.map((p) => p.name), ['B', 'A', 'A1']);
+  assert.equal(await (await api.download(doc.id)).text(), 'x', 'files in it still open');
+  await assert.rejects(api.moveFolder(b.id, a1.id), /can't go inside itself/);
+  await assert.rejects(api.moveFolder(b.id, b.id), /can't go inside itself/);
+  await assert.rejects(api.moveFolder('F', b.id), /main folder can't be moved/);
+  await assert.rejects(api.moveFolder(b.id, 'OTHER'), /No such folder/);
+  await assert.rejects(api.moveFolder('OTHER', b.id), /No such folder/);
+  await api.moveFolder(a.id, '');
+  assert.deepEqual((await api.browse()).folders.map((d) => d.name), ['A', 'B'], 'back to the main folder');
+});
+
+test('file kinds for colour-coded icons: by type, then by extension', () => {
+  const k = (n, t) => { const r = fileKind(n, t); return `${r.kind} ${r.label}`; };
+  assert.equal(k('beach.JPG', 'image/jpeg'), 'image JPG');
+  assert.equal(k('w2.pdf', 'application/pdf'), 'pdf PDF');
+  assert.equal(k('budget.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), 'sheet XLSX');
+  assert.equal(k('letter.docx', 'application/octet-stream'), 'doc DOCX', 'by extension when the type says nothing');
+  assert.equal(k('deck.pptx', ''), 'slides PPTX');
+  assert.equal(k('clip.mov', 'video/quicktime'), 'video MOV');
+  assert.equal(k('song.m4a', 'audio/mp4'), 'audio M4A');
+  assert.equal(k('backup.zip', 'application/zip'), 'archive ZIP');
+  assert.equal(k('notes.txt', 'text/plain'), 'text TXT');
+  assert.equal(k('data.csv', 'text/csv'), 'sheet CSV', 'CSV is a sheet, not plain text');
+  assert.equal(k('mystery', ''), 'other ');
+  assert.equal(k('photo', 'image/png'), 'image IMAG', 'no extension: the kind, short');
 });
 
 test('the app knows the newest script version', () => {

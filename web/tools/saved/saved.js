@@ -3,15 +3,23 @@
 // PDFs to write on), save them back to the phone, or delete them. Needs a connection; the rest of
 // Files works offline. Connected once in Settings → Saved Files (the script's URL and access key).
 // With encryption on (Settings), files are encrypted on the phone first and unlocked once per session.
-// Folders (with a version 3 script): open them, make, rename and delete them, move files between them.
+// Folders (with a version 3 script): open them, make, rename and delete them, move files between them
+// (and, version 4, folders into folders). File icons are colour-coded by kind.
 
-import { el } from '../../lib/dom.js';
-import { getConfig, savedFiles, secureFiles, knownHeader, isKitFile, KIT_FOLDER, size } from '../../lib/saved-files.js';
+import { el, fill } from '../../lib/dom.js';
+import { getConfig, savedFiles, secureFiles, knownHeader, isKitFile, KIT_FOLDER, fileKind, size } from '../../lib/saved-files.js';
 import { unlocked, lock } from '../../lib/vault.js';
 import { unlockForm } from '../../lib/vault-ui.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
 
-const icon = (type) => (type?.startsWith('image/') ? '🖼️' : type === 'application/pdf' ? '📄' : type?.startsWith('video/') ? '🎞️' : type?.startsWith('audio/') ? '🎵' : type?.startsWith('text/') ? '📝' : '📦');
+/** A colour-coded tile: the kind's colour and emoji, with the extension under it. */
+function icon(f) {
+  if (f.folder) return el('span', { class: 'sv-icon sv-k-folder', 'aria-hidden': 'true' }, el('span', { text: '📁' }));
+  if (f.locked) return el('span', { class: 'sv-icon sv-k-locked', 'aria-hidden': 'true' }, el('span', { text: '🔒' }));
+  const k = fileKind(f.name, f.type);
+  return el('span', { class: `sv-icon sv-k-${k.kind}`, 'aria-hidden': 'true', title: k.kind },
+    el('span', { text: k.emoji }), k.label ? el('small', { class: 'sv-ext', text: k.label }) : null);
+}
 
 export function mount(host, { onEdit = null, onWrite = null } = {}) {
   const root = el('div', { class: 'sv' });
@@ -110,24 +118,51 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     folders = folders.filter((x) => x.id !== d.id);
     render(`Deleted the folder "${d.name}".`);
   }
-  // Move a file: pick where, from all the folders.
-  async function move(f) {
-    let all = [];
-    if (!await act('Loading folders…', async () => { all = await api.folders(); })) return;
+  // Where to move something: a dialog of every folder (less those it can't go to); resolves to
+  // { id, path } or null.
+  function pickFolder(title, all, skip) {
+    return new Promise((resolve) => {
+      let picked = null;
+      const to = [{ id: '', path: '☁️ Saved Files (main folder)' }, ...all].filter((d) => !skip(d));
+      const dlg = el('dialog', { class: 'ed-dialog sv-move' }, el('div', { class: 'sheet' },
+        el('h2', { text: title }),
+        to.length ? el('ul', { class: 'sv-list' }, ...to.map((d) => el('li', {}, el('button', { class: 'btn block sv-dest', text: d.id ? `📁 ${d.path}` : d.path, onclick: () => { picked = d; dlg.close(); } })))) : el('p', { class: 'muted small', text: 'No other folders yet: make one with "+ New folder".' }),
+        el('div', { class: 'row end' }, el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => dlg.close() }))));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(picked); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
+  }
+  async function allFolders() {
+    let all = null;
+    if (!await act('Loading folders…', async () => { all = await api.folders(); })) return null;
     render();
-    const to = [{ id: '', path: '☁️ Saved Files (main folder)' }, ...all].filter((d) => d.id !== here);
-    const dlg = el('dialog', { class: 'ed-dialog sv-move' }, el('div', { class: 'sheet' },
-      el('h2', { text: `Move "${f.name}" to` }),
-      to.length ? el('ul', { class: 'sv-list' }, ...to.map((d) => el('li', {}, el('button', { class: 'btn block', text: d.id ? `📁 ${d.path}` : d.path, onclick: async () => {
-        dlg.close();
-        if (!await act(`Moving "${f.name}"…`, () => api.move(f.id, d.id))) return;
-        files = files.filter((x) => x.id !== f.id);
-        render(`Moved "${f.name}" to ${d.id ? `"${d.path}"` : 'the main folder'}.`);
-      } })))) : el('p', { class: 'muted small', text: 'No other folders yet: make one with "+ New folder".' }),
-      el('div', { class: 'row end' }, el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => dlg.close() }))));
-    dlg.addEventListener('close', () => dlg.remove());
-    document.body.append(dlg);
-    dlg.showModal();
+    return all;
+  }
+  const whereTo = (d) => (d.id ? `"${d.path}"` : 'the main folder');
+  // Move a file into another folder.
+  async function move(f) {
+    const all = await allFolders(); if (!all) return;
+    const d = await pickFolder(`Move "${f.name}" to`, all, (x) => x.id === here);
+    if (!d) return;
+    if (!await act(`Moving "${f.name}"…`, () => api.move(f.id, d.id))) return;
+    files = files.filter((x) => x.id !== f.id);
+    render(`Moved "${f.name}" to ${whereTo(d)}.`);
+  }
+  // Move a folder (and everything in it) into another one: not into itself or a folder inside it.
+  async function moveFolder(folder) {
+    const all = await allFolders(); if (!all) return;
+    const own = all.find((x) => x.id === folder.id)?.path ?? folder.name;
+    const d = await pickFolder(`Move the folder "${folder.name}" to`, all, (x) => x.id === here || x.id === folder.id || x.path?.startsWith(`${own}/`));
+    if (!d) return;
+    const ok = await act(`Moving "${folder.name}"…`, async () => {
+      try { await api.moveFolder(folder.id, d.id); } catch (err) {
+        throw /Unknown action/.test(err.message) ? new Error('Moving folders needs the newer Saved Files script (version 4): paste the new apps-script/saved-files.gs and deploy a new version (Settings → Saved Files).') : err;
+      }
+    });
+    if (!ok) return;
+    folders = folders.filter((x) => x.id !== folder.id);
+    render(`Moved the folder "${folder.name}" to ${whereTo(d)}.`);
   }
 
   function render(note = '', error = '') {
@@ -142,14 +177,15 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
       ...path.flatMap((p, i) => [el('span', { class: 'muted', 'aria-hidden': 'true', text: '›' }),
         i === path.length - 1 ? el('strong', { 'aria-current': 'page', text: `📁 ${p.name}` }) : el('button', { class: 'btn small-btn ghost', text: p.name, disabled: !!busy, onclick: () => go(p.id) })])) : null;
     const folderList = folders?.length ? el('ul', { class: 'sv-list' }, ...folders.map((d) => el('li', { class: 'card sv-item sv-folder' },
-      el('span', { class: 'sv-icon', 'aria-hidden': 'true', text: '📁' }),
+      icon({ folder: true }),
       el('button', { class: 'sv-open', 'aria-label': `Open folder ${d.name}`, disabled: !!busy, onclick: () => go(d.id) }, el('strong', { class: 'sv-name', text: d.name })),
       el('span', { class: 'row wrap sv-actions' },
         el('button', { class: 'btn small-btn', text: 'Open', disabled: !!busy, onclick: () => go(d.id) }),
         el('button', { class: 'btn small-btn ghost', text: 'Rename', 'aria-label': `Rename folder ${d.name}`, disabled: !!busy, onclick: () => renameFolder(d) }),
+        el('button', { class: 'btn small-btn ghost', text: 'Move', 'aria-label': `Move folder ${d.name}`, disabled: !!busy, onclick: () => moveFolder(d) }),
         el('button', { class: 'btn small-btn ghost bad-text', text: 'Delete', 'aria-label': `Delete folder ${d.name}`, disabled: !!busy, onclick: () => deleteFolder(d) }))))) : null;
     const list = files.length ? el('ul', { class: 'sv-list' }, ...files.map((f) => el('li', { class: `card sv-item${f.locked ? ' sv-locked' : ''}` },
-      el('span', { class: 'sv-icon', 'aria-hidden': 'true', text: f.locked ? '🔒' : icon(f.type) }),
+      icon(f),
       el('span', { class: 'sv-meta' }, el('strong', { class: 'sv-name', text: f.name }),
         el('span', { class: 'muted small', text: [f.locked ? '' : size(f.size), new Date(f.updated).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), f.encrypted && !f.locked ? '🔒 encrypted' : isKit(f) ? 'decryption kit' : vault ? 'not encrypted' : ''].filter(Boolean).join(' · ') })),
       f.locked ? null : el('span', { class: 'row wrap sv-actions' },
@@ -163,7 +199,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
           if (!confirm(`Delete "${f.name}" from your Drive? (It goes to Drive's trash for 30 days.)`)) return;
           if (await act(`Deleting "${f.name}"…`, () => api.remove(f.id))) { files = files.filter((x) => x.id !== f.id); render(`Deleted "${f.name}".`); }
         } }))))) : folderList || note === 'Loading…' ? null : el('p', { class: 'muted small', text: here ? 'This folder is empty.' : 'No files saved yet.' });
-    root.replaceChildren(
+    fill(root,
       el('div', { class: 'row space' },
         el('h2', { class: 'sv-h', text: '☁️ Saved Files' }),
         el('div', { class: 'row' },

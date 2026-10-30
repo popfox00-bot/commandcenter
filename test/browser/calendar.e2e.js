@@ -106,22 +106,37 @@ test('Calendar: week view with today highlighted; add, repeat, month and day vie
 });
 
 /** A stand-in for the Saved Files Apps Script web app (same requests and answers). */
-async function fakeScript(context, key = 'k3y') {
-  const files = []; const kit = []; let n = 0; const calls = [];
+async function fakeScript(context, key = 'k3y', { version = 3 } = {}) {
+  const files = []; const kit = []; const folders = []; let n = 0; const calls = [];
+  const pathOf = (id) => { const out = []; for (let d = folders.find((x) => x.id === id); d; d = folders.find((x) => x.id === d.parent)) out.unshift({ id: d.id, name: d.name }); return out; };
   await context.route('https://script.google.com/macros/s/TEST/exec', async (route) => {
     const req = JSON.parse(route.request().postData());
-    calls.push({ action: req.action, type: route.request().headers()['content-type'] });
+    calls.push({ action: req.action, type: route.request().headers()['content-type'], folder: req.folder, folderId: req.folderId });
     const send = (body) => route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*' } });
     if (req.key !== key) return send({ ok: false, error: 'Wrong access key' });
-    if (req.action === 'ping') return send({ ok: true, folder: 'Command Center', version: 2 });
-    if (req.action === 'list') return send({ ok: true, files: files.map(({ data, ...f }) => f).reverse() });
-    if (req.action === 'upload' && req.folder) { kit.push({ folder: req.folder, name: req.name, data: req.data }); return send({ ok: true, file: { id: `k${kit.length}`, name: req.name, folder: req.folder } }); }
-    if (req.action === 'upload') { const f = { id: `f${++n}`, name: req.name, type: req.type, size: Buffer.from(req.data, 'base64').length, updated: NOW + n, data: req.data, from: req.from }; files.push(f); const { data, ...info } = f; return send({ ok: true, file: info }); }
+    const here = version >= 3 && req.action === 'list' ? (req.folder || '') : '';
+    if (here && !folders.some((d) => d.id === here)) return send({ ok: false, error: 'No such folder' });
+    if (req.action === 'ping') return send({ ok: true, folder: 'Command Center', version });
+    if (req.action === 'list') {
+      const list = files.filter((f) => (f.parent || '') === here).map(({ data, parent, ...f }) => f).reverse();
+      return send(version >= 3 ? { ok: true, files: list, folders: folders.filter((d) => d.parent === here).map(({ id, name }) => ({ id, name, updated: NOW })).sort((a, b) => a.name.localeCompare(b.name)), path: pathOf(here) } : { ok: true, files: list });
+    }
+    if (req.action === 'folders') return send({ ok: true, folders: folders.map((d) => ({ id: d.id, name: d.name, path: pathOf(d.id).map((p) => p.name).join('/') })) });
+    if (req.action === 'mkdir') { const d = { id: `d${folders.length + 1}`, name: req.name, parent: req.parent || '' }; folders.push(d); return send({ ok: true, folder: { id: d.id, name: d.name, updated: NOW } }); }
+    if (req.action === 'rename') { const d = folders.find((x) => x.id === req.id); d.name = req.name; return send({ ok: true, folder: { id: d.id, name: d.name } }); }
+    if (req.action === 'rmdir') { folders.splice(folders.findIndex((x) => x.id === req.id), 1); return send({ ok: true }); }
+    if (req.action === 'move') { const f = files.find((x) => x.id === req.id); f.parent = req.to || ''; return send({ ok: true, file: { id: f.id } }); }
+    if (req.action === 'upload' && req.folder) {
+      kit.push({ folder: req.folder, name: req.name, data: req.data });
+      if (!folders.some((d) => d.name === req.folder && !d.parent)) folders.push({ id: `d${folders.length + 1}`, name: req.folder, parent: '' });
+      return send({ ok: true, file: { id: `k${kit.length}`, name: req.name, folder: req.folder } });
+    }
+    if (req.action === 'upload') { const f = { id: `f${++n}`, name: req.name, type: req.type, size: Buffer.from(req.data, 'base64').length, updated: NOW + n, data: req.data, from: req.from, parent: req.folderId || '' }; files.push(f); const { data, parent, ...info } = f; return send({ ok: true, file: info }); }
     if (req.action === 'download') { const f = files.find((x) => x.id === req.id); return send(f ? { ok: true, name: f.name, type: f.type, data: f.data } : { ok: false, error: 'No such file' }); }
     if (req.action === 'delete') { files.splice(files.findIndex((x) => x.id === req.id), 1); return send({ ok: true }); }
     return send({ ok: false, error: 'Unknown action' });
   });
-  return { files, kit, calls };
+  return { files, kit, folders, calls };
 }
 
 test('Files → Saved Files: connect in Settings with the URL and key, save, list, open, delete; Draw saves to it', async () => {
@@ -186,6 +201,66 @@ test('Files → Saved Files: connect in Settings with the URL and key, save, lis
   await context.close();
 });
 
+test('Saved Files folders: make one, save into it, move a file in, rename, delete; an old script says to update', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  script.files.push({ id: 'top1', name: 'receipt.pdf', type: 'application/pdf', size: 4, updated: NOW - 1000, data: Buffer.from('%PDF').toString('base64'), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/files/saved');
+  await page.waitForSelector('.sv-item:has-text("receipt.pdf")');
+  let answer = 'Taxes';
+  page.removeAllListeners('dialog');
+  page.on('dialog', (d) => (d.type() === 'prompt' ? d.accept(answer) : d.accept()));
+
+  await page.getByRole('button', { name: '+ New folder' }).click();
+  await page.waitForSelector('text=Folder "Taxes" is ready.');
+  assert.deepEqual(script.folders.map((d) => d.name), ['Taxes']);
+  // Move the receipt into it.
+  await page.getByRole('button', { name: 'Move receipt.pdf' }).click();
+  await page.locator('dialog[open]').getByRole('button', { name: '📁 Taxes' }).click();
+  await page.waitForSelector('text=Moved "receipt.pdf" to "Taxes".');
+  assert.equal(script.files[0].parent, 'd1');
+  assert.equal(await page.isVisible('.sv-item:has-text("receipt.pdf")'), false);
+  // Open it, save a file there, then a folder inside it.
+  await page.getByRole('button', { name: 'Open folder Taxes' }).click();
+  await page.waitForSelector('[aria-current="page"]:has-text("Taxes")');
+  await page.waitForSelector('.sv-item:has-text("receipt.pdf")');
+  await page.setInputFiles('#sv-file', { name: 'w2.txt', mimeType: 'text/plain', buffer: Buffer.from('wages') });
+  await page.waitForSelector('text=Saved 1 file to "Taxes".');
+  assert.equal(script.files.at(-1).parent, 'd1');
+  answer = '2026';
+  await page.getByRole('button', { name: '+ New folder' }).click();
+  await page.waitForSelector('text=Folder "2026" is ready.');
+  assert.equal(script.folders[1].parent, 'd1');
+  await page.getByRole('button', { name: 'Open folder 2026' }).click();
+  await page.waitForSelector('text=This folder is empty.');
+  assert.match(await page.textContent('.sv-crumbs'), /Saved Files›Taxes›📁 2026/);
+  // Back up by the path, rename, delete.
+  await page.locator('.sv-crumbs').getByRole('button', { name: 'Taxes' }).click();
+  await page.waitForSelector('.sv-item:has-text("w2.txt")');
+  answer = 'Tax 2026';
+  await page.getByRole('button', { name: 'Rename folder 2026' }).click();
+  await page.waitForSelector('text=Renamed to "Tax 2026".');
+  await page.getByRole('button', { name: 'Delete folder Tax 2026' }).click();
+  await page.waitForSelector('text=Deleted the folder "Tax 2026".');
+  assert.deepEqual(script.folders.map((d) => d.name), ['Taxes']);
+  await page.getByRole('button', { name: '☁️ Saved Files' }).click();
+  await page.waitForSelector('.sv-item:has-text("Taxes")');
+  assert.equal(await page.isVisible('.sv-crumbs'), false, 'no path in the main folder');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // A script from before folders: no folder buttons, a note to update it.
+  const old = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await fakeScript(old, 'k3y', { version: 2 });
+  await old.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const o = await open(old, '#/files/saved');
+  await o.page.waitForSelector('text=update the Saved Files script to version 3');
+  assert.equal(await o.page.isVisible('text=+ New folder'), false);
+  assert.deepEqual(o.errors, []);
+  await old.close();
+});
+
 test('Draw → Save to Files before Saved Files is connected: offers to connect it in Settings', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await open(context, '#/draw');
@@ -234,8 +309,14 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   const stored = script.files.at(-1);
   assert.match(stored.name, /^ccv\./); assert.equal(stored.type, 'application/octet-stream');
   assert.ok(!stored.name.includes('bank') && !Buffer.from(stored.data, 'base64').toString('latin1').includes('12345'), 'Drive sees neither the name nor the content');
-  assert.match(await page.textContent('.sv-list'), /bank notes\.txt[\s\S]*🔒 encrypted/);
+  assert.match(await page.textContent('ul.sv-list:last-of-type'), /bank notes\.txt[\s\S]*🔒 encrypted/);
   assert.equal(await page.isVisible('.sv-list >> text=command-center-vault.json'), false, 'the vault file isn\'t listed');
+  assert.ok(await page.isVisible('text=Folder names are kept as they are in Drive'), 'says folder names aren\'t encrypted');
+  // The kit's folder: its files are plain on purpose (no Encrypt button there).
+  await page.getByRole('button', { name: 'Open folder Decryption' }).click();
+  await page.waitForSelector('[aria-current="page"]:has-text("Decryption")');
+  await page.getByRole('button', { name: '☁️ Saved Files' }).click();
+  await page.waitForSelector('.sv-item:has-text("bank notes.txt")');
 
   // The older plain file: encrypt it.
   assert.match(await page.textContent('.sv-item:has-text("old.txt")'), /not encrypted/);
@@ -246,14 +327,14 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   // Reloaded: locked. A wrong password doesn't open it; the recovery key does.
   await page.reload();
   await page.waitForSelector('text=🔒 Locked');
-  assert.match(await page.textContent('.sv-list'), /🔒 Locked file/);
+  assert.match(await page.textContent('ul.sv-list:last-of-type'), /🔒 Locked file/);
   await page.fill('[aria-label="Saved Files password"]', 'maple river candle orbiT');
   await page.getByRole('button', { name: 'Unlock' }).click();
   await page.waitForSelector('text=Wrong password or recovery key.');
   await page.fill('[aria-label="Saved Files password"]', recovery.toLowerCase());
   await page.getByRole('button', { name: 'Unlock' }).click();
   await page.waitForSelector('text=bank notes.txt');
-  assert.match(await page.textContent('.sv-list'), /old\.txt/);
+  assert.match(await page.textContent('ul.sv-list:last-of-type'), /old\.txt/);
 
   // Open anywhere: the downloaded encrypted file, with the password, in Settings.
   await page.goto(`${origin}${BASE}#/settings`);

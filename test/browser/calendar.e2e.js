@@ -123,11 +123,14 @@ async function fakeScript(context, key = 'k3y') {
   return { files, calls };
 }
 
-test('Files → Saved Files: connect with the URL and key, save, list, open, delete; Draw saves to it', async () => {
+test('Files → Saved Files: connect in Settings with the URL and key, save, list, open, delete; Draw saves to it', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const script = await fakeScript(context);
+  // Not connected yet: Files → Saved Files points to Settings, where the URL and key go.
   const { page, errors } = await open(context, '#/files/saved');
-  await page.waitForSelector('text=Connect Saved Files');
+  await page.waitForSelector('text=Connect it once in Settings');
+  await page.getByRole('link', { name: 'Open Settings' }).click();
+  await page.waitForSelector('#saved-files');
   // A wrong URL and a wrong key are caught.
   await page.fill('[aria-label="Web app URL"]', 'https://example.com/exec');
   await page.fill('[aria-label="Access key"]', 'k3y');
@@ -141,6 +144,8 @@ test('Files → Saved Files: connect with the URL and key, save, list, open, del
   await page.getByRole('button', { name: 'Connect' }).click();
   await page.waitForSelector('text=Connected to "Command Center"');
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('cc.savedFiles'))), { url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' });
+  await page.goto(`${origin}${BASE}#/files/saved`);
+  await page.waitForSelector('text=No files saved yet.');
 
   // Save two files from the phone.
   await page.setInputFiles('#sv-file', [
@@ -180,14 +185,14 @@ test('Files → Saved Files: connect with the URL and key, save, list, open, del
   await context.close();
 });
 
-test('Draw → Save to Files before Saved Files is set up: offers to set it up', async () => {
+test('Draw → Save to Files before Saved Files is connected: offers to connect it in Settings', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await open(context, '#/draw');
   await page.getByRole('button', { name: '+ New drawing' }).click();
   await page.waitForSelector('.dr-canvas');
   await page.getByRole('button', { name: '☁️ Save to Files' }).click(); // the confirm is accepted
-  await page.waitForFunction(() => location.hash === '#/files/saved');
-  await page.waitForSelector('text=Connect Saved Files');
+  await page.waitForFunction(() => location.hash === '#/settings');
+  await page.waitForSelector('#saved-files >> text=Not connected.');
   assert.deepEqual(errors, []);
   await context.close();
 });

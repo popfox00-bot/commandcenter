@@ -36,7 +36,8 @@ test('handles as each app writes them; cards checked; colors', () => {
   assert.equal(normalizeCard({ app: 'venmo' }), null, 'a card needs a code or a picture');
   const c = normalizeCard({ id: 1, app: 'nope', text: 'x', handle: '@me', name: '  Alex ', color: 'red' });
   assert.deepEqual([c.app, c.handle, c.name, c.color], ['other', 'me', 'Alex', '']);
-  assert.deepEqual(cardColors({ app: 'snapchat' }), { bg: ['#FFFC00'], ink: '#000000', accent: null });
+  assert.deepEqual(cardColors({ app: 'snapchat' }), { bg: ['#FFFC00'], ink: '#FFFFFF', accent: null, outline: '#000000' }, 'white text outlined in black on the yellow');
+  assert.equal(cardColors({ app: 'venmo' }).outline, 'rgba(0,0,0,0.55)');
   assert.equal(cardColors({ app: 'other', color: '#ffeeaa' }).ink, '#000000', 'dark text on a light color');
   assert.equal(cardColors({ app: 'other', color: '#112233' }).ink, '#FFFFFF');
   for (const [k, b] of Object.entries(APP_BRANDS)) assert.ok(b.name && b.bg.length && b.ink && b.verb, k);

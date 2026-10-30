@@ -7,7 +7,7 @@
 /** Each app: its name, card colors (bg: one color or a gradient's stops; ink: text on it), and how
  * to read a handle out of its code's link. */
 export const APP_BRANDS = {
-  snapchat: { name: 'Snapchat', bg: ['#FFFC00'], ink: '#000000', verb: 'Add me on Snapchat', match: /snapchat\.com\/(?:add|t)\/([^/?#]+)/i, at: '@' },
+  snapchat: { name: 'Snapchat', bg: ['#FFFC00'], ink: '#FFFFFF', outline: '#000000', verb: 'Add me on Snapchat', match: /snapchat\.com\/(?:add|t)\/([^/?#]+)/i, at: '@' },
   venmo: { name: 'Venmo', bg: ['#008CFF'], ink: '#FFFFFF', verb: 'Pay me on Venmo', match: /venmo\.com\/(?:u\/)?([^/?#]*)/i, at: '@' },
   cashapp: { name: 'Cash App', bg: ['#00D64F'], ink: '#FFFFFF', verb: 'Pay me on Cash App', match: /cash\.(?:app|me)\/\$?([^/?#]+)/i, at: '$' },
   paypal: { name: 'PayPal', bg: ['#003087', '#009CDE'], ink: '#FFFFFF', verb: 'Pay me with PayPal', match: /paypal\.(?:me|com\/paypalme)\/([^/?#]+)/i, at: '' },
@@ -58,7 +58,8 @@ export function cardColors(c) {
   if (c.app === 'other' && c.color) {
     const n = parseInt(c.color.slice(1), 16);
     const light = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 160;
-    return { bg: [c.color], ink: light ? '#000000' : '#FFFFFF', accent: null };
+    return { bg: [c.color], ink: light ? '#000000' : '#FFFFFF', accent: null, outline: light ? null : 'rgba(0,0,0,0.55)' };
   }
-  return { bg: b.bg, ink: b.ink, accent: b.accent ?? null };
+  // White text gets a thin dark outline so it reads on bright colors (Snapchat's yellow).
+  return { bg: b.bg, ink: b.ink, accent: b.accent ?? null, outline: b.outline ?? (b.ink === '#FFFFFF' ? 'rgba(0,0,0,0.55)' : null) };
 }

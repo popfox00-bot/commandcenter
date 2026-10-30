@@ -1,9 +1,11 @@
 // Settings: app-wide preferences, kept on this phone. Edit Home Screen (the order of the apps), the
 // background color (a preset or any color; text, cards and borders follow it so everything stays
-// readable, see web/theme.js), and the way into Jobs. Route: #/settings.
+// readable, see web/theme.js), the Saved Files connection (Google Drive), and the way into Jobs.
+// Route: #/settings.
 
 import { el, store } from '../../lib/dom.js';
 import { homeApps, HOME_ORDER_KEY } from '../index.js';
+import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 
 export function mount(host) {
   const theme = globalThis.ccTheme;
@@ -65,6 +67,7 @@ export function mount(host) {
       el('label', { class: 'st-custom' }, 'Custom color', custom),
       status,
       el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default', onclick: () => { theme.save(null); render(); } }))),
+    savedFilesSettings(),
     el('a', { class: 'card st-link', href: '#/jobs' },
       el('span', { class: 'app-icon st-home-icon tint-slate', 'aria-hidden': 'true', text: '⏱' }),
       el('span', { class: 'st-link-text' }, el('strong', { text: 'Jobs' }), el('span', { class: 'small muted', text: 'Background runs, push notifications and their setup' })),

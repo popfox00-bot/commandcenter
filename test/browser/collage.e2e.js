@@ -137,3 +137,70 @@ test('collage grid: two photos side by side with spacing on a white background',
   assert.ok(gap.rgba.slice(0, 3).every((v) => v > 230), `white gap ${gap.rgba}`);
   await context.close();
 });
+
+test('cutout: smart edges bring a loose trace in to the object; a trace added inside leaves a part out; tap a trace to remove it; undo and redo; patch fix', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files/cutout`);
+  await page.waitForSelector('#co-file', { state: 'attached' });
+  await page.setInputFiles('#co-file', { name: 'ball.png', mimeType: 'image/png', buffer: await makePng(page, { circle: '#e02020' }) });
+  await page.waitForSelector('.co-canvas');
+  const b = await canvasBox(page, '.co-canvas');
+  const cx = b.x + b.w / 2; const cy = b.y + b.h / 2; const k = b.h / 300; // the ball: radius 75 of 300
+  const traceCircle = async (r) => {
+    await page.mouse.move(cx + r, cy); await page.mouse.down();
+    for (let a = 0; a <= Math.PI * 2 + 0.01; a += Math.PI / 24) await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    await page.mouse.up();
+  };
+  const resultWidth = async () => {
+    await page.getByRole('button', { name: 'Done' }).click();
+    await page.waitForSelector('.checker.big img');
+    const w = await page.$eval('.checker.big img', (img) => new Promise((res) => { if (img.complete) res(img.naturalWidth); else img.onload = () => res(img.naturalWidth); }));
+    await page.locator('dialog[open]').getByRole('button', { name: 'Close', exact: true }).click();
+    return w;
+  };
+  // A loose trace, well outside the ball: smart edges (on by default) trim it in to the ball.
+  await traceCircle(115 * k);
+  assert.equal(await page.getAttribute('.co-smart .chip', 'aria-pressed'), 'true');
+  assert.match(await page.textContent('.co-smart'), /Trimmed \d+% of the traced area/);
+  const smart = await resultWidth();
+  // (the ball is 150 px across and the trace 230; the soft edge adds about 10 px each side)
+  assert.ok(smart >= 150 && smart <= 180, `cut to the ball: ${smart} px wide`);
+
+  // A trace added inside: the middle of the ball is left out.
+  await page.getByRole('radio', { name: '➕ Add to trace' }).click();
+  await traceCircle(25 * k);
+  await page.getByRole('button', { name: 'Preview cutout' }).click();
+  const centre = await page.$eval('.co-canvas', (c) => [...c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data]);
+  assert.ok(!(centre[0] > 200 && centre[1] < 60), `the middle is left out (checkerboard shows): ${centre}`);
+  await page.getByRole('button', { name: 'Show photo' }).click();
+
+  // Remove trace: tap the small trace's line, it's gone; undo brings it back, redo removes it again.
+  await page.getByRole('radio', { name: '🗑 Remove trace' }).click();
+  const b2 = await canvasBox(page, '.co-canvas');
+  await page.mouse.click(b2.x + b2.w / 2 + 25 * k, b2.y + b2.h / 2);
+  const middle = async () => { await page.getByRole('button', { name: 'Preview cutout' }).click(); const p = await page.$eval('.co-canvas', (c) => [...c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data]); await page.getByRole('button', { name: 'Show photo' }).click(); return p[0] > 200 && p[1] < 60; };
+  assert.equal(await middle(), true, 'the middle is back');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  assert.equal(await middle(), false, 'undo: the trace inside is back, the middle left out again');
+  await page.getByRole('button', { name: 'Redo' }).click();
+  assert.equal(await middle(), true);
+
+  // Patch fix.
+  await page.getByRole('radio', { name: '🩹 Patch fix' }).click();
+  assert.equal(await page.isVisible('[aria-label="Patch size"]'), true);
+  const b3 = await canvasBox(page, '.co-canvas');
+  await page.mouse.click(b3.x + b3.w / 2 + 75 * k, b3.y + b3.h / 2);
+  // Tapped on the ball's edge, where the cut is already right: it stays right.
+  const patched = await resultWidth();
+  assert.ok(patched >= 150 && patched <= 180, `still cut to the ball: ${patched} px wide`);
+
+  // Smart edges off: the cut follows the trace as drawn.
+  await page.click('.co-smart .chip');
+  assert.match(await page.textContent('.co-smart'), /Off: the cut follows your trace exactly/);
+  assert.ok(await resultWidth() > 200, 'as traced');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

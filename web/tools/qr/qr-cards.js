@@ -24,7 +24,9 @@ export function drawCard(canvas, card, picture = null, width = W) {
   canvas.width = Math.round(W * k); canvas.height = Math.round(H * k);
   const c = canvas.getContext('2d');
   c.setTransform(k, 0, 0, k, 0, 0);
-  const { bg, ink, accent } = cardColors(card);
+  const { bg, ink, accent, outline } = cardColors(card);
+  // Text: filled, with a thin outline first when the colors call for one (white on yellow).
+  const text = (t, x, y, max, lw) => { if (outline) { c.save(); c.lineJoin = 'round'; c.strokeStyle = outline; c.lineWidth = lw; c.globalAlpha = 1; c.strokeText(t, x, y, max); c.restore(); } c.fillText(t, x, y, max); };
   const brand = APP_BRANDS[card.app] ?? APP_BRANDS.other;
   // Background: the app's color, or its gradient corner to corner.
   if (bg.length > 1) { const g = c.createLinearGradient(0, H, W, 0); bg.forEach((col, i) => g.addColorStop(i / (bg.length - 1), col)); c.fillStyle = g; } else c.fillStyle = bg[0];
@@ -32,7 +34,7 @@ export function drawCard(canvas, card, picture = null, width = W) {
   // The app's name.
   c.fillStyle = ink; c.textAlign = 'center'; c.textBaseline = 'middle';
   c.font = `800 92px ${FONT}`;
-  c.fillText(card.app === 'other' ? (card.name || 'Scan me') : brand.name, W / 2, 150, W - 120);
+  text(card.app === 'other' ? (card.name || 'Scan me') : brand.name, W / 2, 150, W - 120, 8);
   // The code panel (accent colors offset behind it for TikTok and Spotify).
   const P = 840; const px = (W - P) / 2; const py = 250;
   (accent ?? []).forEach((col, i) => { c.fillStyle = col; roundRect(c, px + (i ? 12 : -12), py + (i ? 12 : -12), P, P, 56); c.fill(); });
@@ -56,9 +58,9 @@ export function drawCard(canvas, card, picture = null, width = W) {
   const handle = shownHandle(card.app, card.handle);
   const name = card.app === 'other' ? '' : card.name;
   let y = py + P + 110;
-  if (name) { c.font = `700 68px ${FONT}`; c.fillText(name, W / 2, y, W - 120); y += 78; }
-  if (handle) { c.globalAlpha = 0.9; c.font = `600 ${name ? 50 : 64}px ${FONT}`; c.fillText(handle, W / 2, y, W - 120); c.globalAlpha = 1; y += 66; }
-  c.globalAlpha = 0.8; c.font = `500 36px ${FONT}`; c.fillText(brand.verb, W / 2, Math.min(H - 60, y + 6), W - 120); c.globalAlpha = 1;
+  if (name) { c.font = `700 68px ${FONT}`; text(name, W / 2, y, W - 120, 7); y += 78; }
+  if (handle) { c.font = `600 ${name ? 50 : 64}px ${FONT}`; text(handle, W / 2, y, W - 120, 6); y += 66; }
+  c.font = `600 36px ${FONT}`; text(brand.verb, W / 2, Math.min(H - 60, y + 6), W - 120, 5);
   return canvas;
 }
 

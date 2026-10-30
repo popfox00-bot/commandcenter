@@ -258,7 +258,7 @@ export function mount(host) {
     async function saveToFiles() {
       const api = savedFiles();
       if (!api) {
-        if (confirm('Saved Files isn\'t set up on this phone yet. Set it up now in Files → Saved Files?')) { clearTimeout(saveTimer); await saveDoc(doc, thumbnail()); location.hash = '#/files/saved'; }
+        if (confirm('Saved Files isn\'t connected on this phone yet. Connect it now in Settings?')) { clearTimeout(saveTimer); await saveDoc(doc, thumbnail()); location.hash = '#/settings'; }
         return;
       }
       saveNote.className = 'small muted'; saveNote.textContent = 'Saving to Saved Files…';

@@ -227,9 +227,27 @@ you save them, and nothing is uploaded. It works offline.
 
 ### Cutout and Characters
 
-Cut an object out of a photo: trace around it with your finger (**Trace**), or trace areas to take
-away (**Remove**), with undo/redo and an **Edge softness** slider. **Preview cutout** shows the
-result on a checkerboard. The result can be saved as a transparent PNG, shared, placed on another
+Cut an object out of a photo: trace around it with your finger (**Trace**), with undo/redo and an
+**Edge softness** slider. **Preview cutout** shows the result on a checkerboard.
+
+- **✨ Smart edges** (on unless turned off): a loose finger trace comes in to the object's edge. Only
+  a band just inside the trace is looked at, never the middle (so a fruit basket's many colors stay
+  whole), and nothing outside the trace is ever added. Working in from the trace, a pixel is cut when
+  it looks like the background just outside the trace there and clearly unlike the object further
+  in, or, when it looks like both, only if it's the color all round the outside (the background
+  proper; so where the trace runs through the object, nothing is cut). Strong edges stop it; a very
+  loose trace gets up to three passes. When the object can't be told from its background, the trace
+  is kept as drawn. The panel says how much it trimmed.
+- **➕ Add to trace:** trace inside your outline around a part to leave out, like the sky under a
+  basket's handle. With smart edges, only what looks like the inside of that trace goes; the handle
+  it ran over stays.
+- **🩹 Patch fix** (with a **Patch size** slider): tap where the outline is still off, and that
+  circle is worked out again: each pixel goes with what it looks more like, the object around the
+  circle (from well inside the cut) or the background around it (what's cut away), so the edge moves
+  in or out there. Specks are smoothed away and only parts joined to the object stay.
+- **🗑 Remove trace:** tap a trace or a patch to delete it. **Undo** and **Redo** cover every step.
+
+The result can be saved as a transparent PNG, shared, placed on another
 photo (opens Collage in Free mode), or saved as a **Character**: a named library of cutouts kept on
 the device (IndexedDB) that you can reuse from Collage ("+ Character"), rename, share or delete.
 
@@ -290,7 +308,7 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
 - **Setup, once:** open the spreadsheet → Extensions → Apps Script; paste in
   `apps-script/saved-files.gs` and save; run **setup** once (allow access) and copy the access key it
   shows in the log; Deploy → New deployment → **Web app**, Execute as **Me**, Who has access
-  **Anyone**; copy the web app URL. On the phone: Files → Saved Files → paste the URL and the key →
+  **Anyone**; copy the web app URL. On the phone: **Settings → Saved Files** → paste the URL and the key →
   **Connect**. The folder and spreadsheet stay **Restricted**: nothing is shared.
 - **Why "Anyone":** the phone calls the web app without signing in to Google; the access key is what
   keeps everyone else out (every request without it is refused, and the script only touches files
@@ -341,7 +359,8 @@ other) kept as cards to show someone in person or share as a picture. **+ Add fr
 a screenshot of the code in the app, pick it, and the code in it is read on the phone; the app and
 your handle are worked out from it (`https://venmo.com/u/Alex-Fox` → Venmo, @Alex-Fox), and the code
 is redrawn sharp on a card in the app's colors with its name, your name and handle (only the apps'
-names and colors are used, not their logos). If the picture has no QR code in it (Snapchat's ghost
+names and colors are used, not their logos; white text gets a thin dark outline, so it reads on
+Snapchat's yellow). If the picture has no QR code in it (Snapchat's ghost
 Snapcode, for one), the picture itself goes on the card. Tap a card to show it big, **Share** it as a
 PNG (1080×1440), **Open in** the app, edit or delete it. Cards stay on the phone.
 
@@ -478,6 +497,9 @@ wake itself up at a set time, so reminders have to come from something that's al
   iPhone's normal alerts, with nothing running anywhere.
 
 ## Settings
+
+**Saved Files (Google Drive)**: the web app URL and access key for Files → Saved Files are entered
+here (and **Disconnect this phone**).
 
 **Edit Home Screen** puts the apps in the order you like (↑ ↓ next to each; **Reset to default order**:
 Calendar, Updates, Notes, Files, Draw, QR, Games, Settings). **Jobs** (background runs, push

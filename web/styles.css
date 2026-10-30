@@ -643,3 +643,6 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .qr-card-preview { width: min(100%, 270px); height: auto; justify-self: center; border-radius: 16px; }
 .qr-card-note { margin: 0; overflow-wrap: anywhere; }
 .qr-card-big { display: block; width: 100%; max-width: 420px; height: auto; margin: 0 auto 12px; border-radius: 20px; }
+.sv-form { display: grid; gap: 8px; }
+.co-modes { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+.co-modes .seg { font-size: .9rem; }

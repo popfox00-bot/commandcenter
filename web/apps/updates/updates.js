@@ -1,16 +1,21 @@
-// Updates app: Weather (NWS alerts and forecast, air quality) and Sports (your teams' live scores,
-// next games and results). Both load straight from public sources on the phone; no setup needed.
+// Updates app: Weather (NWS alerts and forecast, air quality) and Sports (a calendar of your teams'
+// games, with live scores and results, plus college football near your ZIP). Both load straight from public sources on the phone; no setup needed.
 // Push notifications for the same things come from the weather-alerts and sports jobs.
 // Routes: #/updates (weather), #/updates/sports.
 
 import { el, store } from '../../lib/dom.js';
 import * as W from './weather-core.js';
 import * as S from './sports-core.js';
+import { nearbyColleges } from './college-sites.js';
+import { calendarView, byDay, dayKey } from '../../lib/calendar.js';
 
 const PLACE_KEY = 'cc.updates.place';
 const WEATHER_CACHE = 'cc.updates.weather';
 const TEAMS_KEY = 'cc.updates.teams';
 const SPORTS_CACHE = 'cc.updates.sports';
+const SPORTS_VIEW_KEY = 'cc.updates.sportsView';
+const LOCAL_CFB_KEY = 'cc.updates.localCfb';
+const CFB_LIST_KEY = 'cc.updates.cfbTeams';
 const TZ = 'America/Denver';
 
 async function getJson(url) {
@@ -221,17 +226,41 @@ export function mount(host) {
     let editing = false;
     let data = store.json(SPORTS_CACHE, {}); // "league:team" -> { at, team, games, error }
     let timer = 0;
+    // The calendar: week by default (the view you pick is remembered), starting on today.
+    let cal = { view: 'week', ...store.json(SPORTS_VIEW_KEY, {}), anchor: dayKey() };
+    if (!['day', 'week', 'month'].includes(cal.view)) cal.view = 'week';
+    // College football in the local market (near the ZIP picked in Weather), on unless turned off.
+    let localOn = store.get(LOCAL_CFB_KEY) !== 'off';
+    let local = []; // [{ league: 'ncaaf', team, name, local: true, miles }]
+    let localNote = '';
     const keyOf = (t) => `${t.league}:${t.team}`;
     const saveTeams = () => store.set(TEAMS_KEY, JSON.stringify(teams));
+    const place = () => ({ ...W.DEFAULT_PLACE, ...store.json(PLACE_KEY, {}) });
+    const followed = () => [...teams, ...(localOn ? local.filter((l) => !teams.some((t) => t.league === 'ncaaf' && String(t.team) === String(l.team))) : [])];
 
     async function loadTeam(t) {
       const sched = await getJson(S.urls.schedule(t.league, t.team));
       return { at: Date.now(), team: S.parseScheduleTeam(sched), games: S.parseSchedule(sched) };
     }
 
+    /** The FBS teams near the Weather ZIP, from ESPN's college football team list (kept for a week). */
+    async function findLocal() {
+      if (!localOn) { local = []; return; }
+      let cached = store.json(CFB_LIST_KEY, null);
+      if (!cached || Date.now() - cached.at > 7 * 86_400_000) {
+        try { cached = { at: Date.now(), list: S.parseTeamList(await getJson(S.urls.teams('ncaaf'))) }; store.set(CFB_LIST_KEY, JSON.stringify(cached)); } catch (err) { if (!cached) { localNote = `Couldn't load the college teams: ${err.message}`; return; } }
+      }
+      const p = place();
+      local = nearbyColleges(cached.list, p).map((t) => ({ league: 'ncaaf', team: t.id, name: t.name, local: true, miles: t.miles }));
+      localNote = local.length ? '' : 'No FBS teams found near this ZIP.';
+    }
+
     async function load(force = false) {
       render();
-      const stale = teams.filter((t) => force || !data[keyOf(t)] || Date.now() - data[keyOf(t)].at > (hasLive() ? 45_000 : 5 * 60_000));
+      await findLocal();
+      render();
+      const all = followed();
+      const stale = all.filter((t) => force || !data[keyOf(t)] || Date.now() - data[keyOf(t)].at > (hasLive() ? 45_000 : 5 * 60_000));
       await Promise.all(stale.map(async (t) => {
         try { data[keyOf(t)] = await loadTeam(t); } catch (err) { data[keyOf(t)] = { ...(data[keyOf(t)] ?? {}), at: Date.now(), error: err.message }; }
         render();
@@ -239,12 +268,47 @@ export function mount(host) {
       try { store.set(SPORTS_CACHE, JSON.stringify(data)); } catch { /* quota: fine, it's a cache */ }
       schedule();
     }
-    const hasLive = () => teams.some((t) => data[keyOf(t)]?.games?.some((g) => g.state === 'in'));
+    const hasLive = () => followed().some((t) => data[keyOf(t)]?.games?.some((g) => g.state === 'in'));
     function schedule() {
       clearTimeout(timer);
       timer = setTimeout(() => { if (!pane.hidden && document.visibilityState === 'visible') load(); else schedule(); }, hasLive() ? 45_000 : 5 * 60_000);
     }
     timers.push(() => clearTimeout(timer));
+
+    /** Every followed team's games, once each (a game between two of them shows once), by day. */
+    function gamesByDay() {
+      const seen = new Set(); const list = [];
+      for (const t of followed()) {
+        const d = data[keyOf(t)];
+        for (const g of d?.games ?? []) {
+          const k = g.id; // ESPN game ids are unique across leagues
+          if (seen.has(k)) continue;
+          seen.add(k);
+          list.push({ g, t, info: d.team });
+        }
+      }
+      list.sort((a, b) => Date.parse(a.g.date) - Date.parse(b.g.date));
+      return byDay(list, (x) => dayKey(x.g.date));
+    }
+
+    function gameItem({ g, t, info }, view) {
+      const { us, them, at } = S.perspective(g, info?.id ?? t.team);
+      const color = info?.color ?? us.color ?? '#555';
+      const badge = el('span', { class: 'upd-badge', style: { background: color, color: info?.alt && info.alt.toLowerCase() !== color.toLowerCase() ? info.alt : '#fff' }, text: us.abbr || info?.abbr || String(t.team).toUpperCase() });
+      if (view === 'month') return el('span', { class: 'cal-chip', style: { background: color }, text: `${us.abbr} ${at} ${them.abbr}` });
+      const live = g.state === 'in';
+      const done = g.state === 'post' || g.completed;
+      const time = live ? `LIVE · ${g.detail}` : done ? (S.result(g, info?.id ?? t.team) || 'Final') : /postponed|canceled|cancelled/i.test(g.detail) ? g.detail
+        : new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const score = live ? ` · ${us.abbr} ${us.score ?? 0}–${them.score ?? 0} ${them.abbr}` : '';
+      const extra = view === 'day' ? [g.tv && `📺 ${g.tv}`, !done && g.odds?.details && `Line: ${g.odds.details}${g.odds.overUnder ? `, O/U ${g.odds.overUnder}` : ''}`, g.venue && `📍 ${g.venue}`].filter(Boolean) : [g.tv].filter(Boolean);
+      return el('div', { class: `cal-item upd-game${live ? ' upd-live' : ''}`, style: { borderLeftColor: color } },
+        el('span', { class: 'cal-time small', text: time + score }),
+        el('span', { class: 'cal-what' },
+          el('span', { class: 'upd-game-head' }, badge, el('strong', { text: `${at} ${them.short || them.name || them.abbr}` }), t.local ? el('span', { class: 'muted small', text: 'local' }) : null),
+          extra.length ? el('span', { class: 'muted small', text: extra.join(' · ') }) : null,
+          view === 'day' && g.link ? el('a', { class: 'small', href: g.link, target: '_blank', rel: 'noopener noreferrer', text: 'ESPN ›' }) : null));
+    }
 
     function teamCard(t) {
       const d = data[keyOf(t)];
@@ -259,18 +323,14 @@ export function mount(host) {
       if (d && !d.games?.length && !d.error) lines.push(el('p', { class: 'small muted', text: 'No games scheduled right now (off-season?).' }));
       if (d?.error) lines.push(el('p', { class: 'small bad-text', text: `Couldn't refresh: ${d.error}` }));
       if (!d) lines.push(el('p', { class: 'small muted', text: 'Loading…' }));
-
-      const schedule = d?.games?.length ? el('details', { class: 'upd-sched' },
-        el('summary', { class: 'small', text: 'Schedule' }),
-        el('ol', {}, ...d.games.map((g) => el('li', { class: `small${g.state === 'in' ? ' upd-live' : ''}`, text: S.gameLine(g, info?.id ?? t.team, now, TZ) })))) : null;
-
-      return el('article', { class: 'card upd-team', style: { borderLeftColor: color } },
+      const sub = [S.LEAGUES[t.league]?.name, info?.record, info?.standing, t.local ? `${t.miles} mi away` : ''].filter(Boolean).join(' · ');
+      return el('article', { class: `card upd-team${t.local ? ' upd-local' : ''}`, style: { borderLeftColor: color } },
         el('div', { class: 'card-head' },
           el('div', { class: 'upd-team-head' },
-            el('span', { class: 'upd-badge', style: { background: color, color: info?.alt && info.alt.toLowerCase() !== color.toLowerCase() ? info.alt : '#fff' }, text: info?.abbr ?? t.team.toUpperCase() }),
-            el('span', {}, el('strong', { text: info?.name ?? t.name ?? t.team }), el('span', { class: 'muted small', text: [S.LEAGUES[t.league]?.name, info?.record, info?.standing].filter(Boolean).join(' · ') }))),
-          editing ? el('button', { class: 'btn small-btn ghost', text: 'Remove', onclick: () => { teams = teams.filter((x) => keyOf(x) !== keyOf(t)); saveTeams(); render(); } }) : null),
-        ...lines, schedule);
+            el('span', { class: 'upd-badge', style: { background: color, color: info?.alt && info.alt.toLowerCase() !== color.toLowerCase() ? info.alt : '#fff' }, text: info?.abbr ?? String(t.team).toUpperCase() }),
+            el('span', {}, el('strong', { text: info?.name ?? t.name ?? t.team }), el('span', { class: 'muted small', text: sub }))),
+          editing && !t.local ? el('button', { class: 'btn small-btn ghost', text: 'Remove', onclick: () => { teams = teams.filter((x) => keyOf(x) !== keyOf(t)); saveTeams(); render(); } }) : null),
+        ...lines);
     }
 
     async function addPicker(box, league) {
@@ -290,11 +350,18 @@ export function mount(host) {
     }
 
     function render() {
-      const kids = [el('div', { class: 'row space' },
-        el('h3', { text: 'My teams' }),
-        el('div', { class: 'row' },
-          el('button', { class: 'btn small-btn ghost', text: editing ? 'Done' : 'Edit', onclick: () => { editing = !editing; render(); } }),
-          el('button', { class: 'btn small-btn ghost', text: '⟳', 'aria-label': 'Refresh scores', onclick: () => load(true) })))];
+      const kids = [
+        el('div', { class: 'row space' },
+          el('h3', { text: 'Games' }),
+          el('button', { class: 'btn small-btn ghost', text: '⟳', 'aria-label': 'Refresh scores', onclick: () => load(true) })),
+        calendarView({
+          state: cal, items: gamesByDay(), renderItem: gameItem, label: 'Games', empty: 'No games',
+          onChange: (next) => { cal = next; store.set(SPORTS_VIEW_KEY, JSON.stringify({ view: cal.view })); render(); },
+        }),
+        el('div', { class: 'row space' },
+          el('h3', { text: 'My teams' }),
+          el('button', { class: 'btn small-btn ghost', text: editing ? 'Done' : 'Edit', onclick: () => { editing = !editing; render(); } })),
+      ];
       if (editing) {
         const box = el('div', { class: 'upd-add' });
         kids.push(el('div', { class: 'card' },
@@ -305,6 +372,16 @@ export function mount(host) {
       }
       if (!teams.length) kids.push(el('p', { class: 'muted small', text: 'No teams yet. Tap Edit to add some.' }));
       kids.push(...teams.map(teamCard));
+      // Local college football.
+      const p = place();
+      const toggle = el('button', { class: `chip${localOn ? ' active' : ''}`, 'aria-pressed': String(localOn), text: localOn ? 'On' : 'Off', onclick: () => { localOn = !localOn; store.set(LOCAL_CFB_KEY, localOn ? 'on' : 'off'); load(); } });
+      kids.push(el('div', { class: 'row space upd-local-head' },
+        el('h3', { text: '🏈 Local college football' }), toggle));
+      kids.push(el('p', { class: 'muted small', text: `FBS teams within 150 miles of ${p.name}${p.zip ? ` (${p.zip})` : ''}. Change the ZIP in Weather.` }));
+      if (localOn) {
+        if (localNote) kids.push(el('p', { class: 'muted small', text: localNote }));
+        kids.push(...local.filter((l) => !teams.some((t) => t.league === 'ncaaf' && String(t.team) === String(l.team))).map(teamCard));
+      }
       kids.push(pushNote('sports', 'Push updates (final scores, game-day reminders with TV and line) come from the sports job, for the teams set in its settings.'));
       kids.push(el('p', { class: 'muted small', text: 'Scores, schedules and lines from ESPN\'s public data. Lines are for information only.' }));
       pane.replaceChildren(...kids);

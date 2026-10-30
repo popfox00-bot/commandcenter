@@ -47,7 +47,7 @@ async function openPdfTab(context) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`${origin}${BASE}#/tools/editor/pdf`);
+  await page.goto(`${origin}${BASE}#/files/pdf`);
   await page.setInputFiles('#pw-file', pdfPath);
   await page.waitForFunction(() => document.querySelectorAll('.pw-page').length === 2 && document.querySelector('.pw-base').width > 0);
   return { page, errors };
@@ -134,12 +134,12 @@ test('PDF work survives closing the app; eraser and undo work', async () => {
 test('a PDF made in Convert can be sent to the PDF tab', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
-  await page.goto(`${origin}${BASE}#/tools/editor/convert`);
+  await page.goto(`${origin}${BASE}#/files/convert`);
   await page.setInputFiles('#cv-files', [resolve(import.meta.dirname, '../fixtures/web/tiny.jpg')]);
   await page.getByRole('radio', { name: 'PDF', exact: true }).click();
   await page.getByRole('button', { name: /^Convert/ }).click();
   await page.getByRole('button', { name: 'Write on it' }).click();
-  await page.waitForFunction(() => location.hash === '#/tools/editor/pdf' && document.querySelectorAll('.pw-page').length === 1);
+  await page.waitForFunction(() => location.hash === '#/files/pdf' && document.querySelectorAll('.pw-page').length === 1);
   await context.close();
 });
 

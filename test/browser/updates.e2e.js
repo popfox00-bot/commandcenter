@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, resolve, extname } from 'node:path';
 import { chromium } from 'playwright';
-import { NOW, pointJson, alertsJson, hourlyJson, dailyJson, gridJson, airJson, scheduleJson, DEN } from '../fixtures/updates.js';
+import { NOW, iso, ev, pointJson, alertsJson, hourlyJson, dailyJson, gridJson, airJson, scheduleJson, DEN } from '../fixtures/updates.js';
 
 const WEB = resolve(import.meta.dirname, '../../web');
 const BASE = '/commandcenter/web/';
@@ -108,6 +108,70 @@ test('Updates → Sports: Denver teams by default with next game, line, last res
   // Tabs switch by link; Weather still works from the Sports tab.
   await page.getByRole('tab', { name: /Weather/ }).click();
   await page.waitForSelector('.upd-now');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Updates → Sports: a calendar of the games, week by default with today highlighted; day and month views; local college football from the ZIP', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
+  await mockApis(context);
+  // ESPN's college football teams; each FBS team near Lakewood gets its own schedule.
+  const college = (id, abbr, name, short, color) => ({ id, abbreviation: abbr, displayName: name, shortDisplayName: short, color });
+  const CU = college('38', 'COLO', 'Colorado Buffaloes', 'Colorado', 'cfb87c');
+  const UTAH = college('254', 'UTAH', 'Utah Utes', 'Utah', 'cc0000');
+  const CFB = [CU, college('2005', 'AF', 'Air Force Falcons', 'Air Force', '003087'), college('36', 'CSU', 'Colorado State Rams', 'Colorado St', '1e4d2b'), college('2751', 'WYO', 'Wyoming Cowboys', 'Wyoming', '492f24'), college('333', 'ALA', 'Alabama Crimson Tide', 'Alabama', '9e1b32')];
+  await context.route('https://site.api.espn.com/apis/v2/sports/football/college-football/standings', (r) => r.fulfill({ json: { children: [{ name: 'Big 12', standings: { entries: CFB.slice(0, 1).concat(CFB.slice(4)).map((team) => ({ team })) } }, { name: 'Mountain West', standings: { entries: CFB.slice(1, 4).map((team) => ({ team })) } }] }, headers: { 'access-control-allow-origin': '*' } }));
+  await context.route('https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams/*/schedule', (r) => {
+    const id = r.request().url().split('/teams/')[1].split('/')[0];
+    const t = CFB.find((x) => x.id === id);
+    const events = id === '38' ? [ev('cfb1', iso(4), 'pre', CU, UTAH, null, null)] : [];
+    return r.fulfill({ json: { team: { ...t, recordSummary: '6-1' }, events }, headers: { 'access-control-allow-origin': '*' } });
+  });
+  const { page, errors } = await openApp(context, '#/updates/sports');
+  await page.waitForSelector('.cal');
+  await page.waitForFunction(() => /Utah/.test(document.querySelector('.cal-today')?.textContent ?? ''));
+
+  // Week view by default, the week of Saturday Oct 17; today stands out.
+  assert.equal(await page.textContent('.cal-views [aria-selected=true]'), 'Week');
+  assert.equal(await page.textContent('.cal-title'), 'Oct 11 – 17, 2026');
+  assert.equal(await page.locator('.cal-day').count(), 7);
+  const today = await page.textContent('.cal-day.cal-today');
+  assert.match(today, /Sat\s*17\s*Today/);
+  assert.match(today, /4:30 PM[\s\S]*vs Chiefs/, 'the Broncos game');
+  assert.match(today, /6:00 PM[\s\S]*vs Utah[\s\S]*local/, 'and the local college game');
+  assert.equal((today.match(/vs Chiefs/g) ?? []).length, 1, 'a game shows once');
+  assert.match(await page.textContent('.cal-day:has-text("Fri") '), /W 24–17[\s\S]*vs Raiders/, 'yesterday\'s result');
+  // Next week.
+  await page.getByRole('button', { name: 'Next' }).click();
+  assert.equal(await page.textContent('.cal-title'), 'Oct 18 – 24, 2026');
+  assert.match(await page.textContent('.cal-list'), /@ Raiders/);
+  assert.equal(await page.locator('.cal-today').count(), 0);
+  await page.getByRole('button', { name: 'Today' }).click();
+  assert.equal(await page.textContent('.cal-title'), 'Oct 11 – 17, 2026');
+
+  // Month: today's cell highlighted; a day opens in Day view with the details.
+  await page.getByRole('tab', { name: 'Month' }).click();
+  assert.equal(await page.textContent('.cal-title'), 'October 2026');
+  assert.equal(await page.locator('.cal-cell').count(), 35);
+  assert.match(await page.getAttribute('.cal-cell.cal-today', 'aria-label'), /Saturday, October 17, today, 2 items/);
+  assert.ok(await page.locator('.cal-chip').count() >= 4);
+  await page.click('.cal-cell.cal-today');
+  assert.equal(await page.textContent('.cal-views [aria-selected=true]'), 'Day');
+  const day = await page.textContent('.cal-list');
+  assert.match(day, /Line: DEN -3\.5, O\/U 44\.5/);
+  assert.match(day, /Empower Field at Mile High/);
+  // The view picked is remembered.
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('cc.updates.sportsView'))).view, 'day');
+
+  // Local college football: FBS teams near the Weather ZIP (Lakewood), nearest first; Alabama isn't local.
+  const local = await page.$$eval('.upd-local', (els) => els.map((e) => e.querySelector('strong').textContent));
+  assert.deepEqual(local, ['Colorado Buffaloes', 'Air Force Falcons', 'Colorado State Rams', 'Wyoming Cowboys']);
+  assert.match(await page.textContent('.upd-local'), /College football · 6-1 · 2\d mi away/);
+  assert.match(await page.textContent('.upd-pane:not([hidden])'), /within 150 miles of Lakewood, CO \(80214\)/);
+  // Turned off: gone from the list and the calendar.
+  await page.click('.upd-local-head .chip');
+  await page.waitForFunction(() => !document.querySelector('.upd-local'));
+  assert.doesNotMatch(await page.textContent('.cal-list'), /Utah/);
   assert.deepEqual(errors, []);
   await context.close();
 });

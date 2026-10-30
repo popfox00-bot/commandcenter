@@ -104,7 +104,7 @@ test('bulk Auto-Crop, offline: each screenshot cropped to its own post media, sa
   const external = [];
   page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) external.push(r.url()); });
   // Load once so the service worker caches the app, then go offline.
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
@@ -116,7 +116,7 @@ test('bulk Auto-Crop, offline: each screenshot cropped to its own post media, sa
     { name: 'light.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'light', media: 'white', actions: false }) },
   ];
   await context.setOffline(true);
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   await page.setInputFiles('#ed-file', files);
   await page.waitForSelector('.bt-grid .bt-tile');
@@ -173,7 +173,7 @@ test('single photo: Auto-Crop applies a sure crop; an unsure one shows the crop 
   page.on('dialog', (d) => d.accept());
   const external = [];
   page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) external.push(r.url()); });
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   await page.setInputFiles('#ed-file', { name: 'shot.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'dark', media: 'slab' }) });
   await page.waitForSelector('.ed-canvas');
@@ -189,7 +189,7 @@ test('single photo: Auto-Crop applies a sure crop; an unsure one shows the crop 
   const context2 = await browser.newContext({ viewport: { width: 390, height: 844 } }); // fresh: no edit in progress to resume
   const page2 = await context2.newPage();
   page2.on('pageerror', (e) => errors.push(e.message));
-  await page2.goto(`${origin}${BASE}#/tools/editor`);
+  await page2.goto(`${origin}${BASE}#/files`);
   await page2.waitForSelector('#ed-file', { state: 'attached' });
   await page2.setInputFiles('#ed-file', { name: 'light.png', mimeType: 'image/png', buffer: light });
   await page2.waitForSelector('.ed-canvas');
@@ -209,7 +209,7 @@ test('bulk: the same edit (Mono filter, rotate, square) goes to every selected p
   page.on('pageerror', (e) => errors.push(e.message));
   const external = [];
   page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) external.push(r.url()); });
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   await page.evaluate(() => { localStorage.removeItem('cc.editor.prefs'); });
   const files = [];
@@ -246,7 +246,7 @@ test('overlay icons on the media (mute, tagged people) are filled in from the ba
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   await page.setInputFiles('#ed-file', [
     { name: 'icons.png', mimeType: 'image/png', buffer: await feedShot(page, { theme: 'dark', media: 'slab', icons: true }) },
@@ -280,7 +280,7 @@ test('overlay icons on the media (mute, tagged people) are filled in from the ba
   const context2 = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page2 = await context2.newPage();
   page2.on('pageerror', (e) => errors.push(e.message));
-  await page2.goto(`${origin}${BASE}#/tools/editor`);
+  await page2.goto(`${origin}${BASE}#/files`);
   await page2.waitForSelector('#ed-file', { state: 'attached' });
   await page2.setInputFiles('#ed-file', { name: 'icons.png', mimeType: 'image/png', buffer: await feedShot(page2, { theme: 'dark', media: 'slab', icons: true }) });
   await page2.waitForSelector('.ed-canvas');
@@ -295,7 +295,7 @@ test('overlay icons on the media (mute, tagged people) are filled in from the ba
 test('Auto-Enhance plans with an exact copy of the renderer\'s color math: the GPU gives the same colors', async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   const worst = await page.evaluate(async () => {
     const { Renderer } = await import('./tools/editor/renderer.js');
     const { simulate } = await import('./tools/editor/enhance.js');
@@ -330,7 +330,7 @@ test('reference screenshot (dark feed, flat gray coin slab) through the real ren
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/tools/editor`);
+  await page.goto(`${origin}${BASE}#/files`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const ref = await readFile(resolve(import.meta.dirname, '../fixtures/feed_dark_gray_media_723.png'));
   await page.setInputFiles('#ed-file', [

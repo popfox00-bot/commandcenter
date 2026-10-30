@@ -4,9 +4,11 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "f76c217003c3",
+  "version": "a365ce3e755f",
   "files": [
     "app.js",
+    "apps/calendar/calendar-core.js",
+    "apps/calendar/calendar.js",
     "apps/games/fox/cc-frame.css",
     "apps/games/fox/fox.css",
     "apps/games/fox/fox.js",
@@ -15,6 +17,7 @@ const PRECACHE = {
     "apps/notes/notes-core.js",
     "apps/notes/notes.js",
     "apps/settings/settings.js",
+    "apps/updates/college-sites.js",
     "apps/updates/sports-core.js",
     "apps/updates/updates.js",
     "apps/updates/weather-core.js",
@@ -26,6 +29,7 @@ const PRECACHE = {
     "icons/icon.svg",
     "index.html",
     "jobs.js",
+    "lib/calendar.js",
     "lib/characters.js",
     "lib/dom.js",
     "lib/files.js",
@@ -33,6 +37,7 @@ const PRECACHE = {
     "lib/image.js",
     "lib/pdf-reader.js",
     "lib/pdf-writer.js",
+    "lib/saved-files.js",
     "lib/webp.js",
     "lib/zip.js",
     "manifest.webmanifest",
@@ -56,7 +61,6 @@ const PRECACHE = {
     "tools/editor/renderer.js",
     "tools/editor/retouch.js",
     "tools/editor/state.js",
-    "tools/index.js",
     "tools/pdfwrite/annotate.js",
     "tools/pdfwrite/pdfwrite.js",
     "tools/pdfwrite/signature.js",
@@ -64,6 +68,7 @@ const PRECACHE = {
     "tools/qr/qr-make.js",
     "tools/qr/qr-parse.js",
     "tools/qr/qr.js",
+    "tools/saved/saved.js",
     "tools/scan/scan-core.js",
     "tools/scan/scan.js",
     "tools/studio/studio.js",

@@ -178,3 +178,79 @@ test('live camera: the fake camera shows a QR code and the scanner reads it', as
     await cam.close();
   }
 });
+
+test('Saved → App codes: a screenshot of a Venmo code becomes a branded card that scans; a picture without a QR code is kept as it is', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const { page, errors } = await open(context, 'saved');
+  await page.waitForSelector('text=📇 App codes');
+  // A phone screenshot with the app's code in the middle, the way Venmo shows it.
+  const shot = await page.evaluate(async () => {
+    const { encode } = await import('./vendor/uqr/uqr.mjs');
+    const { drawQr } = await import('./tools/qr/qr-make.js');
+    const c = new OffscreenCanvas(1170, 2532); const x = c.getContext('2d');
+    x.fillStyle = '#0b1a2b'; x.fillRect(0, 0, 1170, 2532);
+    x.fillStyle = '#fff'; x.font = 'bold 60px sans-serif'; x.fillText('@Alex-Fox', 420, 700);
+    const q = new OffscreenCanvas(10, 10);
+    drawQr(q.getContext('2d'), encode('https://venmo.com/u/Alex-Fox', { ecc: 'M', border: 0 }), { fg: '#008CFF', bg: '#ffffff', margin: 3 }, 700);
+    x.drawImage(q, 235, 900);
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#qr-card-file', { name: 'IMG_0001.PNG', mimeType: 'image/png', buffer: Buffer.from(shot) });
+  await page.waitForSelector('text=New app code');
+  assert.equal(await page.inputValue('[aria-label=App]'), 'venmo', 'the app is worked out from the code');
+  assert.equal(await page.inputValue('[aria-label=Handle]'), 'Alex-Fox');
+  assert.match(await page.textContent('.qr-card-note'), /Read the code: https:\/\/venmo\.com\/u\/Alex-Fox/);
+  await page.fill('[aria-label=Name]', 'Alex Fox');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.waitForSelector('.qr-card-open');
+  assert.match(await page.textContent('.qr-card-open'), /Venmo\s*@Alex-Fox/);
+
+  // Open it: Share gives a PNG card whose code scans back to the same link.
+  await page.evaluate(() => {
+    window.__shared = null; navigator.canShare = () => true;
+    navigator.share = async (d) => { const f = d.files[0]; window.__shared = { name: f.name, type: f.type, bytes: Array.from(new Uint8Array(await f.arrayBuffer())) }; };
+  });
+  await page.click('.qr-card-open');
+  await page.waitForSelector('.qr-card-big');
+  assert.equal(await page.isVisible('text=Open in Venmo'), true);
+  await page.getByRole('button', { name: 'Share' }).click();
+  await page.waitForFunction(() => window.__shared);
+  const shared = await page.evaluate(() => window.__shared);
+  assert.equal(shared.name, 'Venmo-Alex-Fox.png'); assert.equal(shared.type, 'image/png');
+  const read = await page.evaluate(async (bytes) => {
+    const { codesInPicture } = await import('./tools/qr/qr.js');
+    const hits = await codesInPicture(new File([new Uint8Array(bytes)], 'card.png', { type: 'image/png' }));
+    const b = await createImageBitmap(new Blob([new Uint8Array(bytes)]));
+    const c = new OffscreenCanvas(b.width, b.height); const x = c.getContext('2d'); x.drawImage(b, 0, 0);
+    return { texts: hits.map((h) => h.text), size: [b.width, b.height], corner: [...x.getImageData(540, 40, 1, 1).data.slice(0, 3)] };
+  }, shared.bytes);
+  assert.deepEqual(read.texts, ['https://venmo.com/u/Alex-Fox'], 'the card\'s code scans');
+  assert.deepEqual(read.size, [1080, 1440]);
+  assert.deepEqual(read.corner, [0, 140, 255], 'in Venmo blue');
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  // A picture with no QR code in it (a Snapcode): kept as it is, on a Snapchat card.
+  const snapcode = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(600, 600); const x = c.getContext('2d');
+    x.fillStyle = '#FFFC00'; x.fillRect(0, 0, 600, 600); x.fillStyle = '#000';
+    for (let i = 0; i < 300; i++) { x.beginPath(); x.arc(40 + (i * 97) % 520, 40 + (i * 53) % 520, 6, 0, Math.PI * 2); x.fill(); }
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#qr-card-file', { name: 'snap.png', mimeType: 'image/png', buffer: Buffer.from(snapcode) });
+  await page.waitForSelector('text=No QR code found in the picture');
+  await page.selectOption('[aria-label=App]', 'snapchat');
+  await page.fill('[aria-label=Handle]', '@alexfox');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.qr-card-open').length === 2);
+  assert.match(await page.textContent('.qr-cards-grid'), /Snapchat\s*@alexfox/);
+  // Kept on the phone: still there after a reload.
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll('.qr-card-open').length === 2);
+  // Delete one.
+  page.on('dialog', (d) => d.accept());
+  await page.click('.qr-card-open >> text=Snapchat');
+  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.qr-card-open').length === 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

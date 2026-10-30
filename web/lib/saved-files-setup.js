@@ -6,6 +6,9 @@ import { el } from './dom.js';
 import { getConfig, setConfig, checkUrl, savedFiles, connectedSecure } from './saved-files.js';
 import { encryptionSettings, openAnywhere } from './vault-ui.js';
 
+/** The newest apps-script/saved-files.gs (its VERSION). */
+const SCRIPT_VERSION = 3;
+
 export function savedFilesSettings() {
   const box = el('section', { class: 'card sv-setup', id: 'saved-files' });
 
@@ -28,10 +31,10 @@ export function savedFilesSettings() {
       if (!key.value.trim()) { render('Paste the access key too.', true); return; }
       status.textContent = 'Checking…'; status.className = 'small muted';
       try {
-        const folder = await savedFiles({ url: u, key: key.value.trim() }).ping();
+        const { folder, version } = await savedFiles({ url: u, key: key.value.trim() }).info();
         setConfig({ url: u, key: key.value.trim() });
         await connectedSecure().refresh().catch(() => {}); // is encryption already on (another device)?
-        render(`Connected to "${folder}". Files → Saved Files is ready.`);
+        render(`Connected to "${folder}". Files → Saved Files is ready.${version < SCRIPT_VERSION ? ` (Your script is version ${version}: paste the new apps-script/saved-files.gs and deploy a new version for folders.)` : ''}`);
       } catch (err) { status.textContent = err.message; status.className = 'small bad-text'; }
     });
     box.replaceChildren(
@@ -43,6 +46,8 @@ export function savedFilesSettings() {
           el('li', { text: 'Run "setup" once and allow access. Copy the access key it shows in the log.' }),
           el('li', { text: 'Deploy → New deployment → Web app. Execute as: Me. Who has access: Anyone. Copy the web app URL.' }),
           el('li', { text: 'Paste both here.' }))),
+      el('details', { class: 'small' }, el('summary', { text: 'Updating the script (for new features, like folders)' }),
+        el('p', { class: 'small', text: 'Paste the new apps-script/saved-files.gs over the old one and save. Then Deploy → Manage deployments → ✎ edit → Version: New version → Deploy. The URL and key stay the same; tap "Save and check" here to see the version.' })),
       form,
       cfg ? encryptionSettings() : null,
       openAnywhere());

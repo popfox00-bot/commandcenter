@@ -305,6 +305,17 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
   **Save to phone**, or **Delete** (to Drive's trash, for 30 days). Each save is logged in the
   spreadsheet's "Saved Files" sheet (when, name, type, size, from which app, link; and when it was
   deleted). Draw's **Save to Files** saves there too.
+- **Folders** (with version 3 of the script): **+ New folder** (in the main folder, or inside the
+  folder you're in), tap a folder to open it (the path at the top takes you back up), **Rename** or
+  **Delete** a folder (with everything in it, to Drive's trash), **+ Save files here** into the open
+  folder, and **Move** any file to another folder or back to the main one. They're real Drive folders
+  inside the Saved Files folder, so they look the same in Drive; the script only reaches folders and
+  files inside that folder. With encryption on, the files in folders are encrypted like any other, but
+  **folder names are not** (Drive shows them as you named them), so don't put secrets in a folder name.
+- **Updating the script** (for new features; folders need version 3): paste the new
+  `apps-script/saved-files.gs` over the old one and save, then Deploy → Manage deployments → ✎ edit →
+  Version: **New version** → Deploy. The web app URL and the access key stay the same; in Settings,
+  **Save and check** shows if the script is older than the app expects.
 - **Setup, once:** open the spreadsheet → Extensions → Apps Script; paste in
   `apps-script/saved-files.gs` and save; run **setup** once (allow access) and copy the access key it
   shows in the log; Deploy → New deployment → **Web app**, Execute as **Me**, Who has access

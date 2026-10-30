@@ -36,7 +36,7 @@ export function fromBase64(b64, type = 'application/octet-stream') {
   return new Blob([bytes], { type });
 }
 
-/** A client for one web app: { ping, list, upload, download, remove }. */
+/** A client for one web app: { ping, info, list, browse, folders, upload, download, remove, mkdir, rename, rmdir, move }. */
 export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
   async function call(action, body = {}) {
     let res;
@@ -54,15 +54,32 @@ export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
     /** { folder, version } (version 1: a script from before folders). */
     info: async () => { const r = await call('ping'); return { folder: r.folder, version: r.version ?? 1 }; },
     list: async () => (await call('list')).files ?? [],
+    /**
+     * One folder ('' : the main one): { files, folders, path: [{ id, name }] }. folders is null with a
+     * script from before folders (version 3), which only knows the main folder.
+     */
+    async browse(folder = '') {
+      const r = await call('list', folder ? { folder } : {});
+      return { files: r.files ?? [], folders: r.folders ?? null, path: r.path ?? [] };
+    },
+    /** Every folder: [{ id, name, path: 'A/B' }]. */
+    folders: async () => (await call('folders')).folders ?? [],
+    /** folder: a folder name in the main folder (made if needed; same names replaced), or { id } of any folder. */
     async upload(file, from = '', folder = '') {
       if (file.size > MAX_BYTES) throw new Error(`"${file.name}" is too big for Saved Files (25 MB at most).`);
-      return (await call('upload', { name: file.name, type: file.type || 'application/octet-stream', data: await toBase64(file), from, ...(folder ? { folder } : {}) })).file;
+      const where = folder?.id ? { folderId: folder.id } : folder ? { folder } : {};
+      return (await call('upload', { name: file.name, type: file.type || 'application/octet-stream', data: await toBase64(file), from, ...where })).file;
     },
     async download(id) {
       const out = await call('download', { id });
       return new File([fromBase64(out.data, out.type)], out.name, { type: out.type });
     },
     remove: async (id) => { await call('delete', { id }); },
+    mkdir: async (name, parent = '') => (await call('mkdir', { name, parent })).folder,
+    rename: async (id, name) => (await call('rename', { id, name })).folder,
+    rmdir: async (id) => { await call('rmdir', { id }); },
+    /** Move a file into a folder ('' : the main folder). */
+    move: async (id, to = '') => (await call('move', { id, to })).file,
   };
 }
 
@@ -129,31 +146,46 @@ export function secureFiles(api) {
     }
     return f;
   }
+  async function names(raw) {
+    const s = unlocked();
+    const out = [];
+    for (const f of raw) {
+      if (f.name === HEADER_FILE) continue;
+      if (!isEncryptedName(f.name)) { out.push({ ...f, encrypted: false }); continue; }
+      const meta = s ? await decryptName(s.key, f.name) : null;
+      out.push(meta ? { ...f, name: meta.name, type: meta.type, size: meta.size, encrypted: true } : { ...f, name: s ? 'Encrypted with another key' : '🔒 Locked file', type: '', encrypted: true, locked: true });
+    }
+    return out;
+  }
   return {
     ping: api.ping,
     info: api.info,
     remove: api.remove,
-    /** The files, newest first, names decrypted: [{ id, name, type, size, updated, encrypted, locked }]. */
+    folders: api.folders,
+    mkdir: api.mkdir,
+    rename: api.rename,
+    rmdir: api.rmdir,
+    move: api.move,
+    /** The main folder's files, newest first, names decrypted: [{ id, name, type, size, updated, encrypted, locked }]. */
     async list() {
       const raw = await api.list();
       await findHeader(raw);
-      const s = unlocked();
-      const out = [];
-      for (const f of raw) {
-        if (f.name === HEADER_FILE) continue;
-        if (!isEncryptedName(f.name)) { out.push({ ...f, encrypted: false }); continue; }
-        const meta = s ? await decryptName(s.key, f.name) : null;
-        out.push(meta ? { ...f, name: meta.name, type: meta.type, size: meta.size, encrypted: true } : { ...f, name: s ? 'Encrypted with another key' : '🔒 Locked file', type: '', encrypted: true, locked: true });
-      }
-      return out;
+      return names(raw);
     },
-    async upload(file, from = '') {
+    /** One folder ('' : the main one), file names decrypted: { files, folders, path }. Folder names are as they are in Drive. */
+    async browse(folder = '') {
+      const r = await api.browse(folder);
+      if (!folder) await findHeader(r.files); // the vault file is in the main folder
+      return { ...r, files: await names(r.files) };
+    },
+    /** folder: as in savedFiles().upload. */
+    async upload(file, from = '', folder = '') {
       const header = knownHeader();
-      if (!header) return api.upload(file, from);
+      if (!header) return api.upload(file, from, folder);
       const s = unlocked();
       if (!s) throw new LockedError();
       const { name, blob } = await encryptFile(s.key, s.header ?? header, file);
-      return api.upload(new File([blob], name, { type: 'application/octet-stream' }), from);
+      return api.upload(new File([blob], name, { type: 'application/octet-stream' }), from, folder);
     },
     async download(id) {
       const file = await api.download(id);
@@ -172,10 +204,10 @@ export function secureFiles(api) {
       rememberHeader({ ...clean, headerId: f.id });
       return f;
     },
-    /** Encrypt a file that's in Drive as it is: a new encrypted copy, then the plain one to the trash. */
-    async encryptExisting(f) {
+    /** Encrypt a file that's in Drive as it is: a new encrypted copy (in the same folder, folder: { id }), then the plain one to the trash. */
+    async encryptExisting(f, folder = '') {
       const plain = await api.download(f.id);
-      const out = await this.upload(plain, 'Encrypt');
+      const out = await this.upload(plain, 'Encrypt', folder);
       await api.remove(f.id);
       return out;
     },

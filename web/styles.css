@@ -655,3 +655,6 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .vault-key { display: block; font-size: 1.05rem; font-weight: 700; letter-spacing: .04em; padding: 12px; border-radius: 10px; background: var(--idle-bg); overflow-wrap: anywhere; user-select: all; }
 .vault-recovery { display: grid; gap: 10px; }
 .sv-locked { opacity: .7; }
+.sv-crumbs { gap: 4px; align-items: center; }
+.sv-crumbs strong { overflow-wrap: anywhere; }
+.sv-open { justify-self: start; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }

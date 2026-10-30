@@ -3,8 +3,9 @@
  *
  * Put this in the Apps Script project of your "Saved Files" spreadsheet (Extensions → Apps Script),
  * in the Drive folder that should hold the files. The Files app on your phone then saves files into
- * that folder, lists them, opens them and deletes them, through this script, and each save is
- * logged in the spreadsheet's "Saved Files" sheet.
+ * that folder (or folders inside it), lists them, opens, moves and deletes them, through this script,
+ * and each save is logged in the spreadsheet's "Saved Files" sheet. Folders inside it can be made,
+ * renamed and deleted from the phone; nothing outside that folder is ever touched.
  *
  * Setup (once):
  *   1. Paste this file in as Code.gs and save.
@@ -22,7 +23,7 @@
  * deployments → ✎ (edit) → Version: New version → Deploy. The web app URL and the key stay the same.
  */
 
-const VERSION = 2; // 2: uploads can go into a subfolder (the Decryption kit)
+const VERSION = 3; // 2: uploads can go into a subfolder (the Decryption kit). 3: folders (list, make, rename, delete, move files)
 
 const KEY_PROPERTY = 'SAVED_FILES_KEY';
 const LOG_SHEET = 'Saved Files';
@@ -52,10 +53,15 @@ function doPost(e) {
   try {
     switch (req.action) {
       case 'ping': return json_({ ok: true, folder: folder_().getName(), version: VERSION });
-      case 'list': return json_({ ok: true, files: list_() });
+      case 'list': return json_(Object.assign({ ok: true }, list_(req.folder)));
+      case 'folders': return json_({ ok: true, folders: allFolders_() });
       case 'upload': return json_({ ok: true, file: upload_(req) });
       case 'download': return json_(Object.assign({ ok: true }, download_(req.id)));
       case 'delete': remove_(req.id); return json_({ ok: true });
+      case 'mkdir': return json_({ ok: true, folder: mkdir_(req.name, req.parent) });
+      case 'rename': return json_({ ok: true, folder: renameFolder_(req.id, req.name) });
+      case 'rmdir': rmdir_(req.id); return json_({ ok: true });
+      case 'move': return json_({ ok: true, file: move_(req.id, req.to) });
       default: return json_({ ok: false, error: 'Unknown action' });
     }
   } catch (err) {
@@ -70,17 +76,130 @@ function folder_() {
   return parents.next();
 }
 
-function list_() {
-  const out = [];
+/** One folder's files (newest first) and folders (by name), and the path down to it. */
+function list_(folderId) {
+  const main = folder_();
+  const here = folderId ? folderIn_(folderId) : main;
   const self = SpreadsheetApp.getActiveSpreadsheet().getId();
-  const it = folder_().getFiles();
+  const files = [];
+  const it = here.getFiles();
   while (it.hasNext()) {
     const f = it.next();
     if (f.getId() === self || f.isTrashed()) continue;
-    out.push(info_(f));
+    files.push(info_(f));
   }
-  out.sort(function (a, b) { return b.updated - a.updated; });
+  files.sort(function (a, b) { return b.updated - a.updated; });
+  const folders = [];
+  const fit = here.getFolders();
+  while (fit.hasNext()) {
+    const d = fit.next();
+    if (!d.isTrashed()) folders.push(folderInfo_(d));
+  }
+  folders.sort(function (a, b) { return a.name.localeCompare(b.name); });
+  return { files: files, folders: folders, path: path_(here) };
+}
+
+function folderInfo_(d) {
+  return { id: d.getId(), name: d.getName(), updated: d.getLastUpdated().getTime() };
+}
+
+/** Every folder inside the main one, as { id, name, path: 'A/B' }, sorted by path (for "Move to"). */
+function allFolders_() {
+  const out = [];
+  (function walk(d, prefix, depth) {
+    if (depth > 10 || out.length >= 500) return;
+    const it = d.getFolders();
+    const kids = [];
+    while (it.hasNext()) { const k = it.next(); if (!k.isTrashed()) kids.push(k); }
+    kids.sort(function (a, b) { return a.getName().localeCompare(b.getName()); });
+    kids.forEach(function (k) {
+      const p = prefix ? prefix + '/' + k.getName() : k.getName();
+      out.push({ id: k.getId(), name: k.getName(), path: p });
+      walk(k, p, depth + 1);
+    });
+  })(folder_(), '', 0);
   return out;
+}
+
+/** The folders from the main one (not included) down to this one: [{ id, name }]. */
+function path_(d) {
+  const mainId = folder_().getId();
+  const out = [];
+  let cur = d;
+  for (let i = 0; i < 20 && cur.getId() !== mainId; i++) {
+    out.unshift({ id: cur.getId(), name: cur.getName() });
+    const ps = cur.getParents();
+    if (!ps.hasNext()) break;
+    cur = ps.next();
+  }
+  return out;
+}
+
+/** Whether a file or folder is somewhere inside the main folder (not trashed on the way). */
+function under_(item) {
+  const mainId = folder_().getId();
+  let level = [item];
+  for (let depth = 0; depth < 20 && level.length; depth++) {
+    const next = [];
+    for (let i = 0; i < level.length; i++) {
+      const ps = level[i].getParents();
+      while (ps.hasNext()) {
+        const p = ps.next();
+        if (p.getId() === mainId) return true;
+        if (!p.isTrashed()) next.push(p);
+      }
+    }
+    level = next;
+  }
+  return false;
+}
+
+/** A folder inside the main one by its ID ('' or the main folder's own ID: the main folder). */
+function folderIn_(id) {
+  const main = folder_();
+  if (!id || id === main.getId()) return main;
+  let d;
+  try { d = DriveApp.getFolderById(String(id)); } catch (err) { throw new Error('No such folder'); }
+  if (d.isTrashed() || !under_(d)) throw new Error('No such folder');
+  return d;
+}
+
+/** A tidy folder name: no slashes, at most 60 characters. */
+function folderName_(name) {
+  const n = String(name || '').replace(/[\\/]+/g, '-').trim().slice(0, 60);
+  if (!n) throw new Error('Give the folder a name');
+  return n;
+}
+
+/** Make a folder (inside `parentId`, or the main folder); if one of that name is there, that one. */
+function mkdir_(name, parentId) {
+  const n = folderName_(name);
+  const parent = folderIn_(parentId);
+  const found = parent.getFoldersByName(n);
+  while (found.hasNext()) { const d = found.next(); if (!d.isTrashed()) return folderInfo_(d); }
+  return folderInfo_(parent.createFolder(n));
+}
+
+function renameFolder_(id, name) {
+  const d = folderIn_(id);
+  if (d.getId() === folder_().getId()) throw new Error('The main folder can\'t be renamed here');
+  d.setName(folderName_(name));
+  return folderInfo_(d);
+}
+
+/** A folder and everything in it to Drive's trash (30 days). */
+function rmdir_(id) {
+  const d = folderIn_(id);
+  if (d.getId() === folder_().getId()) throw new Error('The main folder can\'t be deleted');
+  d.setTrashed(true);
+}
+
+/** Move a file into another folder ('' : the main folder). */
+function move_(id, to) {
+  const f = inFolder_(id);
+  const target = folderIn_(to);
+  f.moveTo(target);
+  return Object.assign(info_(f), { folder: target.getId() === folder_().getId() ? '' : target.getId() });
 }
 
 function info_(f) {
@@ -93,12 +212,15 @@ function upload_(req) {
   if (!data.length) throw new Error('Empty file');
   if (data.length > MAX_BYTES) throw new Error('Too big (25 MB at most)');
   const blob = Utilities.newBlob(data, String(req.type || 'application/octet-stream'), name);
-  const sub = String(req.folder || '').replace(/[\\/]+/g, '-').trim().slice(0, 60);
-  const target = sub ? subfolder_(sub) : folder_();
+  // folderId: a folder's ID (version 3). folder: a folder name in the main one, made if needed, where
+  // a file of the same name is replaced (version 2, for the Decryption kit).
+  const sub = req.folderId ? '' : String(req.folder || '').replace(/[\\/]+/g, '-').trim().slice(0, 60);
+  const target = req.folderId ? folderIn_(req.folderId) : sub ? subfolder_(sub) : folder_();
   if (sub) { const same = target.getFilesByName(name); while (same.hasNext()) same.next().setTrashed(true); } // replaced, not doubled
   const f = target.createFile(blob);
-  logSheet_().appendRow([new Date(), sub ? sub + '/' + name : name, f.getMimeType(), f.getSize(), String(req.from || '').slice(0, 40), f.getId(), f.getUrl(), '']);
-  return Object.assign(info_(f), { folder: sub || '' });
+  const where = target.getId() === folder_().getId() ? '' : path_(target).map(function (p) { return p.name; }).join('/');
+  logSheet_().appendRow([new Date(), where ? where + '/' + name : name, f.getMimeType(), f.getSize(), String(req.from || '').slice(0, 40), f.getId(), f.getUrl(), '']);
+  return Object.assign(info_(f), { folder: sub || (where ? target.getId() : '') });
 }
 
 /** A folder inside this one, made the first time it's needed. */
@@ -108,14 +230,13 @@ function subfolder_(name) {
   return found.hasNext() ? found.next() : parent.createFolder(name);
 }
 
-/** Only files in the folder (and not the spreadsheet itself) can be read or deleted. */
+/** Only files in the folder or the folders inside it (and not the spreadsheet itself) can be read, moved or deleted. */
 function inFolder_(id) {
   if (typeof id !== 'string' || !id || id === SpreadsheetApp.getActiveSpreadsheet().getId()) throw new Error('No such file');
-  const f = DriveApp.getFileById(id);
-  const folderId = folder_().getId();
-  const parents = f.getParents();
-  while (parents.hasNext()) if (parents.next().getId() === folderId) return f;
-  throw new Error('No such file');
+  let f;
+  try { f = DriveApp.getFileById(id); } catch (err) { throw new Error('No such file'); }
+  if (f.isTrashed() || !under_(f)) throw new Error('No such file');
+  return f;
 }
 
 function download_(id) {

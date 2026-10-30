@@ -1,19 +1,28 @@
-// Cutout: trace around an object with a finger to cut it out of a photo. Save it as a transparent
-// PNG, keep it as a "Character" for later, or place it onto another photo (Collage tab).
-import { el } from '../../lib/dom.js';
+// Cutout: trace around an object with a finger to cut it out of a photo. Smart edges then trim the
+// background left just inside the trace, carefully (cutout-core.js smartEdge). Save it as a
+// transparent PNG, keep it as a "Character" for later, or place it onto another photo (Collage tab).
+import { el, store } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
-import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds } from './cutout-core.js';
+import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, patchMask } from './cutout-core.js';
 
 const WORK_MAX = 2400; // cut resolution (long edge)
+const SMART_MAX = 720;  // smart edges are worked out at this size (long edge), then scaled up
+const SMART_KEY = 'cc.cutout.smart';
 
 /** mount(host, { onPlace, file }) — onPlace(file) puts a cutout on a photo in the Collage tab. */
 export function mount(host, { onPlace, file: initialFile } = {}) {
   let image = null; let fileName = 'photo.png';
   let traces = []; // [{ op: 'add' | 'sub', points: [[u,v]...] }] in image-normalized coordinates
-  let redo = [];
+  let past = []; let redo = []; // undo/redo: earlier and later lists of traces
   let mode = 'add'; let feather = 2; let preview = false;
+  let smart = store.get(SMART_KEY) !== 'off';
+  let smartCache = null; // smart edges for the current outlines (see smartCut)
+  let finalCache = null; // the cut with patches applied (see finalMask)
+  let work = null;       // the photo at the work size for smart edges and patches: { w, h, rgba }
+  let patchSize = Number(store.get('cc.cutout.patch')) || 36; // patch radius, in screen px
+  const outlines = () => traces.filter((t) => t.op !== 'patch');
   let drawing = null;
   const urls = new Set();
   const objectUrl = (b) => { const u = URL.createObjectURL(b); urls.add(u); return u; };
@@ -66,7 +75,7 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       const fit = fitSize(bitmap.width, bitmap.height, WORK_MAX);
       image = drawToCanvas(bitmap, fit.width, fit.height, null);
       bitmap.close?.();
-      fileName = name; traces = []; redo = []; preview = false;
+      fileName = name; traces = []; past = []; redo = []; preview = false; work = null; smartCache = null; finalCache = null;
       buildEditor();
     } catch (err) {
       host.replaceChildren(el('p', { class: 'bad-text', text: err.message }), el('button', { class: 'btn', text: 'Back', onclick: showStart }));
@@ -81,8 +90,8 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       el('div', { class: 'ed-top' },
         el('button', { class: 'icon-btn', 'aria-label': 'Close photo', text: '✕', onclick: () => { if (!traces.length || window.confirm('Discard this cutout?')) showStart(); } }),
         el('div', { class: 'ed-top-mid' },
-          el('button', { class: 'icon-btn', 'aria-label': 'Undo', text: '↶', onclick: () => { if (traces.length) { redo.push(traces.pop()); refresh(); } } }),
-          el('button', { class: 'icon-btn', 'aria-label': 'Redo', text: '↷', onclick: () => { if (redo.length) { traces.push(redo.pop()); refresh(); } } })),
+          el('button', { class: 'icon-btn', 'aria-label': 'Undo', text: '↶', onclick: () => { if (past.length) { redo.push(traces); traces = past.pop(); refresh(); } } }),
+          el('button', { class: 'icon-btn', 'aria-label': 'Redo', text: '↷', onclick: () => { if (redo.length) { past.push(traces); traces = redo.pop(); refresh(); } } })),
         el('button', { class: 'btn primary small-btn', text: 'Done', onclick: finish })),
       el('div', { class: 'ed-stage co-stage' }, canvas), panel);
     bindPointer();
@@ -91,23 +100,37 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   }
 
   function refresh() { renderPanel(); draw(); }
+  /** A change to the traces, undoable. */
+  function commit(next) { past.push(traces); traces = next; redo = []; refresh(); }
 
   function renderPanel() {
     const fRange = el('input', { type: 'range', min: '0', max: '12', step: '1', value: String(feather), 'aria-label': 'Edge softness' });
     fRange.addEventListener('input', () => { feather = Number(fRange.value); if (preview) draw(); });
     panel.replaceChildren(
-      el('div', { class: 'segmented', role: 'radiogroup' },
-        ...[['add', '✏️ Trace'], ['sub', '➖ Remove']].map(([id, label]) => el('button', {
+      el('div', { class: 'segmented co-modes', role: 'radiogroup' },
+        ...[['add', '✏️ Trace'], ['sub', '➕ Add to trace'], ['patch', '🩹 Patch fix'], ['delete', '🗑 Remove trace']].map(([id, label]) => el('button', {
           class: `seg${mode === id ? ' active' : ''}`, role: 'radio', 'aria-checked': String(mode === id), text: label,
           onclick: () => { mode = id; renderPanel(); },
         }))),
-      el('p', { class: 'muted small', text: mode === 'add'
-        ? 'Draw all the way around what you want to keep. Lift your finger to close the outline; trace again to add more.'
-        : 'Draw around parts to cut away (for example the gap between an arm and a body).' }),
+      el('p', { class: 'muted small', text: {
+        add: 'Draw all the way around what you want to keep. Lift your finger to close the outline; trace again to add more.',
+        sub: 'Trace inside your outline around a part to leave out, like the sky under a basket\'s handle or the gap between an arm and a body.',
+        patch: 'Tap where the outline is off: that spot is worked out again from the colors around it, moving the edge in or out. Undo takes a patch back.',
+        delete: 'Tap a trace or a patch to delete it. Undo brings it back.',
+      }[mode] }),
+      mode === 'patch' && patchNote ? el('p', { class: 'small warn-text', text: patchNote }) : null,
+      mode === 'patch' ? (() => {
+        const size = el('input', { type: 'range', min: '12', max: '120', step: '2', value: String(patchSize), 'aria-label': 'Patch size' });
+        size.addEventListener('input', () => { patchSize = Number(size.value); store.set('cc.cutout.patch', String(patchSize)); draw(); });
+        return el('label', { class: 'field' }, el('span', { text: 'Patch size' }), el('span', { class: 'range-row' }, size));
+      })() : null,
+      el('div', { class: 'row space co-smart' },
+        el('button', { class: `chip${smart ? ' active' : ''}`, 'aria-pressed': String(smart), text: '✨ Smart edges', onclick: () => { smart = !smart; store.set(SMART_KEY, smart ? 'on' : 'off'); refresh(); } }),
+        el('span', { class: 'muted small', 'aria-live': 'polite', text: smartNote() })),
       el('label', { class: 'field' }, el('span', { text: 'Edge softness' }), el('span', { class: 'range-row' }, fRange)),
       el('div', { class: 'row wrap' },
         el('button', { class: `btn small-btn${preview ? ' primary' : ''}`, text: preview ? 'Show photo' : 'Preview cutout', disabled: !traces.length, onclick: () => { preview = !preview; refresh(); } }),
-        el('button', { class: 'btn small-btn ghost', text: 'Start over', disabled: !traces.length, onclick: () => { redo = []; traces = []; preview = false; refresh(); } })));
+        el('button', { class: 'btn small-btn ghost', text: 'Start over', disabled: !traces.length, onclick: () => { preview = false; commit([]); } })));
   }
 
   function fitCanvas() {
@@ -126,17 +149,121 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
     ctx.closePath();
   }
 
-  /** Alpha mask of all traces at w×h (add = fill, remove = erase), feathered. */
-  function maskCanvas(w, h, featherPx) {
+  /** The traces alone (add = fill, remove = erase) at w×h. */
+  function traceCanvas(w, h) {
     const m = document.createElement('canvas');
     m.width = w; m.height = h;
     const ctx = m.getContext('2d');
-    for (const t of traces) {
+    for (const t of outlines()) {
       ctx.globalCompositeOperation = t.op === 'add' ? 'source-over' : 'destination-out';
       ctx.fillStyle = '#000';
       tracePath(ctx, t.points, w, h);
       ctx.fill();
     }
+    return m;
+  }
+
+  /**
+   * Smart edges for the traces, worked out once per set of traces at up to SMART_MAX px: the outline
+   * comes in to the object's edge (background just inside it trimmed), and a trace added inside it
+   * (around the sky under a basket's handle) leaves out only what looks like what it's around, so
+   * the handle itself stays. Returns { final } (the mask, as a canvas at the work size), how much was
+   * trimmed from (cutN) and given back to (giveN) the traces as drawn, and whether the object was too
+   * like its background.
+   */
+  function smartCut() {
+    if (!smart || !outlines().some((t) => t.op === 'add')) return null;
+    const key = outlineKey();
+    if (smartCache?.key === key) return smartCache;
+    const { w, h, rgba } = workCopy();
+    const bits = (c) => { const d = c.getContext('2d').getImageData(0, 0, w, h).data; return Uint8Array.from({ length: w * h }, (_, i) => (d[i * 4 + 3] > 127 ? 1 : 0)); };
+    const only = (op) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#000'; for (const t of outlines().filter((t) => t.op === op)) { tracePath(x, t.points, w, h); x.fill(); } return bits(c); };
+    const T = bits(traceCanvas(w, h)); // the traces as drawn, in order
+    const A = only('add'); const S = only('sub');
+    const ra = smartEdge(rgba, w, h, A);
+    const A2 = ra.tooMuch ? A : ra.keep;
+    const rs = S.some(Boolean) ? smartEdge(rgba, w, h, S) : null;
+    const S2 = rs && !rs.tooMuch ? rs.keep : S; // the part of each added trace that really goes
+    const mk = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+    const F = new Uint8Array(w * h);
+    let cutN = 0; let giveN = 0; let area = 0;
+    for (let i = 0; i < w * h; i++) {
+      F[i] = (T[i] && A2[i]) || (A2[i] && S[i] && !S2[i]) ? 1 : 0;
+      if (T[i]) area++;
+      if (T[i] && !F[i]) cutN++;
+      if (F[i] && !T[i]) giveN++;
+    }
+    smartCache = { key, F, cutN, giveN, share: area ? cutN / area : 0, tooMuch: !!ra.tooMuch };
+    return smartCache;
+  }
+
+  const outlineKey = () => outlines().map((t) => `${t.op}${t.points.length}:${t.points[0]}`).join('|');
+  /** The photo at the work size (up to SMART_MAX px), read once per photo. */
+  function workCopy() {
+    if (work) return work;
+    const k = Math.min(1, SMART_MAX / Math.max(image.width, image.height));
+    const w = Math.max(1, Math.round(image.width * k)); const h = Math.max(1, Math.round(image.height * k));
+    const pic = document.createElement('canvas'); pic.width = w; pic.height = h;
+    const pc = pic.getContext('2d'); pc.drawImage(image, 0, 0, w, h);
+    work = { w, h, rgba: pc.getImageData(0, 0, w, h).data };
+    return work;
+  }
+
+  /**
+   * The cut at the work size: the outlines (with smart edges when on), then each patch in turn.
+   * { bits, canvas, changed } (changed: it differs from the outlines as drawn, so it's used as is).
+   */
+  function finalMask() {
+    const key = `${smart}|${outlineKey()}|${traces.filter((t) => t.op === 'patch').map((t) => t.id).join(',')}`;
+    if (finalCache?.key === key) return finalCache;
+    const { w, h } = workCopy();
+    const s = smartCut();
+    let bits;
+    if (s && (s.cutN || s.giveN)) bits = Uint8Array.from(s.F);
+    else { const d = traceCanvas(w, h).getContext('2d').getImageData(0, 0, w, h).data; bits = Uint8Array.from({ length: w * h }, (_, i) => (d[i * 4 + 3] > 127 ? 1 : 0)); }
+    const patches = traces.filter((t) => t.op === 'patch');
+    for (const { p } of patches) for (let j = 0; j < p.bw * p.bh; j++) bits[(p.y0 + Math.floor(j / p.bw)) * w + p.x0 + (j % p.bw)] = p.bits[j];
+    const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+    const cx = canvas.getContext('2d'); const img = cx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) if (bits[i]) img.data[i * 4 + 3] = 255;
+    cx.putImageData(img, 0, 0);
+    finalCache = { key, bits, canvas, changed: !!(s && (s.cutN || s.giveN)) || patches.length > 0 };
+    return finalCache;
+  }
+
+  /** A patch where the user tapped (u, v: 0–1 across the photo). */
+  function patchAt(u, v) {
+    if (!outlines().some((t) => t.op === 'add')) return;
+    const { w, h, rgba } = workCopy();
+    const r = Math.max(4, (patchSize / canvas.getBoundingClientRect().width) * w);
+    const p = patchMask(rgba, w, h, finalMask().bits, u * w, v * h, r);
+    if (!p || !p.changed) { patchNote = p ? 'Nothing to change there: the outline already follows the edge.' : 'Nothing to go by there: tap where the outline meets the object.'; renderPanel(); return; }
+    patchNote = '';
+    commit([...traces, { op: 'patch', id: `${Date.now()}${Math.random()}`, u, v, ru: r / w, p }]);
+  }
+  let patchNote = '';
+
+  function smartNote() {
+    if (!smart) return 'Off: the cut follows your trace exactly.';
+    if (!outlines().some((t) => t.op === 'add')) return 'Snaps the trace in to the object\'s edge.';
+    const s = smartCut();
+    if (s.tooMuch) return 'Too close to its background to tell apart: your trace is kept as drawn.';
+    const kept = s.giveN ? ' Kept the object\'s own edge inside the parts left out.' : '';
+    return (s.share > 0.005 ? `Trimmed ${Math.round(s.share * 100)}% of the traced area: background just inside your trace.` : 'Nothing to trim: your trace already follows the edge.') + kept;
+  }
+
+  /** Alpha mask of all traces at w×h, less what smart edges trim, feathered. */
+  function maskCanvas(w, h, featherPx) {
+    const f = outlines().length ? finalMask() : null;
+    let m;
+    if (f?.changed) {
+      // Smart edges and patches, scaled up smoothly (no faint rim of the hand-drawn outline left around it).
+      m = document.createElement('canvas'); m.width = w; m.height = h;
+      const c = m.getContext('2d');
+      c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+      c.drawImage(f.canvas, 0, 0, w, h);
+    } else m = traceCanvas(w, h);
+    const ctx = m.getContext('2d');
     if (featherPx >= 1) {
       const d = ctx.getImageData(0, 0, w, h);
       featherAlpha(d.data, w, h, featherPx);
@@ -172,7 +299,9 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       ctx.drawImage(dim, 0, 0);
     }
     ctx.lineWidth = 2.5 * dpr; ctx.setLineDash([8 * dpr, 6 * dpr]);
-    for (const t of traces) { ctx.strokeStyle = t.op === 'add' ? '#ffffff' : '#ff3b30'; tracePath(ctx, t.points, w, h); ctx.stroke(); }
+    for (const t of outlines()) { ctx.strokeStyle = t.op === 'add' ? '#ffffff' : '#ff3b30'; tracePath(ctx, t.points, w, h); ctx.stroke(); }
+    ctx.strokeStyle = '#ffd60a';
+    for (const t of traces.filter((x) => x.op === 'patch')) { ctx.beginPath(); ctx.arc(t.u * w, t.v * h, t.ru * w, 0, Math.PI * 2); ctx.stroke(); }
     if (drawing) {
       ctx.setLineDash([]); ctx.strokeStyle = mode === 'add' ? '#0a84ff' : '#ff3b30'; ctx.lineWidth = 3 * dpr;
       ctx.beginPath(); drawing.forEach(([u, v], i) => (i ? ctx.lineTo(u * w, v * h) : ctx.moveTo(u * w, v * h))); ctx.stroke();
@@ -190,6 +319,8 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
     const at = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; };
     canvas.addEventListener('pointerdown', (e) => {
       if (preview) { preview = false; renderPanel(); }
+      if (mode === 'delete') { e.preventDefault(); removeTraceAt(at(e)); return; }
+      if (mode === 'patch') { e.preventDefault(); patchAt(...at(e)); return; }
       drawing = [at(e)];
       canvas.setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -202,12 +333,29 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       const pts = thin(drawing, 2 / Math.max(r.width, r.height));
       drawing = null;
       // Ignore taps and scribbles too small to be an outline.
-      if (pts.length >= 3 && polygonArea(pts.map(([u, v]) => [u * r.width, v * r.height])) > 150) {
-        traces.push({ op: mode, points: smoothClosed(pts, 2) });
-        redo = [];
-      }
+      if (pts.length >= 3 && polygonArea(pts.map(([u, v]) => [u * r.width, v * r.height])) > 150) { commit([...traces, { op: mode, points: smoothClosed(pts, 2) }]); return; }
       refresh();
     };
+    /** Delete the trace tapped: the one whose line is nearest (within a finger's width), else the smallest one around the spot. */
+    function removeTraceAt([u, v]) {
+      const r = canvas.getBoundingClientRect();
+      const px = ([a, b]) => [a * r.width, b * r.height];
+      const [x, y] = px([u, v]);
+      let best = -1; let bestD = 24;
+      // A patch tapped inside: the most recent one.
+      traces.forEach((t, i) => { if (t.op === 'patch' && Math.hypot(x - t.u * r.width, y - t.v * r.height) <= t.ru * r.width) best = i; });
+      if (best >= 0) { commit(traces.filter((_, i) => i !== best)); return; }
+      traces.forEach((t, i) => {
+        if (t.op === 'patch') return;
+        const pts = t.points.map(px);
+        for (let k = 0; k < pts.length; k++) { const d = segDist(x, y, pts[k], pts[(k + 1) % pts.length]); if (d < bestD) { bestD = d; best = i; } }
+      });
+      if (best < 0) {
+        let area = Infinity;
+        traces.forEach((t, i) => { if (t.op === 'patch') return; const pts = t.points.map(px); if (inPolygon(x, y, pts)) { const a = polygonArea(pts); if (a < area) { area = a; best = i; } } });
+      }
+      if (best >= 0) commit(traces.filter((_, i) => i !== best));
+    }
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);
   }
@@ -262,4 +410,20 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   unmount.openFile = (blob, name) => { if (traces.length && !window.confirm('Discard the current cutout?')) return false; open(blob, name); return true; };
   unmount.show = () => draw();
   return unmount;
+}
+
+/** Distance from (x, y) to the segment a–b. */
+function segDist(x, y, [ax, ay], [bx, by]) {
+  const dx = bx - ax; const dy = by - ay; const l = dx * dx + dy * dy;
+  const t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
+  return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+}
+/** Whether (x, y) is inside a polygon (even-odd). */
+function inPolygon(x, y, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i]; const [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }

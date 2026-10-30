@@ -17,7 +17,12 @@
  * "Anyone" is needed because the phone calls the web app without a Google sign-in; the access key
  * is what keeps everyone else out: without it, every request is refused. Your folder and files stay
  * private in your Drive (nothing is shared). To lock the phone out, run `setup` again (a new key).
+ *
+ * Updating this script later: paste the new version over the old, save, then Deploy → Manage
+ * deployments → ✎ (edit) → Version: New version → Deploy. The web app URL and the key stay the same.
  */
+
+const VERSION = 2; // 2: uploads can go into a subfolder (the Decryption kit)
 
 const KEY_PROPERTY = 'SAVED_FILES_KEY';
 const LOG_SHEET = 'Saved Files';
@@ -46,7 +51,7 @@ function doPost(e) {
   if (!expected || typeof req.key !== 'string' || !same_(req.key, expected)) return json_({ ok: false, error: 'Wrong access key' });
   try {
     switch (req.action) {
-      case 'ping': return json_({ ok: true, folder: folder_().getName() });
+      case 'ping': return json_({ ok: true, folder: folder_().getName(), version: VERSION });
       case 'list': return json_({ ok: true, files: list_() });
       case 'upload': return json_({ ok: true, file: upload_(req) });
       case 'download': return json_(Object.assign({ ok: true }, download_(req.id)));
@@ -88,9 +93,19 @@ function upload_(req) {
   if (!data.length) throw new Error('Empty file');
   if (data.length > MAX_BYTES) throw new Error('Too big (25 MB at most)');
   const blob = Utilities.newBlob(data, String(req.type || 'application/octet-stream'), name);
-  const f = folder_().createFile(blob);
-  logSheet_().appendRow([new Date(), name, f.getMimeType(), f.getSize(), String(req.from || '').slice(0, 40), f.getId(), f.getUrl(), '']);
-  return info_(f);
+  const sub = String(req.folder || '').replace(/[\\/]+/g, '-').trim().slice(0, 60);
+  const target = sub ? subfolder_(sub) : folder_();
+  if (sub) { const same = target.getFilesByName(name); while (same.hasNext()) same.next().setTrashed(true); } // replaced, not doubled
+  const f = target.createFile(blob);
+  logSheet_().appendRow([new Date(), sub ? sub + '/' + name : name, f.getMimeType(), f.getSize(), String(req.from || '').slice(0, 40), f.getId(), f.getUrl(), '']);
+  return Object.assign(info_(f), { folder: sub || '' });
+}
+
+/** A folder inside this one, made the first time it's needed. */
+function subfolder_(name) {
+  const parent = folder_();
+  const found = parent.getFoldersByName(name);
+  return found.hasNext() ? found.next() : parent.createFolder(name);
 }
 
 /** Only files in the folder (and not the spreadsheet itself) can be read or deleted. */

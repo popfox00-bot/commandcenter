@@ -227,9 +227,27 @@ you save them, and nothing is uploaded. It works offline.
 
 ### Cutout and Characters
 
-Cut an object out of a photo: trace around it with your finger (**Trace**), or trace areas to take
-away (**Remove**), with undo/redo and an **Edge softness** slider. **Preview cutout** shows the
-result on a checkerboard. The result can be saved as a transparent PNG, shared, placed on another
+Cut an object out of a photo: trace around it with your finger (**Trace**), with undo/redo and an
+**Edge softness** slider. **Preview cutout** shows the result on a checkerboard.
+
+- **✨ Smart edges** (on unless turned off): a loose finger trace comes in to the object's edge. Only
+  a band just inside the trace is looked at, never the middle (so a fruit basket's many colors stay
+  whole), and nothing outside the trace is ever added. Working in from the trace, a pixel is cut when
+  it looks like the background just outside the trace there and clearly unlike the object further
+  in, or, when it looks like both, only if it's the color all round the outside (the background
+  proper; so where the trace runs through the object, nothing is cut). Strong edges stop it; a very
+  loose trace gets up to three passes. When the object can't be told from its background, the trace
+  is kept as drawn. The panel says how much it trimmed.
+- **➕ Add to trace:** trace inside your outline around a part to leave out, like the sky under a
+  basket's handle. With smart edges, only what looks like the inside of that trace goes; the handle
+  it ran over stays.
+- **🩹 Patch fix** (with a **Patch size** slider): tap where the outline is still off, and that
+  circle is worked out again: each pixel goes with what it looks more like, the object around the
+  circle (from well inside the cut) or the background around it (what's cut away), so the edge moves
+  in or out there. Specks are smoothed away and only parts joined to the object stay.
+- **🗑 Remove trace:** tap a trace or a patch to delete it. **Undo** and **Redo** cover every step.
+
+The result can be saved as a transparent PNG, shared, placed on another
 photo (opens Collage in Free mode), or saved as a **Character**: a named library of cutouts kept on
 the device (IndexedDB) that you can reuse from Collage ("+ Character"), rename, share or delete.
 
@@ -290,12 +308,37 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
 - **Setup, once:** open the spreadsheet → Extensions → Apps Script; paste in
   `apps-script/saved-files.gs` and save; run **setup** once (allow access) and copy the access key it
   shows in the log; Deploy → New deployment → **Web app**, Execute as **Me**, Who has access
-  **Anyone**; copy the web app URL. On the phone: Files → Saved Files → paste the URL and the key →
+  **Anyone**; copy the web app URL. On the phone: **Settings → Saved Files** → paste the URL and the key →
   **Connect**. The folder and spreadsheet stay **Restricted**: nothing is shared.
 - **Why "Anyone":** the phone calls the web app without signing in to Google; the access key is what
   keeps everyone else out (every request without it is refused, and the script only touches files
   in that one folder). The URL and key are kept only on your phone. To lock a phone out, run
   **setup** again (a new key) and reconnect the phones you want.
+- **Encryption** (Settings → Saved Files → 🔒 Turn on encryption): files are encrypted on the phone
+  before they go to Drive, so Google, the script and the spreadsheet log only see scrambled data,
+  under scrambled names (`ccv.…`; the spreadsheet logs those). AES-256-GCM (which also catches any
+  change to a file), with a random data key per vault that's kept in Drive only wrapped twice: by a
+  key made from your password (PBKDF2-SHA-256, 600,000 rounds, slow to guess on purpose) and by one
+  made from a **recovery key** (160 random bits, shown once when you turn it on; keep it in a password
+  manager or written down). You unlock once per session (password or recovery key); the key is kept
+  in memory only, so closing or reloading the app locks it again (**🔒 Lock** does it now). **Change
+  password** keeps every file as it is; **New recovery key** replaces the old one. Files saved before
+  encryption show "not encrypted" with **🔒 Encrypt** (or **Encrypt all**): an encrypted copy is saved
+  and the plain one goes to Drive's trash. Each file also carries the wrapped key, so **Open an
+  encrypted file** (in Settings) opens a downloaded `ccv.` file with just the password or recovery key,
+  on any device and in any browser, with nothing uploaded. Without the password and the recovery
+  key, the files can't be opened by anyone, including you (`web/lib/vault.js`).
+- **Decryption kit** (`web/decryption/`, also saved to a **Decryption** folder in your Drive when you
+  turn encryption on, or with **💾 Save decryption kit to Drive** in Settings): three ways to open
+  your files if this app ever stops working, each needing only a `ccv.` file and your password or
+  recovery key. **decrypt.html** is one page with no connection to anything: open it in any browser,
+  even offline, pick the files, enter the password. **decrypt.py** does the same on any computer with
+  Python 3 (`pip install cryptography`, then `python3 decrypt.py FILE…`). **FORMAT.md** describes the
+  file format byte by byte, so any programmer could write a decryptor. The kit holds no keys, so it's
+  safe to keep anywhere (they're plain files in Drive). The kit goes into its own folder with the
+  current Apps Script; a script from before that keeps it in the main folder as "Decryption - …"
+  (update it: paste the new `apps-script/saved-files.gs`, then Deploy → Manage deployments → edit →
+  New version; the URL and key stay the same).
 - It needs a connection; the rest of Files works offline. Requests go as plain-text JSON, which
   Apps Script web apps accept from a web page without a CORS preflight.
 
@@ -341,7 +384,8 @@ other) kept as cards to show someone in person or share as a picture. **+ Add fr
 a screenshot of the code in the app, pick it, and the code in it is read on the phone; the app and
 your handle are worked out from it (`https://venmo.com/u/Alex-Fox` → Venmo, @Alex-Fox), and the code
 is redrawn sharp on a card in the app's colors with its name, your name and handle (only the apps'
-names and colors are used, not their logos). If the picture has no QR code in it (Snapchat's ghost
+names and colors are used, not their logos; white text gets a thin dark outline, so it reads on
+Snapchat's yellow). If the picture has no QR code in it (Snapchat's ghost
 Snapcode, for one), the picture itself goes on the card. Tap a card to show it big, **Share** it as a
 PNG (1080×1440), **Open in** the app, edit or delete it. Cards stay on the phone.
 
@@ -478,6 +522,9 @@ wake itself up at a set time, so reminders have to come from something that's al
   iPhone's normal alerts, with nothing running anywhere.
 
 ## Settings
+
+**Saved Files (Google Drive)**: the web app URL and access key for Files → Saved Files are entered
+here (and **Disconnect this phone**).
 
 **Edit Home Screen** puts the apps in the order you like (↑ ↓ next to each; **Reset to default order**:
 Calendar, Updates, Notes, Files, Draw, QR, Games, Settings). **Jobs** (background runs, push

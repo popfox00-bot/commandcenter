@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open encrypted Saved Files</title>
+<!--
+  Command Center Saved Files: open encrypted "ccv." files without the app. This one file is all it
+  takes: save it anywhere (it holds no keys), open it in any modern browser (Chrome, Edge, Firefox,
+  Safari), offline. Everything happens in the browser; nothing is sent anywhere. The format is in
+  FORMAT.md.
+-->
+<style>
+  :root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --text: #14171c; --muted: #5f6774; --border: #e1e4ea; --primary: #2563eb; --bad: #b91c1c; --ok: #15803d; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f1115; --card: #181b21; --text: #e8eaee; --muted: #9aa3b2; --border: #2a2f38; --primary: #3b82f6; --bad: #f87171; --ok: #4ade80; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 14px; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: grid; gap: 10px; }
+  label { display: grid; gap: 6px; font-weight: 600; font-size: .95rem; }
+  input { font: inherit; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  button { font: inherit; font-weight: 600; min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: var(--primary); color: #fff; cursor: pointer; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); }
+  ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  a { color: var(--primary); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🔒 Open encrypted Saved Files</h1>
+  <p class="muted">For files from Command Center's Saved Files with encryption on (names starting <b>ccv.</b>). Works offline; nothing leaves this device.</p>
+  <form class="card" id="form">
+    <label>Encrypted files <input type="file" id="files" multiple></label>
+    <label>Vault file (optional: <i>command-center-vault.json</i>, for files saved before a password change) <input type="file" id="vault" accept=".json,application/json"></label>
+    <label>Password or recovery key <input type="password" id="secret" autocomplete="off"></label>
+    <button>Open</button>
+    <p id="status" class="muted" aria-live="polite"></p>
+    <ul id="out"></ul>
+  </form>
+  <p class="muted">Without the password and the recovery key the files can't be opened, by anyone.</p>
+</main>
+<script>
+(() => {
+  'use strict';
+  const subtle = (globalThis.crypto || {}).subtle;
+  const enc = new TextEncoder(); const dec = new TextDecoder();
+  const B32 = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const recoveryKey = (s) => { const t = String(s).toUpperCase().replace(/[^A-Z0-9]/g, ''); return t.length === 32 && [...t].every((c) => B32.includes(c)) ? t : null; };
+  async function unwrap(w, secret, iterations) {
+    const base = await subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']);
+    const kek = await subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64(w.salt), iterations }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    return new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: unb64(w.iv) }, kek, unb64(w.ct)));
+  }
+  async function dataKey(header, secret) {
+    const tries = [[header.password, secret]]; const rk = recoveryKey(secret);
+    if (rk) tries.push([header.recovery, rk]);
+    for (const [w, s] of tries) { try { return await subtle.importKey('raw', await unwrap(w, s, header.iterations), 'AES-GCM', false, ['decrypt']); } catch (e) { /* next */ } }
+    throw new Error('Wrong password or recovery key.');
+  }
+  async function openFile(bytes, secret, vault) {
+    if (bytes.length < 24 || dec.decode(bytes.subarray(0, 4)) !== 'CCV1') throw new Error('Not a Saved Files encrypted file.');
+    const hl = new DataView(bytes.buffer, bytes.byteOffset + 4, 4).getUint32(0);
+    const header = JSON.parse(dec.decode(bytes.subarray(8, 8 + hl)));
+    const iv = bytes.subarray(8 + hl, 20 + hl); const ct = bytes.subarray(20 + hl);
+    let key;
+    try { key = await dataKey(header, secret); } catch (e) { if (!vault) throw e; key = await dataKey(vault, secret); }
+    let body;
+    try { body = new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv }, key, ct)); } catch (e) { throw new Error("This file couldn't be opened with that key (or it was changed)."); }
+    const ml = new DataView(body.buffer, body.byteOffset, 4).getUint32(0);
+    const meta = JSON.parse(dec.decode(body.subarray(4, 4 + ml)));
+    return new File([body.subarray(4 + ml)], meta.n, { type: meta.t });
+  }
+  const $ = (id) => document.getElementById(id);
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const status = $('status'); const out = $('out'); out.textContent = '';
+    if (!subtle) { status.className = 'bad'; status.textContent = 'This browser can\'t decrypt here. Open this page in Chrome, Edge, Firefox or Safari (from a file or https).'; return; }
+    const files = [...$('files').files]; const secret = $('secret').value;
+    if (!files.length || !secret) { status.className = 'bad'; status.textContent = 'Pick the files and enter the password or recovery key.'; return; }
+    let vault = null;
+    if ($('vault').files[0]) { try { vault = JSON.parse(await $('vault').files[0].text()); } catch (err) { status.className = 'bad'; status.textContent = 'That vault file isn\'t readable.'; return; } }
+    status.className = 'muted'; status.textContent = 'Opening…';
+    let ok = 0;
+    for (const f of files) {
+      const li = document.createElement('li');
+      try {
+        const file = await openFile(new Uint8Array(await f.arrayBuffer()), secret, vault);
+        const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.textContent = `Save "${file.name}"`;
+        li.append(a, document.createTextNode(` (${file.type || 'file'}, ${file.size} bytes)`)); ok++;
+      } catch (err) { li.className = 'bad'; li.textContent = `${f.name}: ${err.message}`; }
+      out.append(li);
+    }
+    status.className = ok ? 'ok' : 'bad'; status.textContent = `Opened ${ok} of ${files.length}.`;
+  });
+})();
+</script>
+</body>
+</html>

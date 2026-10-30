@@ -3,6 +3,8 @@
 // phone and kept only here (localStorage), never in the app's code. Requests go as text/plain JSON
 // so the browser sends them straight (no CORS preflight, which Apps Script can't answer).
 
+import { HEADER_FILE, isEncryptedName, encryptFile, decryptName, decryptFile, unlocked } from './vault.js';
+
 const CONFIG_KEY = 'cc.savedFiles';
 export const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -49,10 +51,12 @@ export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
   }
   return {
     ping: async () => (await call('ping')).folder,
+    /** { folder, version } (version 1: a script from before folders). */
+    info: async () => { const r = await call('ping'); return { folder: r.folder, version: r.version ?? 1 }; },
     list: async () => (await call('list')).files ?? [],
-    async upload(file, from = '') {
+    async upload(file, from = '', folder = '') {
       if (file.size > MAX_BYTES) throw new Error(`"${file.name}" is too big for Saved Files (25 MB at most).`);
-      return (await call('upload', { name: file.name, type: file.type || 'application/octet-stream', data: await toBase64(file), from })).file;
+      return (await call('upload', { name: file.name, type: file.type || 'application/octet-stream', data: await toBase64(file), from, ...(folder ? { folder } : {}) })).file;
     },
     async download(id) {
       const out = await call('download', { id });
@@ -72,3 +76,113 @@ export function size(n) {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
+
+// ---------- encryption (web/lib/vault.js) ----------
+
+
+const HEADER_KEY = 'cc.vault.header';
+/** The vault header known on this phone (nothing secret in it), or null when encryption is off. */
+export function knownHeader(storage = globalThis.localStorage) { try { return JSON.parse(storage.getItem(HEADER_KEY)) ?? null; } catch { return null; } }
+export function rememberHeader(h, storage = globalThis.localStorage) { try { if (h) storage.setItem(HEADER_KEY, JSON.stringify(h)); else storage.removeItem(HEADER_KEY); } catch { /* private mode */ } }
+
+// ---------- the decryption kit ----------
+
+export const KIT_FOLDER = 'Decryption';
+export const KIT_FILES = ['decrypt.html', 'decrypt.py', 'FORMAT.md'];
+const KIT_PREFIX = 'Decryption - ';
+/** Whether a file in the main folder is part of the kit (saved there by a script from before folders). */
+export const isKitFile = (name) => String(name).startsWith(KIT_PREFIX);
+
+/**
+ * Save the decryption kit (web/decryption/: decrypt.html, decrypt.py, FORMAT.md) to Drive, as plain
+ * files (they hold no keys): into a "Decryption" folder, or, with a script from before folders, into
+ * the main folder as "Decryption - …". Returns { where, files }.
+ */
+export async function saveDecryptionKit(api, { fetch: f = globalThis.fetch, base = new URL('../decryption/', import.meta.url) } = {}) {
+  const { version } = await api.info();
+  const folders = version >= 2;
+  const types = { html: 'text/html', py: 'text/x-python', md: 'text/markdown' };
+  const saved = [];
+  for (const name of KIT_FILES) {
+    const res = await f(new URL(name, base), { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`Couldn't read ${name} from the app.`);
+    const file = new File([await res.blob()], folders ? name : `${KIT_PREFIX}${name}`, { type: types[name.split('.').pop()] });
+    saved.push(await api.upload(file, 'Settings', folders ? KIT_FOLDER : ''));
+  }
+  return { where: folders ? `the "${KIT_FOLDER}" folder` : 'the Saved Files folder (as "Decryption - …"; update the script for a folder)', files: saved };
+}
+
+export class LockedError extends Error { constructor() { super('Saved Files are encrypted: unlock them first (Files → Saved Files, or Settings).'); this.name = 'LockedError'; } }
+
+/**
+ * Saved Files with encryption: uploads are encrypted when a vault is set up (and must be unlocked),
+ * listed names are decrypted with this session's key, downloads decrypted. The vault file itself is
+ * kept out of the list. With no vault, files go as they are.
+ */
+export function secureFiles(api) {
+  async function findHeader(raw) {
+    const f = raw.find((x) => x.name === HEADER_FILE);
+    if (!f) { if (knownHeader() && !raw.some((x) => isEncryptedName(x.name))) rememberHeader(null); return null; }
+    if (!knownHeader() || knownHeader().headerId !== f.id) {
+      const h = JSON.parse(await (await api.download(f.id)).text());
+      rememberHeader({ ...h, headerId: f.id });
+    }
+    return f;
+  }
+  return {
+    ping: api.ping,
+    info: api.info,
+    remove: api.remove,
+    /** The files, newest first, names decrypted: [{ id, name, type, size, updated, encrypted, locked }]. */
+    async list() {
+      const raw = await api.list();
+      await findHeader(raw);
+      const s = unlocked();
+      const out = [];
+      for (const f of raw) {
+        if (f.name === HEADER_FILE) continue;
+        if (!isEncryptedName(f.name)) { out.push({ ...f, encrypted: false }); continue; }
+        const meta = s ? await decryptName(s.key, f.name) : null;
+        out.push(meta ? { ...f, name: meta.name, type: meta.type, size: meta.size, encrypted: true } : { ...f, name: s ? 'Encrypted with another key' : '🔒 Locked file', type: '', encrypted: true, locked: true });
+      }
+      return out;
+    },
+    async upload(file, from = '') {
+      const header = knownHeader();
+      if (!header) return api.upload(file, from);
+      const s = unlocked();
+      if (!s) throw new LockedError();
+      const { name, blob } = await encryptFile(s.key, s.header ?? header, file);
+      return api.upload(new File([blob], name, { type: 'application/octet-stream' }), from);
+    },
+    async download(id) {
+      const file = await api.download(id);
+      if (!isEncryptedName(file.name)) return file;
+      const s = unlocked();
+      if (!s) throw new LockedError();
+      return decryptFile(s.key, file);
+    },
+    /** Save the vault header to Drive (replacing the old one). */
+    async saveHeader(header) {
+      const raw = await api.list();
+      const old = raw.filter((x) => x.name === HEADER_FILE);
+      const { headerId, ...clean } = header;
+      const f = await api.upload(new File([JSON.stringify(clean)], HEADER_FILE, { type: 'application/json' }), 'Settings');
+      for (const o of old) await api.remove(o.id).catch(() => {});
+      rememberHeader({ ...clean, headerId: f.id });
+      return f;
+    },
+    /** Encrypt a file that's in Drive as it is: a new encrypted copy, then the plain one to the trash. */
+    async encryptExisting(f) {
+      const plain = await api.download(f.id);
+      const out = await this.upload(plain, 'Encrypt');
+      await api.remove(f.id);
+      return out;
+    },
+    /** Make sure the vault header is known (look in Drive). */
+    refresh: async () => { await findHeader(await api.list()); return knownHeader(); },
+  };
+}
+
+/** The configured client with encryption, or null when Saved Files isn't set up on this phone. */
+export const connectedSecure = () => { const c = connected(); return c ? secureFiles(c) : null; };

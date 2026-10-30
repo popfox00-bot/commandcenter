@@ -107,27 +107,31 @@ test('Calendar: week view with today highlighted; add, repeat, month and day vie
 
 /** A stand-in for the Saved Files Apps Script web app (same requests and answers). */
 async function fakeScript(context, key = 'k3y') {
-  const files = []; let n = 0; const calls = [];
+  const files = []; const kit = []; let n = 0; const calls = [];
   await context.route('https://script.google.com/macros/s/TEST/exec', async (route) => {
     const req = JSON.parse(route.request().postData());
     calls.push({ action: req.action, type: route.request().headers()['content-type'] });
     const send = (body) => route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*' } });
     if (req.key !== key) return send({ ok: false, error: 'Wrong access key' });
-    if (req.action === 'ping') return send({ ok: true, folder: 'Command Center' });
+    if (req.action === 'ping') return send({ ok: true, folder: 'Command Center', version: 2 });
     if (req.action === 'list') return send({ ok: true, files: files.map(({ data, ...f }) => f).reverse() });
+    if (req.action === 'upload' && req.folder) { kit.push({ folder: req.folder, name: req.name, data: req.data }); return send({ ok: true, file: { id: `k${kit.length}`, name: req.name, folder: req.folder } }); }
     if (req.action === 'upload') { const f = { id: `f${++n}`, name: req.name, type: req.type, size: Buffer.from(req.data, 'base64').length, updated: NOW + n, data: req.data, from: req.from }; files.push(f); const { data, ...info } = f; return send({ ok: true, file: info }); }
     if (req.action === 'download') { const f = files.find((x) => x.id === req.id); return send(f ? { ok: true, name: f.name, type: f.type, data: f.data } : { ok: false, error: 'No such file' }); }
     if (req.action === 'delete') { files.splice(files.findIndex((x) => x.id === req.id), 1); return send({ ok: true }); }
     return send({ ok: false, error: 'Unknown action' });
   });
-  return { files, calls };
+  return { files, kit, calls };
 }
 
-test('Files → Saved Files: connect with the URL and key, save, list, open, delete; Draw saves to it', async () => {
+test('Files → Saved Files: connect in Settings with the URL and key, save, list, open, delete; Draw saves to it', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const script = await fakeScript(context);
+  // Not connected yet: Files → Saved Files points to Settings, where the URL and key go.
   const { page, errors } = await open(context, '#/files/saved');
-  await page.waitForSelector('text=Connect Saved Files');
+  await page.waitForSelector('text=Connect it once in Settings');
+  await page.getByRole('link', { name: 'Open Settings' }).click();
+  await page.waitForSelector('#saved-files');
   // A wrong URL and a wrong key are caught.
   await page.fill('[aria-label="Web app URL"]', 'https://example.com/exec');
   await page.fill('[aria-label="Access key"]', 'k3y');
@@ -141,6 +145,8 @@ test('Files → Saved Files: connect with the URL and key, save, list, open, del
   await page.getByRole('button', { name: 'Connect' }).click();
   await page.waitForSelector('text=Connected to "Command Center"');
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('cc.savedFiles'))), { url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' });
+  await page.goto(`${origin}${BASE}#/files/saved`);
+  await page.waitForSelector('text=No files saved yet.');
 
   // Save two files from the phone.
   await page.setInputFiles('#sv-file', [
@@ -180,14 +186,82 @@ test('Files → Saved Files: connect with the URL and key, save, list, open, del
   await context.close();
 });
 
-test('Draw → Save to Files before Saved Files is set up: offers to set it up', async () => {
+test('Draw → Save to Files before Saved Files is connected: offers to connect it in Settings', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await open(context, '#/draw');
   await page.getByRole('button', { name: '+ New drawing' }).click();
   await page.waitForSelector('.dr-canvas');
   await page.getByRole('button', { name: '☁️ Save to Files' }).click(); // the confirm is accepted
-  await page.waitForFunction(() => location.hash === '#/files/saved');
-  await page.waitForSelector('text=Connect Saved Files');
+  await page.waitForFunction(() => location.hash === '#/settings');
+  await page.waitForSelector('#saved-files >> text=Not connected.');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Saved Files encryption: turn it on (recovery key shown once), files encrypted on the phone, unlocked once a session, old files encrypted, a file opened anywhere', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  // An older file, saved before encryption.
+  script.files.push({ id: 'old1', name: 'old.txt', type: 'text/plain', size: 9, updated: NOW - 1000, data: Buffer.from('old plain').toString('base64'), from: 'Files' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/settings');
+  await page.waitForSelector('text=🔒 Turn on encryption');
+  await page.fill('[aria-label="Choose a password"]', 'short');
+  await page.fill('[aria-label="The same again"]', 'short');
+  await page.getByRole('button', { name: '🔒 Turn on encryption' }).click();
+  await page.waitForSelector('text=Choose a longer password');
+  await page.fill('[aria-label="Choose a password"]', 'maple river candle orbit');
+  await page.fill('[aria-label="The same again"]', 'maple river candle orbit');
+  await page.getByRole('button', { name: '🔒 Turn on encryption' }).click();
+  await page.waitForSelector('.vault-key', { timeout: 20000 });
+  const recovery = await page.textContent('.vault-key');
+  assert.match(recovery, /^([A-Z2-9]{4}-){7}[A-Z2-9]{4}$/);
+  assert.equal(await page.isDisabled('dialog[open] >> text=Done'), true, 'Done only once you\'ve kept it');
+  await page.check('#vault-saved');
+  await page.click('dialog[open] >> text=Done');
+  await page.waitForSelector('text=Encryption is on, and unlocked');
+  await page.waitForSelector('text=The decryption kit (to open files without this app) is in the "Decryption" folder.');
+  assert.deepEqual(script.kit.map((k) => `${k.folder}/${k.name}`), ['Decryption/decrypt.html', 'Decryption/decrypt.py', 'Decryption/FORMAT.md']);
+  assert.match(Buffer.from(script.kit[0].data, 'base64').toString(), /Open encrypted Saved Files/, 'the real page, as plain files (they hold no keys)');
+  const vault = script.files.find((f) => f.name === 'command-center-vault.json');
+  assert.ok(vault && !Buffer.from(vault.data, 'base64').toString().includes('maple'), 'the vault file holds no password');
+
+  // Files → Saved Files: a new file is encrypted before it leaves the phone.
+  await page.goto(`${origin}${BASE}#/files/saved`);
+  await page.waitForSelector('.sv-item');
+  await page.setInputFiles('#sv-file', { name: 'bank notes.txt', mimeType: 'text/plain', buffer: Buffer.from('account 12345') });
+  await page.waitForSelector('text=Saved 1 file to your Drive.');
+  const stored = script.files.at(-1);
+  assert.match(stored.name, /^ccv\./); assert.equal(stored.type, 'application/octet-stream');
+  assert.ok(!stored.name.includes('bank') && !Buffer.from(stored.data, 'base64').toString('latin1').includes('12345'), 'Drive sees neither the name nor the content');
+  assert.match(await page.textContent('.sv-list'), /bank notes\.txt[\s\S]*🔒 encrypted/);
+  assert.equal(await page.isVisible('.sv-list >> text=command-center-vault.json'), false, 'the vault file isn\'t listed');
+
+  // The older plain file: encrypt it.
+  assert.match(await page.textContent('.sv-item:has-text("old.txt")'), /not encrypted/);
+  await page.getByRole('button', { name: 'Encrypt old.txt' }).click();
+  await page.waitForSelector('text=Encrypted 1 file');
+  assert.ok(!script.files.some((f) => f.name === 'old.txt'), 'the plain copy is gone (to Drive\'s trash)');
+
+  // Reloaded: locked. A wrong password doesn't open it; the recovery key does.
+  await page.reload();
+  await page.waitForSelector('text=🔒 Locked');
+  assert.match(await page.textContent('.sv-list'), /🔒 Locked file/);
+  await page.fill('[aria-label="Saved Files password"]', 'maple river candle orbiT');
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await page.waitForSelector('text=Wrong password or recovery key.');
+  await page.fill('[aria-label="Saved Files password"]', recovery.toLowerCase());
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await page.waitForSelector('text=bank notes.txt');
+  assert.match(await page.textContent('.sv-list'), /old\.txt/);
+
+  // Open anywhere: the downloaded encrypted file, with the password, in Settings.
+  await page.goto(`${origin}${BASE}#/settings`);
+  await page.click('summary >> text=Open an encrypted file');
+  await page.setInputFiles('[aria-label="Encrypted file"]', { name: stored.name, mimeType: 'application/octet-stream', buffer: Buffer.from(stored.data, 'base64') });
+  await page.fill('[aria-label="Password or recovery key for the file"]', 'maple river candle orbit');
+  await page.getByRole('button', { name: 'Open file' }).click();
+  await page.waitForSelector('text=Opened "bank notes.txt"', { timeout: 20000 });
   assert.deepEqual(errors, []);
   await context.close();
 });

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "4db19bca30d7",
+  "version": "30b99eb19d8f",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -22,6 +22,9 @@ const PRECACHE = {
     "apps/updates/updates.js",
     "apps/updates/weather-core.js",
     "config.js",
+    "decryption/FORMAT.md",
+    "decryption/decrypt.html",
+    "decryption/decrypt.py",
     "icons/apple-touch-icon.png",
     "icons/icon-192.png",
     "icons/icon-512-maskable.png",
@@ -37,7 +40,10 @@ const PRECACHE = {
     "lib/image.js",
     "lib/pdf-reader.js",
     "lib/pdf-writer.js",
+    "lib/saved-files-setup.js",
     "lib/saved-files.js",
+    "lib/vault-ui.js",
+    "lib/vault.js",
     "lib/webp.js",
     "lib/zip.js",
     "manifest.webmanifest",

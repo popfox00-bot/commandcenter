@@ -419,8 +419,12 @@ test('fast enough: the four corners of a phone-screenshot media, two buttons reb
   const img = media(W, MH, withButtons(backdrop, [button(36 + R, MH - 36 - R, R, 'tags'), button(W - 36 - R, MH - 36 - R, R, 'mute')]));
   const s = sampler(img);
   removeIcons(s, W, MH, { x: 0, y: 0, width: W, height: MH });
-  const t = performance.now();
-  removeIcons(s, W, MH, { x: 0, y: 0, width: W, height: MH });
-  const ms = performance.now() - t;
+  // The fastest of three runs: other test files run alongside and can slow any one run down.
+  let ms = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const t = performance.now();
+    removeIcons(s, W, MH, { x: 0, y: 0, width: W, height: MH });
+    ms = Math.min(ms, performance.now() - t);
+  }
   assert.ok(ms < 700, `${ms.toFixed(1)} ms`);
 });

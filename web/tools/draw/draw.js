@@ -8,7 +8,7 @@ import { el } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
-import { connected as savedFiles } from '../../lib/saved-files.js';
+import { connectedSecure as savedFiles } from '../../lib/saved-files.js';
 import { PAGES, PAPERS, TOOLS, COLORS, newDrawing, addPoint, drawPaper, drawItem, drawInk, createHistory, isShapeTool, normalizeDrawing } from './draw-core.js';
 
 const LIST_KEY = 'draw.list';            // [{ id, name, updated, w, h }]
@@ -258,7 +258,7 @@ export function mount(host) {
     async function saveToFiles() {
       const api = savedFiles();
       if (!api) {
-        if (confirm('Saved Files isn\'t set up on this phone yet. Set it up now in Files → Saved Files?')) { clearTimeout(saveTimer); await saveDoc(doc, thumbnail()); location.hash = '#/files/saved'; }
+        if (confirm('Saved Files isn\'t connected on this phone yet. Connect it now in Settings?')) { clearTimeout(saveTimer); await saveDoc(doc, thumbnail()); location.hash = '#/settings'; }
         return;
       }
       saveNote.className = 'small muted'; saveNote.textContent = 'Saving to Saved Files…';

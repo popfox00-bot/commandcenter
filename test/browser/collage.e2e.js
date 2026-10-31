@@ -197,6 +197,33 @@ test('cutout: smart edges bring a loose trace in to the object; a trace added in
   const patched = await resultWidth();
   assert.ok(patched >= 150 && patched <= 180, `still cut to the ball: ${patched} px wide`);
 
+  // Brush (cut away): paint across the middle, it's left out. Wand (keep): tap it, the ball's red comes back.
+  await page.getByRole('radio', { name: '🖌 Brush' }).click();
+  assert.equal(await page.getAttribute('.co-dir .seg.active', 'aria-checked'), 'true');
+  assert.match(await page.textContent('.co-dir .seg.active'), /Cut away/);
+  const b4 = await canvasBox(page, '.co-canvas');
+  await page.mouse.move(b4.x + b4.w / 2 - 30 * k, b4.y + b4.h / 2); await page.mouse.down();
+  for (let d = -30; d <= 30; d += 5) await page.mouse.move(b4.x + b4.w / 2 + d * k, b4.y + b4.h / 2);
+  assert.equal(await page.isVisible('.co-canvas'), true);
+  await page.mouse.up();
+  await page.waitForSelector('text=/Cut away [\\d,]+ pixels/');
+  assert.equal(await middle(), false, 'brushed out');
+  await page.getByRole('radio', { name: '🪄 Wand' }).click();
+  await page.locator('.co-dir').getByRole('radio', { name: '↩︎ Keep' }).click();
+  const b5 = await canvasBox(page, '.co-canvas');
+  await page.mouse.click(b5.x + b5.w / 2, b5.y + b5.h / 2);
+  await page.waitForSelector('text=/Brought back [\\d,]+ pixels/');
+  assert.equal(await middle(), true, 'the wand brought it back');
+  // Remove trace: tap the wand's dot, the fix is gone (the middle is out again); undo.
+  await page.getByRole('radio', { name: '🗑 Remove trace' }).click();
+  await page.mouse.click(b5.x + b5.w / 2, b5.y + b5.h / 2);
+  assert.equal(await middle(), false, 'the wand fix removed');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  assert.equal(await middle(), true);
+  // The patch fix's directions.
+  await page.getByRole('radio', { name: '🩹 Patch fix' }).click();
+  assert.deepEqual(await page.$$eval('.co-dir .seg', (els) => els.map((e) => e.textContent)), ['Auto', '✂️ Cut away', '↩︎ Keep']);
+
   // Smart edges off: the cut follows the trace as drawn.
   await page.click('.co-smart .chip');
   assert.match(await page.textContent('.co-smart'), /Off: the cut follows your trace exactly/);

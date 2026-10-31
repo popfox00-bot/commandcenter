@@ -659,6 +659,8 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .sv-form { display: grid; gap: 8px; }
 .co-modes { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
 .co-modes .seg { font-size: .9rem; }
+.co-dir { grid-auto-flow: column; grid-auto-columns: 1fr; }
+.co-dir .seg { font-size: .85rem; }
 
 /* Saved Files encryption */
 .vault-unlock { display: grid; gap: 8px; }

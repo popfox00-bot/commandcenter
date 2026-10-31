@@ -47,7 +47,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
-- [Calendar](#calendar) · [Notes](#notes) · [Games](#games) · [Settings](#settings)
+- [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -527,6 +527,34 @@ Open **Notes** on the home screen. Everything is stored on the phone (IndexedDB)
   thumbnail in the list opens full screen so whoever shops can match the label on the shelf. Items
   you clear from the cart are added to My items, most-bought first as one-tap suggestions.
 - **Share** sends the list as text grouped by section, with brands, e.g. to Messages.
+
+## Rap
+
+Write lyrics on the phone, offline, with rhymes and suggestions as you go.
+
+- **✍️ Create**: a lyrics view like Apple Music's: the line you're writing big and white, the lines
+  before it above, smaller and grayed the further back they are, scrolling along to keep your line in
+  focus. **Enter** starts the next line (what's after the cursor goes with it); Backspace at the start
+  of a line joins it to the one before; ✎ (or a double tap) edits an earlier line. Each line shows its
+  syllables, to keep the flow even.
+- **Suggestions** (bottom left, above the keyboard): the **next word**, like a phone keyboard's (what
+  follows in the lines it has learned; mid-word, words starting with what you've typed), and
+  **Complete the line**: three endings that rhyme with the line you're answering and make it about as
+  long as that line. Lines rhyme in pairs: a line answers the one before, unless those two already
+  rhyme (then it starts a new pair, and the endings are free).
+- **Rhymes** (bottom right): a word bank of common words that rhyme with the last word you wrote,
+  perfect rhymes first (night: light, fight, tonight) then near ones (ride, side, time). **Tap any word**
+  in your lines (or type one) to see its rhymes instead; **↺ last word** goes back. Tap a word in the
+  bank to add it.
+- **💾 Saved Songs**: every song is kept as you write (on this phone), with its title; open, share or
+  delete. Your songs also teach the suggestions your own style.
+- **🅴**: explicit words in suggestions (off by default; slurs are never suggested).
+- How it works (`web/apps/rap/`): `rap-words.txt` is about 32,000 common words with how they sound,
+  built by `scripts/build-rap-words.mjs` from the CMU Pronouncing Dictionary (rhymes: the sounds from the
+  last stressed vowel on), SCOWL (which words are common) and WordNet (nouns, verbs, adjectives, for
+  endings like "watch me ___"); notices in `DATA-LICENSES.md`. Words it doesn't know ("stuntin'") are
+  worked out from their stem or ending. Suggestions learn from `rap-corpus.js` (lines written for this
+  app) and your songs.
 
 ## Games
 

@@ -683,3 +683,57 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .sv-crumbs { gap: 4px; align-items: center; }
 .sv-crumbs strong { overflow-wrap: anywhere; }
 .sv-open { justify-self: start; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+
+/* Rap: a lyrics view (the line being written big and white, the lines before smaller and grayed),
+   suggestions and the rhyme bank docked at the bottom, above the keyboard. */
+.tint-purple { background: linear-gradient(160deg, #c4b5fd, #6d28d9); }
+.rap { max-width: 760px; margin: 0 auto; display: grid; gap: 10px; }
+.rap-tabs .seg { display: grid; place-items: center; text-decoration: none; }
+.rap-create { display: grid; gap: 8px; }
+.rap-bar { gap: 8px; }
+.rap-title { flex: 1; min-width: 0; font-size: 1.1rem; font-weight: 700; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); padding: 6px 2px; border-radius: 0; }
+.rap-stage {
+  height: calc(100dvh - 430px); min-height: 220px; overflow-y: auto; border-radius: 18px; padding: 0 18px;
+  background: radial-gradient(120% 90% at 20% 0%, #3b1d6e 0%, #16112b 55%, #0b0b12 100%); color: #fff;
+  scrollbar-width: none; overscroll-behavior: contain;
+}
+.rap-stage::-webkit-scrollbar { display: none; }
+.rap-pad { height: 38%; }
+.rap-row { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 4px 0; transition: opacity .25s, transform .25s; }
+.rap-line { margin: 0; font-weight: 800; line-height: 1.18; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.rap-current { width: 100%; resize: none; overflow: hidden; border: 0; outline: 0; background: transparent; color: #fff; font: inherit; font-size: 30px; font-weight: 800; line-height: 1.18; padding: 0; caret-color: #c4b5fd; }
+.rap-current::placeholder { color: rgba(255,255,255,.35); }
+.is-before .rap-line, .is-after .rap-line { color: rgba(255,255,255,.62); font-size: 22px; }
+.rap-d2 .rap-line { color: rgba(255,255,255,.48); font-size: 20px; }
+.rap-d3 .rap-line { color: rgba(255,255,255,.36); font-size: 18px; }
+.rap-d4 .rap-line { color: rgba(255,255,255,.26); font-size: 17px; }
+.is-after .rap-line { color: rgba(255,255,255,.4); }
+.rap-word { cursor: pointer; border-radius: 6px; }
+.rap-word.picked { background: rgba(196,181,253,.3); color: #fff; }
+.rap-blank { opacity: .4; }
+.rap-syl { min-width: 22px; text-align: right; font-size: .75rem; color: rgba(255,255,255,.45); }
+.rap-edit { border: 0; background: transparent; color: rgba(255,255,255,.35); font-size: .9rem; padding: 4px; }
+.rap-dock {
+  position: sticky; bottom: var(--kb, 0px); z-index: 5; display: grid; grid-template-columns: 1.15fr 1fr; gap: 10px;
+  padding: 10px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 -4px 18px rgb(0 0 0 / .12);
+}
+.rap-dock h3 { margin: 0 0 6px; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #6b7280); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rap-dock h4 { margin: 8px 0 4px; font-size: .78rem; color: var(--muted, #6b7280); font-weight: 600; }
+.rap-chips, .rap-bank-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.rap-bank-list { max-height: 150px; overflow-y: auto; align-content: flex-start; }
+.rap-chip { min-height: 32px; padding: 4px 10px; font-size: .9rem; }
+.rap-chip.near { opacity: .75; }
+.rap-near-label { width: 100%; margin-top: 2px; }
+.rap-completes { display: grid; gap: 6px; }
+.rap-complete { text-align: left; border: 1px solid var(--border); background: var(--idle-bg); color: var(--text); border-radius: 10px; padding: 6px 10px; font: inherit; font-size: .9rem; cursor: pointer; }
+.rap-bank-word { width: 7.5em; min-height: 28px; padding: 2px 8px; font-size: .85rem; text-transform: none; letter-spacing: 0; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.rap-saved { display: grid; gap: 10px; }
+.rap-songs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rap-song { display: grid; gap: 6px; }
+.rap-song-open { display: grid; gap: 2px; text-align: left; border: 0; background: none; color: var(--text); font: inherit; padding: 0; cursor: pointer; }
+@media (max-width: 520px) {
+  .rap-dock { grid-template-columns: 1fr 1fr; padding: 8px; gap: 8px; }
+  .rap-current { font-size: 26px; }
+  .rap-chip { font-size: .85rem; padding: 3px 8px; min-height: 30px; }
+  .rap-complete { font-size: .82rem; padding: 5px 8px; }
+}

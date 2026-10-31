@@ -4,6 +4,10 @@ A personal, phone-first app. It opens on a home screen of app icons: **Calendar*
 **Notes**, **Files**, **Draw**, **QR**, **Games** and **Settings** (the order can be changed in
 Settings → Edit Home Screen; **Jobs** is opened from Settings).
 
+- **Everything but Updates works offline** (after the first visit, from the phone's cache): Calendar,
+  Notes, Files, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
+  one with no connection. Only what's online by nature needs one: Updates (weather, sports), Saved
+  Files (your Drive) and Jobs.
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
   setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
   and [Cutout](#cutout-and-characters) under it), [Write on PDF](#write-on-pdf), [Scan](#scan), the
@@ -535,15 +539,28 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
 - **✍️ Create**: a lyrics view like Apple Music's: the line you're writing big and white, the lines
   before it above, smaller and grayed the further back they are, scrolling along to keep your line in
   focus. **Enter** starts the next line (what's after the cursor goes with it); Backspace at the start
-  of a line joins it to the one before; ✎ (or a double tap) edits an earlier line. Each line shows its
-  syllables, to keep the flow even.
-- **Suggestions** (bottom left, above the keyboard): the **next word**, like a phone keyboard's (what
-  follows in the lines it has learned; mid-word, words starting with what you've typed), and
-  **Complete the line**: three endings that rhyme with the line you're answering and make it about as
-  long as that line. Lines rhyme in pairs: a line answers the one before, unless those two already
-  rhyme (then it starts a new pair, and the endings are free).
+  of a line joins it to the one before; **tap anywhere in a line** to edit it with the cursor right
+  there (the rhyme bank follows the word you tapped). Each line shows its syllables, to keep the flow
+  even, and its **rhyme letter** (A, B, C…, colored), worked out as you write; the pattern of the last
+  lines (AABB, ABAB, AAAA…) shows at the top. **🗒 Notes**: each line has a note button at its end;
+  tap it to open the line's note under it (delivery, ad-libs, ideas). A line with a note shows its
+  button in color; notes stay with their lines and go along when you share a song.
+- **Suggestions** (bottom left) follow the **rhyme scheme** and the **theme** of your lines:
+  - The scheme: pairs (AABB: a line answers the one before; once they rhyme, the next starts a new
+    pair), alternating (ABAB: it answers the line two back) or one rhyme running on (AAA…).
+  - The theme: what your lines are about, from their words, the latest counting most (money, the
+    grind, success, struggle, dreams, love, family, the streets, the party, music, the ride, the
+    night, time, faith, the fight, nature: `rap-themes.js`), shown as "On theme: 💰 money · 🌙 night".
+  - The **next word**, like a phone keyboard's (what follows in the lines it has learned, theme words
+    lifted: after "the" in a money verse, "bank", "check"…; near the end of a line that should
+    rhyme, its rhymes).
+  - **Complete the line**, by **rhyme letter**: the letter the scheme calls for first (marked "fits
+    ABAB"), then another recent rhyme, then a new one; each ending rhymes with its letter's line (a
+    new rhyme: on the theme, on a sound not used yet) and makes the line about as long as the one it
+    answers.
 - **Rhymes** (bottom right): a word bank of common words that rhyme with the last word you wrote,
-  perfect rhymes first (night: light, fight, tonight) then near ones (ride, side, time). **Tap any word**
+  perfect rhymes first (night: light, fight, tonight) then near ones (ride, side, time), the ones on
+  the song's theme first (outlined). **Tap any word**
   in your lines (or type one) to see its rhymes instead; **↺ last word** goes back. Tap a word in the
   bank to add it.
 - **💾 Saved Songs**: every song is kept as you write (on this phone), with its title; open, share or

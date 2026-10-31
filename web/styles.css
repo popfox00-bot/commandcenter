@@ -689,11 +689,11 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .tint-purple { background: linear-gradient(160deg, #c4b5fd, #6d28d9); }
 .rap { max-width: 760px; margin: 0 auto; display: grid; gap: 10px; }
 .rap-tabs .seg { display: grid; place-items: center; text-decoration: none; }
-.rap-create { display: grid; gap: 8px; }
+.rap-create { display: flex; flex-direction: column; gap: 8px; height: calc(100dvh - 190px); min-height: 360px; }
 .rap-bar { gap: 8px; }
 .rap-title { flex: 1; min-width: 0; font-size: 1.1rem; font-weight: 700; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); padding: 6px 2px; border-radius: 0; }
 .rap-stage {
-  height: calc(100dvh - 430px); min-height: 220px; overflow-y: auto; border-radius: 18px; padding: 0 18px;
+  flex: 1 1 auto; min-height: 140px; overflow-y: auto; border-radius: 18px; padding: 0 18px;
   background: radial-gradient(120% 90% at 20% 0%, #3b1d6e 0%, #16112b 55%, #0b0b12 100%); color: #fff;
   scrollbar-width: none; overscroll-behavior: contain;
 }
@@ -712,15 +712,31 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .rap-word.picked { background: rgba(196,181,253,.3); color: #fff; }
 .rap-blank { opacity: .4; }
 .rap-syl { min-width: 22px; text-align: right; font-size: .75rem; color: rgba(255,255,255,.45); }
-.rap-edit { border: 0; background: transparent; color: rgba(255,255,255,.35); font-size: .9rem; padding: 4px; }
+.rap-row { grid-template-columns: 26px 1fr auto auto; cursor: text; }
+.rap-note-btn { border: 0; background: transparent; font-size: .95rem; padding: 4px; opacity: .35; filter: grayscale(1); cursor: pointer; }
+.rap-note-btn.has-note { opacity: 1; filter: none; }
+.rap-note-btn.open { opacity: 1; filter: none; background: rgba(255,255,255,.12); border-radius: 8px; }
+.rap-note { grid-column: 2 / -1; width: 100%; resize: vertical; min-height: 44px; border: 1px solid rgba(255,255,255,.18); border-radius: 10px; background: rgba(255,255,255,.07); color: #fff; font: inherit; font-size: .95rem; font-weight: 500; padding: 8px 10px; }
+.rap-note::placeholder { color: rgba(255,255,255,.4); }
+.rap-letter { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: .75rem; font-weight: 800; color: #fff; }
+.rap-letter:empty { visibility: hidden; }
+.rap-L0 { background: #8b5cf6; } .rap-L1 { background: #14b8a6; } .rap-L2 { background: #f59e0b; }
+.rap-L3 { background: #ec4899; } .rap-L4 { background: #3b82f6; } .rap-L5 { background: #84cc16; }
+.is-before .rap-letter, .is-after .rap-letter { opacity: .8; }
+.rap-scheme { font-weight: 800; letter-spacing: .12em; font-size: .85rem; color: var(--muted); }
+.rap-theme { margin: -2px 0 6px; color: var(--muted); }
+.rap-group { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--muted); }
+.rap-group .rap-letter { width: 18px; height: 18px; font-size: .68rem; }
+.rap-fits { margin-left: auto; color: #16a34a; font-weight: 700; }
+.rap-chip.themed { border-color: #8b5cf6; }
 .rap-dock {
-  position: sticky; bottom: var(--kb, 0px); z-index: 5; display: grid; grid-template-columns: 1.15fr 1fr; gap: 10px;
+  flex: 0 1 auto; max-height: 48%; overflow-y: auto; display: grid; grid-template-columns: 1.15fr 1fr; gap: 10px;
   padding: 10px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 -4px 18px rgb(0 0 0 / .12);
 }
 .rap-dock h3 { margin: 0 0 6px; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #6b7280); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .rap-dock h4 { margin: 8px 0 4px; font-size: .78rem; color: var(--muted, #6b7280); font-weight: 600; }
 .rap-chips, .rap-bank-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.rap-bank-list { max-height: 150px; overflow-y: auto; align-content: flex-start; }
+.rap-bank-list { align-content: flex-start; }
 .rap-chip { min-height: 32px; padding: 4px 10px; font-size: .9rem; }
 .rap-chip.near { opacity: .75; }
 .rap-near-label { width: 100%; margin-top: 2px; }

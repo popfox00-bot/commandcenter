@@ -29,6 +29,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
   let saveTimer = 0;
   let canvas; let panel; let undoBtn; let redoBtn;
   let pickTarget = null; // { kind: 'cell', index } | { kind: 'base' } | { kind: 'layer' }
+  let swapHint = null;   // while holding a photo to move it to another frame: { from, to, p }
   const st = () => history.state;
 
   // ---------- images ----------
@@ -135,7 +136,9 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('+', r.x + r.w / 2, r.y + r.h / 2);
         }
         ctx.restore();
-        if (ui && selected === i) { ctx.strokeStyle = '#0a84ff'; ctx.lineWidth = 3 * (W / canvas.clientWidth); ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3); }
+        if (ui && selected === i && !swapHint) { ctx.strokeStyle = '#0a84ff'; ctx.lineWidth = 3 * (W / canvas.clientWidth); ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3); }
+        // Moving a photo to another frame: the frame it would go to, outlined.
+        if (ui && swapHint && swapHint.to === i) { ctx.save(); ctx.strokeStyle = '#30d158'; ctx.lineWidth = 4 * (W / canvas.clientWidth); ctx.setLineDash([10, 6]); ctx.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4); ctx.restore(); }
       });
     } else {
       if (s.base && images.has(s.base)) {
@@ -239,7 +242,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           cell?.src ? el('button', { class: 'btn small-btn', text: 'Replace', onclick: () => pick({ kind: 'cell', index: selected }) }) : null,
           cell?.src ? el('button', { class: 'btn small-btn ghost', text: 'Remove', onclick: () => { const cells = [...st().cells]; cells[selected] = null; commit({ ...st(), cells }); } }) : null),
         cell?.src ? slider('Zoom', 100, 400, Math.round(cell.zoom * 100), (v) => { const cells = [...st().cells]; cells[selected] = { ...cells[selected], zoom: v / 100 }; live({ ...st(), cells }); }) : null,
-        el('p', { class: 'muted small', text: cell?.src ? 'Drag the photo to position it in its frame.' : 'Tap a frame to add a photo.' }),
+        el('p', { class: 'muted small', text: cell?.src ? 'Drag the photo to position it in its frame. Hold it, then drag, to move it to another frame.' : 'Tap a frame to add a photo.' }),
         slider('Spacing', 0, 60, s.gap, (v) => live({ ...st(), gap: v })),
         slider('Rounded corners', 0, 80, s.radius, (v) => live({ ...st(), radius: v })),
         ...common,
@@ -323,7 +326,18 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
         if (i < 0) return;
         if (!s.cells[i]?.src) { selected = i; renderPanel(); draw(); g = { kind: 'tapEmpty', index: i, p }; return; }
         selected = i; renderPanel(); draw();
-        g = { kind: 'pan', index: i, p, rect: rects[i], start: s.cells[i], before: s };
+        g = { kind: 'pan', index: i, p, rect: rects[i], start: s.cells[i], before: s, rects };
+        // Hold still for a moment, then drag: the photo moves to another frame (swapping with it).
+        const hold = g;
+        hold.timer = setTimeout(() => {
+          if (g !== hold) return;
+          live(hold.before);
+          g = { kind: 'swap', index: i, p, to: i, rects, before: s };
+          swapHint = { from: i, to: i, p };
+          canvas.classList.add('cl-holding');
+          navigator.vibrate?.(15);
+          draw();
+        }, 450);
       } else {
         const px = W / canvas.clientWidth;
         const cur = s.layers.find((l) => l.id === selected);
@@ -344,6 +358,14 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
       pts.set(e.pointerId, at(e));
       if (!g) return;
       const s = st(); const W = canvas.width; const H = canvas.height; const p = at(e);
+      if (g.kind === 'pan' && g.timer && Math.hypot(p[0] - g.p[0], p[1] - g.p[1]) > 6 * (canvas.width / canvas.clientWidth)) { clearTimeout(g.timer); g.timer = 0; }
+      if (g.kind === 'swap') {
+        const to = g.rects.findIndex((r) => p[0] >= r.x && p[0] <= r.x + r.w && p[1] >= r.y && p[1] <= r.y + r.h);
+        g.to = to < 0 ? g.index : to;
+        swapHint = { from: g.index, to: g.to, p };
+        draw();
+        return;
+      }
       if (g.kind === 'pan') {
         const im = images.get(g.start.src);
         const o = panBy(im.w, im.h, g.rect, g.start.zoom, g.start.ox, g.start.oy, p[0] - g.p[0], p[1] - g.p[1]);
@@ -373,7 +395,15 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     const end = (e) => {
       pts.delete(e.pointerId);
       if (!g || pts.size) return;
-      if (g.kind === 'tapEmpty') pick({ kind: 'cell', index: g.index }, true);
+      clearTimeout(g.timer);
+      if (g.kind === 'swap') {
+        swapHint = null; canvas.classList.remove('cl-holding');
+        if (g.to !== g.index) {
+          const cells = [...st().cells]; [cells[g.index], cells[g.to]] = [cells[g.to] ?? null, cells[g.index]];
+          selected = g.to;
+          commit({ ...st(), cells });
+        } else draw();
+      } else if (g.kind === 'tapEmpty') pick({ kind: 'cell', index: g.index }, true);
       else if (g.before) { const next = st(); history.replace(g.before); commit(next); }
       g = null;
     };
@@ -449,6 +479,31 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
 
   const unmount = () => { window.removeEventListener('resize', draw); clearTimeout(saveTimer); persist(); };
   unmount.openFile = (blob) => { addLayerFile(blob); return true; };
+  /** A photo from the editor: into the first empty frame of the grid (more frames if they're all full). */
+  unmount.placeInGrid = async (blob) => {
+    await ready;
+    const id = await addImage(blob);
+    let s = st();
+    if (s.mode !== 'grid') s = { ...s, mode: 'grid', aspect: s.aspect === 'base' ? '1:1' : s.aspect };
+    const n = LAYOUTS[s.layout].cells.length;
+    let i = [...Array(n).keys()].find((k) => !s.cells[k]?.src);
+    if (i === undefined) {
+      // All frames full: the next layout with more of them, if there is one.
+      const bigger = Object.keys(LAYOUTS).find((k) => LAYOUTS[k].cells.length > n);
+      if (bigger) { s = { ...s, layout: bigger }; i = n; } else i = n - 1;
+    }
+    const cells = [...s.cells]; cells[i] = { src: id, zoom: 1, ox: 0, oy: 0 };
+    selected = i;
+    commit({ ...s, cells });
+  };
+  /** A photo from the editor as the background in Free / Superimpose, then pick a Character for it. */
+  unmount.characterOn = async (blob) => {
+    await ready;
+    const id = await addImage(blob);
+    selected = null;
+    commit({ ...st(), mode: 'free', base: id, aspect: 'base' });
+    chooseCharacter();
+  };
   unmount.show = () => draw();
   return unmount;
 }

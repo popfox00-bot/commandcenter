@@ -109,6 +109,8 @@ button { cursor: pointer; font: inherit; }
 .row.end { justify-content: flex-end; }
 
 .details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.studio-sub { margin: -2px 0 10px; }
+.studio-sub .seg { text-decoration: none; text-align: center; }
 .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; scrollbar-width: none; }
 .tab { flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: .9rem; }
 .tab.active { background: var(--text); color: var(--bg); border-color: var(--text); }
@@ -233,6 +235,13 @@ button:disabled { opacity: .5; }
 .ed-slider input { touch-action: pan-x; }
 .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .chips::-webkit-scrollbar { display: none; }
+/* With a mouse: a slim scroll bar under chip rows (Adjust, Filters, Markup…), to drag sideways. */
+@media (hover: hover) and (pointer: fine) {
+  .chips, .tabs { scrollbar-width: thin; scrollbar-color: var(--border) transparent; padding-bottom: 6px; }
+  .chips::-webkit-scrollbar, .tabs::-webkit-scrollbar { display: block; height: 8px; }
+  .chips::-webkit-scrollbar-thumb, .tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .chips::-webkit-scrollbar-track, .tabs::-webkit-scrollbar-track { background: transparent; }
+}
 .chip { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: .9rem; white-space: nowrap; }
 .chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
 .chip.changed:not(.active) { border-color: var(--primary); color: var(--primary); }
@@ -282,6 +291,7 @@ button:disabled { opacity: .5; }
 
 /* ---------- cutout + characters ---------- */
 .co-canvas, .cl-canvas { display: block; touch-action: none; }
+.cl-canvas.cl-holding { cursor: grabbing; }
 .co-stage, .cl-stage { background: transparent; }
 .cl-stage { margin-top: 12px; }
 .checker { display: grid; place-items: center; background-color: #fff; background-image: conic-gradient(#d9d9d9 25%, #fff 0 50%, #d9d9d9 0 75%, #fff 0); background-size: 16px 16px; border-radius: 10px; overflow: hidden; }

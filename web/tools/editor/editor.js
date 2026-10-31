@@ -8,15 +8,16 @@ import { mountBatch, barColorsPicker } from './batch.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { Renderer } from './renderer.js';
 import { ADJUSTMENTS, FILTERS, RATIOS, defaultState, normalizeState, createHistory, autoAdjust, isDefault } from './state.js';
-import { FULL_CROP, orientedSize, outputPixelSize, cropForRatio, dragCrop, rotateClockwise, flipHorizontal } from './geometry.js';
+import { FULL_CROP, orientedSize, outputPixelSize, outputToSource, apply, cropForRatio, dragCrop, rotateClockwise, flipHorizontal } from './geometry.js';
 import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
-import { applyPatches } from './retouch.js';
+import { applyPatches, makePatch } from './retouch.js';
+import { strokeMask, cleanUp, cloneFrom } from './cleanup.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
 const SAVE_KEY = 'editor.session';
 const PREFS_KEY = 'cc.editor.prefs';
-const MODES = [['adjust', 'Adjust'], ['filters', 'Filters'], ['crop', 'Crop'], ['markup', 'Markup']];
+const MODES = [['adjust', 'Adjust'], ['filters', 'Filters'], ['crop', 'Crop'], ['markup', 'Markup'], ['cleanup', 'Clean Up']];
 const TOOLS = [
   ['pen', '✎', 'Pen'], ['highlighter', '▬', 'Highlighter'], ['line', '╱', 'Line'], ['arrow', '➚', 'Arrow'],
   ['rect', '▭', 'Box'], ['ellipse', '◯', 'Oval'], ['text', 'T', 'Text'], ['eraser', '⌫', 'Eraser'],
@@ -24,7 +25,7 @@ const TOOLS = [
 
 /** mount(host, { file }) — `file` opens that photo right away (e.g. sent from the converter). */
 export function mount(host, { file: initialFile } = {}) {
-  const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
+  const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, cleanSize: 22, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
   delete prefs.autoCropColor;
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
 
@@ -39,8 +40,12 @@ export function mount(host, { file: initialFile } = {}) {
   let raf = 0;
   let shownPatches = null;    // the retouch patches painted on the renderer's source
   let saveTimer = 0;
+  let edits = 0;              // counts changes (with the photo opened), so a hand-off can tell if it's new
   let drag = null;            // active pointer interaction
   let draft = null;           // markup item being drawn
+  // Clean Up: the stroke being drawn (overlay pixels), Copy From Area (on, and the spot to copy from in
+  // source pixels), the last clean-up (to redo it as a copy), and a note for the panel.
+  let cleanStroke = null; let copyMode = false; let copyFrom = null; let lastClean = null; let cleanNote = ''; let cleaning = false;
   const cleanups = [];
 
   const state = () => history.state;
@@ -159,12 +164,13 @@ export function mount(host, { file: initialFile } = {}) {
   function renderModes() {
     modeBar.replaceChildren(...MODES.map(([id, label]) => el('button', {
       class: `seg${mode === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(mode === id), text: label,
-      onclick: () => { mode = id; drag = null; draft = null; renderModes(); renderPanel(); schedule(); },
+      onclick: () => { mode = id; drag = null; draft = null; cleanStroke = null; renderModes(); renderPanel(); schedule(); },
     })));
   }
 
   /** Call after the state changed. push=false when the history already holds it (undo/redo). */
   function changed(save = true) {
+    edits += 1;
     undoBtn.disabled = !history.canUndo;
     redoBtn.disabled = !history.canRedo;
     renderPanel();
@@ -222,6 +228,33 @@ export function mount(host, { file: initialFile } = {}) {
     const view = viewTransform({ crop: vs.crop, W, H, tw: overlay.width, th: overlay.height });
     if (!comparing) drawMarkup(ctx, draft ? [...vs.markup, draft] : vs.markup, view);
     if (mode === 'crop' && !comparing) drawCropUi(ctx, state().crop, overlay.width, overlay.height, dpr);
+    if (mode === 'cleanup' && !comparing) drawCleanUi(ctx, dpr);
+  }
+
+  /** The Clean Up stroke being drawn (a soft glowing trail), and the Copy From spot. */
+  function drawCleanUi(ctx, dpr) {
+    if (cleanStroke) {
+      ctx.save();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = copyMode ? 'rgba(48,209,88,0.45)' : 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = cleanStroke.r * 2;
+      ctx.beginPath();
+      cleanStroke.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      if (cleanStroke.pts.length === 1) ctx.lineTo(cleanStroke.pts[0][0] + 0.1, cleanStroke.pts[0][1]);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (copyMode && copyFrom) {
+      const p = sourceToOverlay(copyFrom.x, copyFrom.y);
+      if (p) {
+        const R = 14 * dpr;
+        ctx.save();
+        ctx.lineWidth = 2.5 * dpr; ctx.strokeStyle = '#30d158';
+        ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, Math.PI * 2);
+        ctx.moveTo(p[0] - R * 1.6, p[1]); ctx.lineTo(p[0] + R * 1.6, p[1]); ctx.moveTo(p[0], p[1] - R * 1.6); ctx.lineTo(p[0], p[1] + R * 1.6);
+        ctx.stroke(); ctx.restore();
+      }
+    }
   }
 
   function drawCropUi(ctx, c, w, h, dpr) {
@@ -284,6 +317,17 @@ export function mount(host, { file: initialFile } = {}) {
 
   function bindPointer() {
     overlay.addEventListener('pointerdown', (e) => {
+      if (mode === 'cleanup') {
+        e.preventDefault();
+        if (cleaning) return;
+        const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
+        const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
+        if (copyMode && !copyFrom) { pickCopyFrom(pt); return; }
+        cleanStroke = { pts: [pt], r: prefs.cleanSize * k };
+        overlay.setPointerCapture(e.pointerId);
+        schedule();
+        return;
+      }
       if (mode !== 'crop' && mode !== 'markup') return;
       const p = pointerFrame(e);
       if (mode === 'crop') {
@@ -312,6 +356,12 @@ export function mount(host, { file: initialFile } = {}) {
       schedule();
     });
     overlay.addEventListener('pointermove', (e) => {
+      if (cleanStroke) {
+        const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
+        const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; const last = cleanStroke.pts.at(-1);
+        if (Math.hypot(pt[0] - last[0], pt[1] - last[1]) > 2 * k) { cleanStroke.pts.push(pt); schedule(); }
+        return;
+      }
       if (!drag) return;
       const p = pointerFrame(e);
       if (drag.kind === 'crop') {
@@ -328,6 +378,7 @@ export function mount(host, { file: initialFile } = {}) {
       }
     });
     const end = () => {
+      if (cleanStroke) { const st = cleanStroke; cleanStroke = null; runCleanUp(st); return; }
       if (!drag) return;
       if (drag.kind === 'crop') {
         const next = state();
@@ -343,6 +394,83 @@ export function mount(host, { file: initialFile } = {}) {
     };
     overlay.addEventListener('pointerup', end);
     overlay.addEventListener('pointercancel', end);
+  }
+
+  // ---------- Clean Up ----------
+
+  /** Overlay pixels → source pixels (through crop, straighten, flips and turns). */
+  function overlayToSource(x, y) {
+    const M = outputToSource(viewState(), source.width, source.height);
+    const [su, sv] = apply(M, x / overlay.width, y / overlay.height);
+    return [su * source.width, sv * source.height];
+  }
+  /** Source pixels → overlay pixels (for the Copy From marker); null when it's out of view. */
+  function sourceToOverlay(x, y) {
+    const M = outputToSource(viewState(), source.width, source.height);
+    const det = M[0] * M[4] - M[1] * M[3]; if (!det) return null;
+    const su = x / source.width - M[2]; const sv = y / source.height - M[5];
+    const u = (M[4] * su - M[1] * sv) / det; const v = (-M[3] * su + M[0] * sv) / det;
+    return u < -0.05 || v < -0.05 || u > 1.05 || v > 1.05 ? null : [u * overlay.width, v * overlay.height];
+  }
+  /** The source with the clean-ups so far painted on, as RGBA (what the next one works from). */
+  let pixelsCache = null;
+  function sourcePixels() {
+    const patches = state().patches ?? [];
+    if (pixelsCache?.patches === patches) return pixelsCache.rgba;
+    const c = applyPatches(source, patches);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    pixelsCache = { patches, rgba: ctx.getImageData(0, 0, source.width, source.height).data };
+    return pixelsCache.rgba;
+  }
+
+  function pickCopyFrom(pt) {
+    const [x, y] = overlayToSource(...pt);
+    copyFrom = { x, y };
+    cleanNote = 'Now tap, brush or circle the area to cover with it.';
+    renderPanel(); schedule();
+  }
+
+  function runCleanUp(st) {
+    const w = source.width; const h = source.height;
+    const pts = st.pts.map(([x, y]) => overlayToSource(x, y));
+    // The brush size in source pixels: how far one brush radius across the overlay reaches in the source.
+    const [ax, ay] = overlayToSource(st.pts[0][0], st.pts[0][1]); const [bx, by] = overlayToSource(st.pts[0][0] + st.r, st.pts[0][1]);
+    const r = Math.max(2, Math.hypot(bx - ax, by - ay));
+    const { mask, shape, box } = strokeMask(pts, r, w, h);
+    if (!box) { schedule(); return; }
+    cleaning = true; cleanNote = copyMode ? 'Copying…' : 'Cleaning up…'; renderPanel(); schedule();
+    // Let the note show before the work (it takes a moment on big areas).
+    setTimeout(() => {
+      try {
+        const rgba = sourcePixels();
+        let p;
+        if (copyMode) {
+          const cx = (box.x0 + box.x1) / 2; const cy = (box.y0 + box.y1) / 2;
+          p = cloneFrom(rgba, w, h, mask, box, copyFrom.x - cx, copyFrom.y - cy);
+          if (!p) { cleanNote = 'That copy would come from outside the photo: pick a spot farther in.'; return; }
+        } else p = cleanUp(rgba, w, h, mask, box);
+        if (!p) { cleanNote = ''; return; }
+        const s = state();
+        lastClean = { mask, box, before: s.patches ?? [] };
+        cleanNote = copyMode ? 'Copied in and blended. Undo takes it back.' : `${{ tap: 'Spot', brush: 'Brushed area', lasso: 'Circled area' }[shape]} cleaned up. Looks smudged? Try 📋 Copy From Area.`;
+        commit({ ...s, patches: [...(s.patches ?? []), makePatch(p, w, h)] });
+      } finally { cleaning = false; renderPanel(); schedule(); }
+    }, 30);
+  }
+
+  /** Redo the last clean-up as a copy from the chosen spot. */
+  function copyOverLast() {
+    if (!lastClean || !copyFrom) return;
+    const w = source.width; const h = source.height; const { mask, box, before } = lastClean;
+    const s = state();
+    // Work from the picture as it was before that clean-up.
+    const c = applyPatches(source, before);
+    const rgba = c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+    const cx = (box.x0 + box.x1) / 2; const cy = (box.y0 + box.y1) / 2;
+    const p = cloneFrom(rgba, w, h, mask, box, copyFrom.x - cx, copyFrom.y - cy);
+    if (!p) { cleanNote = 'That copy would come from outside the photo: pick a spot farther in.'; renderPanel(); return; }
+    cleanNote = 'The last clean-up is now a copy of that spot, blended in.';
+    commit({ ...s, patches: [...before, makePatch(p, w, h)] });
   }
 
   function askText(x, y) {
@@ -383,7 +511,36 @@ export function mount(host, { file: initialFile } = {}) {
     if (mode === 'adjust') panel.replaceChildren(...adjustPanel());
     else if (mode === 'filters') panel.replaceChildren(...filtersPanel());
     else if (mode === 'crop') panel.replaceChildren(...cropPanel());
+    else if (mode === 'cleanup') panel.replaceChildren(...cleanupPanel());
     else panel.replaceChildren(...markupPanel());
+    // A mouse wheel scrolls the chip rows sideways (on a phone they're swiped).
+    for (const row of panel.querySelectorAll('.chips')) row.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || row.scrollWidth <= row.clientWidth) return;
+      e.preventDefault(); row.scrollLeft += e.deltaY;
+    }, { passive: false });
+  }
+
+  function cleanupPanel() {
+    const size = slider({
+      min: 6, max: 80, value: prefs.cleanSize, label: 'Brush size',
+      onInput: (v) => { prefs.cleanSize = v; }, onChange: () => savePrefs(),
+    });
+    const copy = el('button', {
+      class: `chip${copyMode ? ' active' : ''}`, 'aria-pressed': String(copyMode), text: '📋 Copy From Area',
+      onclick: () => { copyMode = !copyMode; copyFrom = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
+    });
+    const hint = copyMode
+      ? (copyFrom ? 'Tap, brush or circle the area to cover: it gets a copy of the spot you picked, blended in.' : 'Tap the spot to copy from: a clean piece of what should be there (sand, sky, wall).')
+      : 'Tap a spot, brush over something, or draw a circle around it: it\'s removed and filled in from the picture around it.';
+    return [
+      el('div', { class: 'chips' }, copy,
+        copyMode && copyFrom ? el('button', { class: 'chip', text: '↺ Pick another spot', onclick: () => { copyFrom = null; cleanNote = 'Tap the spot to copy from.'; renderPanel(); schedule(); } }) : null,
+        copyMode && copyFrom && lastClean ? el('button', { class: 'chip', text: '↻ Use on the last clean-up', onclick: copyOverLast }) : null),
+      el('p', { class: 'small muted ed-clean-hint', text: hint }),
+      cleanNote ? el('p', { class: `small ${cleaning ? 'muted' : 'ok-text'}`, 'aria-live': 'polite', text: cleanNote }) : null,
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Brush size' }), el('span', { class: 'muted small', text: 'A tap cleans a spot this size.' })),
+      size,
+    ].filter(Boolean);
   }
 
   function adjustPanel() {
@@ -637,6 +794,17 @@ export function mount(host, { file: initialFile } = {}) {
     openFile(blob, name);
     return true;
   };
+  /**
+   * The photo being edited, with its edits (up to 2048 px), as a JPEG file for Collage or Cutout; null
+   * when no photo is open. `key` changes whenever the photo or its edits do.
+   */
+  unmount.currentPhoto = async () => {
+    if (!history || !file || !renderer) return null;
+    const { canvas } = await renderEdited(file, state(), { maxEdge: 2048 });
+    const blob = await encodeCanvas(canvas, 'image/jpeg', 0.92);
+    return new File([blob], renameExt(fileName, 'jpg', '-edited'), { type: 'image/jpeg' });
+  };
+  unmount.photoKey = () => (history && file && renderer ? `${fileName}#${edits}` : null);
   /** Redraw after the panel becomes visible again (sizes are 0 while hidden). */
   unmount.show = () => { if (renderer) schedule(); };
   return unmount;

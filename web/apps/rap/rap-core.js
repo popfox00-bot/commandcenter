@@ -1,7 +1,11 @@
 // Rap app logic (no DOM): words and how they rhyme (rap-words.txt, built by scripts/build-rap-words.mjs),
-// syllables, which earlier line a line should rhyme with, the next word (from the lines it has learned:
-// rap-corpus.js and your songs) and endings that complete a line on a rhyme, about as long as the line
-// it answers.
+// syllables, the rhyme scheme (which earlier line a line should rhyme with: pairs, alternating, or the
+// same rhyme running on), what the lines are about (themes, rap-themes.js), the next word (from the lines
+// it has learned: rap-corpus.js and your songs) and endings that complete a line: on the rhyme the
+// scheme calls for, or on the theme when the line starts something new, about as long as the line it
+// answers.
+
+import { THEMES, themeIndex } from './rap-themes.js';
 
 // ---------- words ----------
 
@@ -140,15 +144,117 @@ export function rhymeLevel(dict, a, b) {
 }
 
 /**
- * The word line `i` should rhyme with, or null: the last word of the line before, unless those two
- * lines before already rhyme with each other (a couplet done: this line starts a new one).
+ * The rhyme scheme so far, and what line `i` should rhyme with: { target (a word, or null for a free
+ * line), line (its index), scheme }. Worked out from the last few lines' end words:
+ * - 'run': the last three rhyme (AAA…): keep the rhyme going;
+ * - 'new': the last two rhyme and the one before them doesn't (a pair done, AABB): a free line, starting a pair;
+ * - 'alternate': the line before rhymes with the one three back, or the last two don't rhyme and
+ *   aren't half of a pair (ABAB): rhyme with the line two back;
+ * - 'pair': the line before starts a pair (the two before it rhyme with each other, or it's the first line): rhyme with it.
  */
-export function rhymeTarget(dict, lines, i) {
-  const last = (k) => tokens(lines[k] ?? '').at(-1);
-  if (i < 1 || !last(i - 1)) return null;
-  if (i >= 2 && last(i - 2) && rhymeLevel(dict, last(i - 1), last(i - 2)) > 0) return null;
-  return last(i - 1);
+export function rhymeScheme(dict, lines, i) {
+  const end = (k) => (k >= 0 ? tokens(lines[k] ?? '').at(-1) : undefined);
+  const r = (a, b) => { const x = end(a); const y = end(b); return !!x && !!y && rhymeLevel(dict, x, y) > 0; };
+  const at = (k, scheme) => ({ target: end(k) ?? null, line: k, scheme });
+  if (i < 1 || !end(i - 1)) return { target: null, line: -1, scheme: null };
+  if (i === 1) return at(0, 'pair');
+  if (r(i - 1, i - 2)) return r(i - 2, i - 3) ? at(i - 1, 'run') : { target: null, line: -1, scheme: 'new' };
+  if (r(i - 1, i - 3)) return at(i - 2, 'alternate');
+  if (i >= 3 && r(i - 2, i - 3)) return at(i - 1, 'pair');
+  return end(i - 2) ? at(i - 2, 'alternate') : at(i - 1, 'pair');
 }
+
+/**
+ * The rhyme letter of each line, as in AABB: lines whose last words rhyme share a letter (A for the
+ * first rhyme, B for the next…); '' for an empty line. Only the `upTo` lines first are lettered.
+ */
+export function rhymeLetters(dict, lines, upTo = lines.length) {
+  const groups = []; // [{ letter, words: [] }]
+  return lines.slice(0, upTo).map((line) => {
+    const w = tokens(line).at(-1);
+    if (!w) return '';
+    let g = groups.find((x) => x.words.some((y) => y === w || rhymeLevel(dict, y, w) > 0));
+    if (!g) { g = { letter: String.fromCharCode(65 + (groups.length % 26)), words: [] }; groups.push(g); }
+    g.words.push(w);
+    return g.letter;
+  });
+}
+
+/** The pattern of the last (up to 4) lettered lines, lettered afresh from A: "AABB", "ABAB", "AAAA"… */
+export function schemeName(letters) {
+  const recent = letters.filter(Boolean).slice(-4);
+  const map = new Map();
+  return recent.map((l) => { if (!map.has(l)) map.set(l, String.fromCharCode(65 + map.size)); return map.get(l); }).join('');
+}
+
+/**
+ * The rhymes line `i` could take, for suggestions grouped by letter: the one the scheme calls for
+ * first (`fits: true`), then the other recent rhymes, then a new one (target null). Each:
+ * { letter, target, fits }.
+ */
+export function rhymeOptions(dict, lines, i) {
+  const letters = rhymeLetters(dict, lines, i);
+  const want = rhymeScheme(dict, lines, i);
+  const lastOf = new Map(); // letter → its latest end word (in the last 4 lines)
+  for (let k = Math.max(0, i - 4); k < i; k++) if (letters[k]) lastOf.set(letters[k], tokens(lines[k]).at(-1));
+  const used = new Set(letters.filter(Boolean));
+  const fresh = String.fromCharCode(65 + (used.size % 26));
+  const out = [];
+  if (want.target) out.push({ letter: letters[want.line], target: want.target, fits: true });
+  for (const [letter, target] of [...lastOf].reverse()) if (!out.some((o) => o.letter === letter)) out.push({ letter, target, fits: false });
+  out.push({ letter: fresh, target: null, fits: !want.target });
+  // The one that fits goes first.
+  return out.sort((a, b) => Number(b.fits) - Number(a.fits));
+}
+
+/** The word line `i` should rhyme with, or null (see rhymeScheme). */
+export const rhymeTarget = (dict, lines, i) => rhymeScheme(dict, lines, i).target;
+
+// ---------- themes ----------
+
+/** A word's plain form, as the themes list it (dreaming → dream, stacks → stack, runnin' → run). */
+export function plain(dict, raw) {
+  const w = String(raw).toLowerCase().replace(/in'$/, 'ing').replace(/'/g, '');
+  const idx = themeIndex();
+  const known = (x) => idx.has(x) || dict.get(x);
+  if (idx.has(w)) return w;
+  const tries = [];
+  let m;
+  if ((m = /^(.{2,}?)ing$/.exec(w))) tries.push(m[1], `${m[1]}e`, m[1].replace(/(.)\1$/, '$1'));
+  if ((m = /^(.{2,}?)ed$/.exec(w))) tries.push(m[1], `${m[1]}e`, m[1].replace(/(.)\1$/, '$1'));
+  if ((m = /^(.{2,}?)ies$/.exec(w))) tries.push(`${m[1]}y`);
+  if ((m = /^(.{2,}?)es$/.exec(w))) tries.push(m[1]);
+  if ((m = /^(.{2,}?)s$/.exec(w))) tries.push(m[1]);
+  for (const t of tries) if (idx.has(t)) return t;
+  for (const t of tries) if (known(t) && t.length > 2) return t;
+  return w;
+}
+
+/**
+ * What the song is about at line `i`: the themes its words point to (the lines before, the nearer the
+ * more, and what's written of line `i`), strongest first, and the words of those themes with a weight
+ * (0–1) for leaning suggestions their way. { themes: [{ name, icon, score }], words: Map }.
+ */
+export function themesOf(dict, lines, i, current = []) {
+  const idx = themeIndex();
+  const score = new Map(); const used = new Set();
+  const add = (w, wt) => {
+    const p = plain(dict, w); used.add(p);
+    for (const t of idx.get(p) ?? []) score.set(t, (score.get(t) ?? 0) + wt);
+  };
+  for (let k = Math.max(0, i - 8); k < i; k++) for (const w of tokens(lines[k] ?? '')) add(w, 1 / (1 + 0.35 * (i - 1 - k)));
+  for (const w of current) add(w, 1.2);
+  const ranked = [...score].filter(([, v]) => v >= 0.9).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const words = new Map();
+  if (ranked.length) {
+    const max = ranked[0][1];
+    for (const [name, v] of ranked) for (const w of THEMES[name].words.split(/\s+/)) words.set(w, Math.max(words.get(w) ?? 0, v / max));
+  }
+  return { themes: ranked.map(([name, v]) => ({ name, icon: THEMES[name].icon, score: v })), words, used };
+}
+
+/** How much a word belongs to the theme (0–1). */
+const themeWeight = (dict, theme, w) => theme?.words.get(plain(dict, w)) ?? 0;
 
 // ---------- the next word ----------
 
@@ -178,7 +284,7 @@ const top = (m, n, skip) => [...(m ?? new Map())].filter(([w]) => !skip(w)).sort
  * the end of a line that should rhyme (its syllables close to the line it answers), words that rhyme
  * with `target` come first.
  */
-export function nextWords(model, dict, before, { target = null, targetSyl = 0, explicit = false, n = 3 } = {}) {
+export function nextWords(model, dict, before, { target = null, targetSyl = 0, explicit = false, n = 3, theme = null } = {}) {
   const ws = before.map((w) => w.toLowerCase());
   const seen = new Set();
   const skip = (w) => seen.has(w) || (!explicit && info(dict, w).x);
@@ -191,12 +297,30 @@ export function nextWords(model, dict, before, { target = null, targetSyl = 0, e
     take([...r.perfect, ...r.near].filter((e) => e.lvl <= 2 && e.syl <= left + 1).sort((a, b) => Math.abs(a.syl - left) - Math.abs(b.syl - left) || a.lvl - b.lvl).slice(0, 2).map((e) => e.word));
   }
   const prev = ws.at(-1) ?? '<s>'; const prev2 = ws.length >= 2 ? `${ws.at(-2)} ${prev}` : `<s> ${prev}`;
-  take(top(model.tri.get(prev2), n, skip));
-  take(top(model.bi.get(prev), n, skip));
+  // What usually comes next (the nearer the context, the more it counts), with words on the song's
+  // theme lifted; and after a word that leads into one (the, my, so, gonna…), theme words that fit.
+  const scored = new Map();
+  const put = (w, v) => { if (!skip(w)) scored.set(w, Math.max(scored.get(w) ?? -Infinity, v + 1.6 * themeWeight(dict, theme, w))); };
+  top(model.tri.get(prev2), 3 * n, skip).forEach((w, k) => put(w, 3 - 0.25 * k));
+  top(model.bi.get(prev), 3 * n, skip).forEach((w, k) => put(w, 2 - 0.25 * k));
+  if (theme?.words.size) {
+    const slot = NOUN_BEFORE.has(prev) ? 'n' : ADJ_BEFORE.has(prev) ? 'a' : VERB_BEFORE.has(prev) ? 'v' : null;
+    if (slot) {
+      const fits = [...theme.words].filter(([w]) => { const e = dict.get(w); return e && e.pos.includes(slot) && !theme.used?.has(w); })
+        .sort((a, b) => b[1] - a[1] || (dict.get(a[0]).lvl - dict.get(b[0]).lvl));
+      fits.slice(0, 3).forEach(([w, wt], k) => put(w, 1.4 + wt - 0.2 * k));
+    }
+  }
+  take([...scored].sort((a, b) => b[1] - a[1]).map(([w]) => w));
   take(top(model.bi.get('<s>'), n, skip));
   take(top(model.uni, n, skip));
   return out;
 }
+
+// Words after which a noun, an adjective or a verb usually comes.
+const NOUN_BEFORE = new Set(['the', 'a', 'an', 'my', 'your', 'his', 'her', 'our', 'their', 'this', 'that', 'these', 'those', 'no', 'some', 'every', 'of', 'in', 'on', 'for', 'with', 'from']);
+const ADJ_BEFORE = new Set(['so', 'too', 'very', 'feeling', 'stay', 'keep', 'getting', 'real', 'more', 'most', "i'm", "we're", "you're", "it's", 'is', 'was', 'be', 'been']);
+const VERB_BEFORE = new Set(['to', 'gonna', 'wanna', 'gotta', "i'mma", 'i', 'we', 'they', 'you', 'never', 'can', "can't", 'will', "won't", 'let', 'me', 'just', "don't", 'still', 'always', 'must']);
 
 // ---------- completing a line ----------
 
@@ -206,9 +330,10 @@ const LINKS = new Set(['the', 'a', 'an', 'my', 'your', 'his', 'her', 'our', 'the
  * Up to `n` ways to finish the line `before` (its words so far): endings from the lines learned, and
  * ending patterns ("watch me ___", "in the ___") filled with words that rhyme with `target` (the line
  * it answers), about as long as the rest of that line (`targetSyl`). With no target, endings that make
- * a line of about `targetSyl` (or 10) syllables. Strings to append.
+ * a line of about `targetSyl` (or 10) syllables, on the song's `theme` when it has one, and not on a
+ * rhyme in `avoid` (the rhymes already used, when starting a new one). Strings to append.
  */
-export function completeLine(model, dict, before, { target = null, targetSyl = 0, explicit = false, endings = {}, n = 3 } = {}) {
+export function completeLine(model, dict, before, { target = null, targetSyl = 0, explicit = false, endings = {}, n = 3, theme = null, avoid = [] } = {}) {
   const ws = before.map((w) => w.toLowerCase());
   const used = ws.reduce((s, w) => s + info(dict, w).syl, 0);
   const goal = targetSyl || 10;
@@ -221,30 +346,42 @@ export function completeLine(model, dict, before, { target = null, targetSyl = 0
     if (!t.length || !clean(t)) return;
     if (last && t[0] === last) return; // "the the"
     const end = t.at(-1);
-    let score = bonus - 1.2 * Math.abs(sylOf(t) - left);
+    // About the right length (a little off is fine: the flow can stretch).
+    let score = bonus - Math.min(4, 0.7 * Math.abs(sylOf(t) - left));
     if (target) {
       const r = rhymeLevel(dict, end, target);
       if (!r) return;
-      score += r === 2 ? 4 : 1.5;
-    }
+      score += r === 2 ? 5 : 1.2;
+    } else if (avoid.some((a) => a === end || rhymeLevel(dict, a, end) > 0)) return; // a new rhyme: not one already used
     // Flows from the last word written (learned to follow it), or starts fresh after a linking word.
     if (last && model.bi.get(last)?.has(t[0])) score += 1.5;
     if (last && LINKS.has(last) && LINKS.has(t[0])) score -= 2;
-    cands.push({ t, score });
+    // On the song's theme: its words in the ending (and the song's own words not said again).
+    const onTheme = Math.min(2, t.reduce((v, w) => v + themeWeight(dict, theme, w), 0));
+    score += 1.4 * onTheme;
+    cands.push({ t, score, onTheme });
   };
   // Endings from the lines learned that can start here: on a linking word, or one learned to follow
   // the last word written.
   for (const t of model.ends) if (LINKS.has(t[0]) || (last && model.bi.get(last)?.has(t[0])) || (!last && model.bi.get('<s>')?.has(t[0]))) consider(t, 0);
   if (target) {
-    const r = rhymesFor(dict, target, { explicit, max: 40 });
+    const r = rhymesFor(dict, target, { explicit, max: 60 });
     for (const e of [...r.perfect, ...r.near.slice(0, 15)]) {
       if (e.lvl > 2) continue;
       for (const p of [...e.pos]) for (const pat of endings[p] ?? []) consider(tokens(pat.replace('{}', e.word)), -0.5 - 0.3 * e.lvl);
     }
+  } else if (theme?.words.size) {
+    // A free line (starting a new rhyme): the endings filled with the theme's words instead.
+    for (const [w, wt] of theme.words) {
+      const e = dict.get(w); if (!e || e.lvl > 2 || wt < 0.5) continue;
+      for (const p of [...e.pos]) for (const pat of endings[p] ?? []) consider(tokens(pat.replace('{}', w)), -1 - 0.3 * e.lvl);
+    }
   }
   cands.sort((a, b) => b.score - a.score);
+  // No rhyme to answer: on the theme, when there is one.
+  const pool = !target && theme?.words.size && cands.some((c) => c.onTheme > 0) ? cands.filter((c) => c.onTheme > 0) : cands;
   const out = []; const ends = new Set(); const starts = new Set();
-  for (const c of cands) {
+  for (const c of pool) {
     // A different rhyme word for each suggestion, and a different way there.
     const end = c.t.at(-1); const start = c.t.slice(0, Math.min(2, c.t.length - 1)).join(' ');
     if (ends.has(end) || starts.has(start)) continue;

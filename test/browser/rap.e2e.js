@@ -42,11 +42,11 @@ test('Rap: write line by line (Enter for the next), suggestions and rhymes as yo
   assert.equal(await page.textContent('.rap-syl'), '6');
   await page.keyboard.press('Enter');
   // A new line, in focus; the one before above it, smaller.
-  assert.deepEqual(await page.$$eval('.rap-row', (rows) => rows.map((r) => r.className.includes('is-current') ? 'current' : r.textContent.replace('✎', '').trim())), ['I been working all night', 'current']);
+  assert.deepEqual(await page.$$eval('.rap-row', (rows) => rows.map((r) => (r.className.includes('is-current') ? 'current' : r.querySelector('.rap-line').textContent.trim()))), ['I been working all night', 'current']);
   const sizes = await page.evaluate(() => [getComputedStyle(document.querySelector('.is-before .rap-line')).fontSize, getComputedStyle(document.querySelector('.rap-current')).fontSize].map(parseFloat));
   assert.ok(sizes[0] < sizes[1], `the line before is smaller (${sizes})`);
   // Complete the line: rhymes with "night".
-  assert.match(await page.textContent('.rap-sugg h4'), /rhymes with “night”/);
+  assert.match(await page.textContent('.rap-group'), /^Arhymes with “night”fits/);
   await page.keyboard.type('now I ');
   const completes = await page.$$eval('.rap-complete', (b) => b.map((x) => x.textContent));
   assert.equal(completes.length, 3);
@@ -55,27 +55,52 @@ test('Rap: write line by line (Enter for the next), suggestions and rhymes as yo
   assert.ok(line2.startsWith('now I ') && line2.length > 'now I '.length + 3, `completed: "${line2}"`);
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('rap-current')), true, 'still writing');
   await page.keyboard.press('Enter');
-  // Tap a word in a line above: the bank shows its rhymes; tap one to add it.
-  await page.locator('.rap-word', { hasText: 'working' }).click();
-  await page.waitForFunction(() => document.querySelector('.rap-bank-word')?.value === 'working');
-  assert.equal(await page.isVisible('.rap-word.picked'), true);
-  await page.locator('.rap-bank-list .rap-chip').first().click();
-  assert.ok((await page.inputValue('.rap-current')).trim().length > 2, 'a rhyme added to the line');
+  // Rhyme letters beside the lines, and the scheme.
+  await page.keyboard.type('keep it real');
+  assert.deepEqual(await page.$$eval('.rap-letter', (b) => b.map((x) => x.textContent)).then((l) => l.slice(0, 3)), ['A', 'A', 'B']);
+  assert.match(await page.textContent('.rap-scheme'), /^AAB?$/);
+  await page.keyboard.press('Enter');
+  // The next line: B (rhymes with "real") fits the pairs; a new rhyme is offered too.
+  const groups = await page.$$eval('.rap-group', (g) => g.map((x) => x.textContent));
+  assert.match(groups[0], /^Brhymes with “real”fits/);
+  assert.ok(groups.some((g) => /new rhyme/.test(g)));
   // A next-word suggestion adds a word.
-  const before = await page.inputValue('.rap-current');
   await page.locator('.rap-sugg .rap-chips .rap-chip').first().click();
-  assert.ok((await page.inputValue('.rap-current')).length > before.length);
+  assert.ok((await page.inputValue('.rap-current')).trim().length > 0);
+  // Tap inside a word of an earlier line: that line is edited, the cursor right there, the bank on that word.
+  await page.locator('.rap-word', { hasText: 'working' }).click({ position: { x: 6, y: 10 } });
+  await page.waitForFunction(() => document.querySelector('.rap-bank-word')?.value === 'working');
+  assert.equal(await page.inputValue('.rap-current'), 'I been working all night');
+  const caret = await page.evaluate(() => document.activeElement.selectionStart);
+  assert.ok(caret >= 7 && caret <= 14, `the cursor in "working" (${caret})`);
+  await page.keyboard.type('X');
+  assert.match(await page.inputValue('.rap-current'), /^I been w\w*X\w*ing all night$|^I been \w*X\w* all night$/);
+  await page.keyboard.press('Backspace');
+  assert.equal(await page.inputValue('.rap-current'), 'I been working all night');
+
+  // A note on a line: the note button opens it under the line; the button shows there's one.
+  await page.getByRole('button', { name: 'Note for line 1' }).click();
+  await page.waitForSelector('.rap-note');
+  await page.waitForFunction(() => document.activeElement?.classList.contains('rap-note')); // ready to type
+  await page.keyboard.type('slow, half-time delivery');
+  await page.getByRole('button', { name: 'Note for line 1' }).click();
+  assert.equal(await page.isVisible('.rap-note'), false);
+  assert.match(await page.getAttribute('[aria-label="Note for line 1"]', 'class'), /has-note/);
+  assert.doesNotMatch(await page.getAttribute('[aria-label="Note for line 2"]', 'class'), /has-note/);
 
   // Saved Songs: it's there; it opens again after a reload.
   await page.waitForTimeout(400);
   await page.getByRole('tab', { name: '💾 Saved Songs' }).click();
   await page.waitForSelector('.rap-song');
-  assert.match(await page.textContent('.rap-song'), /Night Shift[\s\S]*I been working all night[\s\S]*3 lines/);
+  assert.match(await page.textContent('.rap-song'), /Night Shift[\s\S]*I been working all night[\s\S]*4 lines/);
   await page.reload();
   await page.getByRole('button', { name: 'Open Night Shift' }).click();
   await page.waitForSelector('.rap-current');
   assert.match(await page.textContent('.rap-stage'), /I been working all night/);
   assert.equal(await page.inputValue('.rap-title'), 'Night Shift');
+  await page.getByRole('button', { name: 'Note for line 1' }).click();
+  assert.equal(await page.inputValue('.rap-note'), 'slow, half-time delivery', 'notes are saved with the song');
+  await page.getByRole('button', { name: 'Note for line 1' }).click();
   // Backspace at the start of a line joins it to the one before.
   await page.click('.rap-current');
   await page.keyboard.press('Home');

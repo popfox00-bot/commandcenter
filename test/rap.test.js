@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseWords, tokens, info, syllables, rhymesFor, rhymeLevel, rhymeTarget, buildModel, nextWords, completeLine } from '../web/apps/rap/rap-core.js';
+import { parseWords, tokens, info, syllables, rhymesFor, rhymeLevel, rhymeTarget, rhymeScheme, rhymeLetters, schemeName, rhymeOptions, themesOf, plain, buildModel, nextWords, completeLine } from '../web/apps/rap/rap-core.js';
 import { LINES, ENDINGS } from '../web/apps/rap/rap-corpus.js';
 
 const dict = parseWords(readFileSync(resolve(import.meta.dirname, '../web/apps/rap/rap-words.txt'), 'utf8'));
@@ -74,4 +74,39 @@ test('explicit words only when asked for', () => {
   const other = dict.tails.get(x.tail).find((e) => e.word !== x.word);
   assert.ok(!words(rhymesFor(dict, other.word).perfect).includes(x.word));
   assert.ok(words(rhymesFor(dict, other.word, { explicit: true, max: 500 }).perfect).includes(x.word));
+});
+
+test('the rhyme scheme as you write: pairs (AABB), alternating (ABAB), or one rhyme running on', () => {
+  const aabb = ['stacking up the paper every day', 'counting all the money that they pay', 'diamonds on my wrist', 'every single one I kissed', ''];
+  assert.deepEqual(rhymeLetters(dict, aabb).filter(Boolean), ['A', 'A', 'B', 'B']);
+  assert.equal(schemeName(rhymeLetters(dict, aabb)), 'AABB');
+  assert.deepEqual(rhymeScheme(dict, aabb, 2), { target: null, line: -1, scheme: 'new' }, 'after a pair: a new rhyme');
+  assert.equal(rhymeScheme(dict, aabb, 3).target, 'wrist');
+  const abab = ['I been up all night', 'chasing every dream', 'city full of light', 'nothing what it seem', ''];
+  assert.equal(schemeName(rhymeLetters(dict, abab)), 'ABAB');
+  assert.deepEqual(rhymeScheme(dict, abab.slice(0, 3).concat(''), 2), { target: 'night', line: 0, scheme: 'alternate' }, 'two lines not rhyming: alternate');
+  assert.deepEqual(rhymeScheme(dict, abab, 3), { target: 'dream', line: 1, scheme: 'alternate' });
+  const run = ['I keep it tight', 'I hold the light', 'I win the fight', ''];
+  assert.equal(schemeName(rhymeLetters(dict, run)), 'AAA');
+  assert.equal(rhymeScheme(dict, run, 3).scheme, 'run');
+  // The options for the next line, by letter: the one that fits first, then the others, then a new one.
+  const opts = rhymeOptions(dict, abab, 4);
+  assert.deepEqual(opts.map((o) => [o.letter, o.target, o.fits]), [['A', 'light', true], ['B', 'seem', false], ['C', null, false]]);
+  assert.deepEqual(rhymeOptions(dict, aabb, 4).map((o) => o.letter), ['C', 'B', 'A'], 'after AABB: a new rhyme fits');
+});
+
+test('themes: what the lines are about, the latest counting most; suggestions lean on it', () => {
+  assert.equal(plain(dict, 'stacking'), 'stack'); assert.equal(plain(dict, 'wishes'), 'wish'); assert.equal(plain(dict, 'clocks'), 'clock'); assert.equal(plain(dict, "grindin'"), 'grind');
+  const lines = ['stacking up the paper every day', 'counting all the money that they pay', ''];
+  const t = themesOf(dict, lines, 2, []);
+  assert.equal(t.themes[0].name, 'money');
+  assert.ok(t.words.get('cash') > 0.9);
+  // The next word after "the": money words first.
+  const next = nextWords(model, dict, tokens('now I got the'), { theme: t, n: 3 });
+  assert.ok(next.some((w) => t.words.has(w)), `on theme: ${next}`);
+  // A free line (a new rhyme): endings on the theme, and not on a rhyme already used.
+  const free = completeLine(model, dict, tokens('I keep'), { theme: t, endings: ENDINGS, avoid: ['day', 'pay'], n: 3 });
+  assert.ok(free.length >= 2);
+  for (const l of free) assert.ok(tokens(l).some((w) => t.words.has(plain(dict, w))), `"${l}" is on theme`);
+  for (const l of free) assert.equal(rhymeLevel(dict, tokens(l).at(-1), 'day'), 0, `"${l}" is a new rhyme`);
 });

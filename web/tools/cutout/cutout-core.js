@@ -228,6 +228,35 @@ export function softColors(rgba, w, h) {
   return out;
 }
 
+/**
+ * Texture: how much the brightness varies around each pixel (its standard deviation over 5×5): low on
+ * sky, skin or a wall, high on grass, hair, wicker or gravel. Fixes weigh it with the color, so a
+ * green leafy background parts from a smooth green apple.
+ */
+export function textureMap(soft, w, h) {
+  const L = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) L[i] = 0.299 * soft[i * 3] + 0.587 * soft[i * 3 + 1] + 0.114 * soft[i * 3 + 2];
+  // Sums (and sums of squares) over the image, for any box in constant time.
+  const W = w + 1; const S = new Float64Array(W * (h + 1)); const Q = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rs = 0; let rq = 0;
+    for (let x = 0; x < w; x++) { const v = L[y * w + x]; rs += v; rq += v * v; S[(y + 1) * W + x + 1] = S[y * W + x + 1] + rs; Q[(y + 1) * W + x + 1] = Q[y * W + x + 1] + rq; }
+  }
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const x0 = Math.max(0, x - 2); const y0 = Math.max(0, y - 2); const x1 = Math.min(w, x + 3); const y1 = Math.min(h, y + 3);
+    const n = (x1 - x0) * (y1 - y0);
+    const sum = S[y1 * W + x1] - S[y0 * W + x1] - S[y1 * W + x0] + S[y0 * W + x0];
+    const sq = Q[y1 * W + x1] - Q[y0 * W + x1] - Q[y1 * W + x0] + Q[y0 * W + x0];
+    out[y * w + x] = Math.sqrt(Math.max(0, sq / n - (sum / n) ** 2));
+  }
+  return out;
+}
+const TBINS = 16;
+/** A texture value's spread over the two nearest of 16 bins (0–60 in steps of 4). */
+function addTex(hist, t, wt) { const f = Math.min(TBINS - 1.001, t / 4); const k = Math.floor(f); hist[k] += wt * (1 - (f - k)); hist[k + 1] += wt * (f - k); }
+function texAt(hist, t) { const f = Math.min(TBINS - 1.001, t / 4); const k = Math.floor(f); return hist[k] * (1 - (f - k)) + hist[k + 1] * (f - k); }
+
 export function applyChanges(mask, ch) { for (let k = 0; k < ch.idx.length; k++) mask[ch.idx[k]] = ch.val[k]; return mask; }
 
 /** Steps (4-neighbour, up to `cap`) from each pixel to the nearest pixel of the other side of the cut. */
@@ -275,14 +304,15 @@ function lookup(hist, r, g, b) {
  * background from cut pixels a step or two out. Over the box x0..x1, y0..y1 (the whole photo by
  * default). { obj, bg, no, nb } (histograms and how many samples).
  */
-export function colorModel(soft, w, h, mask, dist, { x0 = 0, y0 = 0, x1 = w, y1 = h, deep = 3 } = {}) {
+export function colorModel(soft, w, h, mask, dist, { x0 = 0, y0 = 0, x1 = w, y1 = h, deep = 3, tex = null } = {}) {
   const obj = new Float32Array(BINS ** 3); const bg = new Float32Array(BINS ** 3); let no = 0; let nb = 0;
+  const tobj = tex ? new Float32Array(TBINS + 1) : null; const tbg = tex ? new Float32Array(TBINS + 1) : null;
   for (let y = Math.max(0, y0); y < Math.min(h, y1); y++) for (let x = Math.max(0, x0); x < Math.min(w, x1); x++) {
     const i = y * w + x; const o = i * 3;
-    if (mask[i]) { if (dist[i] >= deep) { addColor(obj, soft[o], soft[o + 1], soft[o + 2], 1); no++; } }
-    else if (dist[i] >= 2) { addColor(bg, soft[o], soft[o + 1], soft[o + 2], 1); nb++; }
+    if (mask[i]) { if (dist[i] >= deep) { addColor(obj, soft[o], soft[o + 1], soft[o + 2], 1); if (tex) addTex(tobj, tex[i], 1); no++; } }
+    else if (dist[i] >= 2) { addColor(bg, soft[o], soft[o + 1], soft[o + 2], 1); if (tex) addTex(tbg, tex[i], 1); nb++; }
   }
-  return { obj, bg, no, nb };
+  return { obj, bg, no, nb, tobj, tbg };
 }
 
 /**
@@ -294,14 +324,14 @@ export function colorModel(soft, w, h, mask, dist, { x0 = 0, y0 = 0, x1 = w, y1 
  * back: for parts cut off). Kept parts must reach the object outside the circle (no islands). The
  * changes, or null when there's nothing to go by (no object or no background around).
  */
-export function refineSpot(soft, w, h, mask, cx, cy, r, { dir = 'auto', global = null, dist = null } = {}) {
+export function refineSpot(soft, w, h, mask, cx, cy, r, { dir = 'auto', global = null, dist = null, tex = null, decisive = false } = {}) {
   r = Math.max(2, r);
   const x0 = Math.max(0, Math.floor(cx - r)); const y0 = Math.max(0, Math.floor(cy - r));
   const x1 = Math.min(w, Math.ceil(cx + r + 1)); const y1 = Math.min(h, Math.ceil(cy + r + 1));
   if (x1 - x0 < 2 || y1 - y0 < 2) return null;
   dist = dist ?? edgeDistance(mask, w, h);
   const R3 = Math.ceil(3 * r);
-  const local = colorModel(soft, w, h, mask, dist, { x0: Math.floor(cx - R3), y0: Math.floor(cy - R3), x1: Math.ceil(cx + R3 + 1), y1: Math.ceil(cy + R3 + 1), deep: Math.min(24, Math.max(3, Math.round(r * 0.8))) });
+  const local = colorModel(soft, w, h, mask, dist, { x0: Math.floor(cx - R3), y0: Math.floor(cy - R3), x1: Math.ceil(cx + R3 + 1), y1: Math.ceil(cy + R3 + 1), deep: Math.min(24, Math.max(3, Math.round(r * 0.8))), tex });
   // Nothing of one side nearby: patching here would only guess.
   if (local.no < 15 || (local.nb < 15 && dir !== 'keep') || (dir === 'keep' && local.nb < 15 && !global)) return null;
   const g = global && global.no > 50 && global.nb > 50 ? global : null;
@@ -318,11 +348,17 @@ export function refineSpot(soft, w, h, mask, cx, cy, r, { dir = 'auto', global =
   list.forEach((i, k) => {
     const o = i * 3; const R = soft[o]; const G = soft[o + 1]; const B = soft[o + 2];
     const pb = p(local.bg, local.nb, g?.bg, g?.nb, R, G, B); const po = p(local.obj, local.no, g?.obj, g?.no, R, G, B);
-    L[k] = Math.max(-4, Math.min(4, Math.log((pb + eps) / (po + eps))));
+    let v = Math.log((pb + eps) / (po + eps));
+    // Texture too: smooth against busy (when the models have it).
+    if (tex && local.tobj && local.no && local.nb) {
+      const tb = texAt(local.tbg, tex[i]) / local.nb; const to = texAt(local.tobj, tex[i]) / local.no;
+      v += 0.7 * Math.log((tb + 1e-3) / (to + 1e-3));
+    }
+    L[k] = Math.max(-4, Math.min(4, v));
   });
   // Settle labels: the colors' pull, a cost for changing what's there (more when the direction is
   // left to the patch), and neighbours that look alike wanting the same side.
-  const stay = dir === 'auto' ? 0.6 : 0.2; const lambda = 1.1; const sig2 = 2 * 14 * 14;
+  const stay = dir === 'auto' ? (decisive ? 0.25 : 0.6) : 0.2; const lambda = 1.1; const sig2 = 2 * 14 * 14;
   // Start from what the colors say (with the cost of changing), then let neighbours settle it.
   const lab = Uint8Array.from(list, (i, k) => {
     const was = mask[i];
@@ -339,7 +375,7 @@ export function refineSpot(soft, w, h, mask, cx, cy, r, { dir = 'auto', global =
       const o = i * 3;
       for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
         if (t < 0 || t >= w * h) continue;
-        const q = t * 3; const dd = (soft[o] - soft[q]) ** 2 + (soft[o + 1] - soft[q + 1]) ** 2 + (soft[o + 2] - soft[q + 2]) ** 2;
+        const q = t * 3; const dd = (soft[o] - soft[q]) ** 2 + (soft[o + 1] - soft[q + 1]) ** 2 + (soft[o + 2] - soft[q + 2]) ** 2 + (tex ? 3 * (tex[i] - tex[t]) ** 2 : 0);
         const wt = lambda * Math.exp(-dd / sig2);
         if (labelOf(t)) e0 += wt; else e1 += wt;
       }
@@ -378,7 +414,7 @@ export function refineSpot(soft, w, h, mask, cx, cy, r, { dir = 'auto', global =
  * sharp change of color (an edge). It spreads only through pixels on the same side as the one tapped,
  * and when bringing back, only inside `within` (the traces as drawn) when given. The changes, or null.
  */
-export function wand(soft, w, h, mask, x, y, tol = 30, { within = null, maxShare = 0.35 } = {}) {
+export function wand(soft, w, h, mask, x, y, tol = 30, { within = null, maxShare = 0.35, tex = null, accept = null } = {}) {
   x = Math.round(x); y = Math.round(y);
   if (x < 0 || y < 0 || x >= w || y >= h) return null;
   const start = y * w + x; const side = mask[start];
@@ -392,6 +428,11 @@ export function wand(soft, w, h, mask, x, y, tol = 30, { within = null, maxShare
   const t2 = tol * tol; const step2 = (tol * 0.6) ** 2;
   const dist2 = (o, r, g, b) => (soft[o] - r) ** 2 + (soft[o + 1] - g) ** 2 + (soft[o + 2] - b) ** 2;
   const near = (o) => samples.some(([r, g, b]) => dist2(o, r, g, b) <= t2);
+  // The texture at the tap: the region keeps to one (grass doesn't run into a smooth wall of its color).
+  let tS = 0; let tn = 0;
+  if (tex) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx; const Y = y + dy; if (X >= 0 && Y >= 0 && X < w && Y < h && mask[Y * w + X] === side) { tS += tex[Y * w + X]; tn++; } }
+  if (tn) tS /= tn;
+  const texOk = (t) => !tex || Math.abs(tex[t] - tS) <= Math.max(6, tol * 0.4);
   const seen = new Uint8Array(w * h); const q = [start]; seen[start] = 1;
   const limit = Math.max(50, Math.round(w * h * maxShare));
   for (let head = 0; head < q.length; head++) {
@@ -400,7 +441,7 @@ export function wand(soft, w, h, mask, x, y, tol = 30, { within = null, maxShare
     for (const t of [X > 0 ? i - 1 : -1, X < w - 1 ? i + 1 : -1, i - w, i + w]) {
       if (t < 0 || t >= w * h || seen[t] || mask[t] !== side || (!side && within && !within[t])) continue;
       const o = t * 3;
-      if (!near(o) || dist2(o, soft[oi], soft[oi + 1], soft[oi + 2]) > step2) continue;
+      if (!near(o) || dist2(o, soft[oi], soft[oi + 1], soft[oi + 2]) > step2 || !texOk(t) || (accept && !accept(t))) continue;
       seen[t] = 1; q.push(t);
     }
   }
@@ -416,6 +457,54 @@ export function wand(soft, w, h, mask, x, y, tol = 30, { within = null, maxShare
     }
   }
   const idx = Uint32Array.from(region); return { idx, val: new Uint8Array(idx.length).fill(side ? 0 : 1), cut: !!side };
+}
+
+/**
+ * How much a pixel looks like background rather than object (log-odds, + background), by the color
+ * and texture models of the whole cut (colorModel with `tex`).
+ */
+export function looksLike(model, soft, tex, i) {
+  const o = i * 3; const eps = 2e-5;
+  let v = Math.log(((model.nb ? lookup(model.bg, soft[o], soft[o + 1], soft[o + 2]) / model.nb : 0) + eps) / ((model.no ? lookup(model.obj, soft[o], soft[o + 1], soft[o + 2]) / model.no : 0) + eps));
+  if (tex && model.tobj && model.no && model.nb) v += 0.7 * Math.log((texAt(model.tbg, tex[i]) / model.nb + 1e-3) / (texAt(model.tobj, tex[i]) / model.no + 1e-3));
+  return v;
+}
+
+/**
+ * Auto wand: the side tapped changes (a kept leftover goes, a part cut off comes back), but it spreads
+ * only through what looks like that: when cutting, nothing that clearly looks like the object; when
+ * bringing back, nothing that clearly looks like the background (color and texture, `model` of the
+ * whole cut). So a tap on grass under a handle takes the grass, not the handle.
+ */
+export function wandAuto(soft, tex, w, h, mask, x, y, tol, { within = null, model }) {
+  const i0 = Math.round(y) * w + Math.round(x);
+  const cutting = !!mask[i0];
+  const accept = (i) => { const v = looksLike(model, soft, tex, i); return cutting ? v > -0.7 : v < 0.7; };
+  return wand(soft, w, h, mask, x, y, tol, { within: cutting ? null : within, tex, accept });
+}
+
+/**
+ * Refine the whole edge: patches (auto) all along the cut's outline, a radius `r` apart, so the
+ * outline settles where the color and texture change, all the way round. The changes.
+ */
+export function refineEdge(soft, tex, w, h, mask, r, { global = null } = {}) {
+  const bits = Uint8Array.from(mask);
+  // Outline points, one per r×r cell.
+  const cells = new Map();
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x; if (!bits[i]) continue;
+    if (bits[i - 1] && bits[i + 1] && bits[i - w] && bits[i + w]) continue;
+    const key = `${Math.floor(x / r)},${Math.floor(y / r)}`;
+    if (!cells.has(key)) cells.set(key, [x, y]);
+  }
+  const dist = edgeDistance(bits, w, h);
+  for (const [x, y] of cells.values()) {
+    const ch = refineSpot(soft, w, h, bits, x, y, r, { dir: 'auto', global, dist, tex });
+    if (ch) applyChanges(bits, ch);
+  }
+  const idx = []; const val = [];
+  for (let i = 0; i < w * h; i++) if (bits[i] !== mask[i]) { idx.push(i); val.push(bits[i]); }
+  return { idx: Uint32Array.from(idx), val: Uint8Array.from(val) };
 }
 
 /** Brush: a stroke (points in work pixels, radius r) painted kept (keep) or cut. The changes. */

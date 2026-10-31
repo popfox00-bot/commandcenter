@@ -192,3 +192,30 @@ test('brush: paints cut or keep along the stroke, and only changes what is diffe
   assert.equal(mask[30 * w + 50], 0); assert.equal(mask[10 * w + 50], 1);
   assert.equal(brush(w, h, mask, [[50, 30]], 4, false).idx.length, 0, 'already cut there: nothing changes');
 });
+
+// ---------- texture: color and texture together ----------
+import { textureMap, refineEdge, wandAuto, colorModel as colorModel2 } from '../web/tools/cutout/cutout-core.js';
+
+test('texture: a smooth green ball on leafy green ground of the same color is told apart (refine whole edge, auto wand)', () => {
+  const w = 220; const h = 220;
+  const ball = (x, y) => Math.hypot(x - 110, y - 110) <= 50;
+  // Leaves: light and dark green blotches, averaging the ball's green.
+  const leaf = (x, y) => ((Math.floor(x / 3) * 7 + Math.floor(y / 3) * 13) % 5 < 2 ? 50 : -34);
+  const px = scene(w, h, (x, y) => (ball(x, y) ? [90, 150, 70] : [90 + leaf(x, y) * 0.6, 150 + leaf(x, y), 70 + leaf(x, y) * 0.5]));
+  // A loose cut: 70 px around the 50 px ball.
+  const mask = Uint8Array.from({ length: w * h }, (_, i) => (Math.hypot((i % w) - 110, Math.floor(i / w) - 110) <= 70 ? 1 : 0));
+  const soft = softColors(px, w, h); const tex = textureMap(soft, w, h);
+  const wrong = (m) => { let n = 0; for (let i = 0; i < w * h; i++) { const x = i % w; const y = Math.floor(i / w); if (Math.abs(Math.hypot(x - 110, y - 110) - 50) > 3 && m[i] !== (ball(x, y) ? 1 : 0)) n++; } return n; };
+  const before = wrong(mask);
+  const model = (texture) => colorModel2(soft, w, h, mask, edgeDistance(mask, w, h), { tex: texture });
+  const withTex = applyChanges(Uint8Array.from(mask), refineEdge(soft, tex, w, h, mask, 12, { global: model(tex) }));
+  const noTex = applyChanges(Uint8Array.from(mask), refineEdge(soft, null, w, h, mask, 12, { global: model(null) }));
+  assert.ok(wrong(withTex) < before * 0.35, `with texture: ${wrong(withTex)} wrong of ${before} before`);
+  assert.ok(wrong(withTex) < wrong(noTex), `texture helps (${wrong(withTex)} vs ${wrong(noTex)} by color alone)`);
+  let lost = 0; for (let i = 0; i < w * h; i++) if (ball(i % w, Math.floor(i / w)) && Math.hypot((i % w) - 110, Math.floor(i / w) - 110) < 46 && !withTex[i]) lost++;
+  assert.equal(lost, 0, 'the ball itself stays');
+  // Auto wand on the leafy ring: the ring goes, not the ball.
+  const ch = wandAuto(soft, tex, w, h, mask, 110, 46, 40, { model: model(tex) });
+  assert.ok(ch && ch.idx.length > 1500, `the ring is cut (${ch?.idx.length})`);
+  assert.ok([...ch.idx].every((i) => !ball(i % w, Math.floor(i / w)) || Math.abs(Math.hypot((i % w) - 110, Math.floor(i / w) - 110) - 50) < 3), 'none of the ball');
+});

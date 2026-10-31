@@ -8,7 +8,7 @@ import { el, store, fill } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
-import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, softColors, edgeDistance, colorModel, refineSpot, wand, brush, applyChanges } from './cutout-core.js';
+import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, softColors, textureMap, edgeDistance, colorModel, refineSpot, wand, wandAuto, refineEdge, brush, applyChanges } from './cutout-core.js';
 
 const WORK_MAX = 2400; // cut resolution (long edge)
 const SMART_MAX = 720;  // smart edges are worked out at this size (long edge), then scaled up
@@ -28,8 +28,9 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   let finalCache = null; // the cut with patches applied (see finalMask)
   let work = null;       // the photo at the work size for smart edges and patches: { w, h, rgba }
   let patchSize = Number(store.get('cc.cutout.patch')) || 36; // patch / brush radius, in screen px
-  let patchDir = store.get('cc.cutout.dir') || 'auto';   // patch fix: 'auto' | 'cut' | 'keep'
-  let paintDir = store.get('cc.cutout.paint') || 'cut';  // wand and brush: 'cut' | 'keep'
+  // Patch, wand and brush work out in or out themselves ('auto'); ✂️ Cut away or ↩︎ Keep can be picked
+  // for the next stroke or tap, then it's back to Auto.
+  let patchDir = 'auto'; let paintDir = 'auto';
   let wandTol = Number(store.get('cc.cutout.tol')) || 28;
   let stroke = null; // a patch or brush stroke in progress (see startStroke)
   let loupe = null;  // [u, v] under the finger while fixing: shown magnified
@@ -129,22 +130,23 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
         add: 'Draw all the way around what you want to keep. Lift your finger to close the outline; trace again to add more.',
         sub: 'Trace inside your outline around a part to leave out, like the sky under a basket\'s handle or the gap between an arm and a body.',
         patch: {
-          auto: 'Tap or drag along where the edge is off: it\'s worked out again there from the colors of the object and the background, moving in or out.',
-          cut: 'Drag over background left in (grass, sky, table): it\'s cut away where it looks like background. Nothing is added.',
-          keep: 'Drag over parts cut off by mistake: they\'re brought back where they look like the object. Nothing is cut.',
+          auto: 'Tap or drag along where the edge is off: the edge is found again there from the colors and textures of the object and the background, moving in or out. ✨ Refine whole edge does it all the way round.',
+          cut: 'For the next drag: background left in (grass, sky, table) is cut away where it looks like background. Nothing is added. Then back to Auto.',
+          keep: 'For the next drag: parts cut off by mistake come back where they look like the object. Nothing is cut. Then back to Auto.',
         }[patchDir],
-        wand: paintDir === 'cut' ? 'Tap a leftover patch of background: everything joined to it that looks like it is cut away.' : 'Tap a part cut off by mistake: everything joined to it that looks like it comes back (inside your trace).',
-        brush: paintDir === 'cut' ? 'Paint over what should go, exactly where your finger goes.' : 'Paint over what should stay, exactly where your finger goes.',
+        wand: { auto: 'Tap a leftover (cut away) or a part cut off (brought back): everything joined to it that looks like it changes, never what looks like the other side.', cut: 'For the next tap: everything joined to it that looks like it is cut away. Then back to Auto.', keep: 'For the next tap: everything joined to it that looks like it comes back (inside your trace). Then back to Auto.' }[paintDir],
+        brush: { auto: 'A smart brush: paint along an edge, and under the brush each pixel goes with the object or the background, by its color and texture.', cut: 'For the next stroke: what you paint goes, exactly. Then back to Auto.', keep: 'For the next stroke: what you paint stays, exactly. Then back to Auto.' }[paintDir],
         delete: 'Tap a trace or a fix to delete it. Undo brings it back.',
       }[mode] }),
       FIX_MODES.includes(mode) ? el('div', { class: 'segmented co-dir', role: 'radiogroup', 'aria-label': 'Fix' },
-        ...(mode === 'patch' ? [['auto', 'Auto'], ['cut', '✂️ Cut away'], ['keep', '↩︎ Keep']] : [['cut', '✂️ Cut away'], ['keep', '↩︎ Keep']]).map(([id, label]) => {
+        ...[['auto', '✨ Auto'], ['cut', '✂️ Cut away'], ['keep', '↩︎ Keep']].map(([id, label]) => {
           const on = (mode === 'patch' ? patchDir : paintDir) === id;
           return el('button', { class: `seg${on ? ' active' : ''}`, role: 'radio', 'aria-checked': String(on), text: label, onclick: () => {
-            if (mode === 'patch') { patchDir = id; store.set('cc.cutout.dir', id); } else { paintDir = id; store.set('cc.cutout.paint', id); }
+            if (mode === 'patch') patchDir = id; else paintDir = id;
             patchNote = ''; renderPanel();
           } });
         })) : null,
+      mode === 'patch' ? el('button', { class: 'btn small-btn', text: '✨ Refine whole edge', onclick: refineWhole }) : null,
       FIX_MODES.includes(mode) && patchNote ? el('p', { class: `small ${/^Nothing/.test(patchNote) ? 'warn-text' : 'muted'}`, 'aria-live': 'polite', text: patchNote }) : null,
       mode === 'patch' || mode === 'brush' ? (() => {
         const label = mode === 'patch' ? 'Patch size' : 'Brush size';
@@ -243,6 +245,22 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   }
 
   const softOf = () => { const wk = workCopy(); wk.soft ??= softColors(wk.rgba, wk.w, wk.h); return wk.soft; };
+  const texOf = () => { const wk = workCopy(); wk.tex ??= textureMap(softOf(), wk.w, wk.h); return wk.tex; };
+  /** One-shot directions: after a stroke with ✂️ Cut away or ↩︎ Keep, back to Auto. */
+  const backToAuto = () => { patchDir = 'auto'; paintDir = 'auto'; };
+  /** ✨ Refine whole edge: patches all along the outline (auto), one undo step. */
+  function refineWhole() {
+    if (!outlines().some((t) => t.op === 'add')) { patchNote = 'Trace around something first.'; renderPanel(); return; }
+    const { w, h } = workCopy();
+    const base = finalMask().bits;
+    const r = Math.max(8, Math.round(Math.max(w, h) / 45));
+    const global = colorModel(softOf(), w, h, base, edgeDistance(base, w, h), { tex: texOf() });
+    const ch = refineEdge(softOf(), texOf(), w, h, base, r, { global });
+    if (!ch.idx.length) { patchNote = 'Nothing to change: the outline already follows the edge.'; renderPanel(); return; }
+    const cut = [...ch.val].filter((v) => !v).length;
+    patchNote = `Refined the whole edge: cut away ${plural(cut)}${ch.idx.length - cut ? `, brought back ${plural(ch.idx.length - cut)}` : ''}.`;
+    commit([...traces, { op: 'fix', kind: 'edge', id: newId(), spots: [], ch }]);
+  }
 
   /** The outlines as drawn (add, less sub) at the work size: where the wand may bring things back. */
   function tracedBits() {
@@ -288,24 +306,33 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
     const base = finalMask().bits;
     const bits = Uint8Array.from(base);
     stroke = { kind: mode, base, bits, w, h, r: fixRadius(), spots: [], last: null, pts: [], noData: 0 };
-    if (mode === 'patch') {
+    // Patch, and the brush on Auto (a smart brush), work from the cut's color and texture models.
+    stroke.dir = mode === 'patch' ? patchDir : paintDir;
+    if (mode === 'patch' || stroke.dir === 'auto') {
       const dist = edgeDistance(base, w, h);
-      stroke.global = colorModel(softOf(), w, h, base, dist);
+      stroke.global = colorModel(softOf(), w, h, base, dist, { tex: texOf() });
     }
     strokeTo(u, v, true);
   }
   function strokeTo(u, v, first = false) {
     const s = stroke; const x = u * s.w; const y = v * s.h;
-    if (s.kind === 'brush') {
+    if (s.kind === 'brush' && s.dir === 'auto') {
+      // Smart brush: under the brush, each pixel goes with the object or the background (decisively).
+      if (!first && s.last && Math.hypot(x - s.last[0], y - s.last[1]) < s.r * 0.5) return;
+      s.last = [x, y];
+      const ch = refineSpot(softOf(), s.w, s.h, s.bits, x, y, s.r, { dir: 'auto', global: s.global, tex: texOf(), decisive: true });
+      if (ch) applyChanges(s.bits, ch); else s.noData++;
+      s.spots.push([u, v, s.r / s.w]);
+    } else if (s.kind === 'brush') {
       s.pts.push([x, y]);
       const seg = s.pts.slice(-2);
-      applyChanges(s.bits, brush(s.w, s.h, s.bits, seg, s.r, paintDir === 'keep'));
+      applyChanges(s.bits, brush(s.w, s.h, s.bits, seg, s.r, s.dir === 'keep'));
       if (first || !s.last || Math.hypot(x - s.last[0], y - s.last[1]) >= s.r) { s.spots.push([u, v, s.r / s.w]); s.last = [x, y]; }
     } else {
       // A patch every ~2/3 of its radius along the drag, each on the cut as the stroke has left it.
       if (!first && s.last && Math.hypot(x - s.last[0], y - s.last[1]) < s.r * 0.66) return;
       s.last = [x, y];
-      const ch = refineSpot(softOf(), s.w, s.h, s.bits, x, y, s.r, { dir: patchDir, global: s.global });
+      const ch = refineSpot(softOf(), s.w, s.h, s.bits, x, y, s.r, { dir: s.dir, global: s.global, tex: texOf() });
       if (ch) applyChanges(s.bits, ch); else s.noData++;
       s.spots.push([u, v, s.r / s.w]);
     }
@@ -313,11 +340,12 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   }
   function endStroke() {
     const s = stroke; stroke = null;
+    backToAuto();
     const idx = []; const val = [];
     for (let i = 0; i < s.bits.length; i++) if (s.bits[i] !== s.base[i]) { idx.push(i); val.push(s.bits[i]); }
     const cut = val.filter((v) => !v).length; const kept = val.length - cut;
     if (!idx.length) {
-      patchNote = s.kind === 'brush' ? 'Nothing to change there: it\'s already that way.'
+      patchNote = s.kind === 'brush' && s.dir !== 'auto' ? 'Nothing to change there: it\'s already that way.'
         : s.noData === s.spots.length ? 'Nothing to go by there: patch where the cut meets the object, with some of each around.'
           : 'Nothing to change there: the edge already follows the colors (try ✂️ Cut away or ↩︎ Keep, or the Brush).';
       refresh(); return;
@@ -328,18 +356,26 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   function wandAt(u, v) {
     const { w, h } = workCopy();
     const bits = finalMask().bits;
-    const want = paintDir === 'cut' ? 1 : 0; // the side tapped: kept leftovers to cut, or cut parts to bring back
-    // A finger isn't a pixel: the nearest pixel on that side, within a few.
-    let x = Math.round(u * w); let y = Math.round(v * h); let best = null;
-    for (let d = 0; d <= 6 && !best; d++) for (let dy = -d; dy <= d && !best; dy++) for (let dx = -d; dx <= d; dx++) {
-      const X = x + dx; const Y = y + dy;
-      if (Math.max(Math.abs(dx), Math.abs(dy)) === d && X >= 0 && Y >= 0 && X < w && Y < h && bits[Y * w + X] === want) { best = [X, Y]; break; }
+    const dir = paintDir; backToAuto();
+    let x = Math.round(u * w); let y = Math.round(v * h);
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    // Auto: the side tapped changes. Cut away / Keep: a finger isn't a pixel, so the nearest pixel on
+    // that side, within a few.
+    if (dir !== 'auto') {
+      const want = dir === 'cut' ? 1 : 0; let best = null;
+      for (let d = 0; d <= 6 && !best; d++) for (let dy = -d; dy <= d && !best; dy++) for (let dx = -d; dx <= d; dx++) {
+        const X = x + dx; const Y = y + dy;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === d && X >= 0 && Y >= 0 && X < w && Y < h && bits[Y * w + X] === want) { best = [X, Y]; break; }
+      }
+      if (!best) { patchNote = want ? 'Nothing to cut there: tap a leftover that\'s still kept.' : 'Nothing to bring back there: tap a part that was cut off.'; refresh(); return; }
+      [x, y] = best;
     }
-    if (!best) { patchNote = want ? 'Nothing to cut there: tap a leftover that\'s still kept.' : 'Nothing to bring back there: tap a part that was cut off.'; refresh(); return; }
-    [x, y] = best;
-    const ch = wand(softOf(), w, h, bits, x, y, wandTol, { within: want ? null : tracedBits() });
+    const cutting = !!bits[y * w + x];
+    const ch = dir === 'auto'
+      ? wandAuto(softOf(), texOf(), w, h, bits, x, y, wandTol, { within: tracedBits(), model: colorModel(softOf(), w, h, bits, edgeDistance(bits, w, h), { tex: texOf() }) })
+      : wand(softOf(), w, h, bits, x, y, wandTol, { within: cutting ? null : tracedBits(), tex: texOf() });
     if (!ch || !ch.idx.length) { patchNote = ch ? 'Nothing to change there.' : 'Nothing to change there: it would spread over most of the photo (try less reach).'; refresh(); return; }
-    patchNote = `${want ? 'Cut away' : 'Brought back'} ${plural(ch.idx.length)}.`;
+    patchNote = `${cutting ? 'Cut away' : 'Brought back'} ${plural(ch.idx.length)}.`;
     commit([...traces, { op: 'fix', kind: 'wand', id: newId(), spots: [[x / w, y / h, 8 / canvas.getBoundingClientRect().width]], ch }]);
   }
 

@@ -109,6 +109,12 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   Sepia, each with an intensity slider.
 - **Crop**: Freeform, Original, Square, 4:5, 3:4, 2:3, 9:16 and the landscape ratios; drag corners,
   edges or the whole box; rotate 90°, flip, and straighten ±45° (auto-zooms so no corners go empty).
+  **🙂 Level face** (only when you tap it): finds the faces and turns the photo so the biggest one is
+  upright, eyes level and above the mouth (quarter turns and straighten; undo to go back).
+  **🎭 Face swap**: on to Collage with this photo, to cover its faces with a Character or a mask.
+- **Faces** are found on the phone, offline (`web/lib/face.js`: face-api's tiny face detector and its
+  68-point landmarks for the eyes and mouth, vendored in `web/vendor/face`), tried with the picture
+  turned too, so a tilted head or a photo on its side is found.
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
@@ -243,6 +249,9 @@ Characters open). Each photo is handed over once (again after new edits).
 - **Free / Superimpose**: set a background photo, then add photos or saved Characters on top. Drag
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
   Delete and Opacity act on the selected layer.
+- **🎭 Face swap** (with a background photo): every face in it is covered by a Character from Cutout
+  (cut a face out and save it) or any mask image, each sized, centered and turned to its face, as
+  layers to move and adjust like any other, like a camera filter.
 - Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
   Work is autosaved.
 

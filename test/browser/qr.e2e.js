@@ -196,7 +196,8 @@ test('Saved → App codes: a screenshot of a Venmo code becomes a branded card t
     return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
   });
   await page.setInputFiles('#qr-card-file', { name: 'IMG_0001.PNG', mimeType: 'image/png', buffer: Buffer.from(shot) });
-  await page.waitForSelector('text=New app code');
+  // Reading a full-size phone screenshot is heavy: give it time when other tests run alongside.
+  await page.waitForSelector('text=New app code', { timeout: 90000 });
   assert.equal(await page.inputValue('[aria-label=App]'), 'venmo', 'the app is worked out from the code');
   assert.equal(await page.inputValue('[aria-label=Handle]'), 'Alex-Fox');
   assert.match(await page.textContent('.qr-card-note'), /Read the code: https:\/\/venmo\.com\/u\/Alex-Fox/);

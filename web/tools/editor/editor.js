@@ -12,6 +12,7 @@ import { FULL_CROP, orientedSize, outputPixelSize, outputToSource, apply, cropFo
 import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
 import { applyPatches, makePatch } from './retouch.js';
 import { strokeMask, cleanUp, cloneFrom } from './cleanup.js';
+import { levelTurn, mainFace } from '../../lib/face-core.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
@@ -24,7 +25,7 @@ const TOOLS = [
 ];
 
 /** mount(host, { file }) — `file` opens that photo right away (e.g. sent from the converter). */
-export function mount(host, { file: initialFile } = {}) {
+export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, cleanSize: 22, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
   delete prefs.autoCropColor;
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
@@ -639,12 +640,18 @@ export function mount(host, { file: initialFile } = {}) {
       onChange: () => { const next = state(); if (before.value) history.replace(before.value); before.value = null; commit(next); },
     });
     const autoNote = el('span', { class: 'muted small ed-autocrop-note', text: autoCropNote });
+    const faceNote = el('span', { class: 'muted small', 'aria-live': 'polite', text: faceNoteText });
     return [
       ratios,
       el('div', { class: 'ed-row ed-autocrop' },
         el('button', { class: 'btn small-btn primary', text: '✂️ Auto-Crop', onclick: (e) => runAutoCrop(e.currentTarget, autoNote) }),
         autoNote),
       barColorsPicker(prefs.autoCropColors, () => savePrefs()),
+      // Faces: level one (eyes level, above the mouth), or swap faces for a Character or a mask.
+      el('div', { class: 'ed-row ed-face' },
+        el('button', { class: 'btn small-btn', text: '🙂 Level face', onclick: (e) => levelFace(e.currentTarget, faceNote) }),
+        onFaceSwap ? el('button', { class: 'btn small-btn', text: '🎭 Face swap', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const f = await unmount.currentPhoto(); if (f) onFaceSwap(f); } finally { b.disabled = false; } } }) : null,
+        faceNote),
       el('div', { class: 'ed-row' },
         el('button', { class: 'btn small-btn', text: '⟳ Rotate', onclick: () => commit(rotateClockwise(state())) }),
         el('button', { class: 'btn small-btn', text: '⇋ Flip', onclick: () => commit(flipHorizontal(state())) }),
@@ -652,6 +659,34 @@ export function mount(host, { file: initialFile } = {}) {
       el('strong', { class: 'small', text: 'Straighten' }),
       straighten,
     ];
+  }
+
+  let faceNoteText = '';
+  /**
+   * 🙂 Level face: finds the faces (on the phone) and turns the photo so the biggest one is upright:
+   * eyes level, above the mouth (rotate and straighten; the crop starts over).
+   */
+  async function levelFace(btn, note) {
+    btn.disabled = true; note.textContent = faceNoteText = 'Looking for faces…';
+    try {
+      const { detectFaces } = await import('../../lib/face.js');
+      const faces = await detectFaces(applyPatches(source, state().patches ?? []));
+      const face = mainFace(faces);
+      if (!face) { faceNoteText = 'No face found in this photo.'; return; }
+      const W = source.width; const H = source.height;
+      // Where a source point shows for an edit state (the inverse of the renderer's mapping).
+      const map = (st, [u, v]) => {
+        const M = outputToSource(st, W, H); const det = M[0] * M[4] - M[1] * M[3];
+        const su = u - M[2]; const sv = v - M[5];
+        const o = orientedSize(W, H, st.rotate);
+        return [((M[4] * su - M[1] * sv) / det) * o.W, ((-M[3] * su + M[0] * sv) / det) * o.H];
+      };
+      const turn = levelTurn(face, state(), map);
+      if (!turn) { faceNoteText = 'Couldn\'t work out how to level that face.'; return; }
+      commit({ ...state(), rotate: turn.rotate, straighten: turn.straighten, crop: { ...FULL_CROP }, ratio: 'free' });
+      faceNoteText = `Leveled ${faces.length > 1 ? `the biggest of ${faces.length} faces` : 'the face'}: eyes level, above the mouth. Undo to go back.`;
+    } catch (err) { faceNoteText = `Couldn't look for faces: ${err.message}`; }
+    finally { btn.disabled = false; note.textContent = faceNoteText; renderPanel(); }
   }
 
   let autoCropNote = 'Crops a screenshot of a post to just its photo or video.';

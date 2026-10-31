@@ -38,6 +38,14 @@ const copies = [
   ['tesseract.js-core/tesseract-core-simd-lstm.wasm', 'tesseract/tesseract-core-simd-lstm.wasm'],
   ['tesseract.js-core/LICENSE', 'tesseract/LICENSE-core'],
   ['@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', 'tesseract/lang/eng.traineddata.gz'],
+  // face-api (MIT, TensorFlow.js bundled): finding faces and their eyes and mouth, on the phone (level
+  // a face, face swap). The tiny face detector and the 68-point landmark model.
+  ['@vladmandic/face-api/dist/face-api.esm.js', 'face/face-api.esm.js'],
+  ['@vladmandic/face-api/LICENSE', 'face/LICENSE'],
+  ['@vladmandic/face-api/model/tiny_face_detector_model-weights_manifest.json', 'face/model/tiny_face_detector_model-weights_manifest.json'],
+  ['@vladmandic/face-api/model/tiny_face_detector_model.bin', 'face/model/tiny_face_detector_model.bin'],
+  ['@vladmandic/face-api/model/face_landmark_68_model-weights_manifest.json', 'face/model/face_landmark_68_model-weights_manifest.json'],
+  ['@vladmandic/face-api/model/face_landmark_68_model.bin', 'face/model/face_landmark_68_model.bin'],
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 
@@ -49,7 +57,7 @@ for (const [from, to] of copies) {
 mkdirSync(join(out, 'pdfjs/wasm'), { recursive: true });
 for (const f of pdfWasm) cpSync(join(nm, 'pdfjs-dist/wasm', f), join(out, 'pdfjs/wasm', f));
 // Drop source-map comments: the maps aren't shipped, and browsers would request them.
-for (const f of ['pdf-lib/pdf-lib.esm.min.js', 'tesseract/tesseract.esm.min.js', 'tesseract/worker.min.js']) {
+for (const f of ['pdf-lib/pdf-lib.esm.min.js', 'tesseract/tesseract.esm.min.js', 'tesseract/worker.min.js', 'face/face-api.esm.js']) {
   const p = join(out, f);
   writeFileSync(p, readFileSync(p, 'utf8').replace(/\n?\/\/# sourceMappingURL=\S+\s*$/, '\n'));
 }

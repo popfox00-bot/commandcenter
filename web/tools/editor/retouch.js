@@ -513,10 +513,12 @@ export function inpaint(rgba, w, h, unknown, bx0, by0, bx1, by1, R) {
  * starting from a first guess `init` (RGBA, same size as `rgba`): the hole is rebuilt from small
  * patches of the picture around it so that every patch over it looks like one from outside, and they
  * agree where they overlap (multi-scale PatchMatch with voting, after Wexler, Shechtman & Irani, and
- * Barnes et al.). Coarse to fine: the layout settles first, then the detail. Returns a copy of `rgba`
- * with the hole filled.
+ * Barnes et al.). Coarse to fine: the layout settles first, then the detail. `maxLevels: 1` keeps the
+ * layout of `init` and only refines it at full size; `vote: false` then takes each pixel from the
+ * patch that best matches the first guess around it (texture kept, no averaging into a blur).
+ * Returns a copy of `rgba` with the hole filled.
  */
-export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init) {
+export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { maxLevels = 4, iters: finalIters = 2, vote: voting = true, minHole = 6, minSize = 48 } = {}) {
   const P = 3; // patches are 7×7
   const margin = Math.max(24, Math.round(2 * R));
   const rx0 = Math.max(0, bx0 - margin); const ry0 = Math.max(0, by0 - margin);
@@ -539,9 +541,9 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init) {
     }
     levels.push({ w: rw, h: rh, img, hole });
   }
-  while (levels.length < 4) {
+  while (levels.length < maxLevels) {
     const f = levels.at(-1);
-    if (R / 2 ** levels.length < 6 || f.w < 48 || f.h < 48) break;
+    if (R / 2 ** levels.length < minHole || f.w < minSize || f.h < minSize) break;
     const cw = f.w >> 1; const ch = f.h >> 1;
     const img = new Float32Array(cw * ch * 3); const hole = new Uint8Array(cw * ch);
     for (let y = 0; y < ch; y++) {
@@ -554,6 +556,14 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init) {
         }
       }
     }
+    // A level with no whole patch outside the hole has nothing to copy from: stop at the one before.
+    let free = false;
+    for (let y = 3; y < ch - 3 && !free; y++) for (let x = 3; x < cw - 3 && !free; x++) {
+      let clear = true;
+      for (let dy = -3; dy <= 3 && clear; dy++) for (let dx = -3; dx <= 3; dx++) if (hole[(y + dy) * cw + x + dx]) { clear = false; break; }
+      free = clear;
+    }
+    if (!free) break;
     levels.push({ w: cw, h: ch, img, hole });
   }
   // Deterministic random numbers (the same input always gives the same fill).
@@ -661,11 +671,12 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init) {
         }
       }
     };
-    const iters = L === levels.length - 1 ? 6 : L === 0 ? 2 : 3;
-    if (nnf) vote(); // the finer detail of the coarser layout, straight away
+    const iters = L === levels.length - 1 && L > 0 ? 6 : L === 0 ? finalIters : 3;
+    if (nnf && voting) vote(); // the finer detail of the coarser layout, straight away
     for (let it = 0; it < iters; it++) {
       improve(it);
       if (L > 0) improve(it + 1);
+      if (!voting) continue; // matched against the first guess as it is (its texture kept)
       // Distances against the updated picture.
       vote();
       for (let k = 0; k < T; k++) { const t = targets[k]; sd[k] = dist(t % lw, (t / lw) | 0, sx[k], sy[k], Infinity); }

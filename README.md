@@ -5,8 +5,8 @@ A personal, phone-first app. It opens on a home screen of app icons: **Calendar*
 Settings → Edit Home Screen; **Jobs** is opened from Settings).
 
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
-  setup. **Files** has tabs for the [Photo Editor](#photo-editor), [Collage](#collage--superimpose),
-  [Cutout](#cutout-and-characters), [Write on PDF](#write-on-pdf), [Scan](#scan), the
+  setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
+  and [Cutout](#cutout-and-characters) under it), [Write on PDF](#write-on-pdf), [Scan](#scan), the
   [File Converter](#file-converter) and [Saved Files](#saved-files) (your own Google Drive folder:
   the one part that goes online, and only when you set it up). Converted images have an **Edit**
   button (opens the photo editor) and converted PDFs a **Write on it** button. [Draw](#draw) is a
@@ -47,7 +47,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
-- [Calendar](#calendar) · [Notes](#notes) · [Games](#games) · [Settings](#settings)
+- [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -107,6 +107,17 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   edges or the whole box; rotate 90°, flip, and straighten ±45° (auto-zooms so no corners go empty).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
+- **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
+  overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
+  it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
+  it, coarse to fine (the layout first, then the texture: lines and patterns run on), and its light
+  and color are evened out where it meets the photo (`web/tools/editor/cleanup.js`). If a fill looks
+  smudged, **📋 Copy From Area**: tap a clean spot elsewhere (sand, sky, wall), then tap, brush or
+  circle the area to cover: it gets that spot one to one, its edge blended into the new surroundings
+  (or **Use on the last clean-up** to redo the last one that way). Each clean-up is one undo step,
+  is shown without it under ◑, and is part of every export.
+- With a mouse, chip rows (Adjust, Filters, Markup…) have a scroll bar, and the scroll wheel moves
+  them sideways.
 - Undo/redo for every step, hold ◑ to compare with the original, and **autosave**: if iOS closes the
   app, reopening the editor offers to continue where you left off.
 - **Done** exports at full resolution (or 4096/2048/1080 px) as JPEG, PNG or WebP, then Share (Save
@@ -216,9 +227,15 @@ you save them, and nothing is uploaded. It works offline.
 
 ### Collage / Superimpose
 
+Under the Photo Editor (**✏️ Edit · 🧩 Collage · ✂️ Cutout**). Going to Collage from a photo you're
+editing puts it (with its edits) in the first empty frame; going to Cutout asks whether to **Trace a
+cutout** of it or **Add a Character** to it (it becomes the background in Free / Superimpose, and the
+Characters open). Each photo is handed over once (again after new edits).
+
 - **Grid**: pick a layout (2 side by side, 2 stacked, 3, 4, 6 or 9), a shape (square, 4:5, 9:16,
   16:9, ...), spacing, rounded corners and a background color. Drag a photo to reposition it in its
-  cell, pinch or use the Zoom slider to crop; Replace and Remove act on the selected cell.
+  cell, pinch or use the Zoom slider to crop; **hold it, then drag** to move it to another frame
+  (swapping); Replace and Remove act on the selected cell.
 - **Free / Superimpose**: set a background photo, then add photos or saved Characters on top. Drag
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
   Delete and Opacity act on the selected layer.
@@ -510,6 +527,34 @@ Open **Notes** on the home screen. Everything is stored on the phone (IndexedDB)
   thumbnail in the list opens full screen so whoever shops can match the label on the shelf. Items
   you clear from the cart are added to My items, most-bought first as one-tap suggestions.
 - **Share** sends the list as text grouped by section, with brands, e.g. to Messages.
+
+## Rap
+
+Write lyrics on the phone, offline, with rhymes and suggestions as you go.
+
+- **✍️ Create**: a lyrics view like Apple Music's: the line you're writing big and white, the lines
+  before it above, smaller and grayed the further back they are, scrolling along to keep your line in
+  focus. **Enter** starts the next line (what's after the cursor goes with it); Backspace at the start
+  of a line joins it to the one before; ✎ (or a double tap) edits an earlier line. Each line shows its
+  syllables, to keep the flow even.
+- **Suggestions** (bottom left, above the keyboard): the **next word**, like a phone keyboard's (what
+  follows in the lines it has learned; mid-word, words starting with what you've typed), and
+  **Complete the line**: three endings that rhyme with the line you're answering and make it about as
+  long as that line. Lines rhyme in pairs: a line answers the one before, unless those two already
+  rhyme (then it starts a new pair, and the endings are free).
+- **Rhymes** (bottom right): a word bank of common words that rhyme with the last word you wrote,
+  perfect rhymes first (night: light, fight, tonight) then near ones (ride, side, time). **Tap any word**
+  in your lines (or type one) to see its rhymes instead; **↺ last word** goes back. Tap a word in the
+  bank to add it.
+- **💾 Saved Songs**: every song is kept as you write (on this phone), with its title; open, share or
+  delete. Your songs also teach the suggestions your own style.
+- **🅴**: explicit words in suggestions (off by default; slurs are never suggested).
+- How it works (`web/apps/rap/`): `rap-words.txt` is about 32,000 common words with how they sound,
+  built by `scripts/build-rap-words.mjs` from the CMU Pronouncing Dictionary (rhymes: the sounds from the
+  last stressed vowel on), SCOWL (which words are common) and WordNet (nouns, verbs, adjectives, for
+  endings like "watch me ___"); notices in `DATA-LICENSES.md`. Words it doesn't know ("stuntin'") are
+  worked out from their stem or ending. Suggestions learn from `rap-corpus.js` (lines written for this
+  app) and your songs.
 
 ## Games
 

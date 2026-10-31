@@ -9,6 +9,7 @@ export const APPS = [
   { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · PDF · Scan · Saved Files', href: '#/files', load: () => import('../tools/studio/studio.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', load: () => import('../tools/draw/draw.js') },
   { id: 'qr', name: 'QR', icon: '▦', tint: 'ink', note: 'Scan · Make · App codes', href: '#/qr', load: () => import('../tools/qr/qr.js') },
+  { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', load: () => import('./rap/rap.js') },
   { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html' },
   { id: 'settings', name: 'Settings', icon: '⚙️', tint: 'gray', note: 'Home screen · Colors · Jobs', href: '#/settings', load: () => import('./settings/settings.js') },
   // Not on the home screen: opened from Settings.

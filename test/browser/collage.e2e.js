@@ -216,7 +216,8 @@ test('cutout: smart edges bring a loose trace in to the object; a trace added in
   assert.equal(await middle(), true, 'the wand brought it back');
   // Remove trace: tap the wand's dot, the fix is gone (the middle is out again); undo.
   await page.getByRole('radio', { name: '🗑 Remove trace' }).click();
-  await page.mouse.click(b5.x + b5.w / 2, b5.y + b5.h / 2);
+  const b6 = await canvasBox(page, '.co-canvas');
+  await page.mouse.click(b6.x + b6.w / 2, b6.y + b6.h / 2);
   assert.equal(await middle(), false, 'the wand fix removed');
   await page.getByRole('button', { name: 'Undo' }).click();
   assert.equal(await middle(), true);

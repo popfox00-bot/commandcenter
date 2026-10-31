@@ -157,3 +157,71 @@ test('an edit in progress survives closing the app', async () => {
   assert.match(await page.$eval('.ed-slider output', (o) => o.textContent), /^60$/);
   await context.close();
 });
+
+test('clean up: tap a speck away, copy from another area over a spot; then Collage and Cutout take the photo', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // A red half and a blue half, with a white speck on the red.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 100);
+    const x = c.getContext('2d');
+    x.fillStyle = 'rgb(200,40,40)'; x.fillRect(0, 0, 100, 100);
+    x.fillStyle = 'rgb(40,40,200)'; x.fillRect(100, 0, 100, 100);
+    x.fillStyle = '#fff'; x.fillRect(45, 45, 8, 8);
+    const b = await c.convertToBlob({ type: 'image/png' });
+    return Array.from(new Uint8Array(await b.arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'speck.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up']);
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  await page.waitForSelector('text=draw a circle around it');
+  const white = await pixel(page, 0.245, 0.49);
+  assert.ok(white[0] > 230 && white[2] > 230, `the speck: ${white}`);
+  const tap = async (fx, fy) => {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const b = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; });
+    await page.mouse.click(b[0] + fx * b[2], b[1] + fy * b[3]);
+  };
+  await tap(0.245, 0.49);
+  await page.waitForSelector('text=Spot cleaned up');
+  await page.waitForTimeout(150);
+  const after = await pixel(page, 0.245, 0.49);
+  assert.ok(after[0] > 150 && after[1] < 90 && after[2] < 90, `the speck is gone: red again (${after})`);
+  // Copy From Area: pick a spot on the blue, then tap the red: it gets the blue.
+  await page.getByRole('button', { name: '📋 Copy From Area' }).click();
+  await page.waitForSelector('text=Tap the spot to copy from');
+  await tap(0.75, 0.5);
+  await page.waitForSelector('text=Now tap, brush or circle the area to cover');
+  await tap(0.2, 0.3);
+  await page.waitForSelector('text=Copied in and blended');
+  await page.waitForTimeout(150);
+  const copied = await pixel(page, 0.2, 0.3);
+  assert.ok(copied[2] > copied[0], `a copy of the blue, blended toward the red around it (${copied})`);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.waitForTimeout(150);
+  const undone = await pixel(page, 0.2, 0.3);
+  assert.ok(undone[0] > 150 && undone[2] < 90, `undo: red again (${undone})`);
+
+  // Collage: the photo goes into a frame.
+  await page.getByRole('tab', { name: '🧩 Collage' }).click();
+  await page.waitForSelector('.cl-canvas');
+  await page.waitForSelector('.ed-panel >> text=Replace');
+  // Cutout: asked what to do with it; tracing opens it in Cutout.
+  await page.getByRole('tab', { name: '✏️ Edit' }).click();
+  await page.getByRole('tab', { name: '✂️ Cutout' }).click();
+  await page.waitForSelector('dialog[open] >> text=Cutout with this photo');
+  await page.locator('dialog[open]').getByRole('button', { name: '✂️ Trace a cutout' }).click();
+  await page.waitForSelector('.co-canvas');
+  // Back and forth with no new edits: not asked again.
+  await page.getByRole('tab', { name: '✏️ Edit' }).click();
+  await page.getByRole('tab', { name: '✂️ Cutout' }).click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.isVisible('dialog[open]'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

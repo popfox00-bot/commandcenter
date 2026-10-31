@@ -777,3 +777,11 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 @media (max-width: 520px) {
   .rap-current { font-size: 26px; }
 }
+
+/* Notes: voice memos */
+.nt-memos { display: grid; gap: 8px; }
+.nt-memo { display: grid; gap: 6px; padding: 10px; }
+.nt-audio { width: 100%; height: 40px; }
+.nt-recording { background: #dc2626; color: #fff; border-color: #dc2626; }
+.nt-rec-time { font-variant-numeric: tabular-nums; color: #dc2626; font-weight: 700; }
+.nt-card-memos { color: var(--muted); }

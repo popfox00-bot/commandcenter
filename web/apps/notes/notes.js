@@ -1,4 +1,4 @@
-// Notes app: notes (text or checklists, with photos) and a grocery list that sorts itself by store
+// Notes app: notes (text or checklists, with photos and voice memos) and a grocery list that sorts itself by store
 // section with an icon per food type. "My items" remembers what you buy, including a photo of the
 // exact brand, so whoever shops gets the right one. Everything stays on the phone (IndexedDB).
 // Routes: #/notes (notes), #/notes/grocery.
@@ -12,6 +12,37 @@ import { CATEGORIES, CATEGORY, categorize, itemIcon, makeItem, findInCatalog, su
 const NOTES_KEY = 'notes.v1';
 const GROCERY_KEY = 'grocery.v1';
 const photoKey = (id) => `notes.photo.${id}`;
+const memoKey = (id) => `notes.memo.${id}`;
+
+// ---------- voice memos ----------
+
+/** A type of audio this browser can record: AAC on iPhone, Opus elsewhere. */
+const memoType = () => ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((t) => globalThis.MediaRecorder?.isTypeSupported?.(t)) ?? '';
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+/**
+ * Record from the microphone until stop() is called: { stop: () => Promise<{ blob, seconds }>, cancel }.
+ * Throws when there's no microphone or it isn't allowed.
+ */
+async function startRecording(onTick) {
+  if (!navigator.mediaDevices?.getUserMedia || !globalThis.MediaRecorder) throw new Error('Recording isn\'t available in this browser.');
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { throw new Error('Allow the microphone for this app to record a memo.'); }
+  const type = memoType();
+  const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  const chunks = []; const t0 = Date.now();
+  rec.addEventListener('dataavailable', (e) => { if (e.data.size) chunks.push(e.data); });
+  const timer = setInterval(() => onTick?.((Date.now() - t0) / 1000), 250);
+  rec.start(1000);
+  const end = () => { clearInterval(timer); stream.getTracks().forEach((t) => t.stop()); };
+  return {
+    stop: () => new Promise((resolve) => {
+      rec.addEventListener('stop', () => { end(); resolve({ blob: new Blob(chunks, { type: rec.mimeType || type || 'audio/webm' }), seconds: (Date.now() - t0) / 1000 }); }, { once: true });
+      rec.stop();
+    }),
+    cancel: () => { try { rec.stop(); } catch { /* stopped */ } end(); },
+  };
+}
 const uid = () => crypto.randomUUID();
 
 // ---------- photos ----------
@@ -308,7 +339,8 @@ export function mount(host) {
         grid.replaceChildren(...(shown.length ? shown.map((n) => el('button', { class: `nt-card${n.pinned ? ' pinned' : ''}`, onclick: () => { open = n; render(); } },
           n.photos?.length ? photoImg(n.photos[0], 'nt-card-img') : null,
           el('strong', { text: `${n.pinned ? '📌 ' : ''}${n.title || (n.checklist ? 'Checklist' : 'Note')}` }),
-          el('span', { class: 'small muted nt-card-text', text: notePreview(n) }),
+          el('span', { class: 'small muted nt-card-text', text: notePreview(n) || (n.memos?.length ? 'Voice memo' : '') }),
+          n.memos?.length ? el('span', { class: 'small nt-card-memos', text: `🎙 ${n.memos.length} · ${clock(n.memos.reduce((t, m) => t + (m.seconds || 0), 0))}` }) : null,
           el('span', { class: 'small muted', text: new Date(n.updated).toLocaleDateString([], { month: 'short', day: 'numeric' }) }))) : [el('p', { class: 'muted small', text: query ? 'No notes match.' : 'No notes yet. Tap New note.' })]));
       };
       search.addEventListener('input', () => { query = search.value; draw(); });
@@ -316,23 +348,28 @@ export function mount(host) {
       pane.replaceChildren(
         el('div', { class: 'row nt-head' }, search,
           el('button', { class: 'btn primary', text: '+ Note', onclick: () => newNote(false) }),
-          el('button', { class: 'btn', text: '☑ List', 'aria-label': 'New checklist', onclick: () => newNote(true) })),
+          el('button', { class: 'btn', text: '☑ List', 'aria-label': 'New checklist', onclick: () => newNote(true) }),
+          el('button', { class: 'btn', text: '🎙 Memo', 'aria-label': 'New voice memo', onclick: () => newNote(false, { record: true }) })),
         grid);
     }
 
-    function newNote(checklist) {
-      const n = { id: uid(), title: '', body: '', checklist: checklist ? [{ id: uid(), text: '', done: false }] : null, photos: [], pinned: false, created: Date.now(), updated: Date.now() };
+    function newNote(checklist, { record = false } = {}) {
+      const n = { id: uid(), title: '', body: '', checklist: checklist ? [{ id: uid(), text: '', done: false }] : null, photos: [], memos: [], pinned: false, created: Date.now(), updated: Date.now() };
       list.push(n);
       open = n;
       saveNow();
-      render(true);
+      startMemo = record;
+      render(!record);
     }
+    let startMemo = false;   // a new note opened to record a memo right away
+    let recording = null;    // { note, rec } while recording
 
     function closeNote() {
       const n = open;
+      recording?.rec.cancel(); recording = null;
       open = null;
       // Throw away untouched empty notes.
-      if (n && !n.title.trim() && !n.body.trim() && !(n.checklist ?? []).some((c) => c.text.trim()) && !n.photos.length) list = list.filter((x) => x !== n);
+      if (n && !n.title.trim() && !n.body.trim() && !(n.checklist ?? []).some((c) => c.text.trim()) && !n.photos.length && !n.memos?.length) list = list.filter((x) => x !== n);
       saveNow();
       render();
     }
@@ -373,6 +410,51 @@ export function mount(host) {
           el('button', { class: 'nt-photo-x', 'aria-label': 'Remove photo', text: '✕', onclick: () => { if (!confirm('Remove this photo?')) return; n.photos = n.photos.filter((x) => x !== pid); idb.del(photoKey(pid)); touch(); drawPhotos(); } }))),
         photoButtons(async (f) => { n.photos.push(await savePhoto(f)); touch(); drawPhotos(); }));
 
+      // Voice memos: record, play back, delete. Kept on this phone (IndexedDB).
+      n.memos ??= [];
+      const memos = el('div', { class: 'nt-memos' });
+      const memoUrls = [];
+      const drawMemos = async () => {
+        memoUrls.splice(0).forEach((u) => URL.revokeObjectURL(u));
+        const rows = [];
+        for (const [k, m] of n.memos.entries()) {
+          const rec = await idb.get(memoKey(m.id));
+          const u = rec?.blob ? URL.createObjectURL(rec.blob) : null; if (u) memoUrls.push(u);
+          rows.push(el('div', { class: 'card nt-memo' },
+            el('div', { class: 'row space' },
+              el('strong', { class: 'small', text: `🎙 Memo ${k + 1} · ${clock(m.seconds || 0)}` }),
+              el('span', { class: 'small muted', text: new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }),
+              el('button', { class: 'btn small-btn ghost bad-text', 'aria-label': `Delete memo ${k + 1}`, text: '✕', onclick: () => { if (!confirm('Delete this voice memo?')) return; n.memos = n.memos.filter((x) => x !== m); idb.del(memoKey(m.id)); touch(); drawMemos(); } })),
+            u ? el('audio', { controls: true, preload: 'metadata', src: u, class: 'nt-audio' }) : el('p', { class: 'small bad-text', text: 'This memo couldn\'t be found.' })));
+        }
+        const live = recording?.note === n;
+        const timer = el('span', { class: 'nt-rec-time', text: live ? clock(recording.seconds ?? 0) : '' });
+        const btn = el('button', { class: `btn${live ? ' nt-recording' : ''}`, 'aria-pressed': String(live), text: live ? '■ Stop' : '● Record a memo', onclick: () => (recording?.note === n ? stopMemo() : recordMemo()) });
+        memos.replaceChildren(...rows, el('div', { class: 'row' }, btn, timer));
+        if (live) recording.timerEl = timer;
+      };
+      const recordMemo = async () => {
+        if (recording) return;
+        try {
+          const holder = { note: n, seconds: 0, timerEl: null };
+          recording = holder;
+          holder.rec = await startRecording((sec) => { holder.seconds = sec; if (holder.timerEl) holder.timerEl.textContent = `● ${clock(sec)}`; });
+          drawMemos();
+        } catch (err) { recording = null; alert(err.message); drawMemos(); }
+      };
+      const stopMemo = async () => {
+        const holder = recording; if (!holder?.rec) return;
+        recording = null;
+        const { blob, seconds } = await holder.rec.stop();
+        if (blob.size) {
+          const m = { id: uid(), at: Date.now(), seconds, type: blob.type };
+          await idb.set(memoKey(m.id), { blob, at: m.at });
+          holder.note.memos.push(m);
+          holder.note.updated = Date.now(); saveNow();
+        }
+        if (open === holder.note) drawMemos();
+      };
+
       const toggleChecklist = () => {
         if (n.checklist) {
           // Checklist -> text: items become lines.
@@ -391,6 +473,7 @@ export function mount(host) {
         const text = [n.title, n.checklist ? n.checklist.map((c) => `${c.done ? '☑' : '☐'} ${c.text}`).join('\n') : '', n.body].filter(Boolean).join('\n\n');
         const files = [];
         for (const pid of n.photos) { const rec = await idb.get(photoKey(pid)); if (rec?.full) files.push(new File([rec.full], `photo-${files.length + 1}.jpg`, { type: 'image/jpeg' })); }
+        for (const [k, m] of (n.memos ?? []).entries()) { const rec = await idb.get(memoKey(m.id)); if (rec?.blob) files.push(new File([rec.blob], `memo-${k + 1}.${/mp4|aac/.test(rec.blob.type) ? 'm4a' : 'webm'}`, { type: rec.blob.type })); }
         try {
           if (files.length && canShareFiles(files)) { await shareFiles(files, n.title || 'Note'); return; }
           if (navigator.share) { await navigator.share({ title: n.title || 'Note', text }); return; }
@@ -405,16 +488,20 @@ export function mount(host) {
             el('button', { class: `btn small-btn${n.pinned ? ' primary' : ' ghost'}`, text: n.pinned ? '📌 Pinned' : '📌 Pin', onclick: () => { n.pinned = !n.pinned; touch(); render(); } }),
             el('button', { class: 'btn small-btn ghost', text: n.checklist ? '¶ Text' : '☑ Checklist', onclick: toggleChecklist }),
             el('button', { class: 'btn small-btn ghost', text: 'Share', onclick: share }))),
-        title, checklistBox, body, el('h3', { text: 'Photos' }), photos,
+        title, checklistBox, body, el('h3', { text: 'Photos' }), photos, el('h3', { text: 'Voice memos' }), memos,
         el('div', { class: 'row space' },
           el('span', { class: 'muted small', text: `Edited ${new Date(n.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · saved on this phone` }),
           el('button', { class: 'btn small-btn ghost bad-text', text: 'Delete', onclick: () => {
             if (!confirm('Delete this note?')) return;
             for (const pid of n.photos) idb.del(photoKey(pid));
+            for (const m of n.memos ?? []) idb.del(memoKey(m.id));
+            recording?.rec?.cancel(); recording = null;
             list = list.filter((x) => x !== n); open = null; saveNow(); render();
           } })));
       drawChecklist(focus && n.checklist ? n.checklist[0]?.id : null);
       drawPhotos();
+      drawMemos();
+      if (startMemo) { startMemo = false; recordMemo(); }
       requestAnimationFrame(grow);
       if (focus && !n.checklist) requestAnimationFrame(() => title.focus());
     }

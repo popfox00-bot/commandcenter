@@ -532,6 +532,10 @@ Open **Notes** on the home screen. Everything is stored on the phone (IndexedDB)
   you clear from the cart are added to My items, most-bought first as one-tap suggestions.
 - **Share** sends the list as text grouped by section, with brands, e.g. to Messages.
 
+- **🎙 Voice memos**: **🎙 Memo** starts a new note recording right away; in any note, **● Record a
+  memo** (■ Stop when done, with a running time). Memos play back in the note, show on its card
+  (🎙 count and length), go along when the note is shared, and are kept on the phone (IndexedDB), offline.
+
 ## Rap
 
 Write lyrics on the phone, offline, with rhymes and suggestions as you go.

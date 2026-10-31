@@ -36,7 +36,7 @@ export function fromBase64(b64, type = 'application/octet-stream') {
   return new Blob([bytes], { type });
 }
 
-/** A client for one web app: { ping, info, list, browse, folders, upload, download, remove, mkdir, rename, rmdir, move }. */
+/** A client for one web app: { ping, info, list, browse, folders, upload, download, remove, mkdir, rename, rmdir, move, moveFolder }. */
 export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
   async function call(action, body = {}) {
     let res;
@@ -80,11 +80,36 @@ export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
     rmdir: async (id) => { await call('rmdir', { id }); },
     /** Move a file into a folder ('' : the main folder). */
     move: async (id, to = '') => (await call('move', { id, to })).file,
+    /** Move a folder (and all in it) into another folder ('' : the main folder). Script version 4. */
+    moveFolder: async (id, to = '') => (await call('movedir', { id, to })).folder,
   };
 }
 
 /** The configured client, or null when Saved Files isn't set up on this phone. */
 export const connected = () => { const c = getConfig(); return c ? savedFiles(c) : null; };
+
+const KINDS = [
+  ['image', '🖼️', /^image\//, /^(jpe?g|png|gif|webp|heic|heif|avif|bmp|svg|tiff?)$/],
+  ['pdf', '📄', /^application\/pdf$/, /^pdf$/],
+  ['video', '🎞️', /^video\//, /^(mp4|mov|m4v|webm|avi|mkv)$/],
+  ['audio', '🎵', /^audio\//, /^(mp3|m4a|wav|aac|ogg|flac)$/],
+  ['sheet', '📊', /(spreadsheet|excel|csv)/, /^(csv|xlsx?|ods|numbers|tsv)$/],
+  ['doc', '📃', /(wordprocessing|msword|opendocument\.text|rtf)/, /^(docx?|odt|rtf|pages)$/],
+  ['slides', '📽️', /(presentation|powerpoint)/, /^(pptx?|odp|key)$/],
+  ['archive', '🗜️', /(zip|x-7z|x-rar|x-tar|gzip)/, /^(zip|7z|rar|tar|gz|tgz)$/],
+  ['text', '📝', /^(text\/|application\/(json|xml))/, /^(txt|md|json|xml|html?|py|js|css|log)$/],
+];
+/**
+ * What kind of file, for its colour-coded icon: { kind, emoji, label } (label: the extension, short).
+ * By type first, then by the name's extension (encrypted files keep their real type in the name).
+ */
+export function fileKind(name = '', type = '') {
+  const ext = /\.([a-z0-9]{1,8})$/i.exec(String(name))?.[1]?.toLowerCase() ?? '';
+  const t = String(type).toLowerCase();
+  const hit = KINDS.find(([, , byType]) => t && byType.test(t)) ?? KINDS.find(([, , , byExt]) => ext && byExt.test(ext));
+  const [kind, emoji] = hit ?? ['other', '📦'];
+  return { kind, emoji, label: (ext || (kind === 'other' ? '' : kind)).slice(0, 4).toUpperCase() };
+}
 
 /** "1.2 MB" */
 export function size(n) {
@@ -166,6 +191,7 @@ export function secureFiles(api) {
     rename: api.rename,
     rmdir: api.rmdir,
     move: api.move,
+    moveFolder: api.moveFolder,
     /** The main folder's files, newest first, names decrypted: [{ id, name, type, size, updated, encrypted, locked }]. */
     async list() {
       const raw = await api.list();

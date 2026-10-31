@@ -2,7 +2,7 @@
 // Per-photo steps adapt to each photo: Auto-Crop finds each screenshot's own post media, auto-enhance reads each
 // photo's own light. Everything runs on this device; results are kept in memory until saved.
 
-import { el } from '../../lib/dom.js';
+import { el, fill } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, encodeCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { Renderer } from './renderer.js';
@@ -47,7 +47,7 @@ export function uniqueName(name, ext, taken) {
 /** Editable list of app colors (hints for Auto-Crop's chrome). onChange(colors) after each edit. */
 export function barColorsPicker(colors, onChange) {
   const box = el('div', { class: 'row wrap bt-colors' });
-  const draw = () => box.replaceChildren(
+  const draw = () => fill(box,
     ...colors.map((c, i) => {
       const input = el('input', { type: 'color', value: c, class: 'swatch-custom', 'aria-label': `App color ${i + 1}` });
       input.addEventListener('change', () => { colors[i] = input.value; onChange(colors); draw(); });

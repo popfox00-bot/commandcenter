@@ -106,7 +106,7 @@ test('Calendar: week view with today highlighted; add, repeat, month and day vie
 });
 
 /** A stand-in for the Saved Files Apps Script web app (same requests and answers). */
-async function fakeScript(context, key = 'k3y', { version = 3 } = {}) {
+async function fakeScript(context, key = 'k3y', { version = 4 } = {}) {
   const files = []; const kit = []; const folders = []; let n = 0; const calls = [];
   const pathOf = (id) => { const out = []; for (let d = folders.find((x) => x.id === id); d; d = folders.find((x) => x.id === d.parent)) out.unshift({ id: d.id, name: d.name }); return out; };
   await context.route('https://script.google.com/macros/s/TEST/exec', async (route) => {
@@ -125,6 +125,10 @@ async function fakeScript(context, key = 'k3y', { version = 3 } = {}) {
     if (req.action === 'mkdir') { const d = { id: `d${folders.length + 1}`, name: req.name, parent: req.parent || '' }; folders.push(d); return send({ ok: true, folder: { id: d.id, name: d.name, updated: NOW } }); }
     if (req.action === 'rename') { const d = folders.find((x) => x.id === req.id); d.name = req.name; return send({ ok: true, folder: { id: d.id, name: d.name } }); }
     if (req.action === 'rmdir') { folders.splice(folders.findIndex((x) => x.id === req.id), 1); return send({ ok: true }); }
+    if (req.action === 'movedir') {
+      if (version < 4) return send({ ok: false, error: 'Unknown action' });
+      const d = folders.find((x) => x.id === req.id); d.parent = req.to || ''; return send({ ok: true, folder: { id: d.id, name: d.name, parent: d.parent } });
+    }
     if (req.action === 'move') { const f = files.find((x) => x.id === req.id); f.parent = req.to || ''; return send({ ok: true, file: { id: f.id } }); }
     if (req.action === 'upload' && req.folder) {
       kit.push({ folder: req.folder, name: req.name, data: req.data });
@@ -159,6 +163,7 @@ test('Files → Saved Files: connect in Settings with the URL and key, save, lis
   await page.fill('[aria-label="Access key"]', 'k3y');
   await page.getByRole('button', { name: 'Connect' }).click();
   await page.waitForSelector('text=Connected to "Command Center"');
+  assert.doesNotMatch(await page.textContent('#saved-files'), /null|undefined/);
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('cc.savedFiles'))), { url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' });
   await page.goto(`${origin}${BASE}#/files/saved`);
   await page.waitForSelector('text=No files saved yet.');
@@ -208,6 +213,7 @@ test('Saved Files folders: make one, save into it, move a file in, rename, delet
   await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
   const { page, errors } = await open(context, '#/files/saved');
   await page.waitForSelector('.sv-item:has-text("receipt.pdf")');
+  assert.doesNotMatch(await page.textContent('.sv'), /null|undefined/, 'no stray "null" where a part is left out');
   let answer = 'Taxes';
   page.removeAllListeners('dialog');
   page.on('dialog', (d) => (d.type() === 'prompt' ? d.accept(answer) : d.accept()));
@@ -238,6 +244,29 @@ test('Saved Files folders: make one, save into it, move a file in, rename, delet
   // Back up by the path, rename, delete.
   await page.locator('.sv-crumbs').getByRole('button', { name: 'Taxes' }).click();
   await page.waitForSelector('.sv-item:has-text("w2.txt")');
+  // Colour-coded icons: a text file's tile, a folder's.
+  assert.match(await page.getAttribute('.sv-item:has-text("w2.txt") .sv-icon', 'class'), /sv-k-text/);
+  assert.equal(await page.textContent('.sv-item:has-text("w2.txt") .sv-ext'), 'TXT');
+  assert.match(await page.getAttribute('.sv-folder .sv-icon', 'class'), /sv-k-folder/);
+  assert.notEqual(await page.$eval('.sv-item:has-text("w2.txt") .sv-icon', (e) => getComputedStyle(e).backgroundColor), await page.$eval('.sv-folder .sv-icon', (e) => getComputedStyle(e).backgroundColor));
+  // Move a folder: not into itself; out to the main folder and back in.
+  await page.getByRole('button', { name: 'Move folder 2026' }).click();
+  await page.waitForSelector('dialog[open] .sv-dest');
+  assert.deepEqual(await page.$$eval('dialog[open] .sv-dest', (els) => els.map((e) => e.textContent)), ['☁️ Saved Files (main folder)'], 'not into itself or where it already is');
+  await page.locator('dialog[open]').getByRole('button', { name: '☁️ Saved Files (main folder)' }).click();
+  await page.waitForSelector('text=Moved the folder "2026" to the main folder.');
+  assert.equal(script.folders[1].parent, '');
+  await page.getByRole('button', { name: '☁️ Saved Files' }).click();
+  await page.getByRole('button', { name: 'Move folder Taxes' }).click();
+  await page.waitForSelector('dialog[open] .sv-dest');
+  assert.deepEqual(await page.$$eval('dialog[open] .sv-dest', (els) => els.map((e) => e.textContent)), ['📁 2026']);
+  await page.locator('dialog[open]').getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Move folder 2026' }).click();
+  await page.locator('dialog[open]').getByRole('button', { name: '📁 Taxes' }).click();
+  await page.waitForSelector('text=Moved the folder "2026" to "Taxes".');
+  assert.equal(script.folders[1].parent, 'd1');
+  await page.getByRole('button', { name: 'Open folder Taxes' }).click();
+  await page.waitForSelector('.sv-item:has-text("w2.txt")');
   answer = 'Tax 2026';
   await page.getByRole('button', { name: 'Rename folder 2026' }).click();
   await page.waitForSelector('text=Renamed to "Tax 2026".');
@@ -259,6 +288,18 @@ test('Saved Files folders: make one, save into it, move a file in, rename, delet
   assert.equal(await o.page.isVisible('text=+ New folder'), false);
   assert.deepEqual(o.errors, []);
   await old.close();
+
+  // Version 3: folders, but moving one says to update.
+  const v3 = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const s3 = await fakeScript(v3, 'k3y', { version: 3 });
+  s3.folders.push({ id: 'd1', name: 'A', parent: '' }, { id: 'd2', name: 'B', parent: '' });
+  await v3.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const p3 = await open(v3, '#/files/saved');
+  await p3.page.getByRole('button', { name: 'Move folder A' }).click();
+  await p3.page.locator('dialog[open]').getByRole('button', { name: '📁 B' }).click();
+  await p3.page.waitForSelector('text=Moving folders needs the newer Saved Files script (version 4)');
+  assert.deepEqual(p3.errors, []);
+  await v3.close();
 });
 
 test('Draw → Save to Files before Saved Files is connected: offers to connect it in Settings', async () => {

@@ -308,11 +308,16 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
 - **Folders** (with version 3 of the script): **+ New folder** (in the main folder, or inside the
   folder you're in), tap a folder to open it (the path at the top takes you back up), **Rename** or
   **Delete** a folder (with everything in it, to Drive's trash), **+ Save files here** into the open
-  folder, and **Move** any file to another folder or back to the main one. They're real Drive folders
+  folder, and **Move** any file to another folder or back to the main one. **Move** on a folder (script
+  version 4) takes it, with everything in it, into another folder or back to the main one (never into
+  itself or a folder inside it).
+- **Colour-coded icons:** each file shows a coloured tile by kind, with its extension: photos green,
+  PDFs red, videos purple, audio orange, spreadsheets teal, documents blue, slides dark orange,
+  archives brown, text and code steel blue, anything else grey; folders are yellow, locked files dark. They're real Drive folders
   inside the Saved Files folder, so they look the same in Drive; the script only reaches folders and
   files inside that folder. With encryption on, the files in folders are encrypted like any other, but
   **folder names are not** (Drive shows them as you named them), so don't put secrets in a folder name.
-- **Updating the script** (for new features; folders need version 3): paste the new
+- **Updating the script** (for new features; folders need version 3, moving folders version 4): paste the new
   `apps-script/saved-files.gs` over the old one and save, then Deploy → Manage deployments → ✎ edit →
   Version: **New version** → Deploy. The web app URL and the access key stay the same; in Settings,
   **Save and check** shows if the script is older than the app expects.

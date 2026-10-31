@@ -1,7 +1,7 @@
 // Cutout: trace around an object with a finger to cut it out of a photo. Smart edges then trim the
 // background left just inside the trace, carefully (cutout-core.js smartEdge). Save it as a
 // transparent PNG, keep it as a "Character" for later, or place it onto another photo (Collage tab).
-import { el, store } from '../../lib/dom.js';
+import { el, store, fill } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
@@ -106,7 +106,7 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   function renderPanel() {
     const fRange = el('input', { type: 'range', min: '0', max: '12', step: '1', value: String(feather), 'aria-label': 'Edge softness' });
     fRange.addEventListener('input', () => { feather = Number(fRange.value); if (preview) draw(); });
-    panel.replaceChildren(
+    fill(panel,
       el('div', { class: 'segmented co-modes', role: 'radiogroup' },
         ...[['add', '✏️ Trace'], ['sub', '➕ Add to trace'], ['patch', '🩹 Patch fix'], ['delete', '🗑 Remove trace']].map(([id, label]) => el('button', {
           class: `seg${mode === id ? ' active' : ''}`, role: 'radio', 'aria-checked': String(mode === id), text: label,

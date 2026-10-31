@@ -207,92 +207,230 @@ function edgePass(rgba, w, h, inside, { band = Math.max(6, Math.round(Math.max(w
   return { keep, removed, deep };
 }
 
+// ---------- fixes: patch, wand, brush ----------
+// Each fix returns the pixels it changes, { idx: Uint32Array, val: Uint8Array } (val 1 = keep), so
+// fixes replay in order over whatever cut is under them (applyChanges), and undo is just dropping one.
+
+/** The photo softened (3×3 mean), as RGB floats: fixes compare these, so grain doesn't decide. */
+export function softColors(rgba, w, h) {
+  const out = new Float32Array(w * h * 3);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let r = 0; let g = 0; let b = 0; let k = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const Y = y + dy; if (Y < 0 || Y >= h) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        const X = x + dx; if (X < 0 || X >= w) continue;
+        const i = (Y * w + X) * 4; r += rgba[i]; g += rgba[i + 1]; b += rgba[i + 2]; k++;
+      }
+    }
+    const o = (y * w + x) * 3; out[o] = r / k; out[o + 1] = g / k; out[o + 2] = b / k;
+  }
+  return out;
+}
+
+export function applyChanges(mask, ch) { for (let k = 0; k < ch.idx.length; k++) mask[ch.idx[k]] = ch.val[k]; return mask; }
+
+/** Steps (4-neighbour, up to `cap`) from each pixel to the nearest pixel of the other side of the cut. */
+export function edgeDistance(mask, w, h, cap = 32) {
+  const d = new Uint8Array(w * h).fill(cap);
+  const q = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const m = mask[i];
+    if ((x > 0 && mask[i - 1] !== m) || (x < w - 1 && mask[i + 1] !== m) || (y > 0 && mask[i - w] !== m) || (y < h - 1 && mask[i + w] !== m)) { d[i] = 0; q.push(i); }
+  }
+  for (let head = 0; head < q.length; head++) {
+    const i = q[head]; const nd = d[i] + 1; if (nd >= cap) continue;
+    const x = i % w; const m = mask[i];
+    for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+      if (t < 0 || t >= w * h || mask[t] !== m || d[t] <= nd) continue;
+      d[t] = nd; q.push(t);
+    }
+  }
+  return d;
+}
+
+// Color histograms: 16 levels a channel, each color spread over its 8 nearest bins (no hard steps).
+const BINS = 16;
+function addColor(hist, r, g, b, wt) {
+  const fr = Math.min(BINS - 1.001, Math.max(0, r / 16 - 0.5)); const fg = Math.min(BINS - 1.001, Math.max(0, g / 16 - 0.5)); const fb = Math.min(BINS - 1.001, Math.max(0, b / 16 - 0.5));
+  const r0 = Math.floor(fr); const g0 = Math.floor(fg); const b0 = Math.floor(fb);
+  const tr = fr - r0; const tg = fg - g0; const tb = fb - b0;
+  for (let a = 0; a < 2; a++) for (let c = 0; c < 2; c++) for (let e = 0; e < 2; e++) {
+    hist[((r0 + a) * BINS + (g0 + c)) * BINS + (b0 + e)] += wt * (a ? tr : 1 - tr) * (c ? tg : 1 - tg) * (e ? tb : 1 - tb);
+  }
+}
+function lookup(hist, r, g, b) {
+  const fr = Math.min(BINS - 1.001, Math.max(0, r / 16 - 0.5)); const fg = Math.min(BINS - 1.001, Math.max(0, g / 16 - 0.5)); const fb = Math.min(BINS - 1.001, Math.max(0, b / 16 - 0.5));
+  const r0 = Math.floor(fr); const g0 = Math.floor(fg); const b0 = Math.floor(fb);
+  const tr = fr - r0; const tg = fg - g0; const tb = fb - b0; let s = 0;
+  for (let a = 0; a < 2; a++) for (let c = 0; c < 2; c++) for (let e = 0; e < 2; e++) {
+    s += hist[((r0 + a) * BINS + (g0 + c)) * BINS + (b0 + e)] * (a ? tr : 1 - tr) * (c ? tg : 1 - tg) * (e ? tb : 1 - tb);
+  }
+  return s;
+}
+
 /**
- * Patch fix: works out the outline again inside one circle (center cx, cy, radius r, in pixels of
- * `rgba`, w×h), where the current cut (`mask`: 1 = kept) has it wrong. Each pixel in the circle goes
- * with what it looks more like: the object just around the circle (kept pixels from r to 2.5r out,
- * well inside the cut) or the background just around it (the cut-away pixels there); ties keep
- * what's there. Then
- * smoothed (no specks), and only object parts connected to the object outside the circle stay.
- * Returns { x0, y0, bw, bh, bits } (the circle's box, 1 = keep) and how many pixels changed, or
- * null when there's nothing to go by (no object or no background around the circle).
+ * What the object and the background look like, from the cut as it is: the object from kept pixels
+ * a few steps in from the edge (leftover background clinging to the edge doesn't count), the
+ * background from cut pixels a step or two out. Over the box x0..x1, y0..y1 (the whole photo by
+ * default). { obj, bg, no, nb } (histograms and how many samples).
  */
-export function patchMask(rgba, w, h, mask, cx, cy, r) {
+export function colorModel(soft, w, h, mask, dist, { x0 = 0, y0 = 0, x1 = w, y1 = h, deep = 3 } = {}) {
+  const obj = new Float32Array(BINS ** 3); const bg = new Float32Array(BINS ** 3); let no = 0; let nb = 0;
+  for (let y = Math.max(0, y0); y < Math.min(h, y1); y++) for (let x = Math.max(0, x0); x < Math.min(w, x1); x++) {
+    const i = y * w + x; const o = i * 3;
+    if (mask[i]) { if (dist[i] >= deep) { addColor(obj, soft[o], soft[o + 1], soft[o + 2], 1); no++; } }
+    else if (dist[i] >= 2) { addColor(bg, soft[o], soft[o + 1], soft[o + 2], 1); nb++; }
+  }
+  return { obj, bg, no, nb };
+}
+
+/**
+ * Patch fix: inside one circle (cx, cy, radius r, in pixels of the work copy), the cut is worked out
+ * again. Each pixel weighs how much its color is like the object against the background (from
+ * around the circle, and from the whole photo: `global`, colorModel of the whole cut), and the
+ * neighbours it looks like pull it their way, so the edge settles on the line where the colors change.
+ * dir: 'auto' (in or out), 'cut' (only takes away: for background left in) or 'keep' (only brings
+ * back: for parts cut off). Kept parts must reach the object outside the circle (no islands). The
+ * changes, or null when there's nothing to go by (no object or no background around).
+ */
+export function refineSpot(soft, w, h, mask, cx, cy, r, { dir = 'auto', global = null, dist = null } = {}) {
+  r = Math.max(2, r);
   const x0 = Math.max(0, Math.floor(cx - r)); const y0 = Math.max(0, Math.floor(cy - r));
   const x1 = Math.min(w, Math.ceil(cx + r + 1)); const y1 = Math.min(h, Math.ceil(cy + r + 1));
-  const bw = x1 - x0; const bh = y1 - y0;
-  if (bw < 2 || bh < 2) return null;
-  const at = (x, y) => (y * w + x) * 4;
-  // Color samples around the circle (from r to 2.5r), as 16-level bins with counts: the object from
-  // well inside the cut (leftover background still clinging to its edge doesn't count as object), the
-  // background from what's cut away.
-  const obj = new Map(); const bg = new Map(); let no = 0; let nb = 0;
-  const R2 = Math.ceil(2.5 * r); const deep = Math.max(2, Math.round(r / 2));
-  const wx0 = Math.max(0, Math.floor(cx - R2 - deep)); const wy0 = Math.max(0, Math.floor(cy - R2 - deep));
-  const wx1 = Math.min(w, Math.ceil(cx + R2 + deep + 1)); const wy1 = Math.min(h, Math.ceil(cy + R2 + deep + 1));
-  const ww = wx1 - wx0; const wh = wy1 - wy0;
-  // How far each kept pixel in the window is from the cut's edge (in steps, up to `deep`).
-  const depth = new Int16Array(ww * wh).fill(-1); let dq = [];
-  for (let y = wy0; y < wy1; y++) for (let x = wx0; x < wx1; x++) {
-    const j = (y - wy0) * ww + (x - wx0);
-    if (!mask[y * w + x]) continue;
-    const edgeHere = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const X = x + dx; const Y = y + dy; return X >= 0 && Y >= 0 && X < w && Y < h && !mask[Y * w + X]; });
-    if (edgeHere) { depth[j] = 0; dq.push(j); }
-  }
-  for (let head = 0; head < dq.length; head++) {
-    const j = dq[head]; if (depth[j] >= deep) continue; const x = j % ww;
-    for (const o of [-1, 1, -ww, ww]) { const t = j + o; if (t < 0 || t >= ww * wh || Math.abs((t % ww) - x) > 1 || depth[t] !== -1) continue; const X = wx0 + (t % ww); const Y = wy0 + Math.floor(t / ww); if (!mask[Y * w + X]) continue; depth[t] = depth[j] + 1; dq.push(t); }
-  }
-  dq = null;
-  for (let y = Math.max(0, Math.floor(cy - R2)); y < Math.min(h, Math.ceil(cy + R2 + 1)); y++) {
-    for (let x = Math.max(0, Math.floor(cx - R2)); x < Math.min(w, Math.ceil(cx + R2 + 1)); x++) {
-      const d = Math.hypot(x - cx, y - cy); if (d <= r || d > 2.5 * r) continue;
-      const i = at(x, y); const key = ((rgba[i] >> 4) << 8) | ((rgba[i + 1] >> 4) << 4) | (rgba[i + 2] >> 4);
-      const kept = mask[y * w + x];
-      const dj = depth[(y - wy0) * ww + (x - wx0)];
-      if (kept && dj !== -1 && dj < deep) continue; // near the cut's edge: could be either
-      const m = kept ? obj : bg; m.set(key, (m.get(key) ?? 0) + 1);
-      if (kept) no++; else nb++;
+  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+  dist = dist ?? edgeDistance(mask, w, h);
+  const R3 = Math.ceil(3 * r);
+  const local = colorModel(soft, w, h, mask, dist, { x0: Math.floor(cx - R3), y0: Math.floor(cy - R3), x1: Math.ceil(cx + R3 + 1), y1: Math.ceil(cy + R3 + 1), deep: Math.min(24, Math.max(3, Math.round(r * 0.8))) });
+  // Nothing of one side nearby: patching here would only guess.
+  if (local.no < 15 || (local.nb < 15 && dir !== 'keep') || (dir === 'keep' && local.nb < 15 && !global)) return null;
+  const g = global && global.no > 50 && global.nb > 50 ? global : null;
+  const p = (m, n, gm, gn, r_, g_, b_) => {
+    const loc = n ? lookup(m, r_, g_, b_) / n : 0;
+    return g ? 0.65 * loc + 0.35 * lookup(gm, r_, g_, b_) / gn : loc;
+  };
+  const eps = 2e-5;
+  const list = []; const pos = new Map();
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (Math.hypot(x - cx, y - cy) <= r) { pos.set(y * w + x, list.length); list.push(y * w + x); }
+  if (!list.length) return null;
+  // How much each pixel looks like background rather than object (log-odds, clamped).
+  const L = new Float32Array(list.length);
+  list.forEach((i, k) => {
+    const o = i * 3; const R = soft[o]; const G = soft[o + 1]; const B = soft[o + 2];
+    const pb = p(local.bg, local.nb, g?.bg, g?.nb, R, G, B); const po = p(local.obj, local.no, g?.obj, g?.no, R, G, B);
+    L[k] = Math.max(-4, Math.min(4, Math.log((pb + eps) / (po + eps))));
+  });
+  // Settle labels: the colors' pull, a cost for changing what's there (more when the direction is
+  // left to the patch), and neighbours that look alike wanting the same side.
+  const stay = dir === 'auto' ? 0.6 : 0.2; const lambda = 1.1; const sig2 = 2 * 14 * 14;
+  // Start from what the colors say (with the cost of changing), then let neighbours settle it.
+  const lab = Uint8Array.from(list, (i, k) => {
+    const was = mask[i];
+    if ((dir === 'cut' && !was) || (dir === 'keep' && was)) return was;
+    return L[k] + (was ? 0 : stay) < -L[k] + (was ? stay : 0) ? 1 : 0;
+  });
+  const labelOf = (t) => { const k = pos.get(t); return k === undefined ? mask[t] : lab[k]; };
+  for (let sweep = 0; sweep < 6; sweep++) {
+    let moved = 0;
+    for (let k = 0; k < list.length; k++) {
+      const i = list[k]; const was = mask[i];
+      if ((dir === 'cut' && !was) || (dir === 'keep' && was)) continue;
+      const x = i % w; let e1 = L[k] + (was ? 0 : stay); let e0 = -L[k] + (was ? stay : 0);
+      const o = i * 3;
+      for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+        if (t < 0 || t >= w * h) continue;
+        const q = t * 3; const dd = (soft[o] - soft[q]) ** 2 + (soft[o + 1] - soft[q + 1]) ** 2 + (soft[o + 2] - soft[q + 2]) ** 2;
+        const wt = lambda * Math.exp(-dd / sig2);
+        if (labelOf(t)) e0 += wt; else e1 += wt;
+      }
+      const nl = e1 < e0 ? 1 : 0;
+      if (nl !== lab[k]) { lab[k] = nl; moved++; }
     }
+    if (!moved) break;
   }
-  if (no < 20 || nb < 20) return null;
-  // The colors that make up each side (bins with at least 0.5% of its samples), as RGB.
-  const centers = (m, total) => [...m].filter(([, c]) => c >= total * 0.005).map(([k]) => [((k >> 8) << 4) + 8, (((k >> 4) & 15) << 4) + 8, ((k & 15) << 4) + 8]);
-  const co = centers(obj, no); const cb = centers(bg, nb);
-  const near = (list, rr, g, b) => { let best = Infinity; for (const [R, G, B] of list) { const rm = (rr + R) / 2; const d = (2 + rm / 256) * (rr - R) ** 2 + 4 * (g - G) ** 2 + (2 + (255 - rm) / 256) * (b - B) ** 2; if (d < best) best = d; } return best; };
-  const bits = new Uint8Array(bw * bh); const inC = new Uint8Array(bw * bh);
-  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-    const j = (y - y0) * bw + (x - x0);
-    if (Math.hypot(x - cx, y - cy) > r) { bits[j] = mask[y * w + x]; continue; }
-    inC[j] = 1;
-    // Each pixel by its 3×3 neighbourhood's mean color (grain doesn't decide).
-    let R = 0; let G = 0; let B = 0; let k = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const i = at(X, Y); R += rgba[i]; G += rgba[i + 1]; B += rgba[i + 2]; k++; }
-    const dO = near(co, R / k, G / k, B / k); const dB = near(cb, R / k, G / k, B / k);
-    bits[j] = dO < dB * 0.8 ? 1 : dB < dO * 0.8 ? 0 : mask[y * w + x];
+  // Kept parts in the circle must reach the object outside it.
+  const seen = new Uint8Array(list.length); const q = [];
+  const isKept = (t) => labelOf(t) === 1;
+  for (let k = 0; k < list.length; k++) {
+    if (!lab[k]) continue; const i = list[k]; const x = i % w;
+    for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) if (t >= 0 && t < w * h && !pos.has(t) && mask[t]) { seen[k] = 1; q.push(k); break; }
   }
-  // Smooth: a pixel goes with most of its neighbours (twice).
-  for (let pass = 0; pass < 2; pass++) {
-    const prev = Uint8Array.from(bits);
-    for (let y = 1; y < bh - 1; y++) for (let x = 1; x < bw - 1; x++) {
-      const j = y * bw + x; if (!inC[j]) continue;
-      let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += prev[j + dy * bw + dx];
-      bits[j] = s >= 5 ? 1 : 0;
-    }
-  }
-  // Only object parts that reach the object outside the circle stay (no islands of look-alike color).
-  const seen = new Uint8Array(bw * bh); const q = [];
-  for (let j = 0; j < bw * bh; j++) if (!inC[j] && bits[j]) { seen[j] = 1; q.push(j); }
   for (let head = 0; head < q.length; head++) {
-    const j = q[head]; const x = j % bw;
-    for (const o of [-1, 1, -bw, bw]) { const t = j + o; if (t < 0 || t >= bw * bh || Math.abs((t % bw) - x) > 1 || seen[t] || !bits[t]) continue; seen[t] = 1; q.push(t); }
+    const i = list[q[head]]; const x = i % w;
+    for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+      const k = pos.get(t); if (k === undefined || seen[k] || !lab[k] || !isKept(t)) continue;
+      seen[k] = 1; q.push(k);
+    }
   }
-  let changed = 0;
-  for (let j = 0; j < bw * bh; j++) {
-    if (!inC[j]) continue;
-    if (bits[j] && !seen[j]) bits[j] = 0;
-    const was = mask[(y0 + Math.floor(j / bw)) * w + x0 + (j % bw)];
-    if (bits[j] !== was) changed++;
+  const idx = []; const val = [];
+  for (let k = 0; k < list.length; k++) {
+    let v = lab[k] && seen[k] ? 1 : 0;
+    if (dir === 'keep' && mask[list[k]]) v = 1;
+    if (v !== mask[list[k]]) { idx.push(list[k]); val.push(v); }
   }
-  return { x0, y0, bw, bh, bits, changed };
+  return { idx: Uint32Array.from(idx), val: Uint8Array.from(val) };
+}
+
+/**
+ * Magic wand: from the pixel tapped (x, y), everything joined to it that looks like it changes side:
+ * a kept leftover (the sky under a handle, a patch of grass) is cut away, a part cut off by mistake
+ * is brought back. Like it: within `tol` of a color right at the tap, reached without crossing a
+ * sharp change of color (an edge). It spreads only through pixels on the same side as the one tapped,
+ * and when bringing back, only inside `within` (the traces as drawn) when given. The changes, or null.
+ */
+export function wand(soft, w, h, mask, x, y, tol = 30, { within = null, maxShare = 0.35 } = {}) {
+  x = Math.round(x); y = Math.round(y);
+  if (x < 0 || y < 0 || x >= w || y >= h) return null;
+  const start = y * w + x; const side = mask[start];
+  if (!side && within && !within[start]) return null;
+  // The colors right at the tap (3×3, same side).
+  const samples = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h || mask[Y * w + X] !== side) continue;
+    const o = (Y * w + X) * 3; samples.push([soft[o], soft[o + 1], soft[o + 2]]);
+  }
+  const t2 = tol * tol; const step2 = (tol * 0.6) ** 2;
+  const dist2 = (o, r, g, b) => (soft[o] - r) ** 2 + (soft[o + 1] - g) ** 2 + (soft[o + 2] - b) ** 2;
+  const near = (o) => samples.some(([r, g, b]) => dist2(o, r, g, b) <= t2);
+  const seen = new Uint8Array(w * h); const q = [start]; seen[start] = 1;
+  const limit = Math.max(50, Math.round(w * h * maxShare));
+  for (let head = 0; head < q.length; head++) {
+    if (q.length > limit) return null; // ran into much of the photo: too loose to mean anything
+    const i = q[head]; const X = i % w; const oi = i * 3;
+    for (const t of [X > 0 ? i - 1 : -1, X < w - 1 ? i + 1 : -1, i - w, i + w]) {
+      if (t < 0 || t >= w * h || seen[t] || mask[t] !== side || (!side && within && !within[t])) continue;
+      const o = t * 3;
+      if (!near(o) || dist2(o, soft[oi], soft[oi + 1], soft[oi + 2]) > step2) continue;
+      seen[t] = 1; q.push(t);
+    }
+  }
+  // Fill pinholes: pixels it skipped with 3 or 4 of their neighbours in the region.
+  const region = q.slice();
+  for (const i of q) {
+    const X = i % w;
+    for (const t of [X > 0 ? i - 1 : -1, X < w - 1 ? i + 1 : -1, i - w, i + w]) {
+      if (t < 0 || t >= w * h || seen[t] || mask[t] !== side) continue;
+      const tx = t % w; let n = 0;
+      for (const u of [tx > 0 ? t - 1 : -1, tx < w - 1 ? t + 1 : -1, t - w, t + w]) if (u >= 0 && u < w * h && seen[u] === 1) n++;
+      if (n >= 3) { seen[t] = 2; region.push(t); }
+    }
+  }
+  const idx = Uint32Array.from(region); return { idx, val: new Uint8Array(idx.length).fill(side ? 0 : 1), cut: !!side };
+}
+
+/** Brush: a stroke (points in work pixels, radius r) painted kept (keep) or cut. The changes. */
+export function brush(w, h, mask, points, r, keep) {
+  const hit = new Set();
+  const dab = (cx, cy) => {
+    for (let y = Math.max(0, Math.floor(cy - r)); y < Math.min(h, Math.ceil(cy + r + 1)); y++) {
+      for (let x = Math.max(0, Math.floor(cx - r)); x < Math.min(w, Math.ceil(cx + r + 1)); x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) hit.add(y * w + x);
+    }
+  };
+  points.forEach(([x, y], k) => {
+    if (!k) { dab(x, y); return; }
+    const [px, py] = points[k - 1]; const steps = Math.max(1, Math.ceil(Math.hypot(x - px, y - py) / Math.max(1, r / 3)));
+    for (let s = 1; s <= steps; s++) dab(px + ((x - px) * s) / steps, py + ((y - py) * s) / steps);
+  });
+  const v = keep ? 1 : 0; const idx = [...hit].filter((i) => mask[i] !== v);
+  return { idx: Uint32Array.from(idx), val: new Uint8Array(idx.length).fill(v) };
 }

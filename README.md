@@ -241,11 +241,20 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
 - **➕ Add to trace:** trace inside your outline around a part to leave out, like the sky under a
   basket's handle. With smart edges, only what looks like the inside of that trace goes; the handle
   it ran over stays.
-- **🩹 Patch fix** (with a **Patch size** slider): tap where the outline is still off, and that
-  circle is worked out again: each pixel goes with what it looks more like, the object around the
-  circle (from well inside the cut) or the background around it (what's cut away), so the edge moves
-  in or out there. Specks are smoothed away and only parts joined to the object stay.
-- **🗑 Remove trace:** tap a trace or a patch to delete it. **Undo** and **Redo** cover every step.
+- **Fixing what's still off**, three tools, each with a direction: **✂️ Cut away** (only takes away:
+  for background left in) or **↩︎ Keep** (only brings back: for parts cut off). While your finger is
+  down, a **magnifier** in the top corner shows what's under it, with the patch or brush size.
+  - **🩹 Patch fix** (**Patch size** slider; also **Auto**, in or out): tap, or drag along an edge.
+    Every spot along the drag is worked out again: each pixel weighs how much its color is like the
+    object against the background (colors from around the spot, from deep inside the cut so a wide
+    leftover doesn't count as object, and from the whole photo), and neighbours that look alike pull
+    each other the same way, so the edge settles where the colors change. Only parts joined to the
+    object stay.
+  - **🪄 Wand** (**Reach** slider): tap a leftover, like a patch of grass between a handle and the
+    fruit, and everything joined to it that looks like it goes, up to a sharp change of color. With
+    **Keep**, tap a part cut off by mistake and it comes back (only inside your trace).
+  - **🖌 Brush** (**Brush size**): paint cut or keep exactly where your finger goes, for the last bits.
+- **🗑 Remove trace:** tap a trace or a fix (a patch's ring, a brush or wand dot) to delete it. **Undo** and **Redo** cover every step.
 
 The result can be saved as a transparent PNG, shared, placed on another
 photo (opens Collage in Free mode), or saved as a **Character**: a named library of cutouts kept on

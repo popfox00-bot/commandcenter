@@ -115,6 +115,91 @@ nobody ever said that it would be easy
 but I keep going even when it's freezing
 I'mma rise up every single time I fall
 standing tall I'm ready to give it my all
+
+rolling down the highway with the windows low
+engine humming loud and we taking it slow
+pull up to the light and the whole block stare
+got the wind in my face and I ain't got a care
+cruising through the city in the middle of the night
+neon on the dashboard and the stars shining bright
+fuel in the tank and a long way to go
+every mile we drive is a part of the show
+pockets getting heavy and I'm counting every bill
+started out with nothing now I'm sitting on a hill
+put it in the bank and I watch it grow
+every single dollar that I made I know
+they wanna see the money but they never see the work
+every day I'm grinding till my hands start to hurt
+cashing every check and I'm saving it all
+building up a future so I never gonna fall
+diamonds on my neck and they shining like the sun
+counting up the profit when the long day done
+baby you the reason that I'm smiling every day
+when the world get cold you the one who make it okay
+hold me close tonight and don't ever let go
+got a love so deep that the world gonna know
+every time you call my heart start to race
+I see the whole world when I look in your face
+you was there for me when I didn't have a thing
+now I'm buying you the world and a diamond ring
+mama worked two jobs just to keep us in the house
+now I'm paying off her bills and I never miss out
+brother got my back and I always got his
+we don't need a lot cause we know what it is
+family over everything that's the code I live by
+for the ones I love I'mma reach for the sky
+the club is jumping and the bass is loud
+everybody moving all around in the crowd
+pour another cup we celebrating tonight
+dancing till the morning till the sun come bright
+DJ play it back and turn the music up
+we gonna party hard till they shutting it up
+I was in the dark and I couldn't find the light
+every single day it was a brand new fight
+tears on my pillow but I never let it show
+carried all the weight and I let nobody know
+when the rain came down I just stood in the storm
+now I'm stronger than I ever been before
+lost a lot of people but I'm still on my feet
+every time I fall I just get back on the beat
+I pray to God every night before I sleep
+asking for the strength and the peace I keep
+blessed with every breath and I'm thankful for the day
+heaven watching over me and showing me the way
+I can see the future and it's looking so bright
+reaching for the stars every day and every night
+had a little vision now it's turning into gold
+got a dream inside me that will never get old
+step into the booth and I'm ready to spit
+every single verse is a guaranteed hit
+the beat go hard and the bass go boom
+when I hit the stage I take over the room
+writing down my rhymes with a pen and a pad
+every word I say is the best that I had
+I'm a champion now and I'm wearing the crown
+took a lot of hits but I never stayed down
+they remember my name when I walk in the place
+trophies on the shelf and a smile on my face
+I'm at the top now and I'm looking at the view
+everything I said I was gonna do I do
+time moving fast and I'm trying to keep pace
+every single moment is a chance I can't waste
+think about the past but I'm living for today
+tomorrow ain't promised so I'm making my way
+the clock keep ticking and the years go by
+I'mma make it count till the day I die
+standing in the ring and I'm ready to fight
+every single round I'mma give it my might
+they came for the crown but I'm holding my ground
+every time they swing I'mma knock them down
+born in the hood where the sirens never sleep
+learned it on the block where the corners run deep
+city never sleeps and the streets never rest
+every single day we just doing our best
+sun going down on the ocean blue
+every single wave got me thinking of you
+fire in my heart and it's burning so hot
+giving it my all with every single shot
 `.trim().split('\n').map((l) => l.trim()).filter(Boolean);
 
 /**

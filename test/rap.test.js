@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseWords, tokens, info, syllables, rhymesFor, rhymeLevel, rhymeTarget, rhymeScheme, rhymeLetters, schemeName, rhymeOptions, themesOf, plain, buildModel, nextWords, completeLine } from '../web/apps/rap/rap-core.js';
+import { parseWords, tokens, info, syllables, rhymesFor, rhymeLevel, rhymeTarget, rhymeScheme, rhymeLetters, schemeName, rhymeOptions, themesOf, plain, buildModel, nextWords, completeLine, phraseRhyme, nextLines, smartTitle } from '../web/apps/rap/rap-core.js';
+import { lyricsFromText, textFromDocx, textFromRtf } from '../web/apps/rap/rap-import.js';
 import { LINES, ENDINGS } from '../web/apps/rap/rap-corpus.js';
 
 const dict = parseWords(readFileSync(resolve(import.meta.dirname, '../web/apps/rap/rap-words.txt'), 'utf8'));
@@ -69,7 +70,7 @@ test('complete the line: endings on a rhyme with the line it answers, about as l
 });
 
 test('explicit words only when asked for', () => {
-  const x = [...dict.words.values()].find((e) => e.x && e.tail && dict.tails.get(e.tail).length > 3);
+  const x = [...dict.words.values()].find((e) => e.x && e.lvl <= 3 && e.tail && dict.tails.get(e.tail).length > 3);
   assert.ok(x, 'some words are marked explicit');
   const other = dict.tails.get(x.tail).find((e) => e.word !== x.word);
   assert.ok(!words(rhymesFor(dict, other.word).perfect).includes(x.word));
@@ -109,4 +110,56 @@ test('themes: what the lines are about, the latest counting most; suggestions le
   assert.ok(free.length >= 2);
   for (const l of free) assert.ok(tokens(l).some((w) => t.words.has(plain(dict, w))), `"${l}" is on theme`);
   for (const l of free) assert.equal(rhymeLevel(dict, tokens(l).at(-1), 'day'), 0, `"${l}" is a new rhyme`);
+});
+
+test('phrase and near rhymes group lines: "paved road" and "Bronco" rhyme; the scheme stays simple', () => {
+  assert.ok(phraseRhyme(dict, 'rolling down the paved road', 'riding in the Bronco') > 0);
+  assert.equal(phraseRhyme(dict, 'money', 'honey'), 3);
+  assert.equal(phraseRhyme(dict, 'stacking up the paper', 'see you later'), 2, 'multi: the last two vowels');
+  assert.ok(phraseRhyme(dict, 'on the grind', 'all the time') > 0);
+  assert.equal(phraseRhyme(dict, 'in the city', 'counting money'), 0, 'a weak "-y" alone isn\'t a rhyme');
+  assert.equal(phraseRhyme(dict, 'every night', 'the cat'), 0);
+  const ride = ['rolling down the paved road', 'riding in the Bronco', 'window down the beat slow', 'got my homies in tow', 'pull up to the light', 'everything feel right'];
+  assert.equal(rhymeLetters(dict, ride).join(''), 'AAAABB');
+});
+
+test('whole next lines: rhyming with the line they answer, on the theme, about as long', () => {
+  const lines = ['rolling down the paved road', 'riding in the Bronco', 'window down the beat slow', ''];
+  const theme = themesOf(dict, lines, 3, []);
+  const out = nextLines(dict, LINES, { targetLine: lines[2], targetSyl: 6, theme, have: lines, n: 3 });
+  assert.equal(out.length, 3);
+  for (const l of out) assert.ok(phraseRhyme(dict, l, lines[2]) > 0, `"${l}" rhymes with "${lines[2]}"`);
+  assert.equal(new Set(out.map((l) => tokens(l).at(-1))).size, 3);
+  // A new rhyme: on theme, and not on a sound already used.
+  const money = ['stacking up the paper every single day', 'counting all the money that they never pay', ''];
+  const t2 = themesOf(dict, money, 2, []);
+  const free = nextLines(dict, LINES, { theme: t2, avoid: money.slice(0, 2), have: money, n: 3 });
+  assert.ok(free.length >= 2);
+  for (const l of free) assert.equal(phraseRhyme(dict, l, money[1]), 0, `"${l}": a new rhyme`);
+  assert.ok(free.some((l) => tokens(l).some((w) => t2.words.has(plain(dict, w)))), `on theme: ${free}`);
+});
+
+test('a smart title: the hook if there is one, else the strongest words on the theme', () => {
+  const ride = ['rolling down the paved road', 'riding in the Bronco', 'window down the beat slow'];
+  assert.equal(smartTitle(dict, ride, themesOf(dict, ride, 3, [])), 'Paved Road');
+  const hook = ['we on the come up', 'all my people waiting', 'yeah we on the come up', 'nobody hating'];
+  assert.equal(smartTitle(dict, hook, null), 'Come Up');
+  assert.equal(smartTitle(dict, [''], null), '');
+});
+
+test('import: text (title above a blank line, verses kept), Word .docx, RTF', async () => {
+  assert.deepEqual(lyricsFromText('Night Shift\n\nI been working all night\r\nchasing   every light\n\n\n\nkeep it real\n'), { title: 'Night Shift', lines: ['I been working all night', 'chasing every light', '', 'keep it real'] });
+  assert.equal(lyricsFromText('one line only', 'IMG_0042').title, '', 'a camera file name is no title');
+  assert.equal(lyricsFromText('one line only', 'Summer Verse').title, 'Summer Verse');
+  // A minimal .docx (a zip with word/document.xml), made here.
+  const { deflateRawSync } = await import('node:zlib');
+  const xml = '<w:document><w:body><w:p><w:r><w:t>Paved Road</w:t></w:r></w:p><w:p></w:p><w:p><w:r><w:t xml:space="preserve">Rolling down the </w:t></w:r><w:r><w:t>paved road</w:t></w:r></w:p><w:p><w:r><w:t>Riding in the Bronco</w:t></w:r><w:r><w:br/></w:r><w:r><w:t>Windows down &amp; slow</w:t></w:r></w:p></w:body></w:document>';
+  const name = Buffer.from('word/document.xml'); const data = deflateRawSync(Buffer.from(xml));
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(8, 8); local.writeUInt32LE(data.length, 18); local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(8, 10); central.writeUInt32LE(data.length, 20); central.writeUInt16LE(name.length, 28); central.writeUInt32LE(0, 42);
+  const cdOffset = 30 + name.length + data.length;
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(46 + name.length, 12); end.writeUInt32LE(cdOffset, 16);
+  const docx = new File([Buffer.concat([local, name, data, central, name, end])], 'song.docx');
+  assert.deepEqual(lyricsFromText(await textFromDocx(docx)), { title: 'Paved Road', lines: ['Rolling down the paved road', 'Riding in the Bronco', 'Windows down & slow'] });
+  assert.equal(textFromRtf('{\\rtf1\\ansi{\\fonttbl{\\f0 Arial;}}\\f0 line one\\par line two\\par}').split('\n').map((l) => l.trim()).filter(Boolean).join('|'), 'line one|line two');
 });

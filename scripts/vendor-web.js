@@ -29,6 +29,15 @@ const copies = [
   // uqr (MIT): QR code encoder (module matrix only; the app draws it).
   ['uqr/dist/index.mjs', 'uqr/uqr.mjs'],
   ['uqr/LICENSE', 'uqr/LICENSE'],
+  // Tesseract.js (Apache-2.0): reading the text in a screenshot or photo (Rap → Import), on the phone.
+  // The SIMD + LSTM core (iOS 16.4+, current Android and desktops) and the compact English model.
+  ['tesseract.js/dist/tesseract.esm.min.js', 'tesseract/tesseract.esm.min.js'],
+  ['tesseract.js/dist/worker.min.js', 'tesseract/worker.min.js'],
+  ['tesseract.js/LICENSE.md', 'tesseract/LICENSE.md'],
+  ['tesseract.js-core/tesseract-core-simd-lstm.js', 'tesseract/tesseract-core-simd-lstm.js'],
+  ['tesseract.js-core/tesseract-core-simd-lstm.wasm', 'tesseract/tesseract-core-simd-lstm.wasm'],
+  ['tesseract.js-core/LICENSE', 'tesseract/LICENSE-core'],
+  ['@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', 'tesseract/lang/eng.traineddata.gz'],
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 
@@ -40,7 +49,7 @@ for (const [from, to] of copies) {
 mkdirSync(join(out, 'pdfjs/wasm'), { recursive: true });
 for (const f of pdfWasm) cpSync(join(nm, 'pdfjs-dist/wasm', f), join(out, 'pdfjs/wasm', f));
 // Drop source-map comments: the maps aren't shipped, and browsers would request them.
-for (const f of ['pdf-lib/pdf-lib.esm.min.js']) {
+for (const f of ['pdf-lib/pdf-lib.esm.min.js', 'tesseract/tesseract.esm.min.js', 'tesseract/worker.min.js']) {
   const p = join(out, f);
   writeFileSync(p, readFileSync(p, 'utf8').replace(/\n?\/\/# sourceMappingURL=\S+\s*$/, '\n'));
 }

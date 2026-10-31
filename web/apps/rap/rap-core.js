@@ -137,10 +137,62 @@ export function rhymesFor(dict, word, { explicit = false, max = 60 } = {}) {
 
 /** How well two words rhyme: 2 perfect, 1 near, 0 not. */
 export function rhymeLevel(dict, a, b) {
-  const x = info(dict, a); const y = info(dict, b);
-  if (!x.tail || !y.tail || x.word === y.word) return 0;
-  if (x.tail === y.tail) return 2;
-  return skeleton(x.tail) === skeleton(y.tail) ? 1 : 0;
+  if (String(a).toLowerCase() === String(b).toLowerCase()) return 0;
+  const r = phraseRhyme(dict, [a], [b]);
+  return r >= 3 ? 2 : r ? 1 : 0;
+}
+
+// Vowels that, unstressed at the very end ("city", "money", "better"), are too common to rhyme on alone.
+const WEAK = new Set(['AH', 'IH', 'ER', 'IY', 'UH']);
+
+/** The last vowel of a word the list doesn't know, from its spelling (bronco → OW). */
+function guessVowel(w) {
+  const s = w.replace(/'/g, '');
+  if (/(o|ow|oe|oh)$/.test(s)) return 'OW';
+  if (/(y|ee|ie|ey|i)$/.test(s)) return 'IY';
+  if (/(ay|ai|ei)$/.test(s)) return 'EY';
+  if (/a$/.test(s)) return 'AH';
+  const v = /([aeiou])[^aeiou]*$/.exec(s)?.[1];
+  return { a: 'AE', e: 'EH', i: 'IH', o: 'AA', u: 'AH' }[v] ?? 'AH';
+}
+
+/**
+ * The vowel sounds at the end of a phrase (its last `n`), across its last words: [{ v, stressed }],
+ * "paved road" → EY OW, "bronco" → AA OW. Rap rhymes on these, not only on the last word.
+ */
+export function endVowels(dict, words, n = 3) {
+  const out = [];
+  for (let k = words.length - 1; k >= 0 && out.length < n; k--) {
+    const e = info(dict, words[k]);
+    const vs = e.tail ? e.tail.split(' ').filter((p) => VOWELS.has(p)) : [guessVowel(String(words[k]))];
+    out.unshift(...vs.map((v, i) => ({ v, stressed: i === 0 })));
+  }
+  return out.slice(-n);
+}
+
+/**
+ * How well two line endings rhyme (word arrays or lines): 3 perfect (the last words' sounds from the
+ * stressed vowel on: night/light), 2 multi (the last two vowel sounds alike: paved road/made toast, or
+ * the same last word), 1 near (the same last vowel sound: paved road/bronco, or the last words' vowels
+ * alike: grind/time), 0 not. A weak, unstressed last vowel (city, money) counts only with the one
+ * before it, so not every "-y" line rhymes.
+ */
+export function phraseRhyme(dict, a, b) {
+  const A = typeof a === 'string' ? tokens(a) : a.map((w) => String(w).toLowerCase());
+  const B = typeof b === 'string' ? tokens(b) : b.map((w) => String(w).toLowerCase());
+  const wa = A.at(-1); const wb = B.at(-1);
+  if (!wa || !wb) return 0;
+  if (wa === wb) return 2;
+  const x = info(dict, wa); const y = info(dict, wb);
+  if (x.tail && x.tail === y.tail) return 3;
+  const va = endVowels(dict, A); const vb = endVowels(dict, B);
+  const la = va.at(-1); const lb = vb.at(-1);
+  if (la && lb && la.v === lb.v) {
+    if (va.length > 1 && vb.length > 1 && va.at(-2).v === vb.at(-2).v) return 2;
+    if (!(WEAK.has(la.v) && !(la.stressed && lb.stressed))) return 1;
+  }
+  if (x.tail && y.tail && skeleton(x.tail) === skeleton(y.tail)) return 1;
+  return 0;
 }
 
 /**
@@ -154,7 +206,7 @@ export function rhymeLevel(dict, a, b) {
  */
 export function rhymeScheme(dict, lines, i) {
   const end = (k) => (k >= 0 ? tokens(lines[k] ?? '').at(-1) : undefined);
-  const r = (a, b) => { const x = end(a); const y = end(b); return !!x && !!y && rhymeLevel(dict, x, y) > 0; };
+  const r = (a, b) => a >= 0 && b >= 0 && phraseRhyme(dict, lines[a] ?? '', lines[b] ?? '') > 0;
   const at = (k, scheme) => ({ target: end(k) ?? null, line: k, scheme });
   if (i < 1 || !end(i - 1)) return { target: null, line: -1, scheme: null };
   if (i === 1) return at(0, 'pair');
@@ -165,17 +217,19 @@ export function rhymeScheme(dict, lines, i) {
 }
 
 /**
- * The rhyme letter of each line, as in AABB: lines whose last words rhyme share a letter (A for the
- * first rhyme, B for the next…); '' for an empty line. Only the `upTo` lines first are lettered.
+ * The rhyme letter of each line, as in AABB: lines whose endings rhyme (perfect, phrase or near) share
+ * a letter (A for the first rhyme, B for the next…); '' for an empty line. Only the `upTo` lines first are lettered.
  */
 export function rhymeLetters(dict, lines, upTo = lines.length) {
-  const groups = []; // [{ letter, words: [] }]
+  // Near rhymes and phrase rhymes share a letter too: a new letter only for a line that doesn't
+  // rhyme with any before it.
+  const groups = []; // [{ letter, ends: [word arrays] }]
   return lines.slice(0, upTo).map((line) => {
-    const w = tokens(line).at(-1);
-    if (!w) return '';
-    let g = groups.find((x) => x.words.some((y) => y === w || rhymeLevel(dict, y, w) > 0));
-    if (!g) { g = { letter: String.fromCharCode(65 + (groups.length % 26)), words: [] }; groups.push(g); }
-    g.words.push(w);
+    const t = tokens(line);
+    if (!t.length) return '';
+    let g = groups.find((x) => x.ends.some((e) => phraseRhyme(dict, e, t) > 0));
+    if (!g) { g = { letter: String.fromCharCode(65 + (groups.length % 26)), ends: [] }; groups.push(g); }
+    g.ends.push(t);
     return g.letter;
   });
 }
@@ -333,7 +387,7 @@ const LINKS = new Set(['the', 'a', 'an', 'my', 'your', 'his', 'her', 'our', 'the
  * a line of about `targetSyl` (or 10) syllables, on the song's `theme` when it has one, and not on a
  * rhyme in `avoid` (the rhymes already used, when starting a new one). Strings to append.
  */
-export function completeLine(model, dict, before, { target = null, targetSyl = 0, explicit = false, endings = {}, n = 3, theme = null, avoid = [] } = {}) {
+export function completeLine(model, dict, before, { target = null, targetLine = null, targetSyl = 0, explicit = false, endings = {}, n = 3, theme = null, avoid = [] } = {}) {
   const ws = before.map((w) => w.toLowerCase());
   const used = ws.reduce((s, w) => s + info(dict, w).syl, 0);
   const goal = targetSyl || 10;
@@ -349,9 +403,10 @@ export function completeLine(model, dict, before, { target = null, targetSyl = 0
     // About the right length (a little off is fine: the flow can stretch).
     let score = bonus - Math.min(4, 0.7 * Math.abs(sylOf(t) - left));
     if (target) {
-      const r = rhymeLevel(dict, end, target);
-      if (!r) return;
-      score += r === 2 ? 5 : 1.2;
+      // Rhymes with the line it answers: the whole ending against that line's ending (phrase rhymes too).
+      const r = phraseRhyme(dict, [...ws, ...t], targetLine ? tokens(targetLine) : [target]);
+      if (!r || end === target) return;
+      score += [0, 1.2, 3.5, 5][r];
     } else if (avoid.some((a) => a === end || rhymeLevel(dict, a, end) > 0)) return; // a new rhyme: not one already used
     // Flows from the last word written (learned to follow it), or starts fresh after a linking word.
     if (last && model.bi.get(last)?.has(t[0])) score += 1.5;
@@ -390,4 +445,99 @@ export function completeLine(model, dict, before, { target = null, targetSyl = 0
     if (out.length >= n) break;
   }
   return out;
+}
+
+// ---------- whole next lines ----------
+
+/**
+ * Up to `n` whole lines to write next: from the lines learned (rap-corpus.js and your other songs), as
+ * they are when they already rhyme with `targetLine` (the line the scheme says to answer), or with
+ * their last word swapped for a rhyme of it that's used the same way (a noun for a noun…); on the
+ * song's `theme`, about `targetSyl` syllables long, and not lines the song already has. With no line
+ * to answer (a new rhyme), lines on the theme that don't rhyme with `avoid` (the rhymes already used).
+ */
+export function nextLines(dict, sources, { targetLine = null, targetSyl = 0, theme = null, explicit = false, avoid = [], have = [], n = 3 } = {}) {
+  const target = targetLine ? tokens(targetLine) : null;
+  const goal = targetSyl || 10;
+  const own = new Set(have.map((l) => tokens(l).join(' ')));
+  const rhymes = target ? rhymesFor(dict, target.at(-1), { explicit, max: 80 }) : null;
+  const pool = rhymes ? [...rhymes.perfect, ...rhymes.near.slice(0, 20)].filter((e) => e.lvl <= 2) : [];
+  const onTheme = (t) => Math.min(3, t.reduce((v, w) => v + themeWeight(dict, theme, w), 0));
+  const cands = [];
+  const consider = (t, penalty) => {
+    if (t.length < 3 || own.has(t.join(' '))) return;
+    if (!explicit && t.some((w) => info(dict, w).x)) return;
+    let score = -penalty + 1.5 * onTheme(t) - Math.min(4, 0.45 * Math.abs(syllables(dict, t.join(' ')) - goal));
+    if (target) {
+      const r = phraseRhyme(dict, t, target);
+      if (!r || t.at(-1) === target.at(-1)) return;
+      score += [0, 2.5, 4.5, 6][r];
+    } else if (avoid.some((a) => phraseRhyme(dict, t, tokens(a)) > 0)) return;
+    cands.push({ t, score });
+  };
+  for (const line of sources) {
+    const t = tokens(line); if (!t.length) continue;
+    consider(t, 0);
+    if (!target) continue;
+    // The same line ending on a rhyme instead, only where that reads right: a noun ending a noun
+    // phrase ("a diamond ring", "the city lights") swapped for a rhyming noun ("a diamond chain").
+    const last = info(dict, t.at(-1)); const prev = t.at(-2);
+    if (last.guess || last.pos !== 'n' || !prev || !(NOUN_BEFORE.has(prev) || /^[an]+$/.test(info(dict, prev).pos ?? ''))) continue;
+    const fits = pool.filter((e) => e.pos === 'n' && e.lvl <= 2 && e.word !== t.at(-1) && !SMALL.has(e.word));
+    // The best few: on theme, then common.
+    fits.sort((a, b) => themeWeight(dict, theme, b.word) - themeWeight(dict, theme, a.word) || a.lvl - b.lvl);
+    for (const e of fits.slice(0, 3)) consider([...t.slice(0, -1), e.word], 1.5 + 0.4 * e.lvl - themeWeight(dict, theme, e.word));
+  }
+  cands.sort((a, b) => b.score - a.score);
+  const out = []; const ends = new Set(); const starts = new Set();
+  for (const c of cands) {
+    const end = c.t.at(-1); const start = c.t.slice(0, 3).join(' ');
+    if (ends.has(end) || starts.has(start)) continue; // different rhymes, different lines
+    ends.add(end); starts.add(start);
+    out.push(c.t.join(' ').replace(/\bi\b/g, 'I').replace(/\bi'/g, "I'"));
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+// ---------- a title ----------
+
+const SMALL = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'at', 'for', 'with', 'my', 'your', 'his', 'her', 'our', 'their', 'i', "i'm", 'me', 'we', 'you', 'they', 'it', 'is', 'was', 'be', 'got', 'get', 'just', 'like', 'that', 'this', 'so', 'all', 'up', 'down', 'out', 'when', 'what', 'every', 'gonna', 'wanna', 'ain\'t', 'don\'t', 'never', 'still', 'now', 'then', 'from', 'by', 'it\'s', 'can', 'will', 'do', 'did', 'have', 'had', 'been']);
+// Words a title can't end on ("…the", "…my").
+const DANGLING = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'at', 'for', 'with', 'my', 'your', 'his', 'her', 'our', 'their', 'i', 'we', 'you', 'they', 'is', 'was', 'that', 'this', 'from', 'by']);
+const titleCase = (t) => t.map((w) => (w === 'i' ? 'I' : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+
+/**
+ * A title for a song that has none, from what it's about (not just its first words): its hook (a
+ * phrase it repeats), else its strongest words: on its theme, said more than once, nouns first, with
+ * the word that leads into it ("paved road", "diamond ring"). '' for a song with too little in it.
+ */
+export function smartTitle(dict, lines, theme = null) {
+  const all = lines.map(tokens).filter((t) => t.length);
+  if (!all.length) return '';
+  // A hook: a phrase of 2–4 words said in more than one line.
+  const seen = new Map();
+  for (const [k, t] of all.entries()) for (let n = 4; n >= 2; n--) for (let i = 0; i + n <= t.length; i++) {
+    const g = t.slice(i, i + n); if (SMALL.has(g[0]) || DANGLING.has(g.at(-1))) continue;
+    const key = g.join(' '); const rec = seen.get(key) ?? { g, lines: new Set() }; rec.lines.add(k); seen.set(key, rec);
+  }
+  const hook = [...seen.values()].filter((r) => r.lines.size >= 2).sort((a, b) => b.g.length - a.g.length || b.lines.size - a.lines.size)[0];
+  if (hook) return titleCase(hook.g);
+  // The strongest word.
+  const score = new Map();
+  for (const t of all) for (const w of t) {
+    if (SMALL.has(w) || w.length < 3) continue;
+    const e = info(dict, w);
+    const v = 1 + 2 * themeWeight(dict, theme, w) + (e.pos?.includes('n') ? 0.6 : 0) + (e.lvl >= 3 ? 0.3 : 0);
+    score.set(w, (score.get(w) ?? 0) + v);
+  }
+  const best = [...score].sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!best) return titleCase(all[0].slice(0, 3));
+  // With the word before it when that one says something too (an adjective or a noun).
+  for (const t of all) {
+    const i = t.indexOf(best); if (i < 0) continue;
+    const prev = t[i - 1]; const pe = prev ? info(dict, prev) : null;
+    if (prev && !SMALL.has(prev) && pe && !pe.guess && /[an]/.test(pe.pos ?? '')) return titleCase([prev, best]);
+  }
+  return titleCase([best]);
 }

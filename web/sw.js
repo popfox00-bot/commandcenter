@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "fd503c5ff79e",
+  "version": "84580b0ada71",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -19,6 +19,7 @@ const PRECACHE = {
     "apps/rap/DATA-LICENSES.md",
     "apps/rap/rap-core.js",
     "apps/rap/rap-corpus.js",
+    "apps/rap/rap-import.js",
     "apps/rap/rap-themes.js",
     "apps/rap/rap-words.txt",
     "apps/rap/rap.js",
@@ -117,6 +118,13 @@ const PRECACHE = {
     "vendor/pdfjs/wasm/jbig2.wasm",
     "vendor/pdfjs/wasm/openjpeg.wasm",
     "vendor/pdfjs/wasm/qcms_bg.wasm",
+    "vendor/tesseract/LICENSE-core",
+    "vendor/tesseract/LICENSE.md",
+    "vendor/tesseract/lang/eng.traineddata.gz",
+    "vendor/tesseract/tesseract-core-simd-lstm.js",
+    "vendor/tesseract/tesseract-core-simd-lstm.wasm",
+    "vendor/tesseract/tesseract.esm.min.js",
+    "vendor/tesseract/worker.min.js",
     "vendor/uqr/LICENSE",
     "vendor/uqr/uqr.mjs",
     "vendor/webp/LICENSE",

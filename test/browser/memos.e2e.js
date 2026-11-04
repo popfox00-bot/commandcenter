@@ -43,7 +43,12 @@ test('Notes: 🎙 Memo records a voice memo into a new note; it plays back, show
   await page.fill('.nt-title', 'Hook idea');
   await page.getByRole('button', { name: '‹ Notes' }).click();
   assert.match(await page.textContent('.nt-card'), /Hook idea[\s\S]*🎙 1 · 0:0\d/);
-  // Kept after a reload; delete it.
+  // Kept after a reload (once the note is stored: the save runs in the background); delete it.
+  await page.waitForFunction(async (base) => {
+    const { idb } = await import(`${base}lib/idb.js`);
+    const n = (await idb.get('notes.v1'))?.notes?.find((x) => x.title === 'Hook idea');
+    return n?.memos?.length === 1;
+  }, BASE, { polling: 100 });
   await page.reload();
   await page.locator('.nt-card', { hasText: 'Hook idea' }).click();
   await page.waitForSelector('.nt-memo audio');

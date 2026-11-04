@@ -1,6 +1,7 @@
 // "Files" app: one app, several tools as tabs: Photo Editor (with Collage and Cutout under it), PDF,
 // Scan, Convert, and Saved Files (the files you keep in your own Google Drive). Routes: #/files (the
-// photo editor, default) and #/files/<tab> (collage, cutout, pdf, scan, convert, saved).
+// photo editor, default) and #/files/<tab> (collage, cutout, facemask, pdf, scan, convert, saved);
+// FaceMask is the photo editor showing only its face tools.
 // Going from a photo being edited to Collage puts it in a frame; to Cutout asks what to do with it.
 // Each tab is mounted the first time it is opened and then kept alive while hidden, so switching
 // tabs never loses a conversion in progress or an open photo.
@@ -9,6 +10,8 @@ import { el } from '../../lib/dom.js';
 
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
+  // FaceMask: the photo editor's pane, showing only its face tools.
+  { id: 'facemask', label: 'FaceMask', pane: 'photo' },
   { id: 'collage', label: 'Collage', load: () => import('../collage/collage.js') },
   { id: 'cutout', label: 'Cutout', load: () => import('../cutout/cutout.js') },
   { id: 'pdf', label: 'PDF', load: () => import('../pdfwrite/pdfwrite.js') },
@@ -19,7 +22,9 @@ const TABS = [
 const hashFor = (id) => (id === 'photo' ? '#/files' : `#/files/${id}`);
 // The tab bar: Photo Editor stands for its three sub-tabs.
 const TOP = [['photo', 'Photo Editor'], ['pdf', 'PDF'], ['scan', 'Scan'], ['convert', 'Convert'], ['saved', 'Saved Files']];
-const PHOTO = [['photo', '✏️ Edit'], ['collage', '🧩 Collage'], ['cutout', '✂️ Cutout']];
+const PHOTO = [['photo', '✏️ Edit'], ['collage', '🧩 Collage'], ['cutout', '✂️ Cutout'], ['facemask', '🙂 FaceMask']];
+/** The pane a tab shows (FaceMask shares the photo editor's). */
+const paneOf = (id) => TABS.find((t) => t.id === id)?.pane ?? id;
 const inPhoto = (id) => PHOTO.some(([p]) => p === id);
 
 export function mount(host) {
@@ -57,11 +62,13 @@ export function mount(host) {
     sub.replaceChildren(...PHOTO.map(([t, label]) => el('a', {
       class: `seg${t === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t === id), text: label, href: hashFor(t),
     })));
-    const pane = await ensure(id, optsFor(id));
+    const pid = paneOf(id);
+    const pane = await ensure(pid, optsFor(pid));
     await pane.ready;
-    for (const [pid, p] of panes) p.node.hidden = pid !== id;
+    for (const [k, p] of panes) p.node.hidden = k !== pid;
+    if (pid === 'photo') pane.api?.faceOnly?.(id === 'facemask');
     pane.api?.show?.();
-    if (from === 'photo' && (id === 'collage' || id === 'cutout')) handOff(id, pane);
+    if (paneOf(from) === 'photo' && (id === 'collage' || id === 'cutout')) handOff(id, pane);
   }
 
   const optsFor = (id) => ({

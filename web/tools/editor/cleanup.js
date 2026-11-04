@@ -113,7 +113,7 @@ function patchOf(img, mask, w, h, box) {
  * A membrane: `diff` (3 floats a pixel, bw×bh) is fixed where `free` is 0 and spread smoothly over the
  * free pixels (over-relaxed Gauss-Seidel, a coarse pass first so big areas settle quickly).
  */
-function membrane(diff, free, bw, bh) {
+export function membrane(diff, free, bw, bh) {
   const relax = (buf, fr, W, H, sweeps) => {
     for (let it = 0; it < sweeps; it++) {
       for (let j = 1; j < H - 1; j++) for (let i = 1; i < W - 1; i++) {

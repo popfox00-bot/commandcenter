@@ -58,7 +58,7 @@ export async function detectFaces(img, { max = 720, minScore = 0.45 } = {}) {
         const xs = corners.map((p) => p[0]); const ys = corners.map((p) => p[1]);
         const eyes = f.eyes.map(back); const mouth = back(f.mouth);
         const angle = (Math.atan2((eyes[1][1] - eyes[0][1]) * img.height, (eyes[1][0] - eyes[0][0]) * img.width) * 180) / Math.PI;
-        f = { ...f, eyes, mouth, nose: back(f.nose), angle, box: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) } };
+        f = { ...f, eyes, mouth, nose: back(f.nose), pts: f.pts.map(back), angle, box: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) } };
       }
       out.push(f);
     }

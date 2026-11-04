@@ -178,7 +178,7 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
   });
   await page.setInputFiles('#ed-file', { name: 'speck.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up', 'FaceMask']);
+  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up']);
   await page.getByRole('tab', { name: 'Clean Up' }).click();
   await page.waitForSelector('text=draw a circle around it');
   const white = await pixel(page, 0.245, 0.49);
@@ -433,22 +433,32 @@ test('phones: a thin scroll bar on the right scrolls the page past the photo (wh
   await page.waitForSelector('.ed-canvas');
   await page.getByRole('tab', { name: 'Clean Up' }).click();
   await page.waitForSelector('.scroll-rail:not([hidden])');
-  // Nothing wider than the phone: all six editor tabs on one line, the page not scrolling sideways.
+  // Nothing wider than the phone: the editor's tabs on one line, the page not scrolling sideways.
   assert.deepEqual(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, new Set([...document.querySelectorAll('.ed-modes .seg')].map((t) => Math.round(t.getBoundingClientRect().top))).size]), [true, 1]);
-  assert.equal(await page.$eval('.ed-modes', (e) => e.scrollWidth <= e.clientWidth + 1), true, 'all six tabs fit');
+  assert.equal(await page.$eval('.ed-modes', (e) => e.scrollWidth <= e.clientWidth + 1), true, 'all the tabs fit');
   const rail = await page.$eval('.scroll-rail', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.width, r.height, innerWidth]; });
   assert.ok(rail[0] + rail[1] === rail[3] && rail[1] <= 24, `a thin strip at the right edge: ${rail}`);
   await page.evaluate(() => scrollTo(0, 0));
   await page.waitForTimeout(100);
-  // Drag the thumb down: the page scrolls to the bottom.
+  // The photo stops short of the bar: nothing of it under the bar.
+  const stageRight = await page.$eval('.ed-stage', (e) => e.getBoundingClientRect().right);
+  assert.ok(stageRight <= rail[0] + 0.5, `the photo (to ${stageRight}) ends before the bar (at ${rail[0]})`);
+  // A tap on the bar: no jump.
   const x = rail[0] + rail[1] / 2;
-  await page.mouse.move(x, 20); await page.mouse.down(); await page.mouse.move(x, rail[2] - 5, { steps: 6 }); await page.mouse.up();
+  await page.mouse.click(x, rail[2] - 10);
+  await page.waitForTimeout(150);
+  assert.equal(await page.evaluate(() => scrollY), 0, 'a tap does not jump');
+  // A slide down the bar: the page glides down, about as far as the finger (at most 2.5×).
+  await page.mouse.move(x, 20); await page.mouse.down();
+  const seen = [];
+  for (let k = 1; k <= 10; k++) { await page.mouse.move(x, 20 + k * 12); seen.push(await page.evaluate(() => scrollY)); }
+  await page.mouse.up();
+  await page.waitForFunction(() => { const y = scrollY; return new Promise((r) => requestAnimationFrame(() => r(scrollY === y))); });
   const y = await page.evaluate(() => [scrollY, document.documentElement.scrollHeight - innerHeight]);
-  assert.ok(y[0] > 0 && Math.abs(y[0] - y[1]) < 3, `scrolled to the bottom: ${y}`);
+  assert.ok(y[0] > 60 && y[0] <= 120 * 2.5 + 2, `glided down by ${y[0]} for a 120 px slide`);
+  for (let k = 1; k < seen.length; k++) assert.ok(seen[k] >= seen[k - 1], 'never back and forth');
+  assert.ok(Math.max(...seen.slice(1).map((v, k) => v - seen[k])) < 120, `smooth steps: ${seen}`);
   assert.equal(await page.isVisible('text=Spot cleaned up'), false, 'and nothing was cleaned up on the photo');
-  // A tap high on the track: back up toward the top.
-  await page.mouse.click(x, 2);
-  assert.ok(await page.evaluate(() => scrollY) < y[0] / 2);
   assert.deepEqual(errors, []);
   await context.close();
   // A computer (a mouse, its own scroll bar): no rail.

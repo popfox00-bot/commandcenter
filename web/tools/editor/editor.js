@@ -15,9 +15,9 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn } from './facefit.js';
+import { fitPatch, blendIn, shadeMatch, bestPlacement } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
-import { maskLayer, alignOnFace } from '../../lib/face-core.js';
+import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
 import { drawLoupe } from '../../lib/loupe.js';
 
@@ -923,7 +923,10 @@ export function mount(host, { file: initialFile } = {}) {
       const on = i === fm.sel;
       ctx.lineWidth = ((on ? 3 : 2) * dpr) / k; ctx.setLineDash(on ? [] : [(6 * dpr) / k, (4 * dpr) / k]);
       ctx.strokeStyle = on ? '#0a84ff' : 'rgba(255,255,255,0.9)';
-      ctx.strokeRect(f.box.x * W, f.box.y * H, f.box.w * W, f.box.h * H);
+      // The face's own outline (what's cut out), or its box when its landmarks don't make one.
+      const c = faceContour(f, W, H);
+      if (c) { ctx.beginPath(); c.forEach(([x, y], j) => (j ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); }
+      else ctx.strokeRect(f.box.x * W, f.box.y * H, f.box.w * W, f.box.h * H);
     });
     ctx.restore();
     if (fm.faces.length > 1) drawBadges(ctx, dpr, fm.faces, fm.sel);
@@ -1117,7 +1120,7 @@ export function mount(host, { file: initialFile } = {}) {
    */
   function layoutOn(f) {
     const W = source.width; const H = source.height;
-    if (placing.charFace) return alignOnFace(placing.charFace, placing.full.w, placing.full.h, f, W, H);
+    if (placing.charFace) return bestPlacement(placing.charFace, placing.full.w, placing.full.h, f, W, H);
     const m = maskLayer(f, placing.aspect, W / H, 1.35);
     return { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot };
   }
@@ -1156,7 +1159,11 @@ export function mount(host, { file: initialFile } = {}) {
     const patch = at.fit && at.charFace && at.faceObj
       ? fitPatch(img.rgba, img.w, img.h, at.charFace, at.faceObj, W, H, { trim: at.trim })
       : placedPatch(img.rgba, img.w, img.h, at, W, H);
-    if (patch) blendIn(patch, sourcePixels(), W, H, at.blend / 100);
+    if (!patch) return null;
+    const photo = sourcePixels();
+    // Fitted: the face's light and color carried across its whole face, then its edge blended in.
+    if (at.fit && at.faceObj) shadeMatch(patch, photo, W, H, at.faceObj, at.blend / 100);
+    blendIn(patch, photo, W, H, at.blend / 100);
     return patch;
   }
   /** The preview of that (from the smaller copy), worked out after each change, not while moving. */

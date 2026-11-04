@@ -3,8 +3,8 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, CONTROL } from '../web/tools/editor/facefit.js';
-import { faceFrom } from '../web/lib/face-core.js';
+import { mlsMap, fitPatch, blendIn, shadeMatch, bestPlacement, CONTROL } from '../web/tools/editor/facefit.js';
+import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
 function landmarks(cx, cy, s, chin = 1) {
@@ -48,13 +48,19 @@ test('fitted onto a face: its eyes on the eyes and its jaw on the jaw (a wider c
   const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true });
   const at = ([x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2, p.rgba[o + 3]]; };
   // Each control point of the face shows the matching point of the Character (within a couple of px).
-  for (const i of [36, 45, 48, 54, 4, 8, 12]) {
+  // (The jaw is the face's own outline, so it's on the soft edge of the trim; the rest well inside.)
+  for (const i of [36, 45, 48, 54, 30, 4, 8, 12]) {
     const [u, v, a] = at(tPts[i]);
-    assert.ok(a > 200 && Math.hypot(u - cPts[i][0], v - cPts[i][1]) < 2.5, `landmark ${i}: shows ${u.toFixed(1)},${v.toFixed(1)} of the Character, its ${cPts[i].map((n) => n.toFixed(1))}`);
+    const jaw = i <= 16;
+    assert.ok(a > (jaw ? 40 : 200) && Math.hypot(u - cPts[i][0], v - cPts[i][1]) < 2.5, `landmark ${i}: shows ${u.toFixed(1)},${v.toFixed(1)} of the Character (alpha ${a}), its ${cPts[i].map((n) => n.toFixed(1))}`);
   }
-  // Well outside the head: trimmed away; just inside it: there.
+  // Beyond the face's own outline (below the chin, out past the cheek, the hair above the forehead): trimmed away.
+  for (const q of [[tPts[8][0], tPts[8][1] + 14], [tPts[0][0] - 14, tPts[0][1]], [200, tPts[19][1] - 40]]) assert.ok(at(q)[2] < 10, `trimmed at ${q.map(Math.round)}: alpha ${at(q)[2]}`);
   assert.equal(at([p.x0 + 1, p.y0 + 1])[2], 0);
   assert.ok(at([200, 150])[2] > 240);
+  // Placed by all its landmarks before the bend: about the right size for the whole face.
+  const b = bestPlacement(own, cw, ch, face, W, H);
+  assert.ok(b.width / cw > 1.4 && b.width / cw < 1.75, `sized to the face: ×${(b.width / cw).toFixed(2)}`);
   assert.ok(CONTROL.length > 20, 'more than the eyes: jaw, brows, nose and mouth too');
 });
 
@@ -96,4 +102,44 @@ test('blended with a soft edge: every color moves toward the photo around it (th
   // The softened rim keeps the color of the edge it came from (no dark ring).
   let dark = 0; for (let i = 0; i < pw * ph; i++) if (rgba[i * 4 + 3] > 20 && rgba[i * 4] + rgba[i * 4 + 1] + rgba[i * 4 + 2] < 150) dark++;
   assert.equal(dark, 0);
+});
+
+test('the face\'s own outline: jaw from ear to ear and a forehead line just above the brows (no hair); null for a sliver', () => {
+  const W = 400; const H = 300;
+  const pts = landmarks(200, 150, 1.4);
+  const face = faceAt(pts, W, H);
+  const c = faceContour(face, W, H);
+  assert.equal(c.length, 17 + 10);
+  const inside = ([x, y]) => { let k = false; for (let i = 0, j = c.length - 1; i < c.length; j = i++) { const [xi, yi] = c[i]; const [xj, yj] = c[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) k = !k; } return k; };
+  for (const i of [30, 36, 45, 48, 54]) assert.ok(inside(pts[i]), `landmark ${i} inside`);
+  const browY = (pts[19][1] + pts[24][1]) / 2;
+  assert.ok(inside([200, browY - 8]), 'some forehead');
+  assert.ok(!inside([200, browY - 60]), 'not the hair above it');
+  assert.ok(!inside([pts[0][0] - 10, pts[0][1]]), 'not past the cheek (the ear)');
+  // A detection whose points are all in one place: no outline (callers use the head's oval).
+  const flat = faceFrom({ x: 100, y: 100, width: 100, height: 100 }, Array.from({ length: 68 }, () => [150, 150]), W, H);
+  assert.equal(faceContour(flat, W, H), null);
+});
+
+test('the light across the face: the photo face\'s shading (lit from the left) carried onto the Character\'s face, its detail kept', () => {
+  const W = 400; const H = 300;
+  const pts = landmarks(200, 150, 1.4);
+  const face = faceAt(pts, W, H);
+  // The photo: the face lit from the left (bright) to the right (dark).
+  const photo = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = 230 - ((x - 120) / 160) * 150; photo.set([v, v * 0.8, v * 0.7, 255], (y * W + x) * 4); }
+  // The Character's face: evenly lit, with a dark mark.
+  const x0 = 110; const y0 = 60; const pw = 180; const ph = 200;
+  const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let i = 0; i < pw * ph; i++) rgba.set([150, 120, 100, 255], i * 4);
+  for (let y = 98; y < 102; y++) for (let x = 88; x < 92; x++) rgba.set([40, 30, 20, 255], (y * pw + x) * 4);
+  shadeMatch({ x0, y0, pw, ph, rgba }, photo, W, H, face, 1);
+  const px = (x, y) => [...rgba.subarray(((y - y0) * pw + x - x0) * 4, ((y - y0) * pw + x - x0) * 4 + 3)];
+  const left = px(160, 150); const right = px(240, 150);
+  assert.ok(left[0] - right[0] > 40, `lit from the left like the photo: ${left} vs ${right}`);
+  assert.ok(px(200, 160)[0] < px(206, 160)[0] - 40, 'its own dark mark stays');
+  // Strength 0: unchanged.
+  const same = new Uint8ClampedArray(pw * ph * 4).fill(100);
+  shadeMatch({ x0, y0, pw, ph, rgba: same }, photo, W, H, face, 0);
+  assert.ok([...same].every((v) => v === 100));
 });

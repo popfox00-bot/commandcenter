@@ -340,3 +340,81 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+// One face with all 68 landmarks (a plain template), in a 400×300 photo: skin from the brows to the chin,
+// brown hair above the forehead, a green background.
+const FAKE3 = `
+function landmarks(cx, cy, s) {
+  const p = [];
+  for (let i = 0; i <= 16; i++) { const a = Math.PI * (i / 16); p.push([cx - Math.cos(a) * 48 * s, cy + Math.sin(a) * 50 * s - 5 * s]); }
+  for (let i = 0; i < 5; i++) p.push([cx - 38 * s + i * 7 * s, cy - 30 * s]);
+  for (let i = 0; i < 5; i++) p.push([cx + 10 * s + i * 7 * s, cy - 30 * s]);
+  for (let i = 0; i < 4; i++) p.push([cx, cy - 20 * s + i * 7 * s]);
+  for (let i = 0; i < 5; i++) p.push([cx - 10 * s + i * 5 * s, cy + 10 * s]);
+  const eye = (ex) => [[ex - 9 * s, cy - 15 * s], [ex - 4 * s, cy - 18 * s], [ex + 4 * s, cy - 18 * s], [ex + 9 * s, cy - 15 * s], [ex + 4 * s, cy - 12 * s], [ex - 4 * s, cy - 12 * s]];
+  p.push(...eye(cx - 20 * s), ...eye(cx + 20 * s));
+  for (let i = 0; i < 20; i++) { const a = (i / 20) * 2 * Math.PI; p.push([cx + Math.cos(a) * 15 * s, cy + 25 * s + Math.sin(a) * 6 * s]); }
+  return p;
+}
+export const tf = { setBackend: async () => true, ready: async () => {} };
+export const nets = { tinyFaceDetector: { loadFromUri: async () => {} }, faceLandmark68Net: { loadFromUri: async () => {} } };
+export class TinyFaceDetectorOptions { constructor(o) { this.o = o; } }
+export function detectAllFaces(cv) {
+  return { withFaceLandmarks: async () => {
+    if (Math.abs(cv.width / cv.height - 4 / 3) > 0.02) return [];
+    const k = cv.width / 400;
+    const pts = landmarks(200 * k, 150 * k, 1.4 * k).map(([x, y]) => ({ x, y }));
+    return [{ detection: { score: 0.95, box: { x: 130 * k, y: 90 * k, width: 140 * k, height: 140 * k } }, landmarks: { positions: pts } }];
+  } };
+}`;
+
+test('faces: ✂️ Cut out & save takes just the face along its own outline (no hair above the forehead, no background); Identify draws that outline', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE3, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(40,140,60)'; x.fillRect(0, 0, 400, 300); // background
+    x.fillStyle = 'rgb(90,50,20)'; x.beginPath(); x.ellipse(200, 120, 90, 95, 0, 0, Math.PI * 2); x.fill(); // hair
+    x.fillStyle = 'rgb(225,180,150)'; x.beginPath(); x.ellipse(200, 160, 70, 80, 0, 0, Math.PI * 2); x.fill(); // the face
+    x.fillStyle = 'rgb(90,50,20)'; x.fillRect(120, 60, 160, 45); // hair down to just above the brows (y 108)
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
+  await page.getByRole('button', { name: '🙂 Identify faces' }).click();
+  await page.waitForSelector('.ed-panel >> text=Found 1 face.');
+  await page.waitForTimeout(150);
+  // The outline drawn follows the jaw: at the chin (y 213) it's there, at the box's bottom corner (y 230) it isn't.
+  const drawn = (u, v) => page.$eval('.ed-overlay', (c, [uu, vv]) => c.getContext('2d').getImageData(Math.round(uu * c.width), Math.round(vv * c.height), 1, 1).data[3], [u, v]);
+  assert.equal(await drawn(130 / 400, 228 / 300), 0, 'no box corner');
+  await page.getByRole('button', { name: '✂️ Cut out & save as Character' }).click();
+  const save = page.locator('dialog[open].fm-save');
+  await save.waitFor();
+  await save.getByRole('button', { name: 'Save' }).click();
+  await page.waitForSelector('text=/Saved ".+" as a Character/');
+  // The Character saved: skin, and none of the hair or the green background.
+  const got = await page.evaluate(async (base) => {
+    const m = await import(`${base}lib/characters.js`);
+    const [c] = await m.listCharacters();
+    const bmp = await createImageBitmap(await m.getCharacterBlob(c.id));
+    const cv = new OffscreenCanvas(bmp.width, bmp.height); const x = cv.getContext('2d'); x.drawImage(bmp, 0, 0);
+    const d = x.getImageData(0, 0, bmp.width, bmp.height).data;
+    let skin = 0; let hair = 0; let green = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 200) continue;
+      const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
+      if (r > 200 && g > 160) skin++; else if (r < 120 && g < 80) hair++; else if (g > r) green++;
+    }
+    return { skin, hair, green, w: bmp.width, h: bmp.height };
+  }, BASE);
+  assert.ok(got.skin > 5000, `the face: ${JSON.stringify(got)}`);
+  assert.ok(got.hair < got.skin * 0.01 && got.green < got.skin * 0.01, `no hair, no background: ${JSON.stringify(got)}`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

@@ -148,8 +148,12 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
      third of the way: its outline follows the new jaw while its eyes, nose and mouth keep their own
      proportions), and **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
      hairline, found in the photo (from the brows up, where the skin gives way to hair), with the soft
-     edge inside it (`web/tools/editor/facefit.js`). Only the Character's own face goes in (its own jaw
-     and hairline, found the same way), never the hair or background of its border. A Character looking
+     edge inside it (`web/tools/editor/facefit.js`). The outline ends where the face's own skin does:
+     along lines out from the nose and up from the brows, each point is compared with the skin just
+     before it (so shading, a redder cheek or a paler forehead are still skin), and the edge is where
+     it changes to something else: hair over a temple or cheek, the far side of a turned face. Only
+     the Character's own face goes in (its own jaw and hairline, found the same way), never the hair,
+     background or anything else (a flower behind an ear) kept in its border. A Character looking
      the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
      Any other image covers the face, turned with it.
      **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin

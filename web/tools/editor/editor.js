@@ -15,7 +15,7 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, targetOutline, bestPlacement, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
+import { fitPatch, blendIn, recolor, targetOutline, skinModel, bestPlacement, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -1208,6 +1208,7 @@ export function mount(host, { file: initialFile } = {}) {
     if (at.fit && at.charFace && at.faceObj) {
       // The face in the photo, where it ends: its jaw and its hairline (found once per face).
       at.faceObj.outline ??= targetOutline(photo, W, H, at.faceObj);
+      at.faceObj.skin ??= skinModel(photo, W, H, at.faceObj);
       const outline = at.faceObj.outline;
       // Placed by its features, bent only a little (the face as it is), trimmed along that outline;
       // then recolored to that face's skin, and blended only in a band at the border.
@@ -1217,7 +1218,7 @@ export function mount(host, { file: initialFile } = {}) {
       // Blended both ways at the border: the Character toward the photo's skin there, and what's left
       // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway.
       const faceW = at.faceObj.box.w * W;
-      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.16)), region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0 });
+      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.16)), region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: at.faceObj.skin });
       return patch;
     }
     const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);

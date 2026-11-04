@@ -45,7 +45,7 @@ test('fitted onto a face: its eyes on the eyes and its jaw on the jaw (a wider c
   const W = 400; const H = 300;
   const tPts = landmarks(200, 150, 1.4, 1.12);
   const face = faceAt(tPts, W, H);
-  const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true, bend: 1 });
+  const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true, bend: 1, own: false }) // (a color gradient, not a face: its own outline isn't looked for);
   const at = ([x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2, p.rgba[o + 3]]; };
   // Each control point of the face shows the matching point of the Character (within a couple of px).
   // (The jaw is the face's own outline, so it's on the soft edge of the trim, a wide one; the rest well inside.)
@@ -221,4 +221,27 @@ test('blended both ways: the face it goes on, where the Character doesn\'t reach
   const beyond = px(30, 120);
   assert.ok(beyond[3] === 255 && beyond[0] < 222, `the skin just past the outline toned: ${beyond}`);
   assert.equal(px(180, 120)[3], 0, 'the hair left alone');
+});
+
+test('the outline ends where the face\'s skin does: hair over one side brings the jaw in there, the other side stays at the landmarks', () => {
+  const W = 200; const H = 200;
+  const face = faceAt(landmarks(100, 100, 1), W, H);
+  // Skin with gentle shading (a redder cheek, a paler forehead), and blond-brown hair over the left side.
+  const photo = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const hair = x < 72 || y < 55;
+    photo.set(hair ? [130, 100, 72, 255] : [225 - (x - 100) * 0.3, 175 - (y - 100) * 0.2, 150, 255], (y * W + x) * 4);
+  }
+  const out = targetOutline(photo, W, H, face);
+  for (const i of [0, 1, 2]) {
+    assert.equal(out.snapped[i], true, `jaw point ${i} brought in`);
+    assert.ok(out[i][0] >= 68 && out[i][0] <= 78, `jaw point ${i} at the hair's edge: x ${out[i][0].toFixed(1)}`);
+  }
+  for (const i of [14, 15, 16]) assert.equal(out.snapped[i], false, `jaw point ${i} where it was`);
+  assert.ok(out[8][1] > 140, 'the chin where it was (the mouth on the way is not the end of the face)');
+  // The hairline: where the hair starts above the forehead; right above the brow where hair covers it.
+  for (const [x, y] of out.slice(17)) {
+    if (x > 80) assert.ok(y > 50 && y < 60, `the hairline at ${x.toFixed(0)}, y ${y.toFixed(1)} (hair from 55)`);
+    if (x < 72) assert.ok(y > 52, `under the hair at ${x.toFixed(0)}: just above the brow, y ${y.toFixed(1)}`);
+  }
 });

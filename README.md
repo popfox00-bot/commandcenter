@@ -130,7 +130,8 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   pointer. **⤢ Fit** goes back to the whole photo (`web/lib/zoom.js`).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
-- **FaceMask**: everything for faces, in one place, in three steps.
+- **🙂 FaceMask** (a tab of its own beside ✏️ Edit, 🧩 Collage and ✂️ Cutout: the same photo, with only
+  the face tools): everything for faces, in three steps.
   1. **🙂 Identify faces**: the faces are found (on the phone) and outlined; with more than one, each
      gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
   2. **✂️ Cut out & save as Character**: the picked face is cut out in one go (an oval from its eyes
@@ -138,15 +139,18 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
      named and kept with your Characters (`web/tools/editor/facemask.js`). Fine-tune its edge in
      Cutout if you like.
   3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
-     Character with a face of its own (one cut out like this) is **lined up by its eyes and mouth**:
-     the middle of its eyes on the face's, its eye line along the face's, sized by the eyes' spacing
-     (and a little by the eyes-to-mouth length). Any other image covers the face, turned with it. Tap
-     another face's number to move it there, or **🙂 On every face** to put one on each. Drag to move,
-     pinch (or the **Size** and **Turn** sliders) to resize and rotate. **🎨 Match color** (0–100)
-     gives it the light and color of what's **behind it**, or of an area you drag over with **🎯 Pick
-     an area** (its colors move toward that area's average and spread, in Lab;
-     `web/lib/color-match.js`). **✓ Place** paints it in at full detail: one undo step, part of every
-     export.
+     Character with a face of its own (one cut out like this) is **🧬 fitted to the face**: placed by
+     its eyes first, then bent so about thirty of its landmarks (jaw and chin, brows, nose, eye
+     corners, mouth) meet the face's own (moving least squares: smooth, and it stays itself away from
+     the face), and **✂️ trimmed to the head**: softly faded out beyond that head's outline, so a
+     different hairline, ears or neck don't stick out (`web/tools/editor/facefit.js`). Any other image
+     covers the face, turned with it. **🎨 Blend into the photo** (0–100, on by default) matches it
+     seamlessly: at its edge it takes on what's right next to it there (above, below, each side, each
+     its own), eased smoothly inward, so there's no seam and no one-tint-for-all; its own detail stays.
+     Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
+     to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
+     hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
+     **✓ Place** paints it in at full detail: one undo step, part of every export.
   **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
   mouth (quarter turns and straighten; undo to go back).
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
@@ -310,7 +314,9 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
   folder in your Drive. **⬆ Install…** puts them back on this phone or another, from the ZIP or
   images, a folder, or Saved Files. Names and order are kept; ones already here are skipped.
 - **A thin scroll bar on the right** (phones): the photo takes every touch for tracing, so to scroll
-  the page past it, drag the bar at the right edge (or tap along it).
+  the page past it, slide along the bar at the right edge. It glides (the page moves about as far as
+  your finger, never more than 2.5× it), a tap doesn't jump, and the page (photos too) stops short of
+  it, so nothing is under it.
 - Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
   cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
 - **A magnifier under the finger**: while your finger is down (tracing, Patch, Wand, Brush, and in

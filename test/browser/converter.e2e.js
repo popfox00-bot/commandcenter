@@ -65,7 +65,7 @@ test('home screen of apps: Files, Draw and QR are apps of their own, Jobs is in 
   await page.waitForSelector('.studio-tabs');
   assert.equal(await page.textContent('#title'), 'Files');
   assert.deepEqual(await page.$$eval('.studio-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'PDF', 'Scan', 'Convert', 'Saved Files']);
-  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout']);
+  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout', '🙂 FaceMask']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
   await page.click('.app-tile >> text=QR');

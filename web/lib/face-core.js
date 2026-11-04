@@ -7,7 +7,7 @@ const mean = (pts) => [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduc
 /**
  * A face from its box and its 68 landmarks (iBUG layout: 36–41 one eye, 42–47 the other, 48–67 the
  * mouth, 30 the nose tip), in pixels of a w×h picture: { box, eyes: [a, b] (a on the picture's left
- * when upright), mouth, nose, angle (the eye line's slope, degrees, clockwise), size } in 0..1.
+ * when upright), mouth, nose, angle (the eye line's slope, degrees, clockwise), size, pts (all 68) } in 0..1.
  */
 export function faceFrom(box, landmarks, w, h, score = 1) {
   const n = (p) => [p[0] / w, p[1] / h];
@@ -18,7 +18,7 @@ export function faceFrom(box, landmarks, w, h, score = 1) {
   const cross = (b[0] - a[0]) * ((mouth[1] - mid[1]) * h) - (b[1] - a[1]) * ((mouth[0] - mid[0]) * w);
   if (cross < 0) [a, b] = [b, a];
   const angle = (Math.atan2((b[1] - a[1]) * h, (b[0] - a[0]) * w) * 180) / Math.PI;
-  return { box: { x: box.x / w, y: box.y / h, w: box.width / w, h: box.height / h }, eyes: [a, b], mouth, nose, angle, score, size: Math.max(box.width / w, box.height / h) };
+  return { box: { x: box.x / w, y: box.y / h, w: box.width / w, h: box.height / h }, eyes: [a, b], mouth, nose, angle, score, size: Math.max(box.width / w, box.height / h), pts: landmarks.map(n) };
 }
 
 /**

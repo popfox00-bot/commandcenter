@@ -860,3 +860,5 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .ed-modes { display: flex; gap: 2px; padding: 4px 3px; overflow-x: auto; scrollbar-width: none; }
 .ed-modes::-webkit-scrollbar { display: none; }
 .ed-modes .seg { flex: 1 0 auto; padding: 0 4px; font-size: .8rem; white-space: nowrap; }
+/* While the phone's scroll bar shows, nothing sits under it: the page (photos too) stops short of it. */
+body.has-rail { padding-right: 22px; }

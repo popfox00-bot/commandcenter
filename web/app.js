@@ -93,13 +93,15 @@ const onSurface = (t) => (t?.nodeType === 1 ? t : t?.parentElement)?.closest?.(H
 for (const type of ['contextmenu', 'selectstart']) document.addEventListener(type, (e) => { if (onSurface(e.target)) e.preventDefault(); });
 
 // A thin scroll bar on the right edge for phones: on a page with a drawing surface (which takes every
-// touch, so a swipe on the photo traces rather than scrolls), drag it (or tap along it) to scroll.
+// touch, so a swipe on the photo traces rather than scrolls), slide along it to scroll. It glides: the
+// page moves about as far as the finger does (never more than 2.5× it on a long page), eased frame by
+// frame, and a tap doesn't jump. While it shows, the page leaves its strip clear (nothing under it).
 {
   const thumb = el('span', { class: 'scroll-thumb' });
   const rail = el('div', { class: 'scroll-rail', 'aria-hidden': 'true', hidden: true }, thumb);
   document.body.append(rail);
   const coarse = matchMedia('(pointer: coarse)');
-  let raf = 0; let drag = null;
+  let raf = 0; let drag = null; let glide = 0;
   const geometry = () => {
     const max = document.documentElement.scrollHeight - innerHeight;
     const th = Math.max(48, (innerHeight * innerHeight) / document.documentElement.scrollHeight);
@@ -110,6 +112,7 @@ for (const type of ['contextmenu', 'selectstart']) document.addEventListener(typ
     const { max, th, track } = geometry();
     const show = coarse.matches && max > 40 && !!document.querySelector(HOLD_SURFACES);
     rail.hidden = !show;
+    document.body.classList.toggle('has-rail', show);
     if (!show) return;
     thumb.style.height = `${th}px`;
     thumb.style.transform = `translateY(${max ? (scrollY / max) * track : 0}px)`;
@@ -119,18 +122,30 @@ for (const type of ['contextmenu', 'selectstart']) document.addEventListener(typ
   addEventListener('resize', soon);
   coarse.addEventListener?.('change', soon);
   new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
-  const scrollFor = (y) => { const { max, track } = geometry(); scrollTo(0, track > 0 ? Math.max(0, Math.min(1, (y - drag.offset) / track)) * max : 0); };
+  // Eased toward where the finger says, a little each frame (smooth, never a jump).
+  const step = () => {
+    glide = 0;
+    if (!drag) return;
+    const d = drag.target - scrollY;
+    if (Math.abs(d) < 0.5) { if (drag.released) drag = null; return; }
+    scrollTo(0, scrollY + d * 0.35);
+    glide = requestAnimationFrame(step);
+  };
   rail.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     rail.setPointerCapture(e.pointerId);
-    const r = thumb.getBoundingClientRect();
-    // On the thumb: it moves with the finger from where it was held. On the track: it jumps there.
-    drag = { offset: e.clientY >= r.top && e.clientY <= r.bottom ? e.clientY - r.top : r.height / 2 };
+    const { max, track } = geometry();
+    // How far the page goes per pixel the finger moves: the thumb's own pace, but at most 2.5×.
+    drag = { y: e.clientY, from: scrollY, gain: Math.max(1, Math.min(2.5, track > 0 ? max / track : 1)), target: scrollY, max };
     rail.classList.add('active');
-    scrollFor(e.clientY);
   });
-  rail.addEventListener('pointermove', (e) => { if (drag) scrollFor(e.clientY); });
-  const end = () => { drag = null; rail.classList.remove('active'); };
+  rail.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    drag.target = Math.max(0, Math.min(drag.max, drag.from + (e.clientY - drag.y) * drag.gain));
+    if (!glide) glide = requestAnimationFrame(step);
+  });
+  // Let go: it glides the rest of the way there.
+  const end = () => { if (drag) { drag.released = true; if (!glide) glide = requestAnimationFrame(step); } rail.classList.remove('active'); };
   rail.addEventListener('pointerup', end);
   rail.addEventListener('pointercancel', end);
   soon();

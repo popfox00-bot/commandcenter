@@ -61,16 +61,24 @@ test('faces: FaceMask → 🙂 Identify faces, 🙂 Level this face turns the ph
   });
   await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  // The face tools are in their own place: FaceMask. Crop and Markup no longer have them.
-  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up', 'FaceMask']);
+  // The face tools are in a place of their own: a FaceMask tab beside Edit, Collage and Cutout. The
+  // editor's own tabs (and Crop, Markup) no longer have them.
+  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout', '🙂 FaceMask']);
+  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up']);
   await page.getByRole('tab', { name: 'Crop' }).click();
   assert.equal(await page.getByRole('button', { name: '🙂 Level face' }).count(), 0);
-  await page.getByRole('tab', { name: 'FaceMask' }).click();
+  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
+  await page.waitForFunction(() => location.hash === '#/files/facemask');
+  // All by itself: the same photo, only the face tools (no editing tabs or one-tap fixes).
+  assert.equal(await page.isVisible('.ed-modes'), false);
+  assert.equal(await page.isVisible('text=✨ Auto-Enhance'), false);
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
   await page.getByRole('button', { name: '🙂 Level this face' }).click();
   await page.waitForSelector('text=Leveled: eyes level');
-  // Straightened by the tilt (20.6°), not turned a quarter (seen in Crop).
+  // Straightened by the tilt (20.6°), not turned a quarter (seen in Edit → Crop).
+  await page.getByRole('tab', { name: '✏️ Edit' }).click();
+  await page.waitForSelector('.ed-modes');
   await page.getByRole('tab', { name: 'Crop' }).click();
   const straighten = Number(await page.textContent('.ed-slider output'));
   assert.ok(Math.abs(Math.abs(straighten) - 20.6) < 0.6, `straightened ${straighten}°`);
@@ -141,7 +149,7 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
     await page.locator('dialog[open].ed-char-pick').getByRole('button', { name: 'Green mask' }).click();
     await page.waitForSelector('.ed-panel >> text=On the face');
   };
-  await page.getByRole('tab', { name: 'FaceMask' }).click();
+  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
   // ✂️ Cut out & save as Character: the face, cut out and named, kept with the others.
@@ -155,6 +163,8 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
   assert.deepEqual(kept[0], ['My face', true]);
   await page.evaluate(async (base) => { const m = await import(`${base}lib/characters.js`); const c = (await m.listCharacters()).find((x) => x.name === 'My face'); await m.removeCharacter(c.id); }, BASE);
   await place();
+  await page.$eval('input[aria-label="Blend into the photo"]', (r) => { r.value = '0'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForTimeout(250);
   // Shown on the face while it's being placed.
   const shown = await pixel('.ed-overlay', 0.52, 0.48);
   assert.ok(shown[1] > 150 && shown[0] < 100, `on the face while placing: ${shown}`);
@@ -165,10 +175,11 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
   assert.ok(plain[1] > 150 && plain[0] < 100, `placed on the face, as it is: ${plain}`);
   const corner = await pixel('.ed-canvas', 0.05, 0.05);
   assert.ok(Math.abs(corner[0] - 201) < 10, `the photo elsewhere: ${corner}`);
-  // Undo, and again with 🎨 Match color: warmer, nearer the photo behind it.
+  // Undo, and again blended into the photo: warmer, nearer the photo around it.
   await page.getByRole('button', { name: 'Undo' }).click();
   await place();
-  await page.$eval('input[aria-label="Match color"]', (r) => { r.value = '80'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.$eval('input[aria-label="Blend into the photo"]', (r) => { r.value = '80'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForTimeout(250);
   await page.getByRole('button', { name: '✓ Place' }).click();
   await page.waitForSelector('text=Placed Green mask');
   await page.waitForTimeout(200);
@@ -279,13 +290,15 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   await page.waitForSelector('text=Spot cleaned up');
 
   // 🎭 Insert Character: on the bigger face, its red eyes on that face's eyes.
-  await page.getByRole('tab', { name: 'FaceMask' }).click();
+  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 2 faces');
   const place = async () => {
     await page.getByRole('button', { name: '🎭 Insert Character' }).click();
     await page.locator('dialog[open].ed-char-pick').getByRole('button', { name: 'Me' }).click();
-    await page.waitForSelector('.ed-panel >> text=lined up by its eyes and mouth');
+    await page.waitForSelector('.ed-panel >> text=fitted to the face');
+  await page.$eval('input[aria-label="Blend into the photo"]', (r) => { r.value = '0'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForTimeout(250);
   };
   await place();
   assert.match(await page.textContent('.ed-panel'), /On face 1 of 2/);

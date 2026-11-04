@@ -35,6 +35,8 @@ export const urls = {
   team: (league, team) => `${base(league)}/teams/${encodeURIComponent(team)}`,
   schedule: (league, team) => `${base(league)}/teams/${encodeURIComponent(team)}/schedule`,
   scoreboard: (league) => `${base(league)}/scoreboard`,
+  /** One game in full: box score, leaders, the situation, win probability. */
+  summary: (league, event) => `${base(league)}/summary?event=${encodeURIComponent(event)}`,
 };
 
 // ---------- reading ESPN ----------
@@ -107,6 +109,92 @@ export function parseTeamList(json) {
   walk(json);
   for (const { team } of json?.sports?.[0]?.leagues?.[0]?.teams ?? []) add(team);
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---------- live stats ----------
+
+const num = (v) => (v == null || v === '' ? null : String(v));
+
+/** Top performers from ESPN leader groups ([{ name, shortDisplayName, leaders: [{ displayValue, athlete }] }]). */
+function readLeaders(groups, abbr = '') {
+  const out = [];
+  for (const g of groups ?? []) {
+    const top = g.leaders?.[0];
+    if (!top) continue;
+    const who = top.athlete?.shortName ?? top.athlete?.displayName ?? '';
+    const value = top.displayValue ?? (top.value != null ? String(top.value) : '');
+    if (!who && !value) continue;
+    out.push({ team: abbr, stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value });
+  }
+  return out;
+}
+
+/** The situation of a live game: football's down and distance, baseball's count and bases, the last play. */
+function readSituation(sit, comp) {
+  if (!sit) return null;
+  const parts = [];
+  if (sit.downDistanceText || sit.shortDownDistanceText) parts.push(sit.downDistanceText ?? sit.shortDownDistanceText);
+  if (sit.isRedZone) parts.push('red zone');
+  if (sit.balls != null || sit.strikes != null || sit.outs != null) {
+    const bases = [sit.onFirst && '1st', sit.onSecond && '2nd', sit.onThird && '3rd'].filter(Boolean);
+    parts.push(`${sit.balls ?? 0}-${sit.strikes ?? 0}, ${sit.outs ?? 0} out${sit.outs === 1 ? '' : 's'}${bases.length ? `, on ${bases.join(' & ')}` : ''}`);
+  }
+  const poss = sit.possession ? comp?.competitors?.find((c) => String(c.team?.id ?? c.id) === String(sit.possession))?.team?.abbreviation : null;
+  return { text: parts.join(' · '), possession: poss ?? null, lastPlay: sit.lastPlay?.text ?? null };
+}
+
+/**
+ * Live stats of the games on a league's scoreboard: id → { game, situation, leaders, teams }, where
+ * teams are [{ abbr, stats: [{ label, value }], lines: [period scores] }].
+ */
+export function parseScoreboard(json) {
+  const out = new Map();
+  for (const ev of json?.events ?? []) {
+    const game = parseGame(ev); if (!game) continue;
+    const comp = ev.competitions[0];
+    const teams = (comp.competitors ?? []).map((c) => ({
+      abbr: c.team?.abbreviation ?? '', home: c.homeAway === 'home',
+      stats: (c.statistics ?? []).map((st) => ({ label: st.abbreviation ?? st.label ?? st.name ?? '', value: num(st.displayValue) })).filter((st) => st.label && st.value != null),
+      lines: (c.linescores ?? []).map((l) => num(l.displayValue ?? l.value)).filter((v) => v != null),
+    }));
+    const leaders = [...readLeaders(comp.leaders), ...(comp.competitors ?? []).flatMap((c) => readLeaders(c.leaders, c.team?.abbreviation ?? ''))];
+    out.set(game.id, { game, situation: readSituation(comp.situation, comp), leaders, teams, at: Date.now() });
+  }
+  return out;
+}
+
+/**
+ * One game's summary (box score): { situation, leaders, teams: [{ abbr, stats }], winProb: { home,
+ * away } (percent) or null }. Only what ESPN has for the sport and moment is filled in.
+ */
+export function parseSummary(json) {
+  const comp = json?.header?.competitions?.[0];
+  const teams = (json?.boxscore?.teams ?? []).map((t) => ({
+    abbr: t.team?.abbreviation ?? '', home: t.homeAway === 'home',
+    stats: (t.statistics ?? []).map((st) => ({ label: st.label ?? st.abbreviation ?? st.name ?? '', value: num(st.displayValue) })).filter((st) => st.label && st.value != null),
+  }));
+  const leaders = (json?.leaders ?? []).flatMap((block) => readLeaders(block.leaders, block.team?.abbreviation ?? ''));
+  const wp = json?.winprobability?.at?.(-1);
+  const winProb = wp?.homeWinPercentage != null ? { home: Math.round(wp.homeWinPercentage * 100), away: Math.round((1 - wp.homeWinPercentage) * 100) } : null;
+  return { situation: readSituation(json?.situation ?? comp?.situation, comp), leaders, teams, winProb, at: Date.now() };
+}
+
+/** The few team stats worth a glance, for each sport (the first ones ESPN gives otherwise). */
+const KEY_STATS = {
+  basketball: ['FG%', 'Field Goal %', '3P%', '3PT', 'REB', 'Rebounds', 'AST', 'Assists', 'TO', 'Turnovers'],
+  football: ['Total Yards', 'YDS', 'Passing', 'Rushing', 'Turnovers', 'TO', '3rd down efficiency', 'Possession', 'TOP'],
+  hockey: ['Shots', 'SOG', 'Power Play Goals', 'PPG', 'Faceoffs Won', 'FW', 'Hits', 'HT'],
+  baseball: ['H', 'Hits', 'E', 'Errors', 'HR', 'Home Runs', 'LOB'],
+  soccer: ['Possession', 'POSS', 'Shots', 'SH', 'On Goal', 'ST', 'Corner Kicks', 'CK', 'Fouls', 'FC'],
+};
+/** Side-by-side team stats [{ label, away, home }], the key ones for the sport first, at most `n`. */
+export function statRows(teams, sport, n = 4) {
+  const home = teams.find((t) => t.home) ?? teams[1]; const away = teams.find((t) => !t.home) ?? teams[0];
+  if (!home || !away) return [];
+  const labels = [...new Set([...home.stats, ...away.stats].map((st) => st.label))];
+  const want = KEY_STATS[sport] ?? [];
+  labels.sort((a, b) => (want.indexOf(a) < 0 ? 99 : want.indexOf(a)) - (want.indexOf(b) < 0 ? 99 : want.indexOf(b)));
+  return labels.slice(0, n).map((label) => ({ label, away: away.stats.find((st) => st.label === label)?.value ?? '–', home: home.stats.find((st) => st.label === label)?.value ?? '–' }));
 }
 
 // ---------- wording ----------

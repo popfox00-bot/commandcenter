@@ -57,6 +57,12 @@ for (const t of S.DEFAULT_TEAMS) {
 for (const league of Object.keys(S.LEAGUES)) {
   ok &= await probe(`ESPN ${S.LEAGUES[league].name} teams (app team picker)`, S.urls.teams(league), (j) => { const t = S.parseTeamList(j); return `${t.length} teams, e.g. ${t.slice(0, 3).map((x) => `${x.name} (${x.id})`).join(', ')}`; });
 }
+// Live stats (the Sports "Update stats" button): today's scoreboard, then one game's summary (box score).
+for (const league of ['nfl', 'nba', 'mlb', 'nhl'].filter((l) => S.LEAGUES[l])) {
+  let event = null;
+  ok &= await probe(`ESPN ${S.LEAGUES[league].name} scoreboard (live stats)`, S.urls.scoreboard(league), (j) => { const m = S.parseScoreboard(j); event = [...m.keys()][0] ?? null; const live = [...m.values()].filter((x) => x.game?.state === 'in').length; return `${m.size} games, ${live} live; first: ${event}`; });
+  if (event) await probe(`ESPN ${S.LEAGUES[league].name} game summary (box score)`, S.urls.summary(league, event), (j) => { const s = S.parseSummary(j); return `${s.leaders.length} leaders; ${s.teams.map((t) => `${t.abbr}: ${t.stats.length} stats`).join(', ')}; win prob ${s.winProb ? JSON.stringify(s.winProb) : '-'}`; });
+}
 process.exitCode = ok ? 0 : 1;
 
 // The weather job's own HTTP client (polite delays, timeouts) against Open-Meteo, next to a plain

@@ -487,10 +487,22 @@ ZIP lookup: Zippopotam.us.
 
 ### Sports
 
-A **calendar of the games**: a **week** view by default (the view you pick is remembered), with
-**today** highlighted, and **Day** (each game with TV, the betting line and the venue) and **Month**
-views; tap a day to open it, ‹ › to move, **Today** to come back. A game shows once even when two of
-your teams play each other; live games show the score and refresh every 45 seconds.
+A **calendar of the games**: a **week** view by default (the view you pick is remembered), as a
+list focused on **today**: today at the top, the week before above it (grayed, fading the further
+back it goes, a scroll up), and the next two weeks below (softer, still easy to read). **Day** (each
+game with TV, the betting line and the venue) and **Month** views too; tap a day to open it, ‹ › to
+move a week, **Today** to come back. A game shows once even when two of your teams play each other;
+live games refresh every 45 seconds.
+
+**Live games stand out**: a red-tinted card with a red edge, a pulsing **LIVE** tag with the clock
+in a narrow column on the left, and the score in its own column on the right (the leader in bold),
+so the teams keep their room in the middle. In Month view a live game's chip is red.
+
+**📊 Update stats** pulls live data on request: every team's games again, the scoreboards of the
+leagues with a game on today (fresh score and clock, the situation such as down and distance or the
+count and runners, the last play, top performers, team stats), and for each live game its box score
+and win probability. A live game's stats open under it; any live or finished game's **📊** opens or
+folds its stats. Where ESPN's game summary can't be read, the scoreboard's stats are shown instead.
 
 Under it, your teams: starts with the Broncos, Nuggets, Avalanche and Rockies, each with its record
 and standing, a **live** score while a game is on, the **next game** and the **last result**.

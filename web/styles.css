@@ -411,7 +411,7 @@ button:disabled { opacity: .5; }
 .upd-team-head { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .upd-team-head > span:last-child { display: grid; min-width: 0; }
 .upd-badge { flex: none; display: grid; place-items: center; min-width: 48px; height: 48px; padding: 0 6px; border-radius: 12px; font-weight: 800; font-size: .95rem; letter-spacing: .02em; }
-.upd-live { color: var(--bad); font-weight: 700; }
+p.upd-live { color: var(--bad); font-weight: 700; }
 .upd-sched ol { margin: 6px 0 0; padding-left: 1.4em; display: grid; gap: 3px; }
 .upd-add { display: grid; gap: 8px; margin: 8px 0; }
 .upd-add input { margin: 0; }
@@ -582,6 +582,15 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .cal-items { display: grid; gap: 6px; }
 .cal-empty { margin: 0 0 0 4px; font-weight: 400; }
 .cal-day.cal-free { padding-top: 4px; padding-bottom: 4px; }
+/* Week focused on today: scrolls; the days before fade out above, the days after a little softer. */
+.cal-agenda { max-height: min(68vh, 640px); overflow-y: auto; scroll-snap-type: y proximity; padding: 2px; overscroll-behavior: contain; }
+.cal-agenda .cal-focus { scroll-snap-align: start; }
+.cal-agenda .cal-past { filter: grayscale(.9); }
+.cal-agenda .cal-past-1 { opacity: .62; } .cal-agenda .cal-past-2 { opacity: .5; } .cal-agenda .cal-past-3 { opacity: .4; } .cal-agenda .cal-past-4 { opacity: .3; }
+.cal-agenda .cal-future { opacity: .82; }
+.cal-agenda .cal-future:not(.cal-free) { opacity: .9; }
+.cal-agenda .cal-focus { box-shadow: 0 2px 10px rgb(0 0 0 / .08); }
+.cal-mon { font-weight: 600; }
 .cal-item { display: grid; grid-template-columns: minmax(64px, auto) 1fr auto; gap: 10px; align-items: center; text-align: left; width: 100%; border: 1px solid var(--border); border-left: 5px solid var(--primary); border-radius: 10px; background: var(--bg); color: var(--text); padding: 8px 10px; font: inherit; }
 .cal-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .cal-what { display: grid; gap: 2px; min-width: 0; }
@@ -614,6 +623,33 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .upd-game .upd-badge { min-width: 38px; height: 26px; border-radius: 7px; font-size: .75rem; }
 .upd-local-head { margin-top: 8px; }
 .upd-local { border-left-style: dashed; }
+.upd-game { grid-template-columns: 62px minmax(0, 1fr) auto; column-gap: 8px; padding: 8px; }
+.upd-game .upd-game-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; min-width: 0; }
+.upd-status { display: grid; gap: 1px; min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+.upd-game.upd-live { background: color-mix(in srgb, #dc2626 9%, var(--bg)); border-color: color-mix(in srgb, #dc2626 45%, var(--border)); }
+.upd-live-tag { color: #dc2626; font-weight: 800; letter-spacing: .06em; font-size: .78rem; }
+.upd-live-tag::before { content: '● '; animation: upd-pulse 1.4s ease-in-out infinite; }
+@keyframes upd-pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .upd-live-tag::before { animation: none; } }
+.upd-clock { color: var(--text); font-size: .78rem; }
+.upd-game.upd-done .upd-status { color: var(--muted); }
+.upd-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.upd-score { display: grid; gap: 1px; font-variant-numeric: tabular-nums; font-size: .85rem; min-width: 46px; }
+.upd-score-row { display: flex; justify-content: space-between; gap: 6px; color: var(--muted); }
+.upd-score-row.lead { color: var(--text); font-weight: 700; }
+.upd-game.upd-live .upd-score { font-size: .95rem; }
+.upd-stats-btn { min-width: 34px; min-height: 30px; padding: 0 6px; }
+.upd-stats-btn.active { background: var(--primary); color: var(--primary-text); }
+.upd-stats { grid-column: 1 / -1; display: grid; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--border); min-width: 0; }
+.upd-stats p { margin: 0; }
+.upd-leaders { display: flex; flex-wrap: wrap; gap: 4px; }
+.upd-leader { font-size: .75rem; min-height: 0; padding: 3px 8px; white-space: normal; text-align: left; }
+.upd-stat-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.upd-stat-table th, .upd-stat-table td { padding: 2px 4px; border-bottom: 1px solid var(--border); text-align: right; }
+.upd-stat-table th:first-child { text-align: left; font-weight: 500; color: var(--muted); }
+.upd-stat-table thead th { color: var(--text); font-weight: 700; }
+.cal-chip.upd-live-chip { font-weight: 700; }
+.upd-stats-note { margin: -4px 0 0; }
 
 /* Files → Saved Files */
 .sv { max-width: 720px; margin: 0 auto; display: grid; gap: 10px; }

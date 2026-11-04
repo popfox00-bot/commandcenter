@@ -226,6 +226,8 @@ export function mount(host) {
     let editing = false;
     let data = store.json(SPORTS_CACHE, {}); // "league:team" -> { at, team, games, error }
     let timer = 0;
+    // Live stats (📊 Update stats, or a game's 📊): game id → { situation, leaders, teams, winProb, at }.
+    const stats = {}; const open = new Set(); let statsNote = ''; let updating = false;
     // The calendar: week by default (the view you pick is remembered), starting on today.
     let cal = { view: 'week', ...store.json(SPORTS_VIEW_KEY, {}), anchor: dayKey() };
     if (!['day', 'week', 'month'].includes(cal.view)) cal.view = 'week';
@@ -275,6 +277,74 @@ export function mount(host) {
     }
     timers.push(() => clearTimeout(timer));
 
+    /**
+     * 📊 Update stats: every team's games again, the live scoreboards of their leagues (fresh scores,
+     * clock, situation, leaders, team stats), and each live game's full summary (box score, win
+     * probability) where ESPN lets the app read it.
+     */
+    async function updateStats() {
+      if (updating) return;
+      updating = true; statsNote = 'Updating…'; render();
+      await load(true);
+      const leagues = [...new Set(followed().map((t) => t.league))];
+      const today = dayKey();
+      let n = 0; let summaries = 0;
+      await Promise.all(leagues.map(async (league) => {
+        // Only the leagues with a game live or today.
+        const games = followed().filter((t) => t.league === league).flatMap((t) => data[keyOf(t)]?.games ?? []);
+        if (!games.some((g) => g.state === 'in' || dayKey(g.date) === today)) return;
+        try {
+          const board = S.parseScoreboard(await getJson(S.urls.scoreboard(league)));
+          for (const [id, st] of board) {
+            if (!games.some((g) => g.id === id)) continue;
+            // The scoreboard is the freshest score: into the schedules too.
+            for (const t of followed()) { const d = data[keyOf(t)]; const k = d?.games?.findIndex((g) => g.id === id) ?? -1; if (k >= 0) d.games[k] = { ...d.games[k], ...st.game, link: d.games[k].link ?? st.game.link }; }
+            stats[id] = { ...stats[id], ...st, league };
+            if (st.game.state === 'in') open.add(id);
+            n++;
+          }
+        } catch { /* a league's scoreboard unreachable: its games keep their schedule scores */ }
+        // The live games now (the scoreboard may have just started one), each once.
+        const liveNow = [...new Map(followed().filter((t) => t.league === league).flatMap((t) => data[keyOf(t)]?.games ?? []).filter((g) => g.state === 'in').map((g) => [g.id, g])).values()];
+        await Promise.all(liveNow.map(async (g) => {
+          try { const sum = S.parseSummary(await getJson(S.urls.summary(league, g.id))); stats[g.id] = { ...stats[g.id], ...sum, leaders: sum.leaders.length ? sum.leaders : stats[g.id]?.leaders ?? [], teams: sum.teams.length ? sum.teams : stats[g.id]?.teams ?? [], league }; summaries++; } catch { /* the scoreboard's stats will do */ }
+        }));
+      }));
+      updating = false;
+      const live = new Set(followed().flatMap((t) => data[keyOf(t)]?.games ?? []).filter((g) => g.state === 'in').map((g) => g.id)).size;
+      statsNote = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${live ? ` · ${live} live` : ''}${n ? ` · stats for ${n} game${n === 1 ? '' : 's'}` : live ? '' : ' · no game live or today'}${summaries ? ` (${summaries} with box score)` : ''}.`;
+      render();
+    }
+    /** One game's stats on demand (its 📊): the summary, else its league's scoreboard. */
+    async function gameStats(g, t) {
+      if (open.has(g.id) && stats[g.id]) { open.delete(g.id); render(); return; }
+      open.add(g.id); stats[g.id] = { ...stats[g.id], loading: true }; render();
+      try { stats[g.id] = { ...S.parseSummary(await getJson(S.urls.summary(t.league, g.id))), league: t.league }; } catch {
+        try { const st = S.parseScoreboard(await getJson(S.urls.scoreboard(t.league))).get(g.id); stats[g.id] = st ? { ...st, league: t.league } : { error: 'No stats for this game yet.' }; } catch (err) { stats[g.id] = { error: `Couldn't load stats: ${err.message}` }; }
+      }
+      render();
+    }
+    /** The stats under a game: the situation and last play, win probability, top performers, key team stats. */
+    function statsBlock(g, t) {
+      const st = stats[g.id];
+      if (!st || !open.has(g.id)) return null;
+      if (st.loading) return el('div', { class: 'upd-stats muted small', text: 'Loading stats…' });
+      if (st.error) return el('div', { class: 'upd-stats small bad-text', text: st.error });
+      const sport = S.LEAGUES[t.league]?.sport;
+      const rows = S.statRows(st.teams ?? [], sport, 4);
+      const awayAbbr = g.away?.abbr ?? ''; const homeAbbr = g.home?.abbr ?? '';
+      return el('div', { class: 'upd-stats' },
+        st.situation?.text || st.situation?.possession ? el('p', { class: 'small', text: [st.situation.possession && `🏈 ${st.situation.possession} ball`, st.situation.text].filter(Boolean).join(' · ') }) : null,
+        st.situation?.lastPlay ? el('p', { class: 'small muted', text: `Last play: ${st.situation.lastPlay}` }) : null,
+        st.winProb ? el('p', { class: 'small', text: `Win chance: ${awayAbbr} ${st.winProb.away}% · ${homeAbbr} ${st.winProb.home}%` }) : null,
+        st.leaders?.length ? el('div', { class: 'upd-leaders' }, ...st.leaders.slice(0, 6).map((l) => el('span', { class: 'chip upd-leader', text: `${l.team ? `${l.team} ` : ''}${l.stat}: ${l.who} ${l.value}` }))) : null,
+        rows.length ? el('table', { class: 'upd-stat-table small' },
+          el('thead', {}, el('tr', {}, el('th', { text: '' }), el('th', { text: awayAbbr }), el('th', { text: homeAbbr }))),
+          el('tbody', {}, ...rows.map((r) => el('tr', {}, el('th', { text: r.label }), el('td', { text: r.away }), el('td', { text: r.home }))))) : null,
+        !st.situation?.text && !st.leaders?.length && !rows.length && !st.winProb ? el('p', { class: 'small muted', text: 'No stats for this game yet.' }) : null,
+        el('p', { class: 'muted small', text: `Stats as of ${new Date(st.at ?? Date.now()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }));
+    }
+
     /** Every followed team's games, once each (a game between two of them shows once), by day. */
     function gamesByDay() {
       const seen = new Set(); const list = [];
@@ -295,19 +365,26 @@ export function mount(host) {
       const { us, them, at } = S.perspective(g, info?.id ?? t.team);
       const color = info?.color ?? us.color ?? '#555';
       const badge = el('span', { class: 'upd-badge', style: { background: color, color: info?.alt && info.alt.toLowerCase() !== color.toLowerCase() ? info.alt : '#fff' }, text: us.abbr || info?.abbr || String(t.team).toUpperCase() });
-      if (view === 'month') return el('span', { class: 'cal-chip', style: { background: color }, text: `${us.abbr} ${at} ${them.abbr}` });
       const live = g.state === 'in';
+      if (view === 'month') return el('span', { class: `cal-chip${live ? ' upd-live-chip' : ''}`, style: { background: live ? '#dc2626' : color }, text: `${live ? '● ' : ''}${us.abbr} ${at} ${them.abbr}` });
       const done = g.state === 'post' || g.completed;
-      const time = live ? `LIVE · ${g.detail}` : done ? (S.result(g, info?.id ?? t.team) || 'Final') : /postponed|canceled|cancelled/i.test(g.detail) ? g.detail
-        : new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const score = live ? ` · ${us.abbr} ${us.score ?? 0}–${them.score ?? 0} ${them.abbr}` : '';
+      // The status column stays narrow: LIVE and the clock, the result, or the start time.
+      const status = live ? [el('strong', { class: 'upd-live-tag', text: 'LIVE' }), el('span', { class: 'upd-clock', text: g.detail })]
+        : [el('span', { text: done ? (S.result(g, info?.id ?? t.team) || 'Final') : /postponed|canceled|cancelled/i.test(g.detail) ? g.detail : new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })];
+      // The score in its own column: our side, then theirs, one under the other.
+      const scoreRow = (side, lead) => el('span', { class: `upd-score-row${lead ? ' lead' : ''}` }, el('span', { text: side.abbr }), el('b', { text: side.score ?? '0' }));
+      const ahead = (x, y) => parseFloat(x.score ?? 0) > parseFloat(y.score ?? 0);
+      const score = live || (done && us.score != null) ? el('span', { class: 'upd-score', 'aria-label': `${us.abbr} ${us.score ?? 0}, ${them.abbr} ${them.score ?? 0}` }, scoreRow(us, ahead(us, them)), scoreRow(them, ahead(them, us))) : null;
       const extra = view === 'day' ? [g.tv && `📺 ${g.tv}`, !done && g.odds?.details && `Line: ${g.odds.details}${g.odds.overUnder ? `, O/U ${g.odds.overUnder}` : ''}`, g.venue && `📍 ${g.venue}`].filter(Boolean) : [g.tv].filter(Boolean);
-      return el('div', { class: `cal-item upd-game${live ? ' upd-live' : ''}`, style: { borderLeftColor: color } },
-        el('span', { class: 'cal-time small', text: time + score }),
+      const statsBtn = live || done ? el('button', { type: 'button', class: `btn small-btn ghost upd-stats-btn${open.has(g.id) ? ' active' : ''}`, 'aria-label': `Stats: ${us.abbr} ${at} ${them.abbr}`, text: '📊', onclick: () => gameStats(g, t) }) : null;
+      return el('div', { class: `cal-item upd-game${live ? ' upd-live' : ''}${done ? ' upd-done' : ''}`, style: { borderLeftColor: live ? '#dc2626' : color } },
+        el('span', { class: 'cal-time small upd-status' }, ...status),
         el('span', { class: 'cal-what' },
           el('span', { class: 'upd-game-head' }, badge, el('strong', { text: `${at} ${them.short || them.name || them.abbr}` }), t.local ? el('span', { class: 'muted small', text: 'local' }) : null),
           extra.length ? el('span', { class: 'muted small', text: extra.join(' · ') }) : null,
-          view === 'day' && g.link ? el('a', { class: 'small', href: g.link, target: '_blank', rel: 'noopener noreferrer', text: 'ESPN ›' }) : null));
+          view === 'day' && g.link ? el('a', { class: 'small', href: g.link, target: '_blank', rel: 'noopener noreferrer', text: 'ESPN ›' }) : null),
+        el('span', { class: 'upd-side' }, score, statsBtn),
+        statsBlock(g, t));
     }
 
     function teamCard(t) {
@@ -353,9 +430,10 @@ export function mount(host) {
       const kids = [
         el('div', { class: 'row space' },
           el('h3', { text: 'Games' }),
-          el('button', { class: 'btn small-btn ghost', text: '⟳', 'aria-label': 'Refresh scores', onclick: () => load(true) })),
+          el('button', { class: 'btn small-btn', text: updating ? 'Updating…' : '📊 Update stats', disabled: updating, 'aria-label': 'Update stats', onclick: updateStats })),
+        statsNote ? el('p', { class: 'muted small upd-stats-note', 'aria-live': 'polite', text: statsNote }) : null,
         calendarView({
-          state: cal, items: gamesByDay(), renderItem: gameItem, label: 'Games', empty: 'No games',
+          state: cal, items: gamesByDay(), renderItem: gameItem, label: 'Games', empty: 'No games', agenda: true,
           onChange: (next) => { cal = next; store.set(SPORTS_VIEW_KEY, JSON.stringify({ view: cal.view })); render(); },
         }),
         el('div', { class: 'row space' },

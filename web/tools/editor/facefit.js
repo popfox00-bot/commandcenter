@@ -15,6 +15,54 @@ import { rgbToLab, colorStats, matchColors } from '../../lib/color-match.js';
 /** The landmarks pulled into line (of the 68): jaw and chin, brows, nose, eye corners, mouth. */
 export const CONTROL = [0, 2, 4, 6, 8, 10, 12, 14, 16, 17, 19, 21, 22, 24, 26, 27, 30, 31, 35, 36, 39, 42, 45, 48, 51, 54, 57];
 
+/** Each of the 68 landmarks' mirror image (left ↔ right): jaw, brows, nose, eyes, mouth. */
+const MIRROR = (() => {
+  const m = Array.from({ length: 68 }, (_, i) => i);
+  const pair = (a, b) => { m[a] = b; m[b] = a; };
+  for (let i = 0; i < 8; i++) pair(i, 16 - i);
+  for (let i = 0; i < 5; i++) pair(17 + i, 26 - i);
+  for (const [a, b] of [[31, 35], [32, 34], [36, 45], [37, 44], [38, 43], [39, 42], [40, 47], [41, 46], [48, 54], [49, 53], [50, 52], [55, 59], [56, 58], [60, 64], [61, 63], [65, 67]]) pair(a, b);
+  return m;
+})();
+
+/** A face (0..1 points) as it is in the picture flipped left to right: each landmark in its mirror's place. */
+export function mirrorFace(face) {
+  const m = ([u, v]) => [1 - u, v];
+  const { outline, ...f } = face; // eslint-disable-line no-unused-vars
+  return {
+    ...f, eyes: [m(face.eyes[1]), m(face.eyes[0])], mouth: m(face.mouth), nose: m(face.nose), angle: -face.angle,
+    box: { ...face.box, x: 1 - face.box.x - face.box.w }, pts: face.pts?.map((_, i) => m(face.pts[MIRROR[i]])),
+  };
+}
+
+/** Pixels ({ rgba, w, h }) flipped left to right. */
+export function mirrorPixels({ rgba, w, h }) {
+  const out = new Uint8ClampedArray(rgba.length);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const a = (y * w + x) * 4; const b = (y * w + (w - 1 - x)) * 4;
+    out[b] = rgba[a]; out[b + 1] = rgba[a + 1]; out[b + 2] = rgba[a + 2]; out[b + 3] = rgba[a + 3];
+  }
+  return { rgba: out, w, h };
+}
+
+/**
+ * Which way a face looks: where its nose tip sits between its ears (along the jaw from one side to the
+ * other), from -0.5 to 0.5; 0 straight on. 0 without the landmarks.
+ */
+export function faceYaw(face, W, H) {
+  const p = face.pts; if (p?.length !== 68) return 0;
+  const ux = (p[16][0] - p[0][0]) * W; const uy = (p[16][1] - p[0][1]) * H; const L = ux * ux + uy * uy;
+  if (L < 1e-6) return 0;
+  const dx = (p[30][0] - (p[0][0] + p[16][0]) / 2) * W; const dy = (p[30][1] - (p[0][1] + p[16][1]) / 2) * H;
+  return (dx * ux + dy * uy) / L;
+}
+
+/** Whether the Character should be flipped to look the same way as the face it goes on (it looks clearly the other way). */
+export function shouldFlip(charFace, cw, ch, face, W, H) {
+  const a = faceYaw(charFace, cw, ch); const b = faceYaw(face, W, H);
+  return Math.abs(a - b) - Math.abs(a + b) > 0.08;
+}
+
 /**
  * The moving-least-squares similarity map (Schaefer et al.) that takes each point `from[i]` exactly to
  * `to[i]` and everything in between smoothly (each point's own best scale-and-turn, weighted by how
@@ -97,13 +145,31 @@ export function bestPlacement(charFace, cw, ch, face, W, H) {
   return { x: c * (cw / 2) - s * (ch / 2) + m.tx, y: s * (cw / 2) + c * (ch / 2) + m.ty, width: m.s * cw, rot: m.rot };
 }
 
+/** A polygon grown by `k` around its middle. */
+const grow = (poly, k) => {
+  const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length; const cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+  return poly.map(([x, y]) => [cx + (x - cx) * k, cy + (y - cy) * k]);
+};
+
+/** How much of each of the Character's pixels is its own face (0..1): inside its jaw and its own hairline, a soft edge just inside. */
+function ownMask(img, cw, ch, charFace) {
+  const poly = targetOutline(img, cw, ch, charFace) ?? faceContour(charFace, cw, ch, { forehead: 0.55 });
+  if (!poly) return null;
+  // Roomier along the jaw (the face it goes on trims there), not past its own hairline (no hair of its own).
+  const g = grow(poly, 1.08); const roomy = poly.map((p, i) => (i <= 16 ? g[i] : p));
+  const hh = Math.max(...roomy.map((p) => p[1])) - Math.min(...roomy.map((p) => p[1]));
+  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.025)));
+  for (let i = 0; i < m.length; i++) m[i] = Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
+  return m;
+}
+
 /**
  * The Character (RGBA cw×ch, with its own face `charFace`) fitted onto `face` in a W×H picture:
  * placed by its eyes first (alignOnFace), then bent so its landmarks meet the face's, and (with
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35 } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true } = {}) {
   const base = bestPlacement(charFace, cw, ch, face, W, H);
   // Where the Character's edges go when just placed by the eyes: anchors that keep it steady far from the face.
   const anchorsSrc = [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]];
@@ -120,14 +186,22 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   const map = (x, y) => { const r = unplace(x, y); if (bend <= 0) return r; const q = mls(x, y); return [r[0] + bend * (q[0] - r[0]), r[1] + bend * (q[1] - r[1])]; };
   const cs = placedCorners(base, cw / ch);
   const pad = base.width * 0.06;
-  const x0 = Math.max(0, Math.floor(Math.min(...cs.map((p) => p[0])) - pad)); const x1 = Math.min(W, Math.ceil(Math.max(...cs.map((p) => p[0])) + pad));
-  const y0 = Math.max(0, Math.floor(Math.min(...cs.map((p) => p[1])) - pad)); const y1 = Math.min(H, Math.ceil(Math.max(...cs.map((p) => p[1])) + pad));
+  // Room for the whole face it goes on too (its outline and a little past it), so the blend can reach
+  // the parts of it the Character doesn't cover.
+  const pts = outline ? [...cs, ...outline] : cs;
+  const ow = outline ? Math.max(...outline.map((p) => p[0])) - Math.min(...outline.map((p) => p[0])) : 0;
+  const pad2 = Math.max(pad, ow * 0.12);
+  const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[0])) - pad2)); const x1 = Math.min(W, Math.ceil(Math.max(...pts.map((p) => p[0])) + pad2));
+  const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[1])) - pad2)); const y1 = Math.min(H, Math.ceil(Math.max(...pts.map((p) => p[1])) + pad2));
   if (x1 <= x0 || y1 <= y0) return null;
   const pw = x1 - x0; const ph = y1 - y0;
   // The map on a coarse grid (every 4 px), smoothly in between: quick, and it bends gently anyway.
   const G = 4; const gw = Math.ceil(pw / G) + 1; const gh = Math.ceil(ph / G) + 1;
   const grid = new Float32Array(gw * gh * 2);
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) { const q = map(x0 + i * G + 0.5, y0 + j * G + 0.5); grid[(j * gw + i) * 2] = q[0]; grid[(j * gw + i) * 2 + 1] = q[1]; }
+  // Only the Character's own face (its jaw and up to its own hairline), not the border of hair or
+  // background kept around it: that never lands inside the face it goes on.
+  const keep = own && charFace.pts?.length === 68 ? ownMask(img, cw, ch, charFace) : null;
   const rgba = new Uint8ClampedArray(pw * ph * 4);
   for (let y = 0; y < ph; y++) {
     const gy = y / G; const j0 = Math.min(gh - 2, Math.floor(gy)); const ty = gy - j0;
@@ -141,7 +215,7 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
       let a = 0; const col = [0, 0, 0];
       for (const [X, Y, wt] of [[ua, va, (1 - fu) * (1 - fv)], [ua + 1, va, fu * (1 - fv)], [ua, va + 1, (1 - fu) * fv], [ua + 1, va + 1, fu * fv]]) {
         if (X < 0 || Y < 0 || X >= cw || Y >= ch || !wt) continue;
-        const o = (Y * cw + X) * 4; const al = img[o + 3] * wt; a += al;
+        const o = (Y * cw + X) * 4; const al = img[o + 3] * wt * (keep ? keep[Y * cw + X] : 1); a += al;
         col[0] += img[o] * al; col[1] += img[o + 1] * al; col[2] += img[o + 2] * al;
       }
       if (a < 0.5) continue;
@@ -154,9 +228,7 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     // don't make one), a touch roomier, its edge a soft ramp: nothing of the Character beyond it.
     const contour = outline ?? faceContour(face, W, H);
     const out = contour ?? faceOutline(face, W, H, 64).map(([u, v]) => [u * W, v * H]);
-    const grow = outline ? 1 : contour ? 1.03 : 1.12;
-    const cx = out.reduce((s, p) => s + p[0], 0) / out.length; const cy = out.reduce((s, p) => s + p[1], 0) / out.length;
-    const roomy = out.map(([x, y]) => [cx + (x - cx) * grow, cy + (y - cy) * grow]);
+    const roomy = grow(out, outline ? 1 : contour ? 1.03 : 1.12);
     const headH = Math.max(...out.map((p) => p[1])) - Math.min(...out.map((p) => p[1]));
     // The soft edge kept inside the outline (it fades to nothing at it, not past it onto what's around).
     const r = Math.max(2, Math.round(headH * 0.035));
@@ -181,13 +253,15 @@ export function targetOutline(photo, W, H, face) {
   const ux = brow[0] - chin[0]; const uy = brow[1] - chin[1]; const len = Math.hypot(ux, uy);
   if (len < 6) return null;
   const up = [ux / len, uy / len];
-  const at = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= W || Y >= H) return null; const o = (Y * W + X) * 4; return rgbToLab(photo[o], photo[o + 1], photo[o + 2]); };
+  // (A clear pixel, past the edge of a cut-out face, is no skin.)
+  const CLEAR = [-1000, 0, 0];
+  const at = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= W || Y >= H) return null; const o = (Y * W + X) * 4; return photo[o + 3] < 128 ? CLEAR : rgbToLab(photo[o], photo[o + 1], photo[o + 2]); };
   // The skin: between the eyes and the mouth, inside the jaw.
   const skin = [];
   const a = P(29); const b = P(33); const l = P(2); const r = P(14);
   for (let t = 0; t <= 1; t += 0.1) for (let s2 = 0.25; s2 <= 0.75; s2 += 0.05) {
     const cx = l[0] + (r[0] - l[0]) * s2; const cy = a[1] + (b[1] - a[1]) * t;
-    const c = at(cx, cy); if (c) skin.push(c);
+    const c = at(cx, cy); if (c && c !== CLEAR) skin.push(c);
   }
   if (skin.length < 10) return null;
   const mean = [0, 1, 2].map((k) => skin.reduce((s3, c) => s3 + c[k], 0) / skin.length);
@@ -202,7 +276,7 @@ export function targetOutline(photo, W, H, face) {
     for (let d = lo; d <= hi; d += Math.max(1, len / 80)) {
       const c = at(bx + up[0] * d, by + up[1] * d);
       if (!c) break;
-      if (far(c)) { run++; if (run === 3) { found = d - 2 * Math.max(1, len / 80); break; } } else run = 0;
+      if (c === CLEAR || far(c)) { run++; if (run === 3) { found = d - 2 * Math.max(1, len / 80); break; } } else run = 0;
     }
     lifts.push(found ?? usual);
   }
@@ -244,11 +318,19 @@ export function recolor(patch, photo, W, H, outline, strength = 0.8) {
  * it meets every side of what's around it with no seam while keeping its own detail. Its edge is
  * softened by a couple of pixels too. In place; returns the patch.
  */
-export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0, region = null } = {}) {
+export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0, region = null, spread = 0 } = {}) {
   const { x0, y0, pw, ph, rgba } = patch;
   // Colors first (on its edge as it is), then the soft edge: the rim pixels softening adds have no
   // color of their own, so its own edge colors are carried out to them first.
-  if (strength > 0) blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band, region ? fillPolygon(region, x0, y0, pw, ph) : null);
+  if (strength > 0) {
+    const reg = region ? fillPolygon(region, x0, y0, pw, ph) : null;
+    // With `spread`: the blend goes both ways. The photo's own skin around it (inside that face and
+    // just past it: the forehead up to the hairline, the cheeks it doesn't reach) takes on its colors
+    // too, easing back to the photo as it is further out, so there's no patch of the old face left
+    // standing out; the two meet halfway.
+    const zone = region && spread > 0 ? fillPolygon(grow(region, 1.02), x0, y0, pw, ph) : null;
+    blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band, reg, zone, spread);
+  }
   if (soft) { bleed(rgba, pw, ph, soft * 3 + 2); featherAlpha(rgba, pw, ph, soft); }
   return patch;
 }
@@ -271,7 +353,7 @@ function bleed(rgba, pw, ph, rings) {
   }
 }
 
-function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, region = null) {
+function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, region = null, zone = null, spread = 0) {
   const on = (x, y) => x >= 0 && y >= 0 && x < pw && y < ph && rgba[(y * pw + x) * 4 + 3] > 24;
   const free = new Uint8Array(pw * ph); const diff = new Float32Array(pw * ph * 3);
   // What its edge is matched to: the photo just outside it; or, with a `region` (the face it replaces),
@@ -294,6 +376,8 @@ function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, regi
     if (no && ni) for (let c = 0; c < 3; c++) diff[k * 3 + c] = out[c] / no - inn[c] / ni;
     else free[k] = 1;
   }
+  // Past its edge, inside the zone: the difference carried out too (to nothing at the zone's edge).
+  if (zone) for (let k = 0; k < pw * ph; k++) if (zone[k] && rgba[k * 4 + 3] <= 24) free[k] = 1;
   membrane(diff, free, pw, ph);
   // With a `band`: the blend only near the border, eased out to nothing `band` pixels in (inside it,
   // the Character exactly as it is, recolored).
@@ -304,15 +388,36 @@ function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, regi
     for (let h2 = 0; h2 < q.length; h2++) {
       const k = q[h2]; const x = k % pw;
       for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, k - pw, k + pw]) {
-        if (t < 0 || t >= pw * ph || !free[t] || depth[t] <= depth[k] + 1) continue;
+        if (t < 0 || t >= pw * ph || !free[t] || rgba[t * 4 + 3] <= 24 || depth[t] <= depth[k] + 1) continue;
         depth[t] = depth[k] + 1; q.push(t);
       }
     }
   }
+  const share = zone ? 0.5 : 0; // how much of the difference the photo takes on (the rest, the Character)
   for (let i = 0; i < pw * ph; i++) {
     if (!rgba[i * 4 + 3]) continue;
     const k = depth ? Math.max(0, 1 - depth[i] / band) ** 2 : 1;
     if (!k) continue;
-    for (let c = 0; c < 3; c++) rgba[i * 4 + c] += strength * k * diff[i * 3 + c];
+    for (let c = 0; c < 3; c++) rgba[i * 4 + c] += strength * (1 - share) * k * diff[i * 3 + c];
+  }
+  if (!zone) return;
+  // The photo around it, in the zone: its own pixels shifted toward the Character's colors (eased out
+  // over `spread` from its edge), the Character's soft edge laid over them; all of it now in the patch.
+  const out = new Float32Array(pw * ph).fill(Infinity); const q = [];
+  for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > 24) { out[k] = 0; q.push(k); }
+  for (let h2 = 0; h2 < q.length; h2++) {
+    const k = q[h2]; const x = k % pw;
+    for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, k - pw, k + pw]) {
+      if (t < 0 || t >= pw * ph || !zone[t] || out[t] <= out[k] + 1) continue;
+      out[t] = out[k] + 1; q.push(t);
+    }
+  }
+  for (let i = 0; i < pw * ph; i++) {
+    if (!zone[i] || !Number.isFinite(out[i])) continue;
+    const X = x0 + (i % pw); const Y = y0 + Math.floor(i / pw); if (X >= W || Y >= H) continue;
+    const f = Math.max(0, Math.min(1, (1.5 * spread - out[i]) / (0.5 * spread)));
+    const a = rgba[i * 4 + 3] / 255; const o = (Y * W + X) * 4;
+    for (let c = 0; c < 3; c++) rgba[i * 4 + c] = a * rgba[i * 4 + c] + (1 - a) * (photo[o + c] - strength * share * f * diff[i * 3 + c]);
+    rgba[i * 4 + 3] = 255;
   }
 }

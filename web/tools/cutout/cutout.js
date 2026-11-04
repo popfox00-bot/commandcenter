@@ -90,32 +90,43 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
     const dirIn = el('input', { type: 'file', multiple: true, class: 'visually-hidden', id: 'co-chars-dir' });
     dirIn.setAttribute('webkitdirectory', '');
     dirIn.addEventListener('change', () => { const picked = [...dirIn.files]; dirIn.value = ''; if (picked.length) busy(inBtn, async () => installed(await installCharacters(picked))); });
-    const inBtn = el('label', { class: 'btn small-btn', for: 'co-chars-in', text: '⬆ Install Characters' });
+    const inBtn = el('button', { type: 'button', class: 'btn small-btn', text: '⬆ Install…' });
     const cloud = connectedSecure();
     const canPickDir = typeof window.showDirectoryPicker === 'function';
+    const saveZip = async () => {
+      const { blob, count } = await charactersZip();
+      if (!count) { say('No Characters to save yet.'); return; }
+      const file = new File([blob], 'Characters.zip', { type: 'application/zip' });
+      if (canShareFiles([file]) && window.matchMedia?.('(pointer: coarse)').matches) await shareFiles([file], 'Characters').catch(() => downloadBlob(blob, file.name));
+      else downloadBlob(blob, file.name);
+      say(`Saved ${plural(count)} as Characters.zip (a "Characters" folder). Install it here or on another phone with ⬆ Install….`);
+    };
+    /** A short sheet of ways to do it: [label, run] (a label element for a file picker, or a button). */
+    const sheet = (title, options) => {
+      const dlg = el('dialog', { class: 'ed-dialog co-chars-sheet' }, el('form', { method: 'dialog', class: 'sheet' },
+        el('h2', { text: title }),
+        el('div', { class: 'co-chars-options' }, ...options.map(([label, run, forId]) => (forId
+          ? el('label', { class: 'btn block', for: forId, text: label, onclick: () => dlg.close() })
+          : el('button', { type: 'button', class: 'btn block', text: label, onclick: () => { dlg.close(); run(); } })))),
+        el('div', { class: 'row end' }, el('button', { class: 'btn ghost', value: 'cancel', text: 'Cancel' }))));
+      dlg.addEventListener('close', () => dlg.remove());
+      document.body.append(dlg);
+      dlg.showModal();
+    };
+    const saveBtn = el('button', { type: 'button', class: 'btn small-btn', text: '⬇ Save all…' });
+    const saveWays = [
+      ['⬇ As a folder (.zip)', () => busy(saveBtn, saveZip)],
+      canPickDir ? ['📁 Into a folder on this computer…', () => busy(saveBtn, async () => { const dir = await window.showDirectoryPicker({ mode: 'readwrite' }); say(`Saved ${plural(await saveToDirectory(dir))} into a "Characters" folder there.`); })] : null,
+      cloud ? ['☁️ To Saved Files', () => busy(saveBtn, async () => say(`Saved ${plural(await saveToSavedFiles(cloud))} to the "Characters" folder in Saved Files.`))] : null,
+    ].filter(Boolean);
+    saveBtn.addEventListener('click', () => (saveWays.length === 1 ? saveWays[0][1]() : sheet('Save all your Characters', saveWays)));
+    inBtn.addEventListener('click', () => sheet('Install Characters', [
+      ['⬆ From a .zip or images', null, 'co-chars-in'],
+      ['📂 From a folder', null, 'co-chars-dir'],
+      cloud ? ['☁️ From Saved Files', () => busy(inBtn, async () => installed(await installFromSavedFiles(cloud)))] : null,
+    ].filter(Boolean)));
     return el('div', { class: 'co-chars-io' },
-      el('div', { class: 'row wrap' },
-        el('button', { type: 'button', class: 'btn small-btn', text: '⬇ Save all (folder .zip)', onclick: (e) => busy(e.currentTarget, async () => {
-          const { blob, count } = await charactersZip();
-          if (!count) { say('No Characters to save yet.'); return; }
-          const file = new File([blob], 'Characters.zip', { type: 'application/zip' });
-          if (canShareFiles([file]) && window.matchMedia?.('(pointer: coarse)').matches) await shareFiles([file], 'Characters').catch(() => downloadBlob(blob, file.name));
-          else downloadBlob(blob, file.name);
-          say(`Saved ${plural(count)} as Characters.zip (a "Characters" folder). Install it here or on another phone with ⬆ Install Characters.`);
-        }) }),
-        canPickDir ? el('button', { type: 'button', class: 'btn small-btn ghost', text: '📁 Save to a folder…', onclick: (e) => busy(e.currentTarget, async () => {
-          const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
-          const n = await saveToDirectory(dir);
-          say(`Saved ${plural(n)} into a "Characters" folder there.`);
-        }) }) : null,
-        cloud ? el('button', { type: 'button', class: 'btn small-btn ghost', text: '☁️ Save to Saved Files', onclick: (e) => busy(e.currentTarget, async () => {
-          const n = await saveToSavedFiles(cloud);
-          say(`Saved ${plural(n)} to the "Characters" folder in Saved Files.`);
-        }) }) : null),
-      el('div', { class: 'row wrap' },
-        inBtn,
-        el('label', { class: 'btn small-btn ghost', for: 'co-chars-dir', text: '📂 Install a folder' }),
-        cloud ? el('button', { type: 'button', class: 'btn small-btn ghost', text: '☁️ Install from Saved Files', onclick: (e) => busy(e.currentTarget, async () => installed(await installFromSavedFiles(cloud))) }) : null),
+      el('div', { class: 'row wrap' }, saveBtn, inBtn),
       note, files, dirIn);
   }
 
@@ -218,10 +229,10 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
         tol.addEventListener('input', () => { wandTol = Number(tol.value); store.set('cc.cutout.tol', String(wandTol)); });
         return el('label', { class: 'field' }, el('span', { text: 'Reach (how different a color it spreads to)' }), el('span', { class: 'range-row' }, tol));
       })() : null,
-      el('div', { class: 'row wrap co-face' },
+      mode === 'add' ? el('div', { class: 'row wrap co-face' },
         el('button', { class: 'btn small-btn', text: '🙂 Cut out face', onclick: (e) => cutOutFace(e.currentTarget, false) }),
         el('button', { class: 'btn small-btn ghost', text: '🙂 All faces', onclick: (e) => cutOutFace(e.currentTarget, true) }),
-        faceNote ? el('span', { class: 'muted small', 'aria-live': 'polite', text: faceNote }) : null),
+        faceNote ? el('span', { class: 'muted small', 'aria-live': 'polite', text: faceNote }) : null) : null,
       el('div', { class: 'row space co-smart' },
         el('button', { class: `chip${smart ? ' active' : ''}`, 'aria-pressed': String(smart), text: '✨ Smart edges', onclick: () => { smart = !smart; store.set(SMART_KEY, smart ? 'on' : 'off'); refresh(); } }),
         el('span', { class: 'muted small', 'aria-live': 'polite', text: smartNote() })),

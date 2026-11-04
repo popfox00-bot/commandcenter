@@ -46,7 +46,7 @@ export function detectAllFaces(cv) {
   } };
 }`;
 
-test('faces: 🙂 Level face turns the photo so the face is upright; 🎭 Face swap covers it with a mask in Collage', async () => {
+test('faces: FaceMask → 🙂 Identify faces, 🙂 Level this face turns the photo so it is upright; 🎭 Face swap in Collage covers it with a mask', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
@@ -61,19 +61,30 @@ test('faces: 🙂 Level face turns the photo so the face is upright; 🎭 Face s
   });
   await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
+  // The face tools are in their own place: FaceMask. Crop and Markup no longer have them.
+  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up', 'FaceMask']);
   await page.getByRole('tab', { name: 'Crop' }).click();
-  await page.getByRole('button', { name: '🙂 Level face' }).click();
-  await page.waitForSelector('text=Leveled the face');
-  // Straightened by the tilt (20.6°), not turned a quarter.
+  assert.equal(await page.getByRole('button', { name: '🙂 Level face' }).count(), 0);
+  await page.getByRole('tab', { name: 'FaceMask' }).click();
+  await page.getByRole('button', { name: '🙂 Identify faces' }).click();
+  await page.waitForSelector('.ed-panel >> text=Found 1 face.');
+  await page.getByRole('button', { name: '🙂 Level this face' }).click();
+  await page.waitForSelector('text=Leveled: eyes level');
+  // Straightened by the tilt (20.6°), not turned a quarter (seen in Crop).
+  await page.getByRole('tab', { name: 'Crop' }).click();
   const straighten = Number(await page.textContent('.ed-slider output'));
   assert.ok(Math.abs(Math.abs(straighten) - 20.6) < 0.6, `straightened ${straighten}°`);
   // Undo takes it back.
   await page.getByRole('button', { name: 'Undo' }).click();
   assert.equal(Number(await page.textContent('.ed-slider output')), 0);
 
-  // Face swap: to Collage (Free / Superimpose), the photo as the background, a mask on the face.
+  // Face swap in Collage (Free / Superimpose): the photo as the background, a mask on the face.
+  await page.getByRole('tab', { name: '🧩 Collage' }).click();
+  await page.waitForSelector('.cl-canvas');
+  await page.getByRole('tab', { name: 'Free / Superimpose' }).click();
+  await page.getByRole('button', { name: 'Background photo' }).click();
+  await page.setInputFiles('#cl-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.getByRole('button', { name: '🎭 Face swap' }).click();
-  await page.waitForFunction(() => location.hash === '#/files/collage');
   await page.waitForSelector('dialog[open] >> text=Face swap');
   const mask = await page.evaluate(async () => {
     const c = new OffscreenCanvas(100, 120); const x = c.getContext('2d');
@@ -126,11 +137,23 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
 
   const pixel = (sel, u, v) => page.$eval(sel, (c, [uu, vv]) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(uu * (c.width - 1)), Math.round(vv * (c.height - 1)), 1, 1).data]; }, [u, v]);
   const place = async () => {
-    await page.getByRole('button', { name: '➕ Character' }).click();
+    await page.getByRole('button', { name: '🎭 Insert Character' }).click();
     await page.locator('dialog[open].ed-char-pick').getByRole('button', { name: 'Green mask' }).click();
     await page.waitForSelector('.ed-panel >> text=On the face');
   };
-  await page.getByRole('tab', { name: 'Markup' }).click();
+  await page.getByRole('tab', { name: 'FaceMask' }).click();
+  await page.getByRole('button', { name: '🙂 Identify faces' }).click();
+  await page.waitForSelector('.ed-panel >> text=Found 1 face.');
+  // ✂️ Cut out & save as Character: the face, cut out and named, kept with the others.
+  await page.getByRole('button', { name: '✂️ Cut out & save as Character' }).click();
+  const save = page.locator('dialog[open].fm-save');
+  await save.waitFor();
+  await save.getByRole('textbox', { name: 'Character name' }).fill('My face');
+  await save.getByRole('button', { name: 'Save' }).click();
+  await page.waitForSelector('text=Saved "My face" as a Character');
+  const kept = await page.evaluate(async (base) => { const m = await import(`${base}lib/characters.js`); return (await m.listCharacters()).map((c) => [c.name, c.width > 0 && c.height > 0]); }, BASE);
+  assert.deepEqual(kept[0], ['My face', true]);
+  await page.evaluate(async (base) => { const m = await import(`${base}lib/characters.js`); const c = (await m.listCharacters()).find((x) => x.name === 'My face'); await m.removeCharacter(c.id); }, BASE);
   await place();
   // Shown on the face while it's being placed.
   const shown = await pixel('.ed-overlay', 0.52, 0.48);
@@ -164,8 +187,9 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
   // All the Characters saved as a folder (a ZIP), then installed again.
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Close photo' }).click();
-  await page.waitForSelector('text=Your Characters');
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '⬇ Save all (folder .zip)' }).click()]);
+  await page.waitForSelector('h3:text-is("Your Characters")');
+  await page.getByRole('button', { name: '⬇ Save all…' }).click();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('dialog[open]').getByRole('button', { name: '⬇ As a folder (.zip)' }).click()]);
   assert.equal(download.suggestedFilename(), 'Characters.zip');
   const path = await download.path();
   const files = await readZip(new Uint8Array(await (await import('node:fs/promises')).readFile(path)));
@@ -244,18 +268,22 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   const ov = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, e.width / r.width]; });
   const sx = ov[0] + ov[2] * 0.5; const sy = ov[1] + ov[3] * 0.85;
   await page.mouse.move(sx, sy); await page.mouse.down();
-  await page.waitForTimeout(100);
-  // Its center is 34 + 58 px above the finger; the crosshair arm 6 px right of it.
-  const arm = await page.$eval('.ed-overlay', (c, [x, y]) => [...c.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data], [(ov[2] * 0.5 + 6) * ov[4], (ov[3] * 0.85 - 92) * ov[4]]);
+  // Its center is 34 + 58 px above the finger; the crosshair arm 6 px right of it (drawn on the next frame).
+  const armAt = [(ov[2] * 0.5 + 6) * ov[4], (ov[3] * 0.85 - 92) * ov[4]];
+  const readArm = () => page.$eval('.ed-overlay', (c, [x, y]) => [...c.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data], armAt);
+  let arm = await readArm();
+  for (let k = 0; k < 30 && !(arm[0] > 200 && arm[2] < 80); k++) { await page.waitForTimeout(100); arm = await readArm(); }
   assert.ok(arm[0] > 200 && arm[1] > 170 && arm[2] < 80 && arm[3] > 200, `the magnifier's crosshair above the finger: ${arm}`);
   assert.equal(await page.isVisible('text=Spot cleaned up'), false, 'nothing done while the finger is down');
   await page.mouse.up();
   await page.waitForSelector('text=Spot cleaned up');
 
-  // ➕ Character: on the bigger face, its red eyes on that face's eyes.
-  await page.getByRole('tab', { name: 'Markup' }).click();
+  // 🎭 Insert Character: on the bigger face, its red eyes on that face's eyes.
+  await page.getByRole('tab', { name: 'FaceMask' }).click();
+  await page.getByRole('button', { name: '🙂 Identify faces' }).click();
+  await page.waitForSelector('.ed-panel >> text=Found 2 faces');
   const place = async () => {
-    await page.getByRole('button', { name: '➕ Character' }).click();
+    await page.getByRole('button', { name: '🎭 Insert Character' }).click();
     await page.locator('dialog[open].ed-char-pick').getByRole('button', { name: 'Me' }).click();
     await page.waitForSelector('.ed-panel >> text=lined up by its eyes and mouth');
   };

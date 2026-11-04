@@ -178,7 +178,7 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
   });
   await page.setInputFiles('#ed-file', { name: 'speck.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up']);
+  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up', 'FaceMask']);
   await page.getByRole('tab', { name: 'Clean Up' }).click();
   await page.waitForSelector('text=draw a circle around it');
   const white = await pixel(page, 0.245, 0.49);
@@ -415,4 +415,50 @@ test('zoom within the photo: two fingers zoom (no stroke drawn), one finger then
   assert.equal(await page.isDisabled('text=Preview cutout'), true, 'no trace from the pinch');
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+test('phones: a thin scroll bar on the right scrolls the page past the photo (which a swipe would trace on); not on a computer', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 700 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(300, 400); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(200,40,40)'; x.fillRect(0, 0, 300, 400);
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'tall.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  await page.waitForSelector('.scroll-rail:not([hidden])');
+  // Nothing wider than the phone: all six editor tabs on one line, the page not scrolling sideways.
+  assert.deepEqual(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, new Set([...document.querySelectorAll('.ed-modes .seg')].map((t) => Math.round(t.getBoundingClientRect().top))).size]), [true, 1]);
+  assert.equal(await page.$eval('.ed-modes', (e) => e.scrollWidth <= e.clientWidth + 1), true, 'all six tabs fit');
+  const rail = await page.$eval('.scroll-rail', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.width, r.height, innerWidth]; });
+  assert.ok(rail[0] + rail[1] === rail[3] && rail[1] <= 24, `a thin strip at the right edge: ${rail}`);
+  await page.evaluate(() => scrollTo(0, 0));
+  await page.waitForTimeout(100);
+  // Drag the thumb down: the page scrolls to the bottom.
+  const x = rail[0] + rail[1] / 2;
+  await page.mouse.move(x, 20); await page.mouse.down(); await page.mouse.move(x, rail[2] - 5, { steps: 6 }); await page.mouse.up();
+  const y = await page.evaluate(() => [scrollY, document.documentElement.scrollHeight - innerHeight]);
+  assert.ok(y[0] > 0 && Math.abs(y[0] - y[1]) < 3, `scrolled to the bottom: ${y}`);
+  assert.equal(await page.isVisible('text=Spot cleaned up'), false, 'and nothing was cleaned up on the photo');
+  // A tap high on the track: back up toward the top.
+  await page.mouse.click(x, 2);
+  assert.ok(await page.evaluate(() => scrollY) < y[0] / 2);
+  assert.deepEqual(errors, []);
+  await context.close();
+  // A computer (a mouse, its own scroll bar): no rail.
+  const desk = await browser.newContext({ viewport: { width: 1000, height: 600 } });
+  const p2 = await desk.newPage();
+  await p2.goto(`${origin}${BASE}#/files`);
+  await p2.waitForSelector('#ed-file', { state: 'attached' });
+  await p2.setInputFiles('#ed-file', { name: 'tall.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await p2.waitForSelector('.ed-canvas');
+  await p2.waitForTimeout(150);
+  assert.equal(await p2.isVisible('.scroll-rail'), false);
+  await desk.close();
 });

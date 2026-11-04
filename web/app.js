@@ -91,3 +91,47 @@ if ('serviceWorker' in navigator) {
 const HOLD_SURFACES = '.ed-stage, .co-stage, .cl-canvas, .dr-stage, .scan-edit, .pw-page, .sig-pad, .ed-expand-preview, .no-hold-select';
 const onSurface = (t) => (t?.nodeType === 1 ? t : t?.parentElement)?.closest?.(HOLD_SURFACES);
 for (const type of ['contextmenu', 'selectstart']) document.addEventListener(type, (e) => { if (onSurface(e.target)) e.preventDefault(); });
+
+// A thin scroll bar on the right edge for phones: on a page with a drawing surface (which takes every
+// touch, so a swipe on the photo traces rather than scrolls), drag it (or tap along it) to scroll.
+{
+  const thumb = el('span', { class: 'scroll-thumb' });
+  const rail = el('div', { class: 'scroll-rail', 'aria-hidden': 'true', hidden: true }, thumb);
+  document.body.append(rail);
+  const coarse = matchMedia('(pointer: coarse)');
+  let raf = 0; let drag = null;
+  const geometry = () => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    const th = Math.max(48, (innerHeight * innerHeight) / document.documentElement.scrollHeight);
+    return { max, th, track: innerHeight - th };
+  };
+  const layout = () => {
+    raf = 0;
+    const { max, th, track } = geometry();
+    const show = coarse.matches && max > 40 && !!document.querySelector(HOLD_SURFACES);
+    rail.hidden = !show;
+    if (!show) return;
+    thumb.style.height = `${th}px`;
+    thumb.style.transform = `translateY(${max ? (scrollY / max) * track : 0}px)`;
+  };
+  const soon = () => { if (!raf) raf = requestAnimationFrame(layout); };
+  addEventListener('scroll', soon, { passive: true });
+  addEventListener('resize', soon);
+  coarse.addEventListener?.('change', soon);
+  new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
+  const scrollFor = (y) => { const { max, track } = geometry(); scrollTo(0, track > 0 ? Math.max(0, Math.min(1, (y - drag.offset) / track)) * max : 0); };
+  rail.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    rail.setPointerCapture(e.pointerId);
+    const r = thumb.getBoundingClientRect();
+    // On the thumb: it moves with the finger from where it was held. On the track: it jumps there.
+    drag = { offset: e.clientY >= r.top && e.clientY <= r.bottom ? e.clientY - r.top : r.height / 2 };
+    rail.classList.add('active');
+    scrollFor(e.clientY);
+  });
+  rail.addEventListener('pointermove', (e) => { if (drag) scrollFor(e.clientY); });
+  const end = () => { drag = null; rail.classList.remove('active'); };
+  rail.addEventListener('pointerup', end);
+  rail.addEventListener('pointercancel', end);
+  soon();
+}

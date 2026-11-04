@@ -839,3 +839,8 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 }
 .co-chars-io { display: grid; gap: 6px; margin-bottom: 10px; }
 .co-chars-io .row { margin: 0; gap: 6px; }
+
+/* Zoom within a photo (two fingers, or Ctrl/⌘ + scroll); ⤢ Fit goes back. */
+.ed-zoom, .co-zoom { position: relative; will-change: transform; }
+.ed-stage, .co-stage { touch-action: none; }
+.zoom-fit { position: absolute; right: 8px; bottom: 8px; z-index: 2; min-height: 32px; padding: 0 10px; border: 0; border-radius: 16px; background: rgb(0 0 0 / .6); color: #fff; font: inherit; font-size: .8rem; }

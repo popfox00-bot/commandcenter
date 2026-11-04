@@ -91,8 +91,9 @@ test('exposure brightens, undo restores, Mono filter removes color', async () =>
   await page.getByRole('button', { name: 'Redo' }).click();
   await page.getByRole('tab', { name: 'Filters' }).click();
   await page.getByRole('button', { name: 'Mono', exact: true }).click();
-  await page.waitForTimeout(150);
-  const [r, g, b] = await pixel(page, 0.25, 0.5);
+  // Drawn on the next frame: wait for it (a busy machine can take a while), then check.
+  let r; let g; let b;
+  for (let k = 0; k < 40; k++) { [r, g, b] = await pixel(page, 0.25, 0.5); if (Math.abs(r - g) <= 2 && Math.abs(g - b) <= 2) break; await page.waitForTimeout(100); }
   assert.ok(Math.abs(r - g) <= 2 && Math.abs(g - b) <= 2, `gray ${r},${g},${b}`);
   await context.close();
 });
@@ -349,6 +350,69 @@ test('crop → 🪄 Generative Expand: a new shape, the photo to one side, the b
   await page.getByRole('button', { name: '↩ Before expanding' }).click();
   await page.waitForFunction(() => { const c = document.querySelector('.ed-canvas'); return c && Math.abs(c.width / c.height - 1.5) < 0.02; });
   assert.equal(await page.isVisible('text=↩ Before expanding'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('zoom within the photo: two fingers zoom (no stroke drawn), one finger then works on the zoomed photo; ⤢ Fit; Cutout too', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // Red with a small white speck at (70, 30) of 200×100.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 100); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(200,40,40)'; x.fillRect(0, 0, 200, 100);
+    x.fillStyle = '#fff'; x.fillRect(68, 28, 4, 4);
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'speck.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Markup' }).click();
+  /** A two-finger pinch on `sel`: fingers start `d0` apart around (fx, fy) of it and end `d1` apart. */
+  const pinch = (sel, fx, fy, d0, d1) => page.$eval(sel, (target, [fx2, fy2, a, b]) => {
+    const r = target.getBoundingClientRect(); const cx = r.left + fx2 * r.width; const cy = r.top + fy2 * r.height;
+    const ev = (type, id, x) => target.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: x, clientY: cy, bubbles: true, cancelable: true }));
+    ev('pointerdown', 1, cx - a / 2); ev('pointerdown', 2, cx + a / 2);
+    for (let k = 1; k <= 8; k++) { const d = a + ((b - a) * k) / 8; ev('pointermove', 1, cx - d / 2); ev('pointermove', 2, cx + d / 2); }
+    ev('pointerup', 1, cx - b / 2); ev('pointerup', 2, cx + b / 2);
+  }, [fx, fy, d0, d1]);
+  const before = await page.$eval('.ed-canvas', (c) => c.width);
+  await pinch('.ed-overlay', 0.35, 0.3, 40, 160);
+  await page.waitForFunction((w) => document.querySelector('.ed-canvas').width > w * 2, before);
+  const zoom = await page.$eval('.ed-zoom', (e) => e.style.transform);
+  const z = Number(/scale\(([\d.]+)\)/.exec(zoom)?.[1]);
+  assert.ok(z > 3, `zoomed in (${zoom})`);
+  assert.equal(await page.isVisible('text=⤢ Fit'), true);
+  assert.equal(await page.isVisible('text=Remove all markup'), false, 'the pinch drew nothing');
+  // The speck under the fingers is still there, now big: Clean Up taps it on the zoomed photo.
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  const spot = await page.$eval('.ed-canvas', (c) => { const r = c.getBoundingClientRect(); return [r.left + 0.35 * r.width, r.top + 0.3 * r.height, r.width]; });
+  assert.ok(spot[2] > 1000, 'the photo shows big');
+  const shownWhite = await page.$eval('.ed-canvas', (c) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(0.35 * c.width), Math.round(0.3 * c.height), 1, 1).data]; });
+  assert.ok(shownWhite[1] > 200, `the speck: ${shownWhite}`);
+  await page.mouse.click(spot[0], spot[1]);
+  await page.waitForSelector('text=Spot cleaned up');
+  await page.waitForTimeout(150);
+  const after = await page.$eval('.ed-canvas', (c) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(0.35 * c.width), Math.round(0.3 * c.height), 1, 1).data]; });
+  assert.ok(after[0] > 150 && after[1] < 90, `the speck is gone where it was tapped: ${after}`);
+  // ⤢ Fit: back to the whole photo. Ctrl + scroll zooms on a computer.
+  await page.getByRole('button', { name: 'Fit photo' }).click();
+  assert.equal(await page.$eval('.ed-zoom', (e) => e.style.transform), '');
+  const b = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  await page.mouse.move(...b);
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, -200); await page.keyboard.up('Control');
+  assert.match(await page.$eval('.ed-zoom', (e) => e.style.transform), /scale\((?!1\))/);
+
+  // Cutout: the same pinch zooms there, and leaves no trace.
+  await page.getByRole('tab', { name: '✂️ Cutout' }).click();
+  await page.locator('dialog[open]').getByRole('button', { name: '✂️ Trace a cutout' }).click();
+  await page.waitForSelector('.co-canvas');
+  await pinch('.co-canvas', 0.5, 0.5, 40, 120);
+  assert.ok(Number(/scale\(([\d.]+)\)/.exec(await page.$eval('.co-zoom', (e) => e.style.transform))?.[1]) > 2);
+  assert.equal(await page.isDisabled('text=Preview cutout'), true, 'no trace from the pinch');
   assert.deepEqual(errors, []);
   await context.close();
 });

@@ -18,6 +18,7 @@ import { placedPatch, placedBox } from './place.js';
 import { colorStats, matchColors } from '../../lib/color-match.js';
 import { listCharacters, getCharacterBlob } from '../../lib/characters.js';
 import { maskLayer } from '../../lib/face-core.js';
+import { zoomable } from '../../lib/zoom.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
@@ -125,12 +126,24 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
 
   // ---------- editor layout ----------
 
+  let zoomCtl = null; // zoom within the photo (see buildEditor)
   let glCanvas; let overlay; let stage; let panel; let undoBtn; let redoBtn; let modeBar; let thumbs = null;
 
   function buildEditor() {
     glCanvas = el('canvas', { class: 'ed-canvas', 'aria-label': 'Photo preview' });
     overlay = el('canvas', { class: 'ed-overlay' });
-    stage = el('div', { class: 'ed-stage' }, glCanvas, overlay);
+    const zoomLayer = el('div', { class: 'ed-zoom' }, glCanvas, overlay);
+    stage = el('div', { class: 'ed-stage' }, zoomLayer);
+    // Two fingers zoom within the photo (one keeps drawing); pinching a Character being placed sizes it instead.
+    zoomCtl = zoomable(stage, zoomLayer, {
+      onChange: () => schedule(),
+      enabled: () => !(mode === 'markup' && placing),
+      onGesture: () => {
+        cleanStroke = null; draft = null;
+        if (drag?.kind === 'crop') history.replace(drag.before);
+        drag = null; schedule();
+      },
+    });
     try {
       renderer?.destroy();
       renderer = new Renderer(glCanvas);
@@ -234,7 +247,9 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     const cssW = Math.max(1, Math.floor(out.width * scale));
     const cssH = Math.max(1, Math.floor(out.height * scale));
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const px = fitSize(cssW * dpr, cssH * dpr, Math.min(PREVIEW_MAX, renderer.maxTexture));
+    // Zoomed in: drawn at that much more detail (up to the photo's own), so it stays sharp.
+    const zf = zoomCtl?.view.z ?? 1;
+    const px = fitSize(cssW * dpr * zf, cssH * dpr * zf, Math.min(PREVIEW_MAX, renderer.maxTexture));
     for (const c of [glCanvas, overlay]) { c.style.width = `${cssW}px`; c.style.height = `${cssH}px`; }
     stage.style.height = `${cssH}px`;
     renderer.render(vs, px.width, px.height);

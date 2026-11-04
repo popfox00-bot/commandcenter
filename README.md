@@ -126,6 +126,11 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
 - **Faces** are found on the phone, offline (`web/lib/face.js`: face-api's tiny face detector and its
   68-point landmarks for the eyes and mouth, vendored in `web/vendor/face`), tried with the picture
   turned too, so a tilted head or a photo on its side is found.
+- **Zoom within the photo** (in every mode, and in Cutout): pinch with two fingers to zoom in and
+  out, and drag with two to move around; one finger keeps drawing, tracing, cleaning up or fixing
+  where you touch the zoomed photo. The page itself doesn't zoom. Zoomed in, the photo is drawn at
+  more detail (up to its own). On a computer, Ctrl/⌘ + scroll or a trackpad pinch zooms at the
+  pointer. **⤢ Fit** goes back to the whole photo (`web/lib/zoom.js`).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
   **➕ Character**: put one of your Characters (or any transparent image) on the photo. It goes

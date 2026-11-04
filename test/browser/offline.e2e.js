@@ -33,7 +33,8 @@ test('offline: every app and tool works with no connection after the first visit
   const errors = []; const missing = [];
   page.on('pageerror', (e) => errors.push(e.message));
   // A file of the app that couldn't be had offline: not in the cache.
-  page.on('requestfailed', (r) => { if (r.url().startsWith(origin)) missing.push(r.url()); });
+  // (A load cut short by moving to the next page, ERR_ABORTED, isn't a missing file.)
+  page.on('requestfailed', (r) => { if (r.url().startsWith(origin) && !/ERR_ABORTED/.test(r.failure()?.errorText ?? '')) missing.push(`${r.url()} ${r.failure()?.errorText}`); });
   page.on('response', (r) => { if (r.url().startsWith(origin) && r.status() >= 400) missing.push(`${r.status()} ${r.url()}`); });
   await page.goto(`${origin}${BASE}`);
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -87,7 +88,7 @@ test('offline: every app and tool works with no connection after the first visit
   await go('#/settings', '.st-home');
 
   // Updates is online by nature: it opens and says it can't reach the services, without breaking.
-  await go('#/updates', '.view, .upd, main');
+  await go('#/updates', '.upd-tabs');
 
   // Games: its own page, from the cache.
   await page.goto(`${origin}${BASE}apps/games/fox/index.html`);

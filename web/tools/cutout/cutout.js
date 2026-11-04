@@ -9,6 +9,7 @@ import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
 import { faceOutline, mainFace } from '../../lib/face-core.js';
+import { zoomable } from '../../lib/zoom.js';
 import { charactersZip, saveToDirectory, saveToSavedFiles, installCharacters, installFromSavedFiles } from '../../lib/characters-io.js';
 import { connectedSecure } from '../../lib/saved-files.js';
 import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, softColors, textureMap, edgeDistance, colorModel, refineSpot, wand, wandAuto, refineEdge, brush, applyChanges } from './cutout-core.js';
@@ -161,7 +162,9 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
           el('button', { class: 'icon-btn', 'aria-label': 'Undo', text: '↶', onclick: () => { if (past.length) { redo.push(traces); traces = past.pop(); refresh(); } } }),
           el('button', { class: 'icon-btn', 'aria-label': 'Redo', text: '↷', onclick: () => { if (redo.length) { past.push(traces); traces = redo.pop(); refresh(); } } })),
         el('button', { class: 'btn primary small-btn', text: 'Done', onclick: finish })),
-      el('div', { class: 'ed-stage co-stage' }, canvas), panel);
+      el('div', { class: 'ed-stage co-stage' }, el('div', { class: 'co-zoom' }, canvas)), panel);
+    // Two fingers zoom within the photo for fine tracing and fixing; one finger keeps tracing.
+    zoomable(canvas.closest('.co-stage'), canvas.parentElement, { onGesture: () => { drawing = null; loupe = null; stroke = null; draw(); } });
     bindPointer();
     window.addEventListener('resize', draw);
     refresh();
@@ -227,7 +230,7 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   }
 
   function fitCanvas() {
-    const maxW = canvas.parentElement.clientWidth || 360;
+    const maxW = canvas.closest('.co-stage').clientWidth || 360;
     const maxH = Math.min(window.innerHeight * 0.58, 640);
     const k = Math.min(maxW / image.width, maxH / image.height);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);

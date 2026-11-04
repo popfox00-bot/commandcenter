@@ -70,8 +70,8 @@ test('faces: FaceMask → 🙂 Identify faces, 🙂 Level this face turns the ph
   await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
   await page.waitForFunction(() => location.hash === '#/files/facemask');
   // All by itself: the same photo, only the face tools (no editing tabs or one-tap fixes).
-  assert.equal(await page.isVisible('.ed-modes'), false);
-  assert.equal(await page.isVisible('text=✨ Auto-Enhance'), false);
+  await page.waitForSelector('.ed-modes', { state: 'hidden' });
+  await page.waitForSelector('text=✨ Auto-Enhance', { state: 'hidden' });
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
   await page.getByRole('button', { name: '🙂 Level this face' }).click();

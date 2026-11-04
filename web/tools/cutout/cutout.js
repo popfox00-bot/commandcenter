@@ -8,6 +8,9 @@ import { el, store, fill } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
+import { faceOutline, mainFace } from '../../lib/face-core.js';
+import { charactersZip, saveToDirectory, saveToSavedFiles, installCharacters, installFromSavedFiles } from '../../lib/characters-io.js';
+import { connectedSecure } from '../../lib/saved-files.js';
 import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, softColors, textureMap, edgeDistance, colorModel, refineSpot, wand, wandAuto, refineEdge, brush, applyChanges } from './cutout-core.js';
 
 const WORK_MAX = 2400; // cut resolution (long edge)
@@ -51,15 +54,66 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       el('div', { class: 'drop' },
         el('label', { class: 'btn primary block', for: 'co-file', text: 'Choose a photo to cut from' }),
         el('p', { class: 'muted small center', text: 'Trace around a person, pet or thing with your finger. Save it with a transparent background, or keep it as a Character to put on other photos.' })),
-      el('h3', { text: 'Your Characters' }), gallery, input);
+      el('h3', { text: 'Your Characters' }), charactersFolder(), gallery, input);
     const list = await listCharacters();
-    if (!list.length) { gallery.replaceChildren(el('p', { class: 'muted small', text: 'None yet. Cut something out and tap "Save as Character".' })); return; }
+    if (!list.length) { gallery.replaceChildren(el('p', { class: 'muted small', text: 'None yet. Cut something out and tap "Save as Character", or install a saved Characters folder.' })); return; }
     gallery.replaceChildren(...await Promise.all(list.map(async (c) => {
       const blob = await getCharacterBlob(c.id);
       return el('button', { class: 'char-card', 'aria-label': c.name, onclick: () => characterSheet(c, blob) },
         el('span', { class: 'checker' }, blob ? el('img', { src: objectUrl(blob), alt: '' }) : null),
         el('span', { class: 'small', text: c.name }));
     })));
+  }
+
+  /**
+   * All the Characters as a folder: saved as a ZIP (a "Characters" folder), into a folder on a computer,
+   * or into Saved Files; and installed again from any of those (on this phone or another).
+   */
+  let ioNote = null; // the last save / install message, kept when the gallery is drawn again
+  function charactersFolder() {
+    const note = el('p', { class: `small ${ioNote?.bad ? 'bad-text' : 'muted'}`, 'aria-live': 'polite', text: ioNote?.text ?? '' });
+    const say = (t, bad = false) => { ioNote = { text: t, bad }; note.textContent = t; note.className = `small ${bad ? 'bad-text' : 'muted'}`; };
+    const busy = async (btn, work) => {
+      const was = btn.textContent; btn.disabled = true; btn.textContent = '…';
+      try { await work(); } catch (err) { if (err?.name !== 'AbortError') say(err.message, true); } finally { btn.disabled = false; btn.textContent = was; }
+    };
+    const plural = (n) => `${n} Character${n === 1 ? '' : 's'}`;
+    const installed = (r) => {
+      say(r.added ? `Installed ${plural(r.added)}${r.skipped ? ` (${r.skipped} already here)` : ''}.` : r.skipped ? (r.skipped === 1 ? 'That Character is here already.' : `All ${r.skipped} are here already.`) : 'No Character images found there.');
+      if (r.added) showStart();
+    };
+    const files = el('input', { type: 'file', accept: '.zip,application/zip,image/*,.json', multiple: true, class: 'visually-hidden', id: 'co-chars-in' });
+    files.addEventListener('change', () => { const picked = [...files.files]; files.value = ''; if (picked.length) busy(inBtn, async () => installed(await installCharacters(picked))); });
+    const dirIn = el('input', { type: 'file', multiple: true, class: 'visually-hidden', id: 'co-chars-dir' });
+    dirIn.setAttribute('webkitdirectory', '');
+    dirIn.addEventListener('change', () => { const picked = [...dirIn.files]; dirIn.value = ''; if (picked.length) busy(inBtn, async () => installed(await installCharacters(picked))); });
+    const inBtn = el('label', { class: 'btn small-btn', for: 'co-chars-in', text: '⬆ Install Characters' });
+    const cloud = connectedSecure();
+    const canPickDir = typeof window.showDirectoryPicker === 'function';
+    return el('div', { class: 'co-chars-io' },
+      el('div', { class: 'row wrap' },
+        el('button', { type: 'button', class: 'btn small-btn', text: '⬇ Save all (folder .zip)', onclick: (e) => busy(e.currentTarget, async () => {
+          const { blob, count } = await charactersZip();
+          if (!count) { say('No Characters to save yet.'); return; }
+          const file = new File([blob], 'Characters.zip', { type: 'application/zip' });
+          if (canShareFiles([file]) && window.matchMedia?.('(pointer: coarse)').matches) await shareFiles([file], 'Characters').catch(() => downloadBlob(blob, file.name));
+          else downloadBlob(blob, file.name);
+          say(`Saved ${plural(count)} as Characters.zip (a "Characters" folder). Install it here or on another phone with ⬆ Install Characters.`);
+        }) }),
+        canPickDir ? el('button', { type: 'button', class: 'btn small-btn ghost', text: '📁 Save to a folder…', onclick: (e) => busy(e.currentTarget, async () => {
+          const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+          const n = await saveToDirectory(dir);
+          say(`Saved ${plural(n)} into a "Characters" folder there.`);
+        }) }) : null,
+        cloud ? el('button', { type: 'button', class: 'btn small-btn ghost', text: '☁️ Save to Saved Files', onclick: (e) => busy(e.currentTarget, async () => {
+          const n = await saveToSavedFiles(cloud);
+          say(`Saved ${plural(n)} to the "Characters" folder in Saved Files.`);
+        }) }) : null),
+      el('div', { class: 'row wrap' },
+        inBtn,
+        el('label', { class: 'btn small-btn ghost', for: 'co-chars-dir', text: '📂 Install a folder' }),
+        cloud ? el('button', { type: 'button', class: 'btn small-btn ghost', text: '☁️ Install from Saved Files', onclick: (e) => busy(e.currentTarget, async () => installed(await installFromSavedFiles(cloud))) }) : null),
+      note, files, dirIn);
   }
 
   function characterSheet(c, blob) {
@@ -159,6 +213,10 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
         tol.addEventListener('input', () => { wandTol = Number(tol.value); store.set('cc.cutout.tol', String(wandTol)); });
         return el('label', { class: 'field' }, el('span', { text: 'Reach (how different a color it spreads to)' }), el('span', { class: 'range-row' }, tol));
       })() : null,
+      el('div', { class: 'row wrap co-face' },
+        el('button', { class: 'btn small-btn', text: '🙂 Cut out face', onclick: (e) => cutOutFace(e.currentTarget, false) }),
+        el('button', { class: 'btn small-btn ghost', text: '🙂 All faces', onclick: (e) => cutOutFace(e.currentTarget, true) }),
+        faceNote ? el('span', { class: 'muted small', 'aria-live': 'polite', text: faceNote }) : null),
       el('div', { class: 'row space co-smart' },
         el('button', { class: `chip${smart ? ' active' : ''}`, 'aria-pressed': String(smart), text: '✨ Smart edges', onclick: () => { smart = !smart; store.set(SMART_KEY, smart ? 'on' : 'off'); refresh(); } }),
         el('span', { class: 'muted small', 'aria-live': 'polite', text: smartNote() })),
@@ -296,6 +354,26 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   // ---------- fixes: patch, wand, brush ----------
 
   let patchNote = '';
+  let faceNote = '';
+  /**
+   * 🙂 Cut out face: finds the faces (on the phone) and traces around the biggest one's head (or every
+   * face's), with smart edges on so the outline comes in to the head's own edge. One undo step.
+   */
+  async function cutOutFace(btn, all) {
+    btn.disabled = true; faceNote = 'Looking for faces…'; renderPanel();
+    try {
+      const { detectFaces } = await import('../../lib/face.js');
+      const faces = await detectFaces(image);
+      const pick = all ? faces : [mainFace(faces)].filter(Boolean);
+      if (!pick.length) { faceNote = 'No face found in this photo: trace around it by hand.'; return; }
+      if (!smart) { smart = true; store.set(SMART_KEY, 'on'); }
+      const added = pick.map((f) => ({ op: 'add', points: faceOutline(f, image.width, image.height) }));
+      preview = true;
+      faceNote = pick.length > 1 ? `Traced ${pick.length} faces. Fix the edges with Patch, Wand or Brush if needed.` : `Traced the face${faces.length > 1 ? ` (the biggest of ${faces.length})` : ''}. Fix the edge with Patch, Wand or Brush if needed.`;
+      commit([...traces, ...added]);
+    } catch (err) { faceNote = `Couldn't look for faces: ${err.message}`; }
+    finally { btn.disabled = false; renderPanel(); }
+  }
   const fixRadius = () => { const { w } = workCopy(); return Math.max(2, (patchSize / canvas.getBoundingClientRect().width) * w); };
   const newId = () => `${Date.now()}${Math.random()}`;
   const plural = (n) => `${n.toLocaleString()} pixel${n === 1 ? '' : 's'}`;

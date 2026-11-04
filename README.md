@@ -128,6 +128,13 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   turned too, so a tilted head or a photo on its side is found.
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
+  **➕ Character**: put one of your Characters (or any transparent image) on the photo. It goes
+  straight onto the biggest face found (sized and turned to it; **🙂 On a face** moves it to the
+  next face), or the middle. Drag to move, pinch (or the **Size** and **Turn** sliders) to resize and
+  rotate. **🎨 Match color** (0–100) gives it the light and color of what's **behind it**, or of an
+  area you drag over with **🎯 Pick an area**: its colors move toward that area's average and spread
+  (in Lab; `web/lib/color-match.js`) as far as the slider says, keeping its own detail. **✓ Place**
+  paints it in at full detail: one undo step, part of every export.
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
   overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
   it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
@@ -267,7 +274,8 @@ Characters open). Each photo is handed over once (again after new edits).
   (swapping); Replace and Remove act on the selected cell.
 - **Free / Superimpose**: set a background photo, then add photos or saved Characters on top. Drag
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
-  Delete and Opacity act on the selected layer.
+  Delete and Opacity act on the selected layer. **🎨 Match color** blends the selected layer into
+  the background photo behind it (or the background color), from 0 (as it is) to 100.
 - **🎭 Face swap** (with a background photo): every face in it is covered by a Character from Cutout
   (cut a face out and save it) or any mask image, each sized, centered and turned to its face, as
   layers to move and adjust like any other, like a camera filter.
@@ -278,6 +286,18 @@ Characters open). Each photo is handed over once (again after new edits).
 
 Cut an object out of a photo: trace around it with your finger (**Trace**), with undo/redo and an
 **Edge softness** slider. **Preview cutout** shows the result on a checkerboard.
+
+- **🙂 Cut out face** finds the faces (on the phone) and traces around the biggest one's head (an
+  oval from the eyes and mouth, with the forehead), smart edges bringing it in to the head's own
+  edge; **🙂 All faces** traces every face. Fix the edge as usual, then **Save as Character**.
+- **Your Characters as a folder**: **⬇ Save all (folder .zip)** saves every Character as
+  `Characters.zip`, a "Characters" folder of their images with a `characters.json` of their names.
+  On a computer, **📁 Save to a folder…** writes that folder straight to disk. With Saved Files set
+  up, **☁️ Save to Saved Files** puts it in a "Characters" folder in your Drive. **⬆ Install
+  Characters** (the ZIP, or images), **📂 Install a folder**, or **☁️ Install from Saved Files** put
+  them back on this phone or another. Names and order are kept; ones already here are skipped.
+- Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
+  cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
 
 - **✨ Smart edges** (on unless turned off): a loose finger trace comes in to the object's edge. Only
   a band just inside the trace is looked at, never the middle (so a fruit basket's many colors stay

@@ -14,6 +14,10 @@ import { applyPatches, makePatch } from './retouch.js';
 import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab } from './cleanup.js';
 import { levelTurn, mainFace } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
+import { placedPatch, placedBox } from './place.js';
+import { colorStats, matchColors } from '../../lib/color-match.js';
+import { listCharacters, getCharacterBlob } from '../../lib/characters.js';
+import { maskLayer } from '../../lib/face-core.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
@@ -54,6 +58,8 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   let rf = null;
   // Generative Expand: the photo (file, name, edits) from before the last expand, to go back to.
   let beforeExpand = null; let pendingBefore = null;
+  // ➕ Character: the image being placed (see startPlacing), and the pointers moving or pinching it.
+  let placing = null; const placePointers = new Map(); let placeGesture = null;
   const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null });
   const cleanups = [];
 
@@ -104,7 +110,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       const fit = fitSize(bitmap.width, bitmap.height, PREVIEW_MAX);
       source = drawToCanvas(bitmap, fit.width, fit.height, null);
       rf = null; lastClean = null; copyFrom = null; pixelsCache = null;
-      beforeExpand = pendingBefore; pendingBefore = null;
+      beforeExpand = pendingBefore; pendingBefore = null; placing = null;
       bitmap.close?.();
       file = blob;
       fileName = name;
@@ -240,6 +246,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     if (!comparing) drawMarkup(ctx, draft ? [...vs.markup, draft] : vs.markup, view);
     if (mode === 'crop' && !comparing) drawCropUi(ctx, state().crop, overlay.width, overlay.height, dpr);
     if (mode === 'cleanup' && !comparing) drawCleanUi(ctx, dpr);
+    if (mode === 'markup' && placing && !comparing) drawPlacing(ctx, dpr);
   }
 
   /** The Clean Up stroke being drawn (a soft glowing trail), the Copy From spot, Reverse Fill's trace and what it'll remove. */
@@ -329,6 +336,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
 
   function bindPointer() {
     overlay.addEventListener('pointerdown', (e) => {
+      if (mode === 'markup' && placing) { e.preventDefault(); placeDown(e); return; }
       if (mode === 'cleanup') {
         e.preventDefault();
         if (cleaning) return;
@@ -368,6 +376,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       schedule();
     });
     overlay.addEventListener('pointermove', (e) => {
+      if (placeGesture) { placeMove(e); return; }
       if (cleanStroke) {
         const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
         const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; const last = cleanStroke.pts.at(-1);
@@ -389,7 +398,8 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
         schedule();
       }
     });
-    const end = () => {
+    const end = (e) => {
+      if (placePointers.size || placeGesture) { placeUp(e); return; }
       if (cleanStroke) { const st = cleanStroke; cleanStroke = null; if (rf) reverseStroke(st); else runCleanUp(st); return; }
       if (!drag) return;
       if (drag.kind === 'crop') {
@@ -889,6 +899,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   }
 
   function markupPanel() {
+    if (placing) return placingPanel();
     const tools = el('div', { class: 'chips' }, ...TOOLS.map(([id, icon, label]) => el('button', {
       class: `chip${prefs.tool === id ? ' active' : ''}`, text: `${icon} ${label}`,
       onclick: () => { prefs.tool = id; savePrefs(); renderPanel(); },
@@ -905,8 +916,208 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       onInput: (v) => { prefs.size = v / 1000; }, onChange: () => savePrefs(),
     });
     const hint = prefs.tool === 'eraser' ? 'Tap a drawing to remove it.' : prefs.tool === 'text' ? 'Tap the photo where the text should go.' : 'Draw on the photo.';
-    return [tools, colors, el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' }), el('span', { class: 'muted small', text: hint })), size,
+    const character = el('div', { class: 'chips' },
+      el('button', { class: 'chip', text: '➕ Character', onclick: (e) => startPlacing(e.currentTarget) }),
+      placeNote ? el('span', { class: 'muted small', text: placeNote }) : null);
+    return [character, tools, colors, el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' }), el('span', { class: 'muted small', text: hint })), size,
       state().markup.length ? el('button', { class: 'linkish small', text: 'Remove all markup', onclick: () => commit({ ...state(), markup: [] }) }) : null].filter(Boolean);
+  }
+
+  // ---------- ➕ Character ----------
+
+  let placeNote = '';
+  /** Pick one of the Characters (or any image); { blob, name } or null. */
+  function pickCharacter() {
+    return new Promise(async (resolve) => {
+      const list = await listCharacters();
+      let picked = null;
+      const input = el('input', { type: 'file', accept: 'image/*', class: 'visually-hidden', id: 'ed-char-file' });
+      const grid = el('div', { class: 'char-grid' });
+      const dlg = el('dialog', { class: 'ed-dialog ed-char-pick' }, el('form', { method: 'dialog', class: 'sheet' },
+        el('h2', { text: '➕ Add a Character' }),
+        el('p', { class: 'small muted', text: 'It goes on the face if there is one (or the middle): drag it, pinch or use the sliders to size and turn it, and match its color to the photo.' }),
+        list.length ? grid : el('p', { class: 'muted small', text: 'No Characters yet: make one in Cutout (🙂 Cut out face, then Save as Character), or use any image.' }),
+        el('div', { class: 'row end' }, el('label', { class: 'btn ghost', for: 'ed-char-file', text: 'Use another image…' }), el('button', { class: 'btn ghost', value: 'cancel', text: 'Cancel' })), input));
+      const urls = [];
+      grid.replaceChildren(...await Promise.all(list.map(async (c) => {
+        const blob = await getCharacterBlob(c.id); if (!blob) return null;
+        const u = URL.createObjectURL(blob); urls.push(u);
+        return el('button', { type: 'button', class: 'char-card', 'aria-label': c.name, onclick: () => { picked = { blob, name: c.name }; dlg.close(); } },
+          el('span', { class: 'checker' }, el('img', { src: u, alt: '' })), el('span', { class: 'small', text: c.name }));
+      })).then((x) => x.filter(Boolean)));
+      input.addEventListener('change', () => { const f = input.files[0]; if (f) { picked = { blob: f, name: f.name.replace(/\.[^.]+$/, '') }; dlg.close(); } });
+      dlg.addEventListener('close', () => { dlg.remove(); urls.forEach((u) => URL.revokeObjectURL(u)); resolve(picked); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
+  }
+
+  /** The image's pixels at most `max` across: { rgba, w, h }. */
+  function pixelsOf(img, max) {
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * k)); const h = Math.max(1, Math.round(img.height * k));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0, w, h);
+    return { rgba: x.getImageData(0, 0, w, h).data, w, h };
+  }
+
+  /** ➕ Character: choose one, and it's placed on the biggest face (or the middle) to adjust. */
+  async function startPlacing(btn) {
+    btn.disabled = true;
+    try {
+      const pick = await pickCharacter(); if (!pick) return;
+      const bitmap = await decodeImage(pick.blob, await sniffType(pick.blob));
+      const full = pixelsOf(bitmap, 1024); const small = pixelsOf(bitmap, 420);
+      bitmap.close?.();
+      const W = source.width; const H = source.height;
+      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, match: 0, from: null, picking: false, faces: null, face: -1, shown: null };
+      renderShown();
+      placeNote = 'Looking for a face…'; renderPanel(); schedule();
+      await placeOnFace(true);
+    } catch (err) { placeNote = `Couldn't add it: ${err.message}`; placing = null; renderPanel(); }
+    finally { btn.disabled = false; }
+  }
+
+  /** 🙂 On a face: the Character over the next face found (sized and turned to it). */
+  async function placeOnFace(first = false) {
+    if (!placing) return;
+    try {
+      if (!placing.faces) {
+        const { detectFaces } = await import('../../lib/face.js');
+        placing.faces = (await detectFaces(applyPatches(source, state().patches ?? []))).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+      }
+      if (!placing?.faces.length) { placeNote = first ? 'No face found: placed in the middle. Drag it where it goes.' : 'No face found in this photo.'; return; }
+      placing.face = (placing.face + 1) % placing.faces.length;
+      const W = source.width; const H = source.height;
+      const m = maskLayer(placing.faces[placing.face], placing.aspect, W / H, 1.35);
+      Object.assign(placing, { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot });
+      placeNote = `On ${placing.faces.length > 1 ? `face ${placing.face + 1} of ${placing.faces.length}` : 'the face'}. Drag, pinch or use the sliders to adjust.`;
+      if (placing.match) renderShown();
+    } catch (err) { placeNote = `Couldn't look for faces: ${err.message}`; }
+    finally { renderPanel(); schedule(); }
+  }
+
+  /** The colors to match: the area picked, or what's behind the Character (and a little around it). */
+  function matchTarget() {
+    const W = source.width; const H = source.height;
+    const b = placing.from ?? placedBox(placing, placing.aspect, W, H, 0.2);
+    const px = sourcePixels();
+    const step = Math.max(1, Math.round(Math.sqrt(((b.x1 - b.x0) * (b.y1 - b.y0)) / 40000)));
+    const bw = b.x1 - b.x0; const bh = b.y1 - b.y0;
+    if (bw < 1 || bh < 1) return null;
+    // Only that box, read as its own small picture.
+    const crop = new Uint8ClampedArray(bw * bh * 4);
+    for (let y = 0; y < bh; y++) crop.set(px.subarray(((b.y0 + y) * W + b.x0) * 4, ((b.y0 + y) * W + b.x1) * 4), y * bw * 4);
+    return colorStats(crop, bw, bh, () => true, step);
+  }
+  /** The Character as shown: color-matched by the Match amount. */
+  function renderShown(target = placing.match ? matchTarget() : null) {
+    const { small } = placing;
+    const rgba = target ? matchColors(small.rgba, small.w, small.h, target, placing.match / 100) : small.rgba;
+    const c = placing.shown ?? document.createElement('canvas'); c.width = small.w; c.height = small.h;
+    c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(rgba), small.w, small.h), 0, 0);
+    placing.shown = c;
+  }
+
+  function drawPlacing(ctx, dpr) {
+    const T = sourceToOverlayMatrix(); if (!T || !placing.shown) return;
+    const k = Math.hypot(T[0], T[1]) || 1;
+    ctx.save();
+    ctx.setTransform(...T);
+    ctx.save();
+    ctx.translate(placing.x, placing.y); ctx.rotate(placing.rot);
+    const w = placing.width; const h = w / placing.aspect;
+    ctx.drawImage(placing.shown, -w / 2, -h / 2, w, h);
+    ctx.lineWidth = (1.5 * dpr) / k; ctx.setLineDash([(6 * dpr) / k, (4 * dpr) / k]); ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+    const area = placeGesture?.kind === 'area' ? norm(placeGesture.a, placeGesture.b) : placing.from;
+    if (area) {
+      ctx.lineWidth = (2 * dpr) / k; ctx.setLineDash([(5 * dpr) / k, (3 * dpr) / k]); ctx.strokeStyle = '#ffd60a';
+      ctx.strokeRect(area.x0, area.y0, area.x1 - area.x0, area.y1 - area.y0);
+    }
+    ctx.restore();
+  }
+  const norm = (a, b) => ({ x0: Math.max(0, Math.round(Math.min(a[0], b[0]))), y0: Math.max(0, Math.round(Math.min(a[1], b[1]))), x1: Math.min(source.width, Math.round(Math.max(a[0], b[0]))), y1: Math.min(source.height, Math.round(Math.max(a[1], b[1]))) });
+
+  const srcPoint = (e) => { const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width; return overlayToSource((e.clientX - r.left) * k, (e.clientY - r.top) * k); };
+  function placeDown(e) {
+    overlay.setPointerCapture(e.pointerId);
+    placePointers.set(e.pointerId, srcPoint(e));
+    const pts = [...placePointers.values()];
+    if (placing.picking) { placeGesture = { kind: 'area', a: pts[0], b: pts[0] }; return; }
+    if (pts.length >= 2) {
+      const [p, q] = pts;
+      placeGesture = { kind: 'pinch', d: Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, ang: Math.atan2(q[1] - p[1], q[0] - p[0]), mid: [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], width: placing.width, rot: placing.rot, x: placing.x, y: placing.y };
+    } else placeGesture = { kind: 'move', start: pts[0], x: placing.x, y: placing.y };
+  }
+  function placeMove(e) {
+    if (!placePointers.has(e.pointerId)) return;
+    placePointers.set(e.pointerId, srcPoint(e));
+    const pts = [...placePointers.values()]; const g = placeGesture;
+    if (g.kind === 'area') g.b = pts[0];
+    else if (g.kind === 'move') { placing.x = g.x + pts[0][0] - g.start[0]; placing.y = g.y + pts[0][1] - g.start[1]; }
+    else if (pts.length >= 2) {
+      const [p, q] = pts;
+      const d = Math.hypot(q[0] - p[0], q[1] - p[1]); const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      placing.width = Math.max(8, g.width * (d / g.d)); placing.rot = g.rot + Math.atan2(q[1] - p[1], q[0] - p[0]) - g.ang;
+      placing.x = g.x + mid[0] - g.mid[0]; placing.y = g.y + mid[1] - g.mid[1];
+    }
+    schedule();
+  }
+  function placeUp(e) {
+    placePointers.delete(e?.pointerId);
+    const g = placeGesture;
+    if (g?.kind === 'area') {
+      const r = norm(g.a, g.b);
+      placeGesture = null; placing.picking = false;
+      if (r.x1 - r.x0 > 3 && r.y1 - r.y0 > 3) { placing.from = r; if (!placing.match) placing.match = 70; placeNote = 'Matching the area picked.'; } else placeNote = 'Drag over an area to take its colors from.';
+      renderShown(); renderPanel(); schedule(); return;
+    }
+    if (placePointers.size === 1 && g?.kind === 'pinch') { const [p] = placePointers.values(); placeGesture = { kind: 'move', start: p, x: placing.x, y: placing.y }; return; }
+    if (placePointers.size) return;
+    placeGesture = null;
+    // Moved: what's behind it changed.
+    if (placing.match && !placing.from) renderShown();
+    renderPanel(); schedule();
+  }
+
+  function placingPanel() {
+    const p = placing; const W = source.width;
+    let live = 0;
+    const later = (fn) => { cancelAnimationFrame(live); live = requestAnimationFrame(fn); };
+    const size = slider({ min: 2, max: 160, value: Math.round((p.width / W) * 100), label: 'Character size', onInput: (v) => { p.width = Math.max(4, (v / 100) * W); schedule(); }, onChange: () => { if (p.match && !p.from) { renderShown(); schedule(); } } });
+    const turn = slider({ min: -180, max: 180, value: Math.round((p.rot * 180) / Math.PI), label: 'Character turn', onInput: (v) => { p.rot = (v * Math.PI) / 180; schedule(); }, onChange: () => {} });
+    const match = slider({ min: 0, max: 100, value: p.match, label: 'Match color', onInput: (v) => { p.match = v; later(() => { renderShown(); schedule(); }); }, onChange: () => renderPanel() });
+    return [
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: `➕ ${p.name}` }), el('span', { class: 'muted small', 'aria-live': 'polite', text: placeNote })),
+      el('div', { class: 'chips' },
+        el('button', { class: 'chip', text: '🙂 On a face', onclick: () => placeOnFace() }),
+        el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { p.x = source.width / 2; p.y = source.height / 2; schedule(); } })),
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' })), size,
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Turn' })), turn,
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: '🎨 Match color' }), el('span', { class: 'muted small', text: p.from ? 'to the area picked' : 'to what\'s behind it' })), match,
+      el('div', { class: 'chips' },
+        el('button', { class: `chip${!p.from && !p.picking ? ' active' : ''}`, 'aria-pressed': String(!p.from && !p.picking), text: 'Behind it', onclick: () => { p.from = null; p.picking = false; if (!p.match) p.match = 70; renderShown(); renderPanel(); schedule(); } }),
+        el('button', { class: `chip${p.from || p.picking ? ' active' : ''}`, 'aria-pressed': String(!!(p.from || p.picking)), text: '🎯 Pick an area', onclick: () => { p.picking = true; placeNote = 'Drag over the area to take the colors from.'; renderPanel(); } })),
+      el('div', { class: 'row end' },
+        el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { placing = null; placeNote = ''; renderPanel(); schedule(); } }),
+        el('button', { class: 'btn primary', text: '✓ Place', onclick: finishPlacing })),
+    ];
+  }
+
+  /** ✓ Place: the Character painted onto the photo (full detail, color matched), one undo step. */
+  function finishPlacing() {
+    const p = placing; if (!p) return;
+    const W = source.width; const H = source.height;
+    const target = p.match ? matchTarget() : null;
+    const rgba = target ? matchColors(p.full.rgba, p.full.w, p.full.h, target, p.match / 100) : p.full.rgba;
+    const patch = placedPatch(rgba, p.full.w, p.full.h, p, W, H);
+    placing = null;
+    if (!patch) { placeNote = 'It was off the photo: nothing placed.'; renderPanel(); schedule(); return; }
+    placeNote = `Placed ${p.name}. Undo takes it back.`;
+    const s = state();
+    commit({ ...s, patches: [...(s.patches ?? []), makePatch(patch, W, H)] });
   }
 
   // ---------- close / export ----------

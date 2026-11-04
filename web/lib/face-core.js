@@ -90,3 +90,25 @@ export function maskLayer(face, aspect, picAspect, fill = 1.35) {
   const scale = Math.max(fw, fh * aspect);
   return { x: c[0], y: c[1], scale, rot };
 }
+
+/**
+ * An outline around a face's head for a w×h picture: an oval turned with the face, centred a little
+ * above the middle of the face (the forehead and some hair count) and wide enough for the cheeks and
+ * ears, as `n` points in 0..1 of the picture. A starting trace for a cutout: smart edges then bring it
+ * in to the head's own edge.
+ */
+export function faceOutline(face, w, h, n = 48) {
+  const bw = face.box.w * w; const bh = face.box.h * h;
+  const t = (face.angle * Math.PI) / 180; const c = Math.cos(t); const s = Math.sin(t);
+  const mid = [((face.eyes[0][0] + face.eyes[1][0]) / 2) * w, ((face.eyes[0][1] + face.eyes[1][1]) / 2) * h];
+  const mouth = [face.mouth[0] * w, face.mouth[1] * h];
+  // Eyes to mouth is about a third of the head's height; the head's middle is a little above the eyes.
+  const em = Math.hypot(mouth[0] - mid[0], mouth[1] - mid[1]) || bh * 0.35;
+  const ry = Math.max(bh * 0.72, em * 2.1); const rx = Math.max(bw * 0.62, ry * 0.74);
+  const down = [-s, c]; // the face's "down", in the picture
+  const cx = mid[0] + down[0] * em * 0.25; const cy = mid[1] + down[1] * em * 0.25;
+  return Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * 2 * Math.PI; const x = rx * Math.cos(a); const y = ry * Math.sin(a);
+    return [Math.min(1, Math.max(0, (cx + x * c - y * s) / w)), Math.min(1, Math.max(0, (cy + x * s + y * c) / h))];
+  });
+}

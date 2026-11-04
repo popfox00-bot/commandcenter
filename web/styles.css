@@ -830,3 +830,12 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 /* Photo Editor → Crop → Generative Expand */
 .ed-expand-preview { display: block; justify-self: center; max-width: 100%; max-height: 42vh; width: auto; height: auto; border-radius: 10px; border: 1px solid var(--border); background: #000; }
 .ed-expand-progress { width: 100%; }
+
+/* Press and hold on a drawing surface (editor, cutout, collage, draw, scan, PDF, signature): no text
+   selection, no callout, no highlight — the finger is drawing, tracing or fixing. */
+.ed-stage, .ed-overlay, .ed-canvas, .co-stage, .co-canvas, .cl-canvas, .dr-stage, .dr-canvas, .scan-edit,
+.pw-page, .pw-overlay, .sig-pad, .ed-expand-preview, .no-hold-select {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+.co-chars-io { display: grid; gap: 6px; margin-bottom: 10px; }
+.co-chars-io .row { margin: 0; gap: 6px; }

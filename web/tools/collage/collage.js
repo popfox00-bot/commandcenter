@@ -8,6 +8,7 @@ import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, encodeCanvas, MAX_CANVAS_PIXELS } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { listCharacters, getCharacterBlob } from '../../lib/characters.js';
+import { colorStats, matchColors } from '../../lib/color-match.js';
 import { createHistory } from '../editor/state.js';
 import { LAYOUTS, ASPECTS, cellRects, coverRect, panBy, layerHit, handlePoint, dragHandle, pinchTransform } from './collage-core.js';
 
@@ -153,7 +154,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
         ctx.save();
         ctx.translate(l.x * W, l.y * H); ctx.rotate(l.rot); if (l.flip) ctx.scale(-1, 1);
         ctx.globalAlpha = l.opacity;
-        ctx.drawImage(im.bmp, -w / 2, -h / 2, w, h);
+        ctx.drawImage(l.match ? matchedBmp(l, im, W, H, ui ? 640 : 2048) : im.bmp, -w / 2, -h / 2, w, h);
         ctx.restore();
         if (ui && selected === l.id) {
           const px = W / canvas.clientWidth;
@@ -169,6 +170,36 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
       }
     }
     ctx.restore();
+  }
+
+  /**
+   * 🎨 Match color: the layer's image with the light and color of what's behind it (the background
+   * photo under it, or the background color), by the layer's Match amount. Worked out at a modest size
+   * and kept until the layer moves, resizes or the amount changes.
+   */
+  const matchCache = new Map();
+  function matchedBmp(l, im, W, H, max) {
+    const s = st();
+    const key = `${max}|${l.src}|${l.match}|${s.base}|${s.bg}|${Math.round(l.x * 50)}|${Math.round(l.y * 50)}|${Math.round(l.scale * 50)}`;
+    const hit = matchCache.get(`${l.id}|${max}`);
+    if (hit?.key === key) return hit.canvas;
+    // What's behind: the background as drawn, at a small size, under the layer (and a little around).
+    const SW = 360; const SH = Math.max(1, Math.round(SW * (H / W)));
+    const back = document.createElement('canvas'); back.width = SW; back.height = SH;
+    const bx = back.getContext('2d', { willReadFrequently: true });
+    bx.fillStyle = s.bg; bx.fillRect(0, 0, SW, SH);
+    if (s.base && images.has(s.base)) { const b = images.get(s.base); const d = coverRect(b.w, b.h, { x: 0, y: 0, w: SW, h: SH }); bx.drawImage(b.bmp, d.dx, d.dy, d.dw, d.dh); }
+    const lw = l.scale * SW; const lh = lw * (im.h / im.w); const r = Math.hypot(lw, lh) * 0.6;
+    const x0 = Math.max(0, Math.floor(l.x * SW - r)); const y0 = Math.max(0, Math.floor(l.y * SH - r));
+    const x1 = Math.min(SW, Math.ceil(l.x * SW + r)); const y1 = Math.min(SH, Math.ceil(l.y * SH + r));
+    const target = x1 > x0 && y1 > y0 ? colorStats(bx.getImageData(x0, y0, x1 - x0, y1 - y0).data, x1 - x0, y1 - y0) : null;
+    // The layer's image at up to `max` px (less on screen than for the saved collage), matched.
+    const k = Math.min(1, max / Math.max(im.w, im.h)); const w = Math.max(1, Math.round(im.w * k)); const h = Math.max(1, Math.round(im.h * k));
+    const out = document.createElement('canvas'); out.width = w; out.height = h;
+    const ox = out.getContext('2d', { willReadFrequently: true }); ox.drawImage(im.bmp, 0, 0, w, h);
+    if (target) ox.putImageData(new ImageData(matchColors(ox.getImageData(0, 0, w, h).data, w, h, target, l.match / 100), w, h), 0, 0);
+    matchCache.set(`${l.id}|${max}`, { key, canvas: out });
+    return out;
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -267,6 +298,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           el('button', { class: 'btn small-btn', text: 'Duplicate', onclick: () => { const copy = { ...layer, id: crypto.randomUUID(), x: layer.x + 0.04, y: layer.y + 0.04 }; selected = copy.id; commit({ ...st(), layers: [...st().layers, copy] }); } }),
           el('button', { class: 'btn small-btn ghost', text: 'Delete', onclick: () => { selected = null; commit({ ...st(), layers: st().layers.filter((l) => l.id !== layer.id) }); } })) : null,
         layer ? slider('Opacity', 10, 100, Math.round(layer.opacity * 100), (v) => upd({ opacity: v / 100 }, live)) : null,
+        layer ? slider('🎨 Match color (to what\'s behind it)', 0, 100, Math.round(layer.match ?? 0), (v) => upd({ match: v }, live)) : null,
         el('p', { class: 'muted small', text: layer
           ? 'Drag to move. Two fingers (or the blue dot) resize and rotate.'
           : s.layers.length ? 'Tap a layer to select it.' : 'Choose a background photo, then add photos or Characters on top.' }),

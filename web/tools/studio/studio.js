@@ -65,6 +65,7 @@ export function mount(host) {
   }
 
   const optsFor = (id) => ({
+    photo: { onFaceSwap: async (file) => { const c = await ensure('collage', optsFor('collage')); await c.ready; handed.collage = panes.get('photo')?.api?.photoKey?.(); location.hash = hashFor('collage'); await c.api?.faceSwapOn?.(file); } },
     convert: { onEdit: sendToPhoto, onWrite: sendToPdf },
     scan: { onWrite: sendToPdf },
     cutout: { onPlace: (f) => sendTo('collage', f) },
@@ -114,7 +115,7 @@ export function mount(host) {
       const p = await panes.get(id).ready;
       if (p.api?.openFile?.(file, file.name) === false) return;
     } else {
-      await ensure(id, { file });
+      await ensure(id, { ...optsFor(id), file });
     }
     location.hash = hashFor(id);
   }

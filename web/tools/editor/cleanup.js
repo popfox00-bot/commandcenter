@@ -148,9 +148,10 @@ function membrane(diff, free, bw, bh) {
 /**
  * Evens out the light and color where a fill meets the picture: along the area's edge, how the
  * surroundings differ from the fill on average (over a few pixels, so texture doesn't count), spread
- * smoothly across the fill. In place, on `img` (the picture with the fill in it).
+ * smoothly across the fill. In place, on `img` (the picture with the fill in it). With `allow`, only
+ * those pixels count as the surroundings (where the area meets something else, it isn't matched to it).
  */
-function evenEdges(orig, img, w, h, mask, box) {
+function evenEdges(orig, img, w, h, mask, box, allow = null) {
   const b = { x0: Math.max(0, box.x0 - 1), y0: Math.max(0, box.y0 - 1), x1: Math.min(w, box.x1 + 1), y1: Math.min(h, box.y1 + 1) };
   const bw = b.x1 - b.x0; const bh = b.y1 - b.y0; const k3 = 3;
   const free = new Uint8Array(bw * bh); const diff = new Float32Array(bw * bh * 3);
@@ -164,9 +165,10 @@ function evenEdges(orig, img, w, h, mask, box) {
     for (let dy = -k3; dy <= k3; dy++) for (let dx = -k3; dx <= k3; dx++) {
       const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
       const o = (Y * w + X) * 4;
-      if (mask[Y * w + X]) { si[0] += img[o]; si[1] += img[o + 1]; si[2] += img[o + 2]; ni++; } else { so[0] += orig[o]; so[1] += orig[o + 1]; so[2] += orig[o + 2]; no++; }
+      if (mask[Y * w + X]) { si[0] += img[o]; si[1] += img[o + 1]; si[2] += img[o + 2]; ni++; } else if (!allow || allow[Y * w + X]) { so[0] += orig[o]; so[1] += orig[o + 1]; so[2] += orig[o + 2]; no++; }
     }
     if (no && ni) for (let c = 0; c < 3; c++) diff[k * 3 + c] = so[c] / no - si[c] / ni;
+    else free[k] = 1; // nothing to match here: it follows its neighbours
   }
   membrane(diff, free, bw, bh);
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
@@ -240,4 +242,208 @@ export function cloneFrom(rgba, w, h, mask, box, dx, dy) {
     for (let c = 0; c < 3; c++) out[o + c] = rgba[q + c] + wt * diff[k * 3 + c];
   }
   return patchOf(out, m, w, h, b);
+}
+
+// ---------- Reverse Fill ----------
+
+/** sRGB (0–255) → CIE Lab, for color distances that look right. */
+export function toLab(r, g, b) {
+  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const R = lin(r); const G = lin(g); const B = lin(b);
+  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  const fx = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047); const fy = f(0.2126 * R + 0.7152 * G + 0.0722 * B); const fz = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+/** The color at (x, y): the median of a small square around it (a speck or the grain doesn't count). */
+export function sampleShade(rgba, w, h, x, y, rad = 2) {
+  const ch = [[], [], []];
+  for (let Y = Math.max(0, Math.round(y) - rad); Y <= Math.min(h - 1, Math.round(y) + rad); Y++) {
+    for (let X = Math.max(0, Math.round(x) - rad); X <= Math.min(w - 1, Math.round(x) + rad); X++) for (let c = 0; c < 3; c++) ch[c].push(rgba[(Y * w + X) * 4 + c]);
+  }
+  return ch.map((v) => v.sort((a, b) => a - b)[v.length >> 1] ?? 0);
+}
+
+/**
+ * Reverse Fill's area: inside the traced `region` (a mask over w×h, with its box), the pixels whose
+ * color is near one of the picked `shades` ([r, g, b]s): within `tol` (ΔE, CIE Lab), or within half as
+ * much again where they touch those (the same color in shadow, an anti-aliased edge), with the small
+ * bits in between that the shades close around (the label's print, its lettering), and a pixel of rim.
+ * { mask, box, count } (box null when nothing matched).
+ */
+export function shadeMask(rgba, w, h, region, box, shades, tol = 18) {
+  const mask = new Uint8Array(w * h);
+  if (!box || !shades.length) return { mask, box: null, count: 0 };
+  const labs = shades.map(([r, g, b]) => toLab(r, g, b));
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
+  const near = new Float32Array(bw * bh).fill(Infinity);
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
+    const i = y * w + x; if (!region[i]) continue;
+    const [L, A, B] = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+    let d = Infinity;
+    for (const s of labs) { const e = (L - s[0]) ** 2 * 0.6 + (A - s[1]) ** 2 + (B - s[2]) ** 2; if (e < d) d = e; }
+    near[(y - box.y0) * bw + x - box.x0] = Math.sqrt(d);
+  }
+  // Sure matches, then the looser ones joined to them.
+  const q = [];
+  for (let k = 0; k < bw * bh; k++) if (near[k] <= tol) { mask[(box.y0 + ((k / bw) | 0)) * w + box.x0 + (k % bw)] = 1; q.push(k); }
+  for (let head = 0; head < q.length; head++) {
+    const k = q[head]; const i = k % bw; const j = (k / bw) | 0;
+    for (const t of [i > 0 ? k - 1 : -1, i < bw - 1 ? k + 1 : -1, j > 0 ? k - bw : -1, j < bh - 1 ? k + bw : -1]) {
+      if (t < 0) continue;
+      const m = (box.y0 + ((t / bw) | 0)) * w + box.x0 + (t % bw);
+      if (mask[m] || near[t] > tol * 1.5) continue;
+      mask[m] = 1; q.push(t);
+    }
+  }
+  let count = q.length;
+  if (!count) return { mask, box: null, count: 0 };
+  // What the matches close around (and the trace's edge doesn't reach): taken too, unless it's big.
+  const seen = new Uint8Array(bw * bh); const limit = Math.max(64, count * 0.25);
+  for (let k0 = 0; k0 < bw * bh; k0++) {
+    const m0 = (box.y0 + ((k0 / bw) | 0)) * w + box.x0 + (k0 % bw);
+    if (seen[k0] || mask[m0] || !region[m0]) continue;
+    const comp = [k0]; seen[k0] = 1; let open = false;
+    for (let head = 0; head < comp.length; head++) {
+      const k = comp[head]; const i = k % bw; const j = (k / bw) | 0;
+      if (i === 0 || j === 0 || i === bw - 1 || j === bh - 1) open = true;
+      for (const t of [i > 0 ? k - 1 : -1, i < bw - 1 ? k + 1 : -1, j > 0 ? k - bw : -1, j < bh - 1 ? k + bw : -1]) {
+        if (t < 0 || seen[t]) continue;
+        const m = (box.y0 + ((t / bw) | 0)) * w + box.x0 + (t % bw);
+        if (mask[m]) continue;
+        if (!region[m]) { open = true; continue; }
+        seen[t] = 1; comp.push(t);
+      }
+    }
+    if (!open && comp.length <= limit) for (const k of comp) { mask[(box.y0 + ((k / bw) | 0)) * w + box.x0 + (k % bw)] = 1; count++; }
+  }
+  // A pixel of rim, inside the trace.
+  const out = Uint8Array.from(mask);
+  let x0 = w; let y0 = h; let x1 = 0; let y1 = 0;
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
+    const i = y * w + x;
+    if (!mask[i] && region[i] && ((x > 0 && mask[i - 1]) || (x < w - 1 && mask[i + 1]) || (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w]))) { out[i] = 1; count++; }
+    if (out[i]) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x >= x1) x1 = x + 1; if (y >= y1) y1 = y + 1; }
+  }
+  return { mask: out, box: { x0, y0, x1, y1 }, count };
+}
+
+/** Whether `allow` has room for a few whole 7×7 patches (and a couple of hundred pixels) near the box. */
+function roomIn(allow, w, h, box, pad) {
+  const x0 = Math.max(3, box.x0 - pad); const y0 = Math.max(3, box.y0 - pad); const x1 = Math.min(w - 3, box.x1 + pad); const y1 = Math.min(h - 3, box.y1 + pad);
+  let n = 0; let patches = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) n += allow[y * w + x];
+  if (n < 200) return false;
+  for (let y = y0; y < y1 && patches < 4; y += 2) for (let x = x0; x < x1 && patches < 4; x += 2) {
+    if (!allow[y * w + x]) continue;
+    let ok = true;
+    for (let dy = -3; dy <= 3 && ok; dy++) for (let dx = -3; dx <= 3; dx++) if (!allow[(y + dy) * w + x + dx]) { ok = false; break; }
+    if (ok) patches++;
+  }
+  return patches >= 4;
+}
+
+/** Whether (x, y) of the mask is on its edge (within 2 px of a pixel outside it). */
+function rimOf(mask, w, h, x, y) {
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const X = x + dx; const Y = y + dy;
+    if (X >= 0 && Y >= 0 && X < w && Y < h && !mask[Y * w + X]) return true;
+  }
+  return false;
+}
+
+/**
+ * The surface the removed area sits on, of what's left inside the trace (the can, not the wall a rough
+ * trace takes in beside it): with `from` (shades the user tapped on it), the pixels near those
+ * colors; otherwise the left-over pixels split into patches of like color, and those bordering the
+ * removed area the most (and any of the same color) kept. A mask over w×h.
+ */
+export function surfaceOf(rgba, w, h, region, hole, from = null) {
+  const left = new Uint8Array(w * h);
+  let x0 = w; let y0 = h; let x1 = 0; let y1 = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; if (!region[i] || hole[i]) continue;
+    left[i] = 1; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x >= x1) x1 = x + 1; if (y >= y1) y1 = y + 1;
+  }
+  if (x1 <= x0) return left;
+  const lab = new Float32Array(w * h * 3);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (left[i]) lab.set(toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]), i * 3); }
+  const dE = (i, c) => Math.sqrt((lab[i * 3] - c[0]) ** 2 * 0.6 + (lab[i * 3 + 1] - c[1]) ** 2 + (lab[i * 3 + 2] - c[2]) ** 2);
+  const out = new Uint8Array(w * h);
+  if (from?.length) {
+    const cs = from.map(([r, g, b]) => toLab(r, g, b));
+    let n = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (left[i] && cs.some((c) => dE(i, c) <= 22)) { out[i] = 1; n++; } }
+    return n >= 200 ? out : left;
+  }
+  // Patches of like color (neighbours within a small step of each other).
+  const seg = new Int32Array(w * h).fill(-1); const segs = [];
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const s0 = y * w + x; if (!left[s0] || seg[s0] >= 0) continue;
+    const id = segs.length; const px = [s0]; seg[s0] = id; const sum = [0, 0, 0]; let touch = 0;
+    for (let head = 0; head < px.length; head++) {
+      const i = px[head]; const X = i % w; const Y = (i / w) | 0;
+      for (let c = 0; c < 3; c++) sum[c] += lab[i * 3 + c];
+      let edge = false;
+      for (const t of [X > 0 ? i - 1 : -1, X < w - 1 ? i + 1 : -1, Y > 0 ? i - w : -1, Y < h - 1 ? i + w : -1]) {
+        if (t < 0) continue;
+        if (hole[t]) { edge = true; continue; }
+        if (!left[t] || seg[t] >= 0) continue;
+        if (dE(t, [lab[i * 3], lab[i * 3 + 1], lab[i * 3 + 2]]) > 12) continue;
+        seg[t] = id; px.push(t);
+      }
+      if (edge) touch++;
+    }
+    segs.push({ px, touch, mean: sum.map((v) => v / px.length) });
+  }
+  const top = Math.max(...segs.map((s) => s.touch));
+  if (!top) return left;
+  const lead = segs.filter((s) => s.touch === top)[0];
+  let n = 0;
+  for (const s of segs) {
+    const like = Math.sqrt((s.mean[0] - lead.mean[0]) ** 2 * 0.6 + (s.mean[1] - lead.mean[1]) ** 2 + (s.mean[2] - lead.mean[2]) ** 2) < 14;
+    if (s.touch > top * 0.6 || (like && s.touch > 0)) for (const i of s.px) { out[i] = 1; n++; }
+  }
+  return n >= 200 ? out : left;
+}
+
+/**
+ * Reverse Fill: the matched area (`mask`, `box`) removed and filled from what's left of the traced
+ * `region` around it (the surface the label was on: the can, not what's behind the can), coarse to
+ * fine, its light and color evened out with that surface. When too little of the surface is left to
+ * copy from, from the picture around it as Clean Up does. Returns patch pixels, or null.
+ */
+export function reverseFill(rgba, w, h, mask, box, region, { from = null } = {}) {
+  if (!box) return null;
+  const g = grow(mask, w, h, box, 1);
+  // The surface: what's left in the trace; when that's too thin to copy from (a loop drawn tight),
+  // looked for a little farther out, still only the patches that border the area most.
+  let rbox = null;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (region[y * w + x]) { if (!rbox) rbox = { x0: x, y0: y, x1: x + 1, y1: y + 1 }; else { rbox.x0 = Math.min(rbox.x0, x); rbox.x1 = Math.max(rbox.x1, x + 1); rbox.y1 = y + 1; } }
+  if (!rbox) return null;
+  let allow = null; let wide = false;
+  for (const pad of [0, 6, 12, 24]) {
+    const reg = pad ? grow(region, w, h, rbox, pad).mask : region;
+    allow = surfaceOf(rgba, w, h, reg, g.mask, from);
+    if (roomIn(allow, w, h, g.box, pad + 16)) { wide = pad > 0; break; }
+    allow = null;
+  }
+  if (!allow) { const p = cleanUp(rgba, w, h, mask, box); return p && { ...p, wide: true }; }
+  // The rim taken around the area stops where it reaches something else in the trace (the wall beside
+  // the can): a rim pixel that looks like that stays as it is.
+  for (let y = g.box.y0; y < g.box.y1; y++) for (let x = g.box.x0; x < g.box.x1; x++) {
+    const i = y * w + x; if (!g.mask[i] || (mask[i] && !rimOf(mask, w, h, x, y))) continue;
+    const c = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+      const j = Y * w + X; if (!region[j] || g.mask[j] || allow[j]) continue;
+      const o = toLab(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]);
+      if (Math.sqrt((c[0] - o[0]) ** 2 * 0.6 + (c[1] - o[1]) ** 2 + (c[2] - o[2]) ** 2) < 20) { g.mask[i] = 0; dy = 3; break; }
+    }
+  }
+  const R = Math.max(4, Math.ceil(Math.max(g.box.x1 - g.box.x0, g.box.y1 - g.box.y0) / 2));
+  const done = complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, { maxLevels: 6, minHole: 3, minSize: 24, forbid: (x, y) => !allow[y * w + x] });
+  evenEdges(rgba, done, w, h, g.mask, g.box, allow);
+  const p = patchOf(done, g.mask, w, h, g.box);
+  return wide ? { ...p, wider: true } : p;
 }

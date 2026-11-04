@@ -109,8 +109,37 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   Sepia, each with an intensity slider.
 - **Crop**: Freeform, Original, Square, 4:5, 3:4, 2:3, 9:16 and the landscape ratios; drag corners,
   edges or the whole box; rotate 90°, flip, and straighten ±45° (auto-zooms so no corners go empty).
+  **🙂 Level face** (only when you tap it): finds the faces and turns the photo so the biggest one is
+  upright, eyes level and above the mouth (quarter turns and straighten; undo to go back).
+  **🎭 Face swap**: on to Collage with this photo, to cover its faces with a Character or a mask.
+  **🪄 Generative Expand**: a new shape (1:1, 4:5, 3:4, 2:3, 9:16, 4:3, 3:2, 16:9, 2:1) without
+  cropping. The photo, with its edits, stays as it is on the side you pick (left / center / right,
+  or top / middle / bottom), a preview shows the black space, and **✨ Expand** fills it from the
+  photo's own detail (`web/tools/editor/expand.js`, in a worker; on the phone, offline). First, the
+  photo is carried on from its seam: each piece continues from the strip of the photo whose edge
+  matches best, so a horizon or a wall's edge lines up. Where nothing continues it better than the
+  edge itself (a sky that darkens upward), the edge is drawn on. Then the new space is rebuilt from
+  patches of the photo, coarse to fine, at a working size and refined up to 1200 px. A smooth sky
+  keeps its light and only takes fine detail from the patches. **✓ Use it** opens the expanded
+  picture (up to 2048 px) as the photo to keep editing; **↩ Before expanding** goes back to the
+  original and its edits.
+- **Faces** are found on the phone, offline (`web/lib/face.js`: face-api's tiny face detector and its
+  68-point landmarks for the eyes and mouth, vendored in `web/vendor/face`), tried with the picture
+  turned too, so a tilted head or a photo on its side is found.
+- **Zoom within the photo** (in every mode, and in Cutout): pinch with two fingers to zoom in and
+  out, and drag with two to move around; one finger keeps drawing, tracing, cleaning up or fixing
+  where you touch the zoomed photo. The page itself doesn't zoom. Zoomed in, the photo is drawn at
+  more detail (up to its own). On a computer, Ctrl/⌘ + scroll or a trackpad pinch zooms at the
+  pointer. **⤢ Fit** goes back to the whole photo (`web/lib/zoom.js`).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
+  **➕ Character**: put one of your Characters (or any transparent image) on the photo. It goes
+  straight onto the biggest face found (sized and turned to it; **🙂 On a face** moves it to the
+  next face), or the middle. Drag to move, pinch (or the **Size** and **Turn** sliders) to resize and
+  rotate. **🎨 Match color** (0–100) gives it the light and color of what's **behind it**, or of an
+  area you drag over with **🎯 Pick an area**: its colors move toward that area's average and spread
+  (in Lab; `web/lib/color-match.js`) as far as the slider says, keeping its own detail. **✓ Place**
+  paints it in at full detail: one undo step, part of every export.
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
   overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
   it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
@@ -118,8 +147,16 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   and color are evened out where it meets the photo (`web/tools/editor/cleanup.js`). If a fill looks
   smudged, **📋 Copy From Area**: tap a clean spot elsewhere (sand, sky, wall), then tap, brush or
   circle the area to cover: it gets that spot one to one, its edge blended into the new surroundings
-  (or **Use on the last clean-up** to redo the last one that way). Each clean-up is one undo step,
-  is shown without it under ◑, and is part of every export.
+  (or **Use on the last clean-up** to redo the last one that way). **🎨 Reverse Fill** removes a
+  thing by its colors, a label off a can, a sticker, a logo: **tap** the shades to remove (several:
+  the label's white, its red…), and **draw a rough loop** around it. What matches shows in pink (with
+  shadowed and anti-aliased shades next to them, and the print they close around), **Match** sets
+  how close a shade counts, and **✨ Remove & fill** takes it out and fills it from the surface it was
+  on: the parts of the loop that border it most (the can above and below the label), not what's
+  behind (the wall a rough loop takes in). Fill sources are limited to that surface (`forbid` in
+  `complete()`), and its edges are matched to it only. With **🎯 Fill From**, tap the surface to fill
+  with yourself. If the loop is drawn tight, it looks a little past it for the same surface. Each
+  clean-up is one undo step, is shown without it under ◑, and is part of every export.
 - With a mouse, chip rows (Adjust, Filters, Markup…) have a scroll bar, and the scroll wheel moves
   them sideways.
 - Undo/redo for every step, hold ◑ to compare with the original, and **autosave**: if iOS closes the
@@ -242,7 +279,11 @@ Characters open). Each photo is handed over once (again after new edits).
   (swapping); Replace and Remove act on the selected cell.
 - **Free / Superimpose**: set a background photo, then add photos or saved Characters on top. Drag
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
-  Delete and Opacity act on the selected layer.
+  Delete and Opacity act on the selected layer. **🎨 Match color** blends the selected layer into
+  the background photo behind it (or the background color), from 0 (as it is) to 100.
+- **🎭 Face swap** (with a background photo): every face in it is covered by a Character from Cutout
+  (cut a face out and save it) or any mask image, each sized, centered and turned to its face, as
+  layers to move and adjust like any other, like a camera filter.
 - Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
   Work is autosaved.
 
@@ -250,6 +291,18 @@ Characters open). Each photo is handed over once (again after new edits).
 
 Cut an object out of a photo: trace around it with your finger (**Trace**), with undo/redo and an
 **Edge softness** slider. **Preview cutout** shows the result on a checkerboard.
+
+- **🙂 Cut out face** finds the faces (on the phone) and traces around the biggest one's head (an
+  oval from the eyes and mouth, with the forehead), smart edges bringing it in to the head's own
+  edge; **🙂 All faces** traces every face. Fix the edge as usual, then **Save as Character**.
+- **Your Characters as a folder**: **⬇ Save all (folder .zip)** saves every Character as
+  `Characters.zip`, a "Characters" folder of their images with a `characters.json` of their names.
+  On a computer, **📁 Save to a folder…** writes that folder straight to disk. With Saved Files set
+  up, **☁️ Save to Saved Files** puts it in a "Characters" folder in your Drive. **⬆ Install
+  Characters** (the ZIP, or images), **📂 Install a folder**, or **☁️ Install from Saved Files** put
+  them back on this phone or another. Names and order are kept; ones already here are skipped.
+- Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
+  cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
 
 - **✨ Smart edges** (on unless turned off): a loose finger trace comes in to the object's edge. Only
   a band just inside the trace is looked at, never the middle (so a fruit basket's many colors stay
@@ -262,19 +315,21 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
 - **➕ Add to trace:** trace inside your outline around a part to leave out, like the sky under a
   basket's handle. With smart edges, only what looks like the inside of that trace goes; the handle
   it ran over stays.
-- **Fixing what's still off**, three tools, each with a direction: **✂️ Cut away** (only takes away:
-  for background left in) or **↩︎ Keep** (only brings back: for parts cut off). While your finger is
-  down, a **magnifier** in the top corner shows what's under it, with the patch or brush size.
-  - **🩹 Patch fix** (**Patch size** slider; also **Auto**, in or out): tap, or drag along an edge.
-    Every spot along the drag is worked out again: each pixel weighs how much its color is like the
-    object against the background (colors from around the spot, from deep inside the cut so a wide
-    leftover doesn't count as object, and from the whole photo), and neighbours that look alike pull
-    each other the same way, so the edge settles where the colors change. Only parts joined to the
-    object stay.
-  - **🪄 Wand** (**Reach** slider): tap a leftover, like a patch of grass between a handle and the
-    fruit, and everything joined to it that looks like it goes, up to a sharp change of color. With
-    **Keep**, tap a part cut off by mistake and it comes back (only inside your trace).
-  - **🖌 Brush** (**Brush size**): paint cut or keep exactly where your finger goes, for the last bits.
+- **Fixing what's still off**: three tools, all **✨ Auto** by default: they tell the object from the
+  background themselves, by **color and texture** (how busy a spot is: smooth sky or skin against
+  grass, hair or wicker), from what your trace already holds, and settle the edge where those change.
+  **✂️ Cut away** (only takes away) or **↩︎ Keep** (only brings back) can be picked for the next stroke
+  or tap; after it, it's back to Auto. While your finger is down, a **magnifier** in the top corner
+  shows what's under it, with the patch or brush size.
+  - **🩹 Patch fix** (**Patch size** slider): tap, or drag along an edge; every spot along the drag is
+    worked out again (the object's and the background's colors and textures, from around the spot,
+    from deep inside the cut, and from the whole photo; look-alike neighbours pull together).
+    **✨ Refine whole edge** does it all the way round the outline in one step.
+  - **🪄 Wand** (**Reach** slider): tap a leftover, like grass between a handle and the fruit, and
+    everything joined to it that looks like it goes; tap a part cut off and it comes back (inside your
+    trace). On Auto it never spreads into what looks like the other side.
+  - **🖌 Brush** (**Brush size**): on Auto a smart brush (under it, each pixel goes with the object or
+    the background); with Cut away or Keep, exactly where your finger goes.
 - **🗑 Remove trace:** tap a trace or a fix (a patch's ring, a brush or wand dot) to delete it. **Undo** and **Redo** cover every step.
 
 The result can be saved as a transparent PNG, shared, placed on another
@@ -476,10 +531,22 @@ ZIP lookup: Zippopotam.us.
 
 ### Sports
 
-A **calendar of the games**: a **week** view by default (the view you pick is remembered), with
-**today** highlighted, and **Day** (each game with TV, the betting line and the venue) and **Month**
-views; tap a day to open it, ‹ › to move, **Today** to come back. A game shows once even when two of
-your teams play each other; live games show the score and refresh every 45 seconds.
+A **calendar of the games**: a **week** view by default (the view you pick is remembered), as a
+list focused on **today**: today at the top, the week before above it (grayed, fading the further
+back it goes, a scroll up), and the next two weeks below (softer, still easy to read). **Day** (each
+game with TV, the betting line and the venue) and **Month** views too; tap a day to open it, ‹ › to
+move a week, **Today** to come back. A game shows once even when two of your teams play each other;
+live games refresh every 45 seconds.
+
+**Live games stand out**: a red-tinted card with a red edge, a pulsing **LIVE** tag with the clock
+in a narrow column on the left, and the score in its own column on the right (the leader in bold),
+so the teams keep their room in the middle. In Month view a live game's chip is red.
+
+**📊 Update stats** pulls live data on request: every team's games again, the scoreboards of the
+leagues with a game on today (fresh score and clock, the situation such as down and distance or the
+count and runners, the last play, top performers, team stats), and for each live game its box score
+and win probability. A live game's stats open under it; any live or finished game's **📊** opens or
+folds its stats. Where ESPN's game summary can't be read, the scoreboard's stats are shown instead.
 
 Under it, your teams: starts with the Broncos, Nuggets, Avalanche and Rockies, each with its record
 and standing, a **live** score while a game is on, the **next game** and the **last result**.
@@ -531,6 +598,10 @@ Open **Notes** on the home screen. Everything is stored on the phone (IndexedDB)
   thumbnail in the list opens full screen so whoever shops can match the label on the shelf. Items
   you clear from the cart are added to My items, most-bought first as one-tap suggestions.
 - **Share** sends the list as text grouped by section, with brands, e.g. to Messages.
+
+- **🎙 Voice memos**: **🎙 Memo** starts a new note recording right away; in any note, **● Record a
+  memo** (■ Stop when done, with a running time). Memos play back in the note, show on its card
+  (🎙 count and length), go along when the note is shared, and are kept on the phone (IndexedDB), offline.
 
 ## Rap
 

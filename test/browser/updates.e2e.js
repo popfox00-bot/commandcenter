@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, resolve, extname } from 'node:path';
 import { chromium } from 'playwright';
-import { NOW, iso, ev, pointJson, alertsJson, hourlyJson, dailyJson, gridJson, airJson, scheduleJson, DEN } from '../fixtures/updates.js';
+import { NOW, iso, ev, pointJson, alertsJson, hourlyJson, dailyJson, gridJson, airJson, scheduleJson, scoreboardJson, summaryJson, DEN } from '../fixtures/updates.js';
 
 const WEB = resolve(import.meta.dirname, '../../web');
 const BASE = '/commandcenter/web/';
@@ -131,23 +131,34 @@ test('Updates → Sports: a calendar of the games, week by default with today hi
   await page.waitForSelector('.cal');
   await page.waitForFunction(() => /Utah/.test(document.querySelector('.cal-today')?.textContent ?? ''));
 
-  // Week view by default, the week of Saturday Oct 17; today stands out.
+  // Week view by default, as a list focused on today (Saturday Oct 17): the week before above it,
+  // grayed and fading; the next two weeks below; scrolled so today is at the top.
   assert.equal(await page.textContent('.cal-views [aria-selected=true]'), 'Week');
-  assert.equal(await page.textContent('.cal-title'), 'Oct 11 – 17, 2026');
-  assert.equal(await page.locator('.cal-day').count(), 7);
+  assert.equal(await page.textContent('.cal-title'), 'This week');
+  assert.equal(await page.locator('.cal-day').count(), 21);
+  assert.equal(await page.getAttribute('.cal-day.cal-focus', 'data-day'), '2026-10-17');
+  assert.equal(await page.locator('.cal-day.cal-past').count(), 7);
+  assert.equal(await page.locator('.cal-day.cal-future').count(), 13);
   const today = await page.textContent('.cal-day.cal-today');
-  assert.match(today, /Sat\s*17\s*Today/);
+  assert.match(today, /Sat\s*17\s*Oct\s*Today/);
   assert.match(today, /4:30 PM[\s\S]*vs Chiefs/, 'the Broncos game');
   assert.match(today, /6:00 PM[\s\S]*vs Utah[\s\S]*local/, 'and the local college game');
   assert.equal((today.match(/vs Chiefs/g) ?? []).length, 1, 'a game shows once');
-  assert.match(await page.textContent('.cal-day:has-text("Fri") '), /W 24–17[\s\S]*vs Raiders/, 'yesterday\'s result');
-  // Next week.
+  assert.match(await page.textContent('.cal-day[data-day="2026-10-16"]'), /W 24–17[\s\S]*vs Raiders/, 'yesterday\'s result');
+  await page.waitForFunction(() => { const b = document.querySelector('.cal-agenda'); const f = b?.querySelector('.cal-focus'); return b && b.scrollTop > 0 && Math.abs(f.getBoundingClientRect().top - b.getBoundingClientRect().top) < 8; }, null, { polling: 100 });
+  const look = await page.evaluate(() => ['2026-10-16', '2026-10-10', '2026-10-17', '2026-10-18'].map((d) => { const cs = getComputedStyle(document.querySelector(`.cal-day[data-day="${d}"]`)); return [+cs.opacity, cs.filter]; }));
+  assert.ok(look[0][0] < 1 && /grayscale/.test(look[0][1]), 'yesterday grayed');
+  assert.ok(look[1][0] < look[0][0], 'older days fade more');
+  assert.equal(look[2][0], 1, 'today in full');
+  assert.ok(look[3][0] < 1 && look[3][0] > look[0][0], 'the days ahead softer, but clearer than the past');
+  assert.equal(await page.isDisabled('.cal-nav >> text=Today'), true);
+  // Next week: focused a week on, today still in the list above it.
   await page.getByRole('button', { name: 'Next' }).click();
-  assert.equal(await page.textContent('.cal-title'), 'Oct 18 – 24, 2026');
+  assert.equal(await page.textContent('.cal-title'), 'Around Oct 24');
+  assert.equal(await page.getAttribute('.cal-day.cal-focus', 'data-day'), '2026-10-24');
   assert.match(await page.textContent('.cal-list'), /@ Raiders/);
-  assert.equal(await page.locator('.cal-today').count(), 0);
-  await page.getByRole('button', { name: 'Today' }).click();
-  assert.equal(await page.textContent('.cal-title'), 'Oct 11 – 17, 2026');
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  assert.equal(await page.textContent('.cal-title'), 'This week');
 
   // Month: today's cell highlighted; a day opens in Day view with the details.
   await page.getByRole('tab', { name: 'Month' }).click();
@@ -172,6 +183,62 @@ test('Updates → Sports: a calendar of the games, week by default with today hi
   await page.click('.upd-local-head .chip');
   await page.waitForFunction(() => !document.querySelector('.upd-local'));
   assert.doesNotMatch(await page.textContent('.cal-list'), /Utah/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Updates → Sports: 📊 Update stats pulls live scores and stats on request; a live game stands out and fits', async () => {
+  const context = await browser.newContext({ viewport: { width: 360, height: 780 }, timezoneId: 'America/Denver' });
+  const seen = await mockApis(context, {
+    'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard': scoreboardJson,
+    'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=402': summaryJson,
+  });
+  await context.route('https://site.api.espn.com/apis/site/v2/sports/*/*/scoreboard', (r) => r.fulfill({ json: { events: [] }, headers: { 'access-control-allow-origin': '*' } }));
+  await context.route('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', (r) => { seen.push(r.request().url()); return r.fulfill({ json: scoreboardJson, headers: { 'access-control-allow-origin': '*' } }); });
+  const { page, errors } = await openApp(context, '#/updates/sports');
+  await page.waitForFunction(() => /vs Chiefs/.test(document.querySelector('.cal-today')?.textContent ?? ''));
+  // Not live yet: nothing asked of the scoreboard until the button.
+  assert.ok(!seen.some((u) => u.includes('/scoreboard')));
+  assert.equal(await page.locator('.upd-game.upd-live').count(), 0);
+
+  await page.getByRole('button', { name: 'Update stats' }).click();
+  await page.waitForSelector('.upd-game.upd-live');
+  await page.waitForFunction(() => /Updated/.test(document.querySelector('.upd-stats-note')?.textContent ?? ''));
+  assert.match(await page.textContent('.upd-stats-note'), /Updated \d+:\d\d [AP]M · 1 live · stats for 1 game \(1 with box score\)/);
+  assert.ok(seen.some((u) => u.includes('/nfl/summary?event=402')));
+  const card = page.locator('.upd-game.upd-live');
+  const text = await card.textContent();
+  assert.match(text, /LIVE[\s\S]*3rd 5:12/);
+  assert.match(await card.locator('.upd-score').getAttribute('aria-label'), /DEN 14, KC 10/);
+  // The live game's stats open by themselves: situation, last play, win chance, leaders, team stats.
+  const st = await card.locator('.upd-stats').textContent();
+  assert.match(st, /DEN ball · 3rd & 4 at KC 38/);
+  assert.match(st, /Last play: B\.Nix pass short right/);
+  assert.match(st, /Win chance: KC 32% · DEN 68%/);
+  assert.match(st, /DEN PASS: B\. Nix 181 YDS/);
+  assert.match(st, /Total Yards\s*214\s*261/);
+  // Color-coded: a red-tinted card with a red edge.
+  const look = await card.evaluate((e) => { const cs = getComputedStyle(e); return { bg: cs.backgroundColor, edge: cs.borderLeftColor }; });
+  assert.equal(look.edge, 'rgb(220, 38, 38)');
+  assert.notEqual(look.bg, 'rgb(255, 255, 255)');
+  // Everything fits the card: the status column stays narrow, the score and 📊 inside the right edge.
+  const fit = await card.evaluate((e) => {
+    const box = e.getBoundingClientRect();
+    const r = (s) => e.querySelector(s).getBoundingClientRect();
+    return { right: box.right, side: r('.upd-side').right, status: r('.upd-status').width, what: r('.cal-what').width, overflow: e.scrollWidth - e.clientWidth, page: document.documentElement.scrollWidth - innerWidth };
+  });
+  assert.ok(fit.side <= fit.right, 'score column inside the card');
+  assert.ok(fit.status <= 80, `status column narrow (${fit.status})`);
+  assert.ok(fit.what >= 100, `room left for the teams (${fit.what})`);
+  assert.ok(fit.overflow <= 0 && fit.page <= 0, 'no sideways overflow');
+  // 📊 folds the stats away and back.
+  await card.getByRole('button', { name: 'Stats: DEN vs KC' }).click();
+  assert.equal(await card.locator('.upd-stats').count(), 0);
+  await card.getByRole('button', { name: 'Stats: DEN vs KC' }).click();
+  await page.waitForSelector('.upd-game.upd-live .upd-stats >> text=Win chance');
+  // Month view: the live game's chip in red.
+  await page.getByRole('tab', { name: 'Month' }).click();
+  assert.match(await page.textContent('.cal-chip.upd-live-chip'), /● DEN vs KC/);
   assert.deepEqual(errors, []);
   await context.close();
 });

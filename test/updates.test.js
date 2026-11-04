@@ -9,7 +9,7 @@ import weatherJob from '../src/jobs/weather-alerts.js';
 import sportsJob from '../src/jobs/sports.js';
 import { configFor, memoryStore, recordingNotifier, quietLog, noSleep } from './helpers/harness.js';
 
-import { NOW, TZ, iso, pointJson, alertsJson, hourlyJson, gridJson, airJson, DEN, KC, ev, scheduleJson } from './fixtures/updates.js';
+import { NOW, TZ, iso, pointJson, alertsJson, hourlyJson, gridJson, airJson, DEN, KC, ev, scheduleJson, scoreboardJson, summaryJson } from './fixtures/updates.js';
 
 // ---------- weather ----------
 
@@ -185,4 +185,33 @@ test('sports job: finals and game-day pushes, quiet overnight, one failing team 
   // Every team failing is a failed run.
   const r3 = await runJob(opts({ job: sportsJob, config, store: memoryStore(), notifier: recordingNotifier(), now: new Date(NOW), fetchFn: fakeNet({}).fetchFn }));
   assert.equal(r3.status, 'failed');
+});
+
+test('sports live stats: a scoreboard\'s live game (score, clock, situation, leaders, team stats) and a game summary', () => {
+  assert.equal(S.urls.summary('nfl', '402'), 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=402');
+  const board = S.parseScoreboard(scoreboardJson);
+  assert.deepEqual([...board.keys()], ['402', '999']);
+  const live = board.get('402');
+  assert.equal(live.game.state, 'in');
+  assert.equal(live.game.detail, '3rd 5:12');
+  assert.deepEqual([live.game.home.score, live.game.away.score], ['14', '10']);
+  assert.deepEqual(live.situation, { text: '3rd & 4 at KC 38', possession: 'DEN', lastPlay: 'B.Nix pass short right to C.Sutton for 9 yards' });
+  assert.deepEqual(live.leaders, [{ team: '', stat: 'PASS', who: 'B. Nix', value: '14/20, 181 YDS, 1 TD' }]);
+  assert.deepEqual(live.teams[0], { abbr: 'DEN', home: true, stats: [{ label: 'YDS', value: '261' }], lines: ['7', '7', '0'] });
+  assert.equal(board.get('999').situation, null, 'a game not started has no situation');
+
+  const sum = S.parseSummary(summaryJson);
+  assert.deepEqual(sum.winProb, { home: 68, away: 32 }, 'the latest win probability');
+  assert.equal(sum.situation.possession, 'DEN');
+  assert.deepEqual(sum.leaders.map((l) => `${l.team} ${l.stat} ${l.who} ${l.value}`), ['DEN PASS B. Nix 181 YDS', 'DEN RUSH J. Williams 64 YDS', 'KC PASS P. Mahomes 150 YDS']);
+  // The key football stats first, side by side (away, home); a stat one side lacks shows as a dash.
+  assert.deepEqual(S.statRows(sum.teams, 'football', 3), [
+    { label: 'Total Yards', away: '214', home: '261' },
+    { label: 'Turnovers', away: '2', home: '0' },
+    { label: 'Possession', away: '13:40', home: '17:08' },
+  ]);
+  assert.deepEqual(S.statRows([{ abbr: 'A', home: false, stats: [{ label: 'Shots', value: '5' }] }, { abbr: 'B', home: true, stats: [] }], 'hockey'), [{ label: 'Shots', away: '5', home: '–' }]);
+  assert.deepEqual(S.statRows([], 'football'), []);
+  // Nothing there (a game ESPN has no box score for yet): empty, not an error.
+  assert.deepEqual(S.parseSummary({}), { situation: null, leaders: [], teams: [], winProb: null, at: S.parseSummary({}).at });
 });

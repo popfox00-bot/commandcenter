@@ -84,3 +84,10 @@ if ('serviceWorker' in navigator) {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
   }).catch(() => {});
 }
+
+// Press and hold on a drawing surface (the photo editor, cutout, collage, draw, scan, PDF): no
+// "copy / save image" menu and no text selection starting there, so a long press just draws, traces,
+// patches or uses the wand.
+const HOLD_SURFACES = '.ed-stage, .co-stage, .cl-canvas, .dr-stage, .scan-edit, .pw-page, .sig-pad, .ed-expand-preview, .no-hold-select';
+const onSurface = (t) => (t?.nodeType === 1 ? t : t?.parentElement)?.closest?.(HOLD_SURFACES);
+for (const type of ['contextmenu', 'selectstart']) document.addEventListener(type, (e) => { if (onSurface(e.target)) e.preventDefault(); });

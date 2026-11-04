@@ -11,7 +11,7 @@
 // its final/ and misc/ folders. WordNet: the dict/ folder of WordNet 3.x (e.g. npm wordnet-db).
 //
 // Output, one line per rhyme sound: `SOUNDS|entry entry …`, entries `word<level><syllables><flags>`
-// (level 1–3, flags: n noun, v verb, a adjective, x profane), most common first.
+// (level 1–4, flags: n noun, v verb, a adjective, x profane), most common first.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -21,9 +21,10 @@ if (!wnDir) { console.error('usage: build-rap-words.mjs CMUDICT SCOWL_FINAL_DIR 
 const read = (p) => (existsSync(p) ? readFileSync(p, 'latin1') : '');
 const lines = (t) => t.split('\n').map((s) => s.trim()).filter(Boolean);
 
-// How common: the smallest SCOWL size listing it (American or general English).
+// How common: the smallest SCOWL size listing it (American or general English). Level 4 (sizes 40
+// and 50: bronco, lambo…) is only for telling how a word sounds, never suggested.
 const level = new Map();
-for (const [size, lvl] of [[10, 1], [20, 2], [35, 3]]) {
+for (const [size, lvl] of [[10, 1], [20, 2], [35, 3], [40, 4], [50, 4]]) {
   for (const kind of ['english-words', 'american-words']) {
     for (const w of lines(read(join(finalDir, `${kind}.${size}`)))) {
       const word = w === 'I' ? 'i' : w;

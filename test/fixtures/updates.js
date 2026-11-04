@@ -47,3 +47,27 @@ export const scheduleJson = { team: { ...DEN, alternateColor: '002244', recordSu
   ev('403', iso(24 * 7), 'pre', LV, DEN, null, null),
 ] };
 
+
+// Live stats: today's NFL scoreboard with the Broncos game under way, and that game's summary.
+const athlete = (shortName) => ({ shortName, displayName: shortName });
+const liveGame = ev('402', iso(-1), 'in', DEN, KC, 14, 10, {
+  situation: { downDistanceText: '3rd & 4 at KC 38', isRedZone: false, possession: '7', lastPlay: { text: 'B.Nix pass short right to C.Sutton for 9 yards' } },
+  leaders: [{ name: 'passingYards', shortDisplayName: 'PASS', leaders: [{ displayValue: '14/20, 181 YDS, 1 TD', athlete: athlete('B. Nix') }] }],
+});
+liveGame.competitions[0].status.type.shortDetail = '3rd 5:12';
+liveGame.competitions[0].competitors[0].statistics = [{ abbreviation: 'YDS', displayValue: '261' }];
+liveGame.competitions[0].competitors[0].linescores = [{ value: 7 }, { value: 7 }, { value: 0 }];
+export const scoreboardJson = { events: [liveGame, ev('999', iso(1), 'pre', team('9', 'GB', 'Green Bay Packers', 'Packers', '203731'), team('3', 'CHI', 'Chicago Bears', 'Bears', '0b162a'), null, null)] };
+export const summaryJson = {
+  header: { competitions: [{ competitors: liveGame.competitions[0].competitors }] },
+  situation: liveGame.competitions[0].situation,
+  boxscore: { teams: [
+    { homeAway: 'away', team: KC, statistics: [{ label: 'Total Yards', displayValue: '214' }, { label: 'Turnovers', displayValue: '2' }, { label: 'Possession', displayValue: '13:40' }, { label: 'Penalties', displayValue: '3-25' }] },
+    { homeAway: 'home', team: DEN, statistics: [{ label: 'Total Yards', displayValue: '261' }, { label: 'Turnovers', displayValue: '0' }, { label: 'Possession', displayValue: '17:08' }, { label: 'Penalties', displayValue: '5-40' }] },
+  ] },
+  leaders: [
+    { team: DEN, leaders: [{ name: 'passingYards', shortDisplayName: 'PASS', leaders: [{ displayValue: '181 YDS', athlete: athlete('B. Nix') }] }, { name: 'rushingYards', shortDisplayName: 'RUSH', leaders: [{ displayValue: '64 YDS', athlete: athlete('J. Williams') }] }] },
+    { team: KC, leaders: [{ name: 'passingYards', shortDisplayName: 'PASS', leaders: [{ displayValue: '150 YDS', athlete: athlete('P. Mahomes') }] }] },
+  ],
+  winprobability: [{ homeWinPercentage: 0.55 }, { homeWinPercentage: 0.684 }],
+};

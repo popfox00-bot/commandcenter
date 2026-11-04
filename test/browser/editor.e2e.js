@@ -91,8 +91,9 @@ test('exposure brightens, undo restores, Mono filter removes color', async () =>
   await page.getByRole('button', { name: 'Redo' }).click();
   await page.getByRole('tab', { name: 'Filters' }).click();
   await page.getByRole('button', { name: 'Mono', exact: true }).click();
-  await page.waitForTimeout(150);
-  const [r, g, b] = await pixel(page, 0.25, 0.5);
+  // Drawn on the next frame: wait for it (a busy machine can take a while), then check.
+  let r; let g; let b;
+  for (let k = 0; k < 40; k++) { [r, g, b] = await pixel(page, 0.25, 0.5); if (Math.abs(r - g) <= 2 && Math.abs(g - b) <= 2) break; await page.waitForTimeout(100); }
   assert.ok(Math.abs(r - g) <= 2 && Math.abs(g - b) <= 2, `gray ${r},${g},${b}`);
   await context.close();
 });
@@ -222,6 +223,196 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
   await page.getByRole('tab', { name: '✂️ Cutout' }).click();
   await page.waitForTimeout(300);
   assert.equal(await page.isVisible('dialog[open]'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('clean up → 🎨 Reverse Fill: pick the label\'s shades, trace roughly around it; it\'s removed and filled with the can, not the wall', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // A green wall; a blue can (x 70–130) with a white label (y 40–70), red bands on it, black print.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 120);
+    const x = c.getContext('2d');
+    x.fillStyle = 'rgb(80,130,70)'; x.fillRect(0, 0, 200, 120);
+    x.fillStyle = 'rgb(40,70,190)'; x.fillRect(70, 0, 60, 120);
+    x.fillStyle = 'rgb(240,240,236)'; x.fillRect(70, 40, 60, 30);
+    x.fillStyle = 'rgb(210,30,35)'; x.fillRect(70, 40, 60, 6); x.fillRect(70, 64, 60, 6);
+    x.fillStyle = 'rgb(20,20,20)'; x.fillRect(85, 50, 4, 10); x.fillRect(100, 52, 14, 3);
+    const b = await c.convertToBlob({ type: 'image/png' });
+    return Array.from(new Uint8Array(await b.arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'can.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  await page.getByRole('button', { name: '🎨 Reverse Fill' }).click();
+  await page.waitForSelector('text=Tap the colors to remove');
+  const box = async () => { await page.evaluate(() => window.scrollTo(0, 0)); return page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }); };
+  const at = (b, fx, fy) => [b[0] + fx * b[2], b[1] + fy * b[3]];
+  // Two shades: the white and the red.
+  let b = await box();
+  await page.mouse.click(...at(b, 0.6, 0.47));
+  await page.mouse.click(...at(b, 0.6, 0.355));
+  assert.equal(await page.locator('.ed-shade').count(), 2);
+  // A rough loop around the label, wider than the can (onto the wall).
+  b = await box();
+  const loop = [[0.3, 0.27], [0.7, 0.27], [0.7, 0.63], [0.3, 0.63], [0.3, 0.29]];
+  await page.mouse.move(...at(b, ...loop[0])); await page.mouse.down();
+  for (let i = 1; i < loop.length; i++) await page.mouse.move(...at(b, ...loop[i]), { steps: 8 });
+  await page.mouse.up();
+  await page.waitForSelector('text=/Pink shows what goes: \\d+% of the traced area/');
+  // The print is caught too (closed around by the shades); the wall isn't.
+  await page.getByRole('button', { name: '✨ Remove & fill' }).click();
+  await page.waitForSelector('text=Removed and filled from the surface around it');
+  await page.waitForTimeout(200);
+  for (const [fx, fy] of [[0.5, 0.47], [0.44, 0.45], [0.6, 0.355], [0.53, 0.44], [0.37, 0.56], [0.63, 0.4]]) {
+    const p = await pixel(page, fx, fy);
+    assert.ok(p[2] > 150 && p[0] < 90 && p[1] < 110, `blue can at ${fx},${fy} (${p})`);
+  }
+  for (const [fx, fy] of [[0.32, 0.47], [0.68, 0.5]]) {
+    const p = await pixel(page, fx, fy);
+    assert.ok(p[1] > 110 && p[2] < 100, `the wall beside it stays (${p})`);
+  }
+  // Undo brings the label back.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.waitForTimeout(150);
+  const back = await pixel(page, 0.6, 0.47);
+  assert.ok(back[0] > 220 && back[2] > 220, `undo: the label again (${back})`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('crop → 🪄 Generative Expand: a new shape, the photo to one side, the black space filled from it; use it, and back', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const workers = [];
+  page.on('worker', (w) => workers.push(w.url()));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // A 240×160 landscape: sky on top, grass below the middle.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(240, 160);
+    const x = c.getContext('2d');
+    const sky = x.createLinearGradient(0, 0, 0, 90); sky.addColorStop(0, 'rgb(80,140,230)'); sky.addColorStop(1, 'rgb(170,210,235)');
+    x.fillStyle = sky; x.fillRect(0, 0, 240, 90);
+    x.fillStyle = 'rgb(60,130,50)'; x.fillRect(0, 90, 240, 70);
+    for (let i = 0; i < 400; i++) { x.fillStyle = i % 2 ? 'rgb(80,150,60)' : 'rgb(45,110,40)'; x.fillRect((i * 37) % 240, 90 + ((i * 53) % 70), 3, 2); }
+    const b = await c.convertToBlob({ type: 'image/png' });
+    return Array.from(new Uint8Array(await b.arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'field.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Crop' }).click();
+  await page.getByRole('button', { name: '🪄 Generative Expand' }).click();
+  const dlg = page.locator('dialog[open].ed-expand');
+  await dlg.waitFor();
+  // 16:9: wider, the photo on the left, black on the right in the preview.
+  await dlg.getByRole('button', { name: '16:9', exact: true }).click();
+  await dlg.getByRole('button', { name: '◀ Left' }).click();
+  assert.match(await dlg.locator('p[aria-live]').textContent(), /16:9: \d+ px of new space on the right/);
+  const black = await dlg.locator('canvas').evaluate((c) => { const d = c.getContext('2d').getImageData(c.width - 3, c.height >> 1, 1, 1).data; return [d[0], d[1], d[2], c.width / c.height]; });
+  assert.deepEqual(black.slice(0, 3), [0, 0, 0], 'the space to fill shows black');
+  assert.ok(Math.abs(black[3] - 16 / 9) < 0.03);
+  // Tall instead: 9:16 has Top / Middle / Bottom; the photo at the top.
+  await dlg.getByRole('button', { name: '9:16', exact: true }).click();
+  await dlg.getByRole('button', { name: '▲ Top' }).click();
+  assert.match(await dlg.locator('p[aria-live]').textContent(), /9:16: \d+ px of new space below/);
+  assert.equal(await dlg.getByRole('button', { name: '4:3', exact: true }).isDisabled(), false);
+  assert.equal(await dlg.getByRole('button', { name: '3:2', exact: true }).isDisabled(), true, 'the shape it is already');
+  await dlg.getByRole('button', { name: '✨ Expand' }).click();
+  await dlg.locator('text=/Expanded to 9:16/').waitFor({ timeout: 60000 });
+  assert.ok(workers.some((u) => u.endsWith('/expand-worker.js')), 'filled in a worker');
+  // The preview: no black left; grass carried on down below the photo.
+  const filled = await dlg.locator('canvas').evaluate((c) => {
+    const x = c.getContext('2d'); const d = x.getImageData(0, 0, c.width, c.height).data; let black = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 40) black++;
+    const p = x.getImageData(c.width >> 1, c.height - 4, 1, 1).data;
+    return { black, bottom: [p[0], p[1], p[2]], ratio: c.width / c.height };
+  });
+  assert.equal(filled.black, 0);
+  assert.ok(filled.bottom[1] > filled.bottom[2] + 30, `grass at the bottom (${filled.bottom})`);
+  assert.ok(Math.abs(filled.ratio - 9 / 16) < 0.02);
+  await dlg.getByRole('button', { name: '✓ Use it' }).click();
+  // The expanded picture is the photo now: 9:16, its top the photo's sky.
+  await page.waitForFunction(() => { const c = document.querySelector('.ed-canvas'); return c && Math.abs(c.width / c.height - 9 / 16) < 0.02; });
+  await page.waitForTimeout(200);
+  const top = await pixel(page, 0.5, 0.05);
+  assert.ok(top[2] > 200 && top[2] > top[1], `the photo's sky at the top (${top})`);
+  const low = await pixel(page, 0.5, 0.92);
+  assert.ok(low[1] > low[2] + 30, `filled with grass at the bottom (${low})`);
+  // And back to the photo from before.
+  await page.getByRole('button', { name: '↩ Before expanding' }).click();
+  await page.waitForFunction(() => { const c = document.querySelector('.ed-canvas'); return c && Math.abs(c.width / c.height - 1.5) < 0.02; });
+  assert.equal(await page.isVisible('text=↩ Before expanding'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('zoom within the photo: two fingers zoom (no stroke drawn), one finger then works on the zoomed photo; ⤢ Fit; Cutout too', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // Red with a small white speck at (70, 30) of 200×100.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 100); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(200,40,40)'; x.fillRect(0, 0, 200, 100);
+    x.fillStyle = '#fff'; x.fillRect(68, 28, 4, 4);
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'speck.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Markup' }).click();
+  /** A two-finger pinch on `sel`: fingers start `d0` apart around (fx, fy) of it and end `d1` apart. */
+  const pinch = (sel, fx, fy, d0, d1) => page.$eval(sel, (target, [fx2, fy2, a, b]) => {
+    const r = target.getBoundingClientRect(); const cx = r.left + fx2 * r.width; const cy = r.top + fy2 * r.height;
+    const ev = (type, id, x) => target.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: x, clientY: cy, bubbles: true, cancelable: true }));
+    ev('pointerdown', 1, cx - a / 2); ev('pointerdown', 2, cx + a / 2);
+    for (let k = 1; k <= 8; k++) { const d = a + ((b - a) * k) / 8; ev('pointermove', 1, cx - d / 2); ev('pointermove', 2, cx + d / 2); }
+    ev('pointerup', 1, cx - b / 2); ev('pointerup', 2, cx + b / 2);
+  }, [fx, fy, d0, d1]);
+  const before = await page.$eval('.ed-canvas', (c) => c.width);
+  await pinch('.ed-overlay', 0.35, 0.3, 40, 160);
+  await page.waitForFunction((w) => document.querySelector('.ed-canvas').width > w * 2, before);
+  const zoom = await page.$eval('.ed-zoom', (e) => e.style.transform);
+  const z = Number(/scale\(([\d.]+)\)/.exec(zoom)?.[1]);
+  assert.ok(z > 3, `zoomed in (${zoom})`);
+  assert.equal(await page.isVisible('text=⤢ Fit'), true);
+  assert.equal(await page.isVisible('text=Remove all markup'), false, 'the pinch drew nothing');
+  // The speck under the fingers is still there, now big: Clean Up taps it on the zoomed photo.
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  const spot = await page.$eval('.ed-canvas', (c) => { const r = c.getBoundingClientRect(); return [r.left + 0.35 * r.width, r.top + 0.3 * r.height, r.width]; });
+  assert.ok(spot[2] > 1000, 'the photo shows big');
+  const shownWhite = await page.$eval('.ed-canvas', (c) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(0.35 * c.width), Math.round(0.3 * c.height), 1, 1).data]; });
+  assert.ok(shownWhite[1] > 200, `the speck: ${shownWhite}`);
+  await page.mouse.click(spot[0], spot[1]);
+  await page.waitForSelector('text=Spot cleaned up');
+  await page.waitForTimeout(150);
+  const after = await page.$eval('.ed-canvas', (c) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(0.35 * c.width), Math.round(0.3 * c.height), 1, 1).data]; });
+  assert.ok(after[0] > 150 && after[1] < 90, `the speck is gone where it was tapped: ${after}`);
+  // ⤢ Fit: back to the whole photo. Ctrl + scroll zooms on a computer.
+  await page.getByRole('button', { name: 'Fit photo' }).click();
+  assert.equal(await page.$eval('.ed-zoom', (e) => e.style.transform), '');
+  const b = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  await page.mouse.move(...b);
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, -200); await page.keyboard.up('Control');
+  assert.match(await page.$eval('.ed-zoom', (e) => e.style.transform), /scale\((?!1\))/);
+
+  // Cutout: the same pinch zooms there, and leaves no trace.
+  await page.getByRole('tab', { name: '✂️ Cutout' }).click();
+  await page.locator('dialog[open]').getByRole('button', { name: '✂️ Trace a cutout' }).click();
+  await page.waitForSelector('.co-canvas');
+  await pinch('.co-canvas', 0.5, 0.5, 40, 120);
+  assert.ok(Number(/scale\(([\d.]+)\)/.exec(await page.$eval('.co-zoom', (e) => e.style.transform))?.[1]) > 2);
+  assert.equal(await page.isDisabled('text=Preview cutout'), true, 'no trace from the pinch');
   assert.deepEqual(errors, []);
   await context.close();
 });

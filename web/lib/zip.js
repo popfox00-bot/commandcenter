@@ -84,3 +84,35 @@ export function concat(parts) {
   for (const p of parts) { out.set(p, o); o += p.length; }
   return out;
 }
+
+/**
+ * The files in a ZIP (stored, or deflated: read with the browser's DecompressionStream), as
+ * [{ name, bytes: Uint8Array }]; folders left out. Throws when it isn't a ZIP.
+ */
+export async function readZip(input) {
+  const buf = input instanceof ArrayBuffer ? input : input.buffer ? input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) : await input.arrayBuffer();
+  const dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('That isn\'t a ZIP file.');
+  const count = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder();
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true); const compressed = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true); const extraLen = dv.getUint16(p + 30, true); const commentLen = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(buf, p + 46, nameLen));
+    p += 46 + nameLen + extraLen + commentLen;
+    if (name.endsWith('/')) continue;
+    const start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+    const data = new Uint8Array(buf, start, compressed);
+    let bytes;
+    if (method === 0) bytes = data.slice();
+    else if (method === 8 && typeof DecompressionStream !== 'undefined') bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else throw new Error(`"${name}" in that ZIP can't be read on this device.`);
+    out.push({ name, bytes });
+  }
+  return out;
+}

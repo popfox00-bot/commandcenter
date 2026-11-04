@@ -8,6 +8,7 @@ import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, encodeCanvas, MAX_CANVAS_PIXELS } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { listCharacters, getCharacterBlob } from '../../lib/characters.js';
+import { colorStats, matchColors } from '../../lib/color-match.js';
 import { createHistory } from '../editor/state.js';
 import { LAYOUTS, ASPECTS, cellRects, coverRect, panBy, layerHit, handlePoint, dragHandle, pinchTransform } from './collage-core.js';
 
@@ -153,7 +154,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
         ctx.save();
         ctx.translate(l.x * W, l.y * H); ctx.rotate(l.rot); if (l.flip) ctx.scale(-1, 1);
         ctx.globalAlpha = l.opacity;
-        ctx.drawImage(im.bmp, -w / 2, -h / 2, w, h);
+        ctx.drawImage(l.match ? matchedBmp(l, im, W, H, ui ? 640 : 2048) : im.bmp, -w / 2, -h / 2, w, h);
         ctx.restore();
         if (ui && selected === l.id) {
           const px = W / canvas.clientWidth;
@@ -169,6 +170,36 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
       }
     }
     ctx.restore();
+  }
+
+  /**
+   * 🎨 Match color: the layer's image with the light and color of what's behind it (the background
+   * photo under it, or the background color), by the layer's Match amount. Worked out at a modest size
+   * and kept until the layer moves, resizes or the amount changes.
+   */
+  const matchCache = new Map();
+  function matchedBmp(l, im, W, H, max) {
+    const s = st();
+    const key = `${max}|${l.src}|${l.match}|${s.base}|${s.bg}|${Math.round(l.x * 50)}|${Math.round(l.y * 50)}|${Math.round(l.scale * 50)}`;
+    const hit = matchCache.get(`${l.id}|${max}`);
+    if (hit?.key === key) return hit.canvas;
+    // What's behind: the background as drawn, at a small size, under the layer (and a little around).
+    const SW = 360; const SH = Math.max(1, Math.round(SW * (H / W)));
+    const back = document.createElement('canvas'); back.width = SW; back.height = SH;
+    const bx = back.getContext('2d', { willReadFrequently: true });
+    bx.fillStyle = s.bg; bx.fillRect(0, 0, SW, SH);
+    if (s.base && images.has(s.base)) { const b = images.get(s.base); const d = coverRect(b.w, b.h, { x: 0, y: 0, w: SW, h: SH }); bx.drawImage(b.bmp, d.dx, d.dy, d.dw, d.dh); }
+    const lw = l.scale * SW; const lh = lw * (im.h / im.w); const r = Math.hypot(lw, lh) * 0.6;
+    const x0 = Math.max(0, Math.floor(l.x * SW - r)); const y0 = Math.max(0, Math.floor(l.y * SH - r));
+    const x1 = Math.min(SW, Math.ceil(l.x * SW + r)); const y1 = Math.min(SH, Math.ceil(l.y * SH + r));
+    const target = x1 > x0 && y1 > y0 ? colorStats(bx.getImageData(x0, y0, x1 - x0, y1 - y0).data, x1 - x0, y1 - y0) : null;
+    // The layer's image at up to `max` px (less on screen than for the saved collage), matched.
+    const k = Math.min(1, max / Math.max(im.w, im.h)); const w = Math.max(1, Math.round(im.w * k)); const h = Math.max(1, Math.round(im.h * k));
+    const out = document.createElement('canvas'); out.width = w; out.height = h;
+    const ox = out.getContext('2d', { willReadFrequently: true }); ox.drawImage(im.bmp, 0, 0, w, h);
+    if (target) ox.putImageData(new ImageData(matchColors(ox.getImageData(0, 0, w, h).data, w, h, target, l.match / 100), w, h), 0, 0);
+    matchCache.set(`${l.id}|${max}`, { key, canvas: out });
+    return out;
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -257,7 +288,9 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           s.base ? el('button', { class: 'btn small-btn ghost', text: 'Remove background', onclick: () => commit({ ...st(), base: null, aspect: st().aspect === 'base' ? '1:1' : st().aspect }) }) : null),
         el('div', { class: 'row wrap' },
           el('button', { class: 'btn small-btn primary', text: '+ Photo', onclick: () => pick({ kind: 'layer' }, true) }),
-          el('button', { class: 'btn small-btn primary', text: '+ Character', onclick: chooseCharacter })),
+          el('button', { class: 'btn small-btn primary', text: '+ Character', onclick: chooseCharacter }),
+          s.base ? el('button', { class: 'btn small-btn', text: '🎭 Face swap', onclick: faceSwap }) : null),
+        faceNote ? el('p', { class: 'small muted', 'aria-live': 'polite', text: faceNote }) : null,
         layer ? el('div', { class: 'row wrap' },
           el('button', { class: 'btn small-btn', text: '⇋ Flip', onclick: () => upd({ flip: !layer.flip }) }),
           el('button', { class: 'btn small-btn', text: 'Forward', disabled: idx === s.layers.length - 1, onclick: () => { const L = [...st().layers]; [L[idx], L[idx + 1]] = [L[idx + 1], L[idx]]; commit({ ...st(), layers: L }); } }),
@@ -265,6 +298,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           el('button', { class: 'btn small-btn', text: 'Duplicate', onclick: () => { const copy = { ...layer, id: crypto.randomUUID(), x: layer.x + 0.04, y: layer.y + 0.04 }; selected = copy.id; commit({ ...st(), layers: [...st().layers, copy] }); } }),
           el('button', { class: 'btn small-btn ghost', text: 'Delete', onclick: () => { selected = null; commit({ ...st(), layers: st().layers.filter((l) => l.id !== layer.id) }); } })) : null,
         layer ? slider('Opacity', 10, 100, Math.round(layer.opacity * 100), (v) => upd({ opacity: v / 100 }, live)) : null,
+        layer ? slider('🎨 Match color (to what\'s behind it)', 0, 100, Math.round(layer.match ?? 0), (v) => upd({ match: v }, live)) : null,
         el('p', { class: 'muted small', text: layer
           ? 'Drag to move. Two fingers (or the blue dot) resize and rotate.'
           : s.layers.length ? 'Tap a layer to select it.' : 'Choose a background photo, then add photos or Characters on top.' }),
@@ -277,6 +311,58 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     const n = LAYOUTS[st().layout].cells.length;
     for (let i = 0; i < n; i++) if (!st().cells[i]?.src) return i;
     return 0;
+  }
+
+  // ---------- face swap ----------
+
+  let faceNote = '';
+  /** What goes on the faces: a Character, or a mask image picked from the phone. Resolves to a blob, or null. */
+  async function chooseMask() {
+    const list = await listCharacters();
+    return new Promise((resolve) => {
+      let picked = null;
+      const file = el('input', { type: 'file', accept: 'image/*,.heic,.heif', class: 'visually-hidden', id: 'cl-mask-file' });
+      const dlg = el('dialog', { class: 'ed-dialog' }, el('div', { class: 'sheet' },
+        el('h2', { text: 'Face swap' }),
+        el('p', { class: 'small muted', text: 'Put one of your Characters (from Cutout) or any mask image on every face found. Move, resize or turn them after.' }),
+        list.length ? el('div', { class: 'char-grid' }) : el('p', { class: 'muted small', text: 'No Characters yet: cut a face out in Cutout and save it as a Character, or use a mask image.' }),
+        el('label', { class: 'btn block', for: 'cl-mask-file', text: '🖼 A mask image…' }), file,
+        el('div', { class: 'row end' }, el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => dlg.close() }))));
+      const grid = dlg.querySelector('.char-grid'); const urls = [];
+      (async () => {
+        for (const c of list) {
+          const blob = await getCharacterBlob(c.id); if (!blob) continue;
+          const u = URL.createObjectURL(blob); urls.push(u);
+          grid.append(el('button', { type: 'button', class: 'char-card', 'aria-label': c.name, onclick: () => { picked = blob; dlg.close(); } }, el('span', { class: 'checker' }, el('img', { src: u, alt: '' })), el('span', { class: 'small', text: c.name })));
+        }
+      })();
+      file.addEventListener('change', () => { picked = file.files[0] ?? null; dlg.close(); });
+      dlg.addEventListener('close', () => { dlg.remove(); urls.forEach((u) => URL.revokeObjectURL(u)); resolve(picked); });
+      document.body.append(dlg); dlg.showModal();
+    });
+  }
+
+  /**
+   * 🎭 Face swap: the faces in the background photo (found on the phone), each covered by the Character
+   * or mask image chosen, as a layer sized, placed and turned to the face (then movable like any layer).
+   */
+  async function faceSwap() {
+    const s = st();
+    const base = images.get(s.base);
+    if (!base) { alert('Choose a background photo with faces first.'); return; }
+    faceNote = 'Looking for faces…'; renderPanel();
+    let faces;
+    try { const { detectFaces } = await import('../../lib/face.js'); faces = await detectFaces(base.bmp); } catch (err) { faceNote = `Couldn't look for faces: ${err.message}`; renderPanel(); return; }
+    if (!faces.length) { faceNote = 'No face found in the background photo.'; renderPanel(); return; }
+    faceNote = `${faces.length} face${faces.length === 1 ? '' : 's'} found. Pick what goes on ${faces.length === 1 ? 'it' : 'them'}.`; renderPanel();
+    const blob = await chooseMask();
+    if (!blob) { faceNote = ''; renderPanel(); return; }
+    const id = await addImage(blob); const im = images.get(id);
+    const { maskLayer } = await import('../../lib/face-core.js');
+    const layers = faces.map((f) => ({ id: crypto.randomUUID(), src: id, ...maskLayer(f, im.w / im.h, base.w / base.h), opacity: 1, flip: false }));
+    selected = layers.at(-1).id;
+    faceNote = `Covered ${faces.length} face${faces.length === 1 ? '' : 's'}. Drag, pinch or use the blue dot to adjust.`;
+    commit({ ...st(), mode: 'free', aspect: 'base', layers: [...st().layers, ...layers] });
   }
 
   async function chooseCharacter() {
@@ -495,6 +581,14 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     const cells = [...s.cells]; cells[i] = { src: id, zoom: 1, ox: 0, oy: 0 };
     selected = i;
     commit({ ...s, cells });
+  };
+  /** A photo from the editor as the background in Free / Superimpose, then a face swap on it. */
+  unmount.faceSwapOn = async (blob) => {
+    await ready;
+    const id = await addImage(blob);
+    selected = null;
+    commit({ ...st(), mode: 'free', base: id, aspect: 'base' });
+    await faceSwap();
   };
   /** A photo from the editor as the background in Free / Superimpose, then pick a Character for it. */
   unmount.characterOn = async (blob) => {

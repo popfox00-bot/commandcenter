@@ -821,3 +821,8 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .nt-recording { background: #dc2626; color: #fff; border-color: #dc2626; }
 .nt-rec-time { font-variant-numeric: tabular-nums; color: #dc2626; font-weight: 700; }
 .nt-card-memos { color: var(--muted); }
+
+/* Photo Editor → Clean Up → Reverse Fill */
+.ed-shades { flex: 1; min-width: 0; }
+.ed-shade { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; }
+.ed-shade-dot { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); }

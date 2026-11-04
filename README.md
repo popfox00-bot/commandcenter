@@ -124,8 +124,16 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   and color are evened out where it meets the photo (`web/tools/editor/cleanup.js`). If a fill looks
   smudged, **📋 Copy From Area**: tap a clean spot elsewhere (sand, sky, wall), then tap, brush or
   circle the area to cover: it gets that spot one to one, its edge blended into the new surroundings
-  (or **Use on the last clean-up** to redo the last one that way). Each clean-up is one undo step,
-  is shown without it under ◑, and is part of every export.
+  (or **Use on the last clean-up** to redo the last one that way). **🎨 Reverse Fill** removes a
+  thing by its colors, a label off a can, a sticker, a logo: **tap** the shades to remove (several:
+  the label's white, its red…), and **draw a rough loop** around it. What matches shows in pink (with
+  shadowed and anti-aliased shades next to them, and the print they close around), **Match** sets
+  how close a shade counts, and **✨ Remove & fill** takes it out and fills it from the surface it was
+  on: the parts of the loop that border it most (the can above and below the label), not what's
+  behind (the wall a rough loop takes in). Fill sources are limited to that surface (`forbid` in
+  `complete()`), and its edges are matched to it only. With **🎯 Fill From**, tap the surface to fill
+  with yourself. If the loop is drawn tight, it looks a little past it for the same surface. Each
+  clean-up is one undo step, is shown without it under ◑, and is part of every export.
 - With a mouse, chip rows (Adjust, Filters, Markup…) have a scroll bar, and the scroll wheel moves
   them sideways.
 - Undo/redo for every step, hold ◑ to compare with the original, and **autosave**: if iOS closes the

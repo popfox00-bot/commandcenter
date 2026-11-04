@@ -11,7 +11,7 @@ import { ADJUSTMENTS, FILTERS, RATIOS, defaultState, normalizeState, createHisto
 import { FULL_CROP, orientedSize, outputPixelSize, outputToSource, apply, cropForRatio, dragCrop, rotateClockwise, flipHorizontal } from './geometry.js';
 import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
 import { applyPatches, makePatch } from './retouch.js';
-import { strokeMask, cleanUp, cloneFrom } from './cleanup.js';
+import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab } from './cleanup.js';
 import { levelTurn, mainFace } from '../../lib/face-core.js';
 
 const PREVIEW_MAX = 2048;
@@ -47,6 +47,11 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   // Clean Up: the stroke being drawn (overlay pixels), Copy From Area (on, and the spot to copy from in
   // source pixels), the last clean-up (to redo it as a copy), and a note for the panel.
   let cleanStroke = null; let copyMode = false; let copyFrom = null; let lastClean = null; let cleanNote = ''; let cleaning = false;
+  // Reverse Fill: the shades picked to remove, the shades of the surface to fill from (optional, with
+  // Fill From on), the rough trace around it (source pixels and its mask), the match tolerance, and the
+  // preview of what matches (cached by what it was made from).
+  let rf = null;
+  const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null });
   const cleanups = [];
 
   const state = () => history.state;
@@ -95,6 +100,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       const bitmap = await decodeImage(blob, type);
       const fit = fitSize(bitmap.width, bitmap.height, PREVIEW_MAX);
       source = drawToCanvas(bitmap, fit.width, fit.height, null);
+      rf = null; lastClean = null; copyFrom = null; pixelsCache = null;
       bitmap.close?.();
       file = blob;
       fileName = name;
@@ -232,13 +238,14 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     if (mode === 'cleanup' && !comparing) drawCleanUi(ctx, dpr);
   }
 
-  /** The Clean Up stroke being drawn (a soft glowing trail), and the Copy From spot. */
+  /** The Clean Up stroke being drawn (a soft glowing trail), the Copy From spot, Reverse Fill's trace and what it'll remove. */
   function drawCleanUi(ctx, dpr) {
+    if (rf) drawReverseUi(ctx, dpr);
     if (cleanStroke) {
       ctx.save();
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.strokeStyle = copyMode ? 'rgba(48,209,88,0.45)' : 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = cleanStroke.r * 2;
+      ctx.strokeStyle = cleanStroke.thin ? '#ff2d95' : copyMode ? 'rgba(48,209,88,0.45)' : 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = cleanStroke.thin ? 2.5 * dpr : cleanStroke.r * 2;
       ctx.beginPath();
       cleanStroke.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       if (cleanStroke.pts.length === 1) ctx.lineTo(cleanStroke.pts[0][0] + 0.1, cleanStroke.pts[0][1]);
@@ -324,7 +331,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
         const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
         const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
         if (copyMode && !copyFrom) { pickCopyFrom(pt); return; }
-        cleanStroke = { pts: [pt], r: prefs.cleanSize * k };
+        cleanStroke = { pts: [pt], r: rf ? 10 * k : prefs.cleanSize * k, thin: !!rf };
         overlay.setPointerCapture(e.pointerId);
         schedule();
         return;
@@ -379,7 +386,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       }
     });
     const end = () => {
-      if (cleanStroke) { const st = cleanStroke; cleanStroke = null; runCleanUp(st); return; }
+      if (cleanStroke) { const st = cleanStroke; cleanStroke = null; if (rf) reverseStroke(st); else runCleanUp(st); return; }
       if (!drag) return;
       if (drag.kind === 'crop') {
         const next = state();
@@ -404,6 +411,14 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     const M = outputToSource(viewState(), source.width, source.height);
     const [su, sv] = apply(M, x / overlay.width, y / overlay.height);
     return [su * source.width, sv * source.height];
+  }
+  /** Source pixels → overlay pixels, as a canvas transform [a, b, c, d, e, f] (for drawing on the overlay in source pixels). */
+  function sourceToOverlayMatrix() {
+    const M = outputToSource(viewState(), source.width, source.height);
+    const det = M[0] * M[4] - M[1] * M[3]; if (!det) return null;
+    const at = (x, y) => { const su = x / source.width - M[2]; const sv = y / source.height - M[5]; return [((M[4] * su - M[1] * sv) / det) * overlay.width, ((-M[3] * su + M[0] * sv) / det) * overlay.height]; };
+    const o = at(0, 0); const ax = at(1, 0); const ay = at(0, 1);
+    return [ax[0] - o[0], ax[1] - o[1], ay[0] - o[0], ay[1] - o[1], o[0], o[1]];
   }
   /** Source pixels → overlay pixels (for the Copy From marker); null when it's out of view. */
   function sourceToOverlay(x, y) {
@@ -474,6 +489,123 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     commit({ ...s, patches: [...before, makePatch(p, w, h)] });
   }
 
+  // ---------- Reverse Fill ----------
+
+  /** A Reverse Fill stroke: a tap picks a shade (to remove, or with Fill From on, to fill from); a loop is the trace. */
+  function reverseStroke(st) {
+    const w = source.width; const h = source.height;
+    const pts = st.pts.map(([x, y]) => overlayToSource(x, y));
+    const [ax, ay] = overlayToSource(st.pts[0][0], st.pts[0][1]); const [bx, by] = overlayToSource(st.pts[0][0] + st.r, st.pts[0][1]);
+    const r = Math.max(2, Math.hypot(bx - ax, by - ay));
+    const shape = strokeShape(pts, r);
+    if (shape === 'tap') {
+      const [x, y] = pts[0];
+      if (x < 0 || y < 0 || x >= w || y >= h) { schedule(); return; }
+      const c = sampleShade(sourcePixels(), w, h, x, y, Math.max(2, Math.round(Math.max(w, h) / 500)));
+      const list = rf.fromMode ? rf.from : rf.shades;
+      const lab = toLab(...c);
+      // The same shade twice is one.
+      if (!list.some((d) => { const e = toLab(...d); return Math.hypot(e[0] - lab[0], e[1] - lab[1], e[2] - lab[2]) < 4; })) list.push(c);
+      cleanNote = rf.fromMode ? 'Fill from that. Tap more of the surface, or turn Fill From off.' : rf.trace ? '' : 'Picked. Tap more shades of it, then draw a rough loop around it.';
+    } else if (shape === 'lasso') {
+      const t = strokeMask(pts, 1, w, h);
+      if (!t.box) { schedule(); return; }
+      rf.trace = { pts, mask: t.mask, box: t.box };
+      cleanNote = rf.shades.length ? '' : 'Traced. Now tap the colors to remove inside it.';
+    } else {
+      cleanNote = 'Draw all the way around it (a rough loop), or tap a color.';
+    }
+    reversePreview(); renderPanel(); schedule();
+  }
+
+  /** What Reverse Fill will remove with the shades, trace and tolerance as they are (cached). */
+  function reversePreview() {
+    if (!rf?.trace || !rf.shades.length) { if (rf) rf.preview = null; return null; }
+    const key = `${rf.shades.join('|')}#${rf.tol}`;
+    if (rf.preview?.key === key && rf.preview.trace === rf.trace && rf.preview.patches === state().patches) return rf.preview;
+    const w = source.width; const h = source.height;
+    const m = shadeMask(sourcePixels(), w, h, rf.trace.mask, rf.trace.box, rf.shades, rf.tol);
+    let inTrace = 0; const tb = rf.trace.box;
+    for (let y = tb.y0; y < tb.y1; y++) for (let x = tb.x0; x < tb.x1; x++) inTrace += rf.trace.mask[y * w + x];
+    let canvas = null;
+    if (m.box) {
+      const bw = m.box.x1 - m.box.x0; const bh = m.box.y1 - m.box.y0;
+      canvas = document.createElement('canvas'); canvas.width = bw; canvas.height = bh;
+      const c2 = canvas.getContext('2d'); const img = c2.createImageData(bw, bh);
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (m.mask[(m.box.y0 + y) * w + m.box.x0 + x]) img.data.set([255, 45, 149, 150], (y * bw + x) * 4);
+      c2.putImageData(img, 0, 0);
+    }
+    rf.preview = { key, trace: rf.trace, patches: state().patches, ...m, share: inTrace ? m.count / inTrace : 0, canvas };
+    return rf.preview;
+  }
+
+  function drawReverseUi(ctx, dpr) {
+    const T = sourceToOverlayMatrix(); if (!T) return;
+    const pv = reversePreview();
+    ctx.save();
+    ctx.setTransform(...T);
+    if (pv?.canvas) { ctx.imageSmoothingEnabled = false; ctx.drawImage(pv.canvas, pv.box.x0, pv.box.y0); }
+    ctx.restore();
+    if (rf.trace) {
+      ctx.save();
+      ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#ff2d95'; ctx.setLineDash([6 * dpr, 4 * dpr]);
+      ctx.beginPath();
+      rf.trace.pts.forEach(([x, y], i) => { const px = T[0] * x + T[2] * y + T[4]; const py = T[1] * x + T[3] * y + T[5]; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+      ctx.closePath(); ctx.stroke(); ctx.restore();
+    }
+  }
+
+  /** ✨ Remove & fill: the matched shades taken out of the trace, filled from the surface left around them. */
+  function runReverseFill() {
+    const pv = reversePreview();
+    if (!pv?.box) { cleanNote = 'Nothing in the trace matches those colors: tap them inside it, or raise Match.'; renderPanel(); return; }
+    const w = source.width; const h = source.height; const { trace, from } = rf;
+    cleaning = true; cleanNote = 'Removing and filling…'; renderPanel(); schedule();
+    setTimeout(() => {
+      try {
+        const p = reverseFill(sourcePixels(), w, h, pv.mask, pv.box, trace.mask, { from });
+        if (!p) { cleanNote = ''; return; }
+        const s = state();
+        lastClean = { mask: pv.mask, box: pv.box, before: s.patches ?? [] };
+        cleanNote = p.wide ? 'Removed. Little of the surface was left in the trace, so it was filled from around it: trace a bit wider for a better fill.' : `Removed and filled from the surface around it${p.wider ? ' (some from just past your loop: little of it was inside)' : ''}. Undo takes it back.`;
+        rf = { ...newRf(), tol: rf.tol };
+        commit({ ...s, patches: [...(s.patches ?? []), makePatch(p, w, h)] });
+      } finally { cleaning = false; renderPanel(); schedule(); }
+    }, 30);
+  }
+
+  function reversePanel() {
+    const swatch = (c, list, label) => el('button', {
+      type: 'button', class: 'chip ed-shade', 'aria-label': `Remove ${label} ${c.join(', ')}`,
+      onclick: () => { list.splice(list.indexOf(c), 1); reversePreview(); renderPanel(); schedule(); },
+    }, el('span', { class: 'ed-shade-dot', style: { background: `rgb(${c.join(',')})` } }), el('span', { text: '✕' }));
+    const tol = slider({
+      min: 4, max: 45, value: rf.tol, label: 'Match',
+      onInput: (v) => { rf.tol = v; reversePreview(); schedule(); },
+      onChange: () => { renderPanel(); },
+    });
+    const pv = rf.preview;
+    const ready = rf.shades.length && rf.trace;
+    const status = !rf.shades.length && !rf.trace ? 'Tap the colors to remove (several shades: the white, the red…), and draw a rough loop around the area.'
+      : !rf.trace ? 'Now draw a rough loop around the area to remove them from.'
+        : !rf.shades.length ? 'Now tap the colors to remove, inside the loop.'
+          : pv?.box ? `Pink shows what goes: ${Math.round(pv.share * 100)}% of the traced area. Tap more shades, or adjust Match.` : 'Nothing in the loop matches yet: tap the colors inside it, or raise Match.';
+    return [
+      el('p', { class: 'small muted ed-clean-hint', text: 'Reverse Fill: removes the colors you pick from inside a rough loop (a label, a sticker, a logo) and fills in with the surface around them — not what\'s behind.' }),
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Remove' }),
+        el('div', { class: 'chips ed-shades' }, ...rf.shades.map((c) => swatch(c, rf.shades, 'shade')), rf.shades.length ? null : el('span', { class: 'muted small', text: 'tap colors on the photo' }))),
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Match' }), el('span', { class: 'muted small', text: 'How close a shade counts.' })),
+      tol,
+      el('div', { class: 'chips' },
+        el('button', { type: 'button', class: `chip${rf.fromMode ? ' active' : ''}`, 'aria-pressed': String(rf.fromMode), text: '🎯 Fill From', onclick: () => { rf.fromMode = !rf.fromMode; cleanNote = rf.fromMode ? 'Tap the surface to fill with (the can under the label).' : ''; renderPanel(); } }),
+        ...rf.from.map((c) => swatch(c, rf.from, 'fill-from shade')),
+        rf.trace ? el('button', { type: 'button', class: 'chip', text: '↺ Redraw loop', onclick: () => { rf.trace = null; reversePreview(); cleanNote = 'Draw a rough loop around the area.'; renderPanel(); schedule(); } }) : null,
+        rf.shades.length || rf.trace || rf.from.length ? el('button', { type: 'button', class: 'chip', text: 'Clear', onclick: () => { rf = { ...newRf(), tol: rf.tol }; cleanNote = ''; renderPanel(); schedule(); } }) : null),
+      el('p', { class: 'small', 'aria-live': 'polite', text: status }),
+      el('button', { type: 'button', class: 'btn primary', text: '✨ Remove & fill', disabled: !ready || cleaning || !pv?.box, onclick: runReverseFill }),
+    ];
+  }
+
   function askText(x, y) {
     const area = el('textarea', { rows: '3', placeholder: 'Type your text', class: 'ed-textarea' });
     const boxed = el('input', { type: 'checkbox' });
@@ -528,13 +660,21 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     });
     const copy = el('button', {
       class: `chip${copyMode ? ' active' : ''}`, 'aria-pressed': String(copyMode), text: '📋 Copy From Area',
-      onclick: () => { copyMode = !copyMode; copyFrom = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
+      onclick: () => { copyMode = !copyMode; copyFrom = null; rf = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
     });
+    const reverse = el('button', {
+      class: `chip${rf ? ' active' : ''}`, 'aria-pressed': String(!!rf), text: '🎨 Reverse Fill',
+      onclick: () => { rf = rf ? null : newRf(); copyMode = false; copyFrom = null; cleanNote = ''; renderPanel(); schedule(); },
+    });
+    if (rf) {
+      return [el('div', { class: 'chips' }, copy, reverse), ...reversePanel(),
+        cleanNote ? el('p', { class: `small ${cleaning ? 'muted' : 'ok-text'}`, 'aria-live': 'polite', text: cleanNote }) : null].filter(Boolean);
+    }
     const hint = copyMode
       ? (copyFrom ? 'Tap, brush or circle the area to cover: it gets a copy of the spot you picked, blended in.' : 'Tap the spot to copy from: a clean piece of what should be there (sand, sky, wall).')
       : 'Tap a spot, brush over something, or draw a circle around it: it\'s removed and filled in from the picture around it.';
     return [
-      el('div', { class: 'chips' }, copy,
+      el('div', { class: 'chips' }, copy, reverse,
         copyMode && copyFrom ? el('button', { class: 'chip', text: '↺ Pick another spot', onclick: () => { copyFrom = null; cleanNote = 'Tap the spot to copy from.'; renderPanel(); schedule(); } }) : null,
         copyMode && copyFrom && lastClean ? el('button', { class: 'chip', text: '↻ Use on the last clean-up', onclick: copyOverLast }) : null),
       el('p', { class: 'small muted ed-clean-hint', text: hint }),

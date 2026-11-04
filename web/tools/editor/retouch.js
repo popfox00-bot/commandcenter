@@ -516,9 +516,11 @@ export function inpaint(rgba, w, h, unknown, bx0, by0, bx1, by1, R) {
  * Barnes et al.). Coarse to fine: the layout settles first, then the detail. `maxLevels: 1` keeps the
  * layout of `init` and only refines it at full size; `vote: false` then takes each pixel from the
  * patch that best matches the first guess around it (texture kept, no averaging into a blur).
+ * `forbid(x, y)`: pixels outside the hole that may not be copied from (only the surface the hole is
+ * on, say, not what's behind it); they still count as the hole's surroundings when matching.
  * Returns a copy of `rgba` with the hole filled.
  */
-export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { maxLevels = 4, iters: finalIters = 2, vote: voting = true, minHole = 6, minSize = 48 } = {}) {
+export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { maxLevels = 4, iters: finalIters = 2, vote: voting = true, minHole = 6, minSize = 48, forbid = null } = {}) {
   const P = 3; // patches are 7×7
   const margin = Math.max(24, Math.round(2 * R));
   const rx0 = Math.max(0, bx0 - margin); const ry0 = Math.max(0, by0 - margin);
@@ -529,29 +531,31 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { max
   const levels = [];
   {
     const rw = rx1 - rx0; const rh = ry1 - ry0;
-    const img = new Float32Array(rw * rh * 3); const hole = new Uint8Array(rw * rh);
+    const img = new Float32Array(rw * rh * 3); const hole = new Uint8Array(rw * rh); const block = new Uint8Array(rw * rh);
     const src = init ?? rgba;
     for (let y = 0; y < rh; y++) {
       for (let x = 0; x < rw; x++) {
         const i = y * rw + x; const o = ((y + ry0) * w + x + rx0) * 4;
         hole[i] = unknown(x + rx0, y + ry0) ? 1 : 0;
+        block[i] = hole[i] || (forbid && forbid(x + rx0, y + ry0)) ? 1 : 0;
         const s = hole[i] ? src : rgba;
         img[i * 3] = s[o]; img[i * 3 + 1] = s[o + 1]; img[i * 3 + 2] = s[o + 2];
       }
     }
-    levels.push({ w: rw, h: rh, img, hole });
+    levels.push({ w: rw, h: rh, img, hole, block });
   }
   while (levels.length < maxLevels) {
     const f = levels.at(-1);
     if (R / 2 ** levels.length < minHole || f.w < minSize || f.h < minSize) break;
     const cw = f.w >> 1; const ch = f.h >> 1;
-    const img = new Float32Array(cw * ch * 3); const hole = new Uint8Array(cw * ch);
+    const img = new Float32Array(cw * ch * 3); const hole = new Uint8Array(cw * ch); const block = new Uint8Array(cw * ch);
     for (let y = 0; y < ch; y++) {
       for (let x = 0; x < cw; x++) {
         const i = y * cw + x;
         for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
           const j = (2 * y + dy) * f.w + 2 * x + dx;
           if (f.hole[j]) hole[i] = 1;
+          if (f.block[j]) block[i] = 1;
           for (let c = 0; c < 3; c++) img[i * 3 + c] += f.img[j * 3 + c] / 4;
         }
       }
@@ -560,11 +564,11 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { max
     let free = false;
     for (let y = 3; y < ch - 3 && !free; y++) for (let x = 3; x < cw - 3 && !free; x++) {
       let clear = true;
-      for (let dy = -3; dy <= 3 && clear; dy++) for (let dx = -3; dx <= 3; dx++) if (hole[(y + dy) * cw + x + dx]) { clear = false; break; }
+      for (let dy = -3; dy <= 3 && clear; dy++) for (let dx = -3; dx <= 3; dx++) if (block[(y + dy) * cw + x + dx]) { clear = false; break; }
       free = clear;
     }
     if (!free) break;
-    levels.push({ w: cw, h: ch, img, hole });
+    levels.push({ w: cw, h: ch, img, hole, block });
   }
   // Deterministic random numbers (the same input always gives the same fill).
   let seed = 0x9e3779b9;
@@ -573,12 +577,12 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { max
   const NONE = -1 << 30;
   if (!init) {
     // No first guess: the coarsest level's hole is filled in from its edge inwards, ring by ring.
-    const { w: lw, h: lh, img, hole } = levels.at(-1);
-    const known = Uint8Array.from(hole, (v) => 1 - v);
+    const { w: lw, h: lh, img, hole, block } = levels.at(-1);
+    const known = Uint8Array.from(block, (v) => 1 - v);
     for (let left = hole.reduce((s, v) => s + v, 0); left > 0;) {
       const next = [];
       for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
-        const i = y * lw + x; if (known[i]) continue;
+        const i = y * lw + x; if (known[i] || !hole[i]) continue;
         let n = 0; const sum = [0, 0, 0];
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
           const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= lw || Y >= lh || !known[Y * lw + X]) continue;
@@ -592,12 +596,18 @@ export function complete(rgba, w, h, unknown, bx0, by0, bx1, by1, R, init, { max
     }
   }
   for (let L = levels.length - 1; L >= 0; L--) {
-    const { w: lw, h: lh, img, hole } = levels[L];
-    // Source patches: entirely outside the hole. Target patches: any that cover some of it.
-    const sat = new Int32Array((lw + 1) * (lh + 1));
-    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) sat[(y + 1) * (lw + 1) + x + 1] = hole[y * lw + x] + sat[y * (lw + 1) + x + 1] + sat[(y + 1) * (lw + 1) + x] - sat[y * (lw + 1) + x];
-    const holeIn = (x, y) => sat[(y + P + 1) * (lw + 1) + x + P + 1] - sat[(y - P) * (lw + 1) + x + P + 1] - sat[(y + P + 1) * (lw + 1) + x - P] + sat[(y - P) * (lw + 1) + x - P];
-    const okSrc = (x, y) => x >= P && y >= P && x < lw - P && y < lh - P && holeIn(x, y) === 0;
+    const { w: lw, h: lh, img, hole, block } = levels[L];
+    // Source patches: entirely outside the hole (and off the forbidden pixels). Target patches: any
+    // that cover some of the hole.
+    const tableOf = (m) => {
+      const t = new Int32Array((lw + 1) * (lh + 1));
+      for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) t[(y + 1) * (lw + 1) + x + 1] = m[y * lw + x] + t[y * (lw + 1) + x + 1] + t[(y + 1) * (lw + 1) + x] - t[y * (lw + 1) + x];
+      return t;
+    };
+    const sat = tableOf(hole); const bsat = block === hole || !forbid ? sat : tableOf(block);
+    const sumIn = (t, x, y) => t[(y + P + 1) * (lw + 1) + x + P + 1] - t[(y - P) * (lw + 1) + x + P + 1] - t[(y + P + 1) * (lw + 1) + x - P] + t[(y - P) * (lw + 1) + x - P];
+    const holeIn = (x, y) => sumIn(sat, x, y);
+    const okSrc = (x, y) => x >= P && y >= P && x < lw - P && y < lh - P && sumIn(bsat, x, y) === 0;
     const targets = [];
     for (let y = P; y < lh - P; y++) for (let x = P; x < lw - P; x++) if (holeIn(x, y) > 0) targets.push(y * lw + x);
     const T = targets.length;

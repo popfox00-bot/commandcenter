@@ -225,3 +225,62 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('clean up → 🎨 Reverse Fill: pick the label\'s shades, trace roughly around it; it\'s removed and filled with the can, not the wall', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // A green wall; a blue can (x 70–130) with a white label (y 40–70), red bands on it, black print.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 120);
+    const x = c.getContext('2d');
+    x.fillStyle = 'rgb(80,130,70)'; x.fillRect(0, 0, 200, 120);
+    x.fillStyle = 'rgb(40,70,190)'; x.fillRect(70, 0, 60, 120);
+    x.fillStyle = 'rgb(240,240,236)'; x.fillRect(70, 40, 60, 30);
+    x.fillStyle = 'rgb(210,30,35)'; x.fillRect(70, 40, 60, 6); x.fillRect(70, 64, 60, 6);
+    x.fillStyle = 'rgb(20,20,20)'; x.fillRect(85, 50, 4, 10); x.fillRect(100, 52, 14, 3);
+    const b = await c.convertToBlob({ type: 'image/png' });
+    return Array.from(new Uint8Array(await b.arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'can.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  await page.getByRole('button', { name: '🎨 Reverse Fill' }).click();
+  await page.waitForSelector('text=Tap the colors to remove');
+  const box = async () => { await page.evaluate(() => window.scrollTo(0, 0)); return page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }); };
+  const at = (b, fx, fy) => [b[0] + fx * b[2], b[1] + fy * b[3]];
+  // Two shades: the white and the red.
+  let b = await box();
+  await page.mouse.click(...at(b, 0.6, 0.47));
+  await page.mouse.click(...at(b, 0.6, 0.355));
+  assert.equal(await page.locator('.ed-shade').count(), 2);
+  // A rough loop around the label, wider than the can (onto the wall).
+  b = await box();
+  const loop = [[0.3, 0.27], [0.7, 0.27], [0.7, 0.63], [0.3, 0.63], [0.3, 0.29]];
+  await page.mouse.move(...at(b, ...loop[0])); await page.mouse.down();
+  for (let i = 1; i < loop.length; i++) await page.mouse.move(...at(b, ...loop[i]), { steps: 8 });
+  await page.mouse.up();
+  await page.waitForSelector('text=/Pink shows what goes: \\d+% of the traced area/');
+  // The print is caught too (closed around by the shades); the wall isn't.
+  await page.getByRole('button', { name: '✨ Remove & fill' }).click();
+  await page.waitForSelector('text=Removed and filled from the surface around it');
+  await page.waitForTimeout(200);
+  for (const [fx, fy] of [[0.5, 0.47], [0.44, 0.45], [0.6, 0.355], [0.53, 0.44], [0.37, 0.56], [0.63, 0.4]]) {
+    const p = await pixel(page, fx, fy);
+    assert.ok(p[2] > 150 && p[0] < 90 && p[1] < 110, `blue can at ${fx},${fy} (${p})`);
+  }
+  for (const [fx, fy] of [[0.32, 0.47], [0.68, 0.5]]) {
+    const p = await pixel(page, fx, fy);
+    assert.ok(p[1] > 110 && p[2] < 100, `the wall beside it stays (${p})`);
+  }
+  // Undo brings the label back.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.waitForTimeout(150);
+  const back = await pixel(page, 0.6, 0.47);
+  assert.ok(back[0] > 220 && back[2] > 220, `undo: the label again (${back})`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

@@ -441,6 +441,15 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
   // Its size: about the face's own (the cut was ~150 px wide of a 400 px photo), not a much bigger one.
   const size = Number(await page.$eval('input[aria-label="Character size"]', (r) => r.value));
   assert.ok(size >= 35 && size <= 55, `sized to the face (with its border): ${size}% of the photo's width`);
+  // Looking the same way as the face: not flipped. ⇋ Flip mirrors it (still fitted), and back again.
+  const flip = page.getByRole('button', { name: '⇋ Flip' });
+  assert.equal(await flip.getAttribute('aria-pressed'), 'false');
+  await flip.click();
+  await page.waitForSelector('.ed-panel >> text=Flipped: it looks the other way.');
+  assert.equal(await page.getByRole('button', { name: '⇋ Flip' }).getAttribute('aria-pressed'), 'true');
+  await page.getByRole('button', { name: '⇋ Flip' }).click();
+  await page.waitForSelector('.ed-panel >> text=Not flipped');
+  await page.waitForTimeout(250);
   await page.getByRole('button', { name: '✓ Place' }).click();
   await page.waitForSelector('text=/Placed .+\\. Undo/');
   await page.waitForTimeout(250);

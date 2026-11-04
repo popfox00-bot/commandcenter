@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, recolor, targetOutline, bestPlacement, CONTROL } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, targetOutline, bestPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -179,4 +179,41 @@ test('recolored to the face it\'s on (the same way all over, its own shading kep
   const mid = [...flat.subarray((60 * pw + 60) * 4, (60 * pw + 60) * 4 + 3)]; const edge = [...flat.subarray((60 * pw + 1) * 4, (60 * pw + 1) * 4 + 3)];
   assert.deepEqual(mid, [100, 100, 100], 'the middle exactly as it was');
   assert.ok(edge[0] > 150, `the border blended: ${edge}`);
+});
+
+test('flipped: a face mirrored left to right (each landmark in its mirror\'s place), so it looks the other way', () => {
+  const W = 200; const H = 200;
+  // Looking to one side: the nose tip pushed toward one ear.
+  const pts = landmarks(100, 100, 1); for (const i of [27, 28, 29, 30, 31, 32, 33, 34, 35]) pts[i][0] += 14;
+  const face = faceAt(pts, W, H);
+  const m = mirrorFace(face);
+  assert.ok(faceYaw(face, W, H) > 0.1 && Math.abs(faceYaw(m, W, H) + faceYaw(face, W, H)) < 1e-9, 'it looks the other way, as far');
+  assert.ok(Math.abs(m.pts[0][0] - (1 - face.pts[16][0])) < 1e-12 && Math.abs(m.pts[36][0] - (1 - face.pts[45][0])) < 1e-12, 'its left jaw and eye are the old right ones, mirrored');
+  assert.ok(m.pts[36][0] < m.pts[45][0] && m.eyes[0][0] < m.eyes[1][0], 'its eyes in the usual order');
+  const back = mirrorFace(m);
+  assert.ok(back.pts.every((p, i) => Math.hypot(p[0] - face.pts[i][0], p[1] - face.pts[i][1]) < 1e-12), 'flipped twice: as it was');
+  // A Character looking the other way from the face is flipped; one looking the same way (or straight on) isn't.
+  assert.equal(shouldFlip(m, W, H, face, W, H), true);
+  assert.equal(shouldFlip(face, W, H, face, W, H), false);
+  assert.equal(shouldFlip(faceAt(landmarks(100, 100, 1), W, H), W, H, face, W, H), false);
+  const px = mirrorPixels({ rgba: Uint8ClampedArray.from([1, 2, 3, 4, 5, 6, 7, 8]), w: 2, h: 1 });
+  assert.deepEqual([...px.rgba], [5, 6, 7, 8, 1, 2, 3, 4]);
+});
+
+test('blended both ways: the face it goes on, where the Character doesn\'t reach (up to the hairline), takes on its colors too, easing out', () => {
+  const W = 200; const H = 200;
+  // The photo: pale skin (with hair outside the face's outline); the Character, darker, covering only the lower part of the face.
+  const photo = new Uint8ClampedArray(W * H * 4); for (let i = 0; i < W * H; i++) photo.set([230, 200, 190, 255], i * 4);
+  const outline = [[40, 30], [160, 30], [160, 170], [40, 170]];
+  const pw = 200; const ph = 200;
+  const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = 90; y < 170; y++) for (let x = 40; x < 160; x++) rgba.set([150, 110, 90, 255], (y * pw + x) * 4);
+  blendIn({ x0: 0, y0: 0, pw, ph, rgba }, photo, W, H, 1, { soft: 0, band: 10, region: outline, spread: 60 });
+  const px = (x, y) => [...rgba.subarray((y * pw + x) * 4, (y * pw + x) * 4 + 4)];
+  const just = px(100, 86); const edge = px(100, 91); const top = px(100, 40); const away = px(5, 5);
+  assert.ok(just[3] === 255 && just[0] < 215, `the old forehead just above it toned toward it: ${just}`);
+  assert.ok(Math.abs(just[0] - edge[0]) < 25, `they meet with no step: ${just} / ${edge}`);
+  assert.ok(top[0] > just[0], `easing back to the photo further up: ${top}`);
+  assert.equal(away[3], 0, 'outside the face, the photo left alone');
+  assert.ok(px(100, 140)[0] < 170, 'its middle still its own');
 });

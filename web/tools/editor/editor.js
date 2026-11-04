@@ -15,7 +15,7 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, targetOutline, bestPlacement } from './facefit.js';
+import { fitPatch, blendIn, recolor, targetOutline, bestPlacement, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -1093,7 +1093,7 @@ export function mount(host, { file: initialFile } = {}) {
       const full = pixelsOf(bitmap, 1024); const small = pixelsOf(bitmap, 420);
       bitmap.close?.();
       const W = source.width; const H = source.height;
-      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: pick.face ?? undefined };
+      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: pick.face ?? undefined, flip: false, userFlip: false, mirror: {} };
       renderShown();
       placeNote = 'Lining it up…'; renderPanel(); schedule();
       await placeOnFace(true, fm.faces?.length ? fm.sel : 'next');
@@ -1136,16 +1136,38 @@ export function mount(host, { file: initialFile } = {}) {
    */
   function layoutOn(f) {
     const W = source.width; const H = source.height;
-    if (placing.charFace) return bestPlacement(placing.charFace, placing.full.w, placing.full.h, f, W, H);
+    // Flipped when it looks the other way from that face (and flipped again by hand with ⇋ Flip).
+    if (placing.charFace) {
+      const flip = shouldFlip(placing.charFace, placing.full.w, placing.full.h, f, W, H) !== placing.userFlip;
+      return { ...bestPlacement(charOf({ ...placing, flip }), placing.full.w, placing.full.h, f, W, H), flip };
+    }
+    const flip = placing.userFlip;
     // No face of its own found: a face-only Character as wide as the face itself (jaw to jaw), a mask
     // a little wider; centered and turned with the face.
     const m = maskLayer(f, placing.aspect, W / H, 1.35);
     const c = faceContour(f, W, H);
     if (c && f.pts) {
       const jaw = Math.hypot((f.pts[16][0] - f.pts[0][0]) * W, (f.pts[16][1] - f.pts[0][1]) * H);
-      return { x: m.x * W, y: m.y * H, width: Math.min(m.scale * W, jaw * 1.08), rot: m.rot };
+      return { x: m.x * W, y: m.y * H, width: Math.min(m.scale * W, jaw * 1.08), rot: m.rot, flip };
     }
-    return { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot };
+    return { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot, flip };
+  }
+  /** The Character's pixels ('full' or 'small') and its face, as placed at `at`: flipped left to right when it is. */
+  function pixelsAt(at, size) {
+    if (!at.flip) return at[size];
+    return (at.mirror[size] ??= mirrorPixels(at[size]));
+  }
+  function charOf(at) {
+    if (!at.flip || !at.charFace) return at.charFace;
+    return (at.mirror.face ??= mirrorFace(at.charFace));
+  }
+  /** ⇋ Flip: the Character mirrored (to look the other way); fitted again if it was fitted. */
+  function flipPlacing() {
+    const p = placing; if (!p) return;
+    p.userFlip = !p.userFlip; p.flip = !p.flip;
+    if (p.fit && p.faceObj) Object.assign(p, layoutOn(p.faceObj));
+    placeNote = p.flip ? 'Flipped: it looks the other way.' : 'Not flipped: as it was saved.';
+    p.preview = null; renderShown(); refreshPreview(); renderPanel(); schedule();
   }
   /** 🙂 On a face: the Character over face `which` (an index; 'next' for the next one). */
   async function placeOnFace(first = false, which = 'next') {
@@ -1158,7 +1180,9 @@ export function mount(host, { file: initialFile } = {}) {
       fm.sel = placing.face;
       Object.assign(placing, layoutOn(placing.faces[placing.face]), { faceObj: placing.faces[placing.face], fit: !!placing.charFace });
       const how = placing.charFace ? 'fitted to the face: eyes, jaw, brows, nose and mouth lined up' : 'sized to the face';
-      placeNote = n > 1 ? `On face ${placing.face + 1} of ${n} (${how}). Tap a number to pick another face.` : `On the face (${how}). Drag, pinch or use the sliders to adjust.`;
+      const turned = placing.flip && !placing.userFlip ? ' Flipped to look the same way as the face (⇋ Flip turns it back).' : '';
+      placeNote = (n > 1 ? `On face ${placing.face + 1} of ${n} (${how}). Tap a number to pick another face.` : `On the face (${how}). Drag, pinch or use the sliders to adjust.`) + turned;
+      renderShown();
     } catch (err) { placeNote = `Couldn't look for faces: ${err.message}`; }
     finally { refreshPreview(); renderPanel(); schedule(); }
   }
@@ -1167,7 +1191,7 @@ export function mount(host, { file: initialFile } = {}) {
 
   /** The Character as it is (shown while it's being moved). */
   function renderShown() {
-    const { small } = placing;
+    const small = pixelsAt(placing, 'small');
     const c = placing.shown ?? document.createElement('canvas'); c.width = small.w; c.height = small.h;
     c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(small.rgba), small.w, small.h), 0, 0);
     placing.shown = c;
@@ -1177,20 +1201,23 @@ export function mount(host, { file: initialFile } = {}) {
    * (bent to its landmarks and trimmed to its head) when it's fitted, else as placed; then blended into
    * the photo around it, each side to what's next to it.
    */
-  function buildPatch(at, img) {
+  function buildPatch(at, size) {
     const W = source.width; const H = source.height;
     const photo = sourcePixels();
+    const img = pixelsAt(at, size);
     if (at.fit && at.charFace && at.faceObj) {
       // The face in the photo, where it ends: its jaw and its hairline (found once per face).
       at.faceObj.outline ??= targetOutline(photo, W, H, at.faceObj);
       const outline = at.faceObj.outline;
       // Placed by its features, bent only a little (the face as it is), trimmed along that outline;
       // then recolored to that face's skin, and blended only in a band at the border.
-      const patch = fitPatch(img.rgba, img.w, img.h, at.charFace, at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35 });
+      const patch = fitPatch(img.rgba, img.w, img.h, charOf(at), at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35 });
       if (!patch) return null;
       if (outline) recolor(patch, photo, W, H, outline, at.blend / 100);
+      // Blended both ways at the border: the Character toward the photo's skin there, and what's left
+      // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway.
       const faceW = at.faceObj.box.w * W;
-      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.12)), region: outline });
+      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.16)), region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.4)) : 0 });
       return patch;
     }
     const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);
@@ -1205,7 +1232,7 @@ export function mount(host, { file: initialFile } = {}) {
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       if (!placing) return;
-      const patch = buildPatch(placing, placing.small);
+      const patch = buildPatch(placing, 'small');
       if (!patch) { schedule(); return; }
       const c = document.createElement('canvas'); c.width = patch.pw; c.height = patch.ph;
       c.getContext('2d').putImageData(new ImageData(patch.rgba, patch.pw, patch.ph), 0, 0);
@@ -1293,6 +1320,7 @@ export function mount(host, { file: initialFile } = {}) {
         canFit ? el('button', { class: `chip${p.fit ? ' active' : ''}`, 'aria-pressed': String(p.fit), text: '🧬 Fit to face', onclick: () => placeOnFace(false, Math.max(0, p.face)) }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.trim ? ' active' : ''}`, 'aria-pressed': String(p.trim), text: '✂️ Trim to head', onclick: () => { p.trim = !p.trim; refreshPreview(); renderPanel(); } }) : null,
         !canFit ? el('button', { class: 'chip', text: '🙂 On a face', onclick: () => placeOnFace() }) : null,
+        el('button', { class: `chip${p.flip ? ' active' : ''}`, 'aria-pressed': String(p.flip), text: '⇋ Flip', onclick: flipPlacing }),
         el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { unfit(); p.x = source.width / 2; p.y = source.height / 2; refreshPreview(); renderPanel(); schedule(); } })),
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: '🎨 Blend into the photo' }), el('span', { class: 'muted small', text: 'each side to what\'s next to it' })), blend,
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' })), size,
@@ -1313,7 +1341,7 @@ export function mount(host, { file: initialFile } = {}) {
     const spots = all && p.faces?.length ? p.faces.map((f) => ({ ...p, ...layoutOn(f), faceObj: f, fit: !!p.charFace })) : [p];
     const patches = [];
     for (const at of spots) {
-      const patch = buildPatch(at, p.full);
+      const patch = buildPatch(at, 'full');
       if (patch) patches.push(makePatch(patch, W, H));
     }
     placing = null;

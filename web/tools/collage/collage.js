@@ -358,8 +358,17 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     const blob = await chooseMask();
     if (!blob) { faceNote = ''; renderPanel(); return; }
     const id = await addImage(blob); const im = images.get(id);
-    const { maskLayer } = await import('../../lib/face-core.js');
-    const layers = faces.map((f) => ({ id: crypto.randomUUID(), src: id, ...maskLayer(f, im.w / im.h, base.w / base.h), opacity: 1, flip: false }));
+    const { maskLayer, alignOnFace } = await import('../../lib/face-core.js');
+    // A Character with a face of its own (a face cut out in Cutout): its eyes and mouth lined up on
+    // each face's. Otherwise (a mask drawing) it covers each face, turned with it.
+    let own = null;
+    try { const { detectFaces } = await import('../../lib/face.js'); own = (await detectFaces(im.bmp, { minScore: 0.5 })).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0] ?? null; } catch { own = null; }
+    const at = (f) => {
+      if (!own) return maskLayer(f, im.w / im.h, base.w / base.h);
+      const a = alignOnFace(own, im.w, im.h, f, base.w, base.h);
+      return { x: a.x / base.w, y: a.y / base.h, scale: a.width / base.w, rot: a.rot };
+    };
+    const layers = faces.map((f) => ({ id: crypto.randomUUID(), src: id, ...at(f), opacity: 1, flip: false }));
     selected = layers.at(-1).id;
     faceNote = `Covered ${faces.length} face${faces.length === 1 ? '' : 's'}. Drag, pinch or use the blue dot to adjust.`;
     commit({ ...st(), mode: 'free', aspect: 'base', layers: [...st().layers, ...layers] });

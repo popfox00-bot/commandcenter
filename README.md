@@ -134,8 +134,12 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
   **➕ Character**: put one of your Characters (or any transparent image) on the photo. It goes
-  straight onto the biggest face found (sized and turned to it; **🙂 On a face** moves it to the
-  next face), or the middle. Drag to move, pinch (or the **Size** and **Turn** sliders) to resize and
+  straight onto the biggest face found, or the middle. A Character that has a face of its own (one
+  cut out with 🙂 Cut out face) is **lined up by its eyes and mouth**: the middle of its eyes on the
+  face's, its eye line along the face's, sized by the eyes' spacing (and a little by the eyes-to-mouth
+  length). Any other image covers the face, turned with it. With more than one face, each gets a
+  number: tap one (or **Face 1**, **Face 2**…) to move it there, or **🙂 On every face** to put one on
+  each, every one lined up to its own face. Drag to move, pinch (or the **Size** and **Turn** sliders) to resize and
   rotate. **🎨 Match color** (0–100) gives it the light and color of what's **behind it**, or of an
   area you drag over with **🎯 Pick an area**: its colors move toward that area's average and spread
   (in Lab; `web/lib/color-match.js`) as far as the slider says, keeping its own detail. **✓ Place**
@@ -282,7 +286,7 @@ Characters open). Each photo is handed over once (again after new edits).
   Delete and Opacity act on the selected layer. **🎨 Match color** blends the selected layer into
   the background photo behind it (or the background color), from 0 (as it is) to 100.
 - **🎭 Face swap** (with a background photo): every face in it is covered by a Character from Cutout
-  (cut a face out and save it) or any mask image, each sized, centered and turned to its face, as
+  (cut a face out and save it: it's lined up by its own eyes and mouth) or any mask image, each sized, centered and turned to its face, as
   layers to move and adjust like any other, like a camera filter.
 - Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
   Work is autosaved.
@@ -303,6 +307,11 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
   them back on this phone or another. Names and order are kept; ones already here are skipped.
 - Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
   cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
+- **A magnifier under the finger**: while your finger is down (tracing, Patch, Wand, Brush, and in
+  the editor Clean Up, Reverse Fill and Copy From Area), what's under it shows enlarged just above it
+  (below it near the top), with a crosshair at the exact spot and the patch or brush size. Slide to
+  aim; **the edit happens when you lift your finger** (a patch or brush stroke is drawn as a trail,
+  then applied along it).
 
 - **✨ Smart edges** (on unless turned off): a loose finger trace comes in to the object's edge. Only
   a band just inside the trace is looked at, never the middle (so a fruit basket's many colors stay

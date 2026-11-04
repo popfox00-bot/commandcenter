@@ -156,9 +156,9 @@ function ownMask(img, cw, ch, charFace) {
   const poly = targetOutline(img, cw, ch, charFace) ?? faceContour(charFace, cw, ch, { forehead: 0.55 });
   if (!poly) return null;
   // Roomier along the jaw (the face it goes on trims there), not past its own hairline (no hair of its own).
-  const g = grow(poly, 1.08); const roomy = poly.map((p, i) => (i <= 16 ? g[i] : p));
+  const g = grow(poly, 1.12); const roomy = poly.map((p, i) => (i <= 16 ? g[i] : p));
   const hh = Math.max(...roomy.map((p) => p[1])) - Math.min(...roomy.map((p) => p[1]));
-  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.025)));
+  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.05)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   return m;
 }
@@ -190,7 +190,7 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   // the parts of it the Character doesn't cover.
   const pts = outline ? [...cs, ...outline] : cs;
   const ow = outline ? Math.max(...outline.map((p) => p[0])) - Math.min(...outline.map((p) => p[0])) : 0;
-  const pad2 = Math.max(pad, ow * 0.12);
+  const pad2 = Math.max(pad, ow * 0.4);
   const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[0])) - pad2)); const x1 = Math.min(W, Math.ceil(Math.max(...pts.map((p) => p[0])) + pad2));
   const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[1])) - pad2)); const y1 = Math.min(H, Math.ceil(Math.max(...pts.map((p) => p[1])) + pad2));
   if (x1 <= x0 || y1 <= y0) return null;
@@ -231,7 +231,8 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     const roomy = grow(out, outline ? 1 : contour ? 1.03 : 1.12);
     const headH = Math.max(...out.map((p) => p[1])) - Math.min(...out.map((p) => p[1]));
     // The soft edge kept inside the outline (it fades to nothing at it, not past it onto what's around).
-    const r = Math.max(2, Math.round(headH * 0.035));
+    // A wide one, so it fades into the face rather than ending at a line.
+    const r = Math.max(2, Math.round(headH * 0.055));
     const m = soften(fillPolygon(roomy, x0, y0, pw, ph), pw, ph, r);
     for (let i = 0; i < pw * ph; i++) rgba[i * 4 + 3] *= Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   }
@@ -265,9 +266,9 @@ export function targetOutline(photo, W, H, face) {
   }
   if (skin.length < 10) return null;
   const mean = [0, 1, 2].map((k) => skin.reduce((s3, c) => s3 + c[k], 0) / skin.length);
-  const sd = Math.sqrt(skin.reduce((s3, c) => s3 + (c[0] - mean[0]) ** 2 * 0.5 + (c[1] - mean[1]) ** 2 + (c[2] - mean[2]) ** 2, 0) / skin.length);
+  const sd = Math.sqrt(skin.reduce((s3, c) => s3 + (c[0] - mean[0]) ** 2 * 0.25 + (c[1] - mean[1]) ** 2 + (c[2] - mean[2]) ** 2, 0) / skin.length);
   const limit = Math.max(14, sd * 2.5);
-  const far = (c) => Math.sqrt((c[0] - mean[0]) ** 2 * 0.5 + (c[1] - mean[1]) ** 2 + (c[2] - mean[2]) ** 2) > limit;
+  const far = (c) => Math.sqrt((c[0] - mean[0]) ** 2 * 0.25 + (c[1] - mean[1]) ** 2 + (c[2] - mean[2]) ** 2) > limit;
   // Up from each brow point (26 back to 17) to the hairline: the first of three steps in a row off the skin.
   const lo = 0.08 * len; const hi = 0.75 * len; const usual = 0.42 * len;
   const lifts = [];
@@ -328,11 +329,46 @@ export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0
     // just past it: the forehead up to the hairline, the cheeks it doesn't reach) takes on its colors
     // too, easing back to the photo as it is further out, so there's no patch of the old face left
     // standing out; the two meet halfway.
-    const zone = region && spread > 0 ? fillPolygon(grow(region, 1.02), x0, y0, pw, ph) : null;
+    const zone = region && spread > 0 ? skinZone(rgba, x0, y0, pw, ph, photo, W, H, reg, reg, spread) : null;
     blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band, reg, zone, spread);
   }
   if (soft) { bleed(rgba, pw, ph, soft * 3 + 2); featherAlpha(rgba, pw, ph, soft); }
   return patch;
+}
+
+/**
+ * Where the blend reaches past the Character: the face's own outline, and beyond it any skin of that
+ * face (a color like its skin inside the outline: a forehead above where its hairline was found, a
+ * temple, the side of a cheek), reached from the Character without crossing anything else, as far as
+ * 1.5 × `spread`. 1 there.
+ */
+function skinZone(rgba, x0, y0, pw, ph, photo, W, H, reg, inside, spread) {
+  const lab = new Float32Array(pw * ph * 3); const ok = new Uint8Array(pw * ph);
+  const sum = [0, 0, 0]; const sq = [0, 0, 0]; let n = 0;
+  for (let k = 0; k < pw * ph; k++) {
+    const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) continue;
+    const o = (Y * W + X) * 4; const c = rgbToLab(photo[o], photo[o + 1], photo[o + 2]);
+    lab[k * 3] = c[0]; lab[k * 3 + 1] = c[1]; lab[k * 3 + 2] = c[2]; ok[k] = 1;
+    if (reg[k]) { n++; for (let j = 0; j < 3; j++) { sum[j] += c[j]; sq[j] += c[j] * c[j]; } }
+  }
+  const zone = new Uint8Array(pw * ph);
+  if (!n) { for (let k = 0; k < pw * ph; k++) zone[k] = inside[k]; return zone; }
+  const mean = sum.map((v) => v / n); const sd = sq.map((v, j) => Math.sqrt(Math.max(0, v / n - mean[j] ** 2)));
+  // Skin: its hue close to the face's (a, b), its lightness anywhere from shadow to highlight.
+  const tolAB = Math.max(7, 2.2 * Math.hypot(sd[1], sd[2])); const tolL = Math.max(22, 3 * sd[0]);
+  const skin = (k) => ok[k] && Math.hypot(lab[k * 3 + 1] - mean[1], lab[k * 3 + 2] - mean[2]) < tolAB && Math.abs(lab[k * 3] - mean[0]) < tolL;
+  const depth = new Float32Array(pw * ph).fill(Infinity); const q = [];
+  for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > 24) { depth[k] = 0; q.push(k); }
+  const far = 1.5 * spread;
+  for (let h = 0; h < q.length; h++) {
+    const k = q[h]; const x = k % pw;
+    for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, k - pw, k + pw]) {
+      if (t < 0 || t >= pw * ph || depth[t] <= depth[k] + 1 || depth[k] + 1 > far) continue;
+      if (!inside[t] && !skin(t)) continue;
+      depth[t] = depth[k] + 1; zone[t] = 1; q.push(t);
+    }
+  }
+  return zone;
 }
 
 /** The colors of the pixels it covers carried out into the clear pixels around it, `rings` deep (alpha left as it is). */

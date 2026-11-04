@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, shadeMatch, bestPlacement, CONTROL } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, targetOutline, bestPlacement, CONTROL } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -45,7 +45,7 @@ test('fitted onto a face: its eyes on the eyes and its jaw on the jaw (a wider c
   const W = 400; const H = 300;
   const tPts = landmarks(200, 150, 1.4, 1.12);
   const face = faceAt(tPts, W, H);
-  const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true });
+  const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true, bend: 1 });
   const at = ([x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2, p.rgba[o + 3]]; };
   // Each control point of the face shows the matching point of the Character (within a couple of px).
   // (The jaw is the face's own outline, so it's on the soft edge of the trim; the rest well inside.)
@@ -121,25 +121,62 @@ test('the face\'s own outline: jaw from ear to ear and a forehead line just abov
   assert.equal(faceContour(flat, W, H), null);
 });
 
-test('the light across the face: the photo face\'s shading (lit from the left) carried onto the Character\'s face, its detail kept', () => {
+test('kept as it is: with the usual light bend its features keep their own proportions (placed by them, not reshaped)', () => {
+  const cw = 120; const ch = 120;
+  const img = new Uint8ClampedArray(cw * ch * 4);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img.set([x * 2, y * 2, 0, 255], (y * cw + x) * 4);
+  const cPts = landmarks(60, 55, 0.9);
+  const own = faceAt(cPts, cw, ch);
+  const W = 400; const H = 300;
+  const tPts = landmarks(200, 150, 1.4, 1.2); // a much wider jaw
+  const face = faceAt(tPts, W, H);
+  const rigid = fitPatch(img, cw, ch, own, face, W, H, { trim: false, bend: 0 });
+  const light = fitPatch(img, cw, ch, own, face, W, H, { trim: false });
+  const read = (p, [x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2]; };
+  // Rigid: the Character's eye spacing scaled evenly; its eyes and mouth keep their relative places.
+  const b = bestPlacement(own, cw, ch, face, W, H); const k = b.width / cw;
+  const eyeL = read(rigid, tPts[36]); const eyeR = read(rigid, tPts[45]);
+  assert.ok(Math.abs(Math.hypot(eyeR[0] - eyeL[0], eyeR[1] - eyeL[1]) * k - Math.hypot(tPts[45][0] - tPts[36][0], tPts[45][1] - tPts[36][1])) < 8, 'eye spacing as the face has it, by an even scale');
+  // The light bend moves the jaw a little toward the new one, the middle of the face hardly at all.
+  const midR = read(rigid, tPts[30]); const midL = read(light, tPts[30]);
+  const jawR = read(rigid, tPts[4]); const jawL = read(light, tPts[4]);
+  assert.ok(Math.hypot(midR[0] - midL[0], midR[1] - midL[1]) < 2, 'the nose: kept');
+  assert.ok(Math.hypot(jawR[0] - jawL[0], jawR[1] - jawL[1]) > Math.hypot(midR[0] - midL[0], midR[1] - midL[1]), 'the jaw: bent a little');
+});
+
+test('the face\'s outline in the photo: the jaw, then up to where the hair starts (found in the photo)', () => {
   const W = 400; const H = 300;
   const pts = landmarks(200, 150, 1.4);
   const face = faceAt(pts, W, H);
-  // The photo: the face lit from the left (bright) to the right (dark).
+  // Skin from y 70 down; hair above it (the hairline 38 px above the brows at y 108).
   const photo = new Uint8ClampedArray(W * H * 4);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = 230 - ((x - 120) / 160) * 150; photo.set([v, v * 0.8, v * 0.7, 255], (y * W + x) * 4); }
-  // The Character's face: evenly lit, with a dark mark.
-  const x0 = 110; const y0 = 60; const pw = 180; const ph = 200;
-  const rgba = new Uint8ClampedArray(pw * ph * 4);
-  for (let i = 0; i < pw * ph; i++) rgba.set([150, 120, 100, 255], i * 4);
-  for (let y = 98; y < 102; y++) for (let x = 88; x < 92; x++) rgba.set([40, 30, 20, 255], (y * pw + x) * 4);
-  shadeMatch({ x0, y0, pw, ph, rgba }, photo, W, H, face, 1);
-  const px = (x, y) => [...rgba.subarray(((y - y0) * pw + x - x0) * 4, ((y - y0) * pw + x - x0) * 4 + 3)];
-  const left = px(160, 150); const right = px(240, 150);
-  assert.ok(left[0] - right[0] > 40, `lit from the left like the photo: ${left} vs ${right}`);
-  assert.ok(px(200, 160)[0] < px(206, 160)[0] - 40, 'its own dark mark stays');
-  // Strength 0: unchanged.
-  const same = new Uint8ClampedArray(pw * ph * 4).fill(100);
-  shadeMatch({ x0, y0, pw, ph, rgba: same }, photo, W, H, face, 0);
-  assert.ok([...same].every((v) => v === 100));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) photo.set(y < 70 ? [60, 40, 25, 255] : [225, 180, 150, 255], (y * W + x) * 4);
+  const out = targetOutline(photo, W, H, face);
+  assert.equal(out.length, 17 + 10);
+  const top = out.slice(17);
+  for (const [, y] of top) assert.ok(y > 66 && y < 78, `the hairline at y ${y.toFixed(1)} (hair from 70)`);
+  // No hair to find: a forehead's usual height above the brows.
+  const bald = new Uint8ClampedArray(W * H * 4); for (let i = 0; i < W * H; i++) bald.set([225, 180, 150, 255], i * 4);
+  const tops = targetOutline(bald, W, H, face).slice(17).map((p) => p[1]);
+  assert.ok(Math.min(...tops) > 40 && Math.max(...tops) < 108, `a usual forehead: ${tops.map(Math.round)}`);
+});
+
+test('recolored to the face it\'s on (the same way all over, its own shading kept); blended only at the border', () => {
+  const W = 200; const H = 200;
+  const photo = new Uint8ClampedArray(W * H * 4); for (let i = 0; i < W * H; i++) photo.set([200, 150, 120, 255], i * 4);
+  const outline = [[40, 40], [160, 40], [160, 160], [40, 160]];
+  const pw = 120; const ph = 120;
+  const make = () => { const r = new Uint8ClampedArray(pw * ph * 4); for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) r.set([120 + (x > 60 ? 40 : 0), 110, 140, 255], (y * pw + x) * 4); return r; };
+  const rgba = make();
+  recolor({ x0: 40, y0: 40, pw, ph, rgba }, photo, W, H, outline, 1);
+  const L = [...rgba.subarray((60 * pw + 20) * 4, (60 * pw + 20) * 4 + 3)]; const R = [...rgba.subarray((60 * pw + 100) * 4, (60 * pw + 100) * 4 + 3)];
+  assert.ok(L[0] > 150 && L[2] < 140, `warmed toward the face's skin: ${L}`);
+  assert.ok(R[0] > L[0] + 10, 'its own light/dark difference kept');
+  // Border only: deep inside, unchanged; at the edge, moved.
+  const flat = new Uint8ClampedArray(pw * ph * 4); for (let i = 0; i < pw * ph; i++) flat.set([100, 100, 100, 255], i * 4);
+  const patch = { x0: 40, y0: 40, pw, ph, rgba: flat };
+  blendIn(patch, photo, W, H, 1, { soft: 0, band: 12 });
+  const mid = [...flat.subarray((60 * pw + 60) * 4, (60 * pw + 60) * 4 + 3)]; const edge = [...flat.subarray((60 * pw + 1) * 4, (60 * pw + 1) * 4 + 3)];
+  assert.deepEqual(mid, [100, 100, 100], 'the middle exactly as it was');
+  assert.ok(edge[0] > 150, `the border blended: ${edge}`);
 });

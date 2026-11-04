@@ -378,7 +378,7 @@ export function detectAllFaces(cv) {
   } };
 }`;
 
-test('faces: ✂️ Cut out & save takes just the face along its own outline (no hair above the forehead, no background); Identify draws that outline', async () => {
+test('faces: ✂️ Cut out & save keeps the face with a generous border (its detail kept); Identify draws its outline; inserted back, it\'s trimmed at the hairline and lands where it came from', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE3, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
@@ -424,7 +424,9 @@ test('faces: ✂️ Cut out & save takes just the face along its own outline (no
     return { skin, hair, green, w: bmp.width, h: bmp.height, face: c.face };
   }, BASE);
   assert.ok(got.skin > 5000, `the face: ${JSON.stringify(got)}`);
-  assert.ok(got.hair < got.skin * 0.01 && got.green < got.skin * 0.01, `no hair, no background: ${JSON.stringify(got)}`);
+  // A generous border: some of the hairline and the edges around the face kept (trimmed when it's used).
+  assert.ok(got.hair > 200, `its hairline kept: ${JSON.stringify(got)}`);
+  assert.ok(got.w > 150 && got.h > 160, `bigger than the face itself: ${got.w}×${got.h}`);
   assert.ok(got.face?.pts?.length === 68, 'its face (all 68 points) kept with it');
 
   // 🎭 Insert Character: that face back onto the same face. Sized and placed by its own features, it
@@ -438,7 +440,7 @@ test('faces: ✂️ Cut out & save takes just the face along its own outline (no
   await page.waitForTimeout(250);
   // Its size: about the face's own (the cut was ~150 px wide of a 400 px photo), not a much bigger one.
   const size = Number(await page.$eval('input[aria-label="Character size"]', (r) => r.value));
-  assert.ok(size >= 30 && size <= 45, `sized to the face: ${size}% of the photo's width`);
+  assert.ok(size >= 35 && size <= 55, `sized to the face (with its border): ${size}% of the photo's width`);
   await page.getByRole('button', { name: '✓ Place' }).click();
   await page.waitForSelector('text=/Placed .+\\. Undo/');
   await page.waitForTimeout(250);

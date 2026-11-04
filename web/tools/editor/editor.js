@@ -15,7 +15,7 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, shadeMatch, bestPlacement } from './facefit.js';
+import { fitPatch, blendIn, recolor, targetOutline, bestPlacement } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -1179,14 +1179,22 @@ export function mount(host, { file: initialFile } = {}) {
    */
   function buildPatch(at, img) {
     const W = source.width; const H = source.height;
-    const patch = at.fit && at.charFace && at.faceObj
-      ? fitPatch(img.rgba, img.w, img.h, at.charFace, at.faceObj, W, H, { trim: at.trim })
-      : placedPatch(img.rgba, img.w, img.h, at, W, H);
-    if (!patch) return null;
     const photo = sourcePixels();
-    // Fitted: the face's light and color carried across its whole face, then its edge blended in.
-    if (at.fit && at.faceObj) shadeMatch(patch, photo, W, H, at.faceObj, at.blend / 100);
-    blendIn(patch, photo, W, H, at.blend / 100);
+    if (at.fit && at.charFace && at.faceObj) {
+      // The face in the photo, where it ends: its jaw and its hairline (found once per face).
+      at.faceObj.outline ??= targetOutline(photo, W, H, at.faceObj);
+      const outline = at.faceObj.outline;
+      // Placed by its features, bent only a little (the face as it is), trimmed along that outline;
+      // then recolored to that face's skin, and blended only in a band at the border.
+      const patch = fitPatch(img.rgba, img.w, img.h, at.charFace, at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35 });
+      if (!patch) return null;
+      if (outline) recolor(patch, photo, W, H, outline, at.blend / 100);
+      const faceW = at.faceObj.box.w * W;
+      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.12)), region: outline });
+      return patch;
+    }
+    const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);
+    if (patch) blendIn(patch, photo, W, H, at.blend / 100);
     return patch;
   }
   /** The preview of that (from the smaller copy), worked out after each change, not while moving. */

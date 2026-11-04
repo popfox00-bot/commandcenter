@@ -137,8 +137,10 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   2. **✂️ Cut out & save as Character**: just the face, cut out in one go along its own outline from
      its landmarks: the jaw from ear to ear and a forehead line just above the brows, so no hair, ears
      or background; a fringe over the forehead (anything there that isn't the face's skin color) is
-     left out too. Its edge is softened, and it's shown, named and kept with your Characters
-     (`web/tools/editor/facemask.js`). Fine-tune its edge in Cutout if you like.
+     left out too. Its edge is softened, and it's shown, named and kept with your Characters, along
+     with where its eyes, nose, mouth and jaw are (so it's always fitted by its real features; a face
+     cropped this tight is hard to find again) (`web/tools/editor/facemask.js`). Fine-tune its edge in
+     Cutout if you like. Characters saved before that have their face looked for with room around it.
   3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
      Character with a face of its own (one cut out like this) is **🧬 fitted to the face**: sized and
      turned to it by all its landmarks at once (a least-squares fit, the eyes counting most), then bent

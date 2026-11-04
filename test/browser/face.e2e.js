@@ -236,12 +236,22 @@ export function detectAllFaces(cv) {
   return { withFaceLandmarks: async () => {
     const r = cv.width / cv.height;
     const set = Math.abs(r - 4 / 3) < 0.02 ? PHOTO : Math.abs(r - 1) < 0.02 ? CHAR : [];
+    // Where the picture's content is (a Character is looked for padded with plain gray): the face's
+    // points are in terms of that, as a real detector's would be.
+    let bx = 0; let by = 0; let bw = cv.width; let bh = cv.height;
+    if (set === CHAR) {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let x0 = cv.width; let y0 = cv.height; let x1 = -1; let y1 = -1;
+      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) { const o = (y * cv.width + x) * 4; if (Math.abs(d[o] - 128) + Math.abs(d[o + 1] - 128) + Math.abs(d[o + 2] - 128) > 30) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+      // (The test Character's oval: 84 × 108 px from (18, 8) of its 120 px image.)
+      if (x1 > x0) { const k = (x1 - x0 + 1) / 84; bx = x0 - 18 * k; by = y0 - 8 * k; bw = 120 * k; bh = 120 * k; }
+    }
     return set.map((F) => {
-      const p = ([u, v]) => ({ x: u * cv.width, y: v * cv.height });
+      const p = ([u, v]) => ({ x: bx + u * bw, y: by + v * bh });
       const pts = Array.from({ length: 68 }, () => p(F.mouth));
       for (let i = 36; i < 42; i++) pts[i] = p(F.a);
       for (let i = 42; i < 48; i++) pts[i] = p(F.b);
-      return { detection: { score: 0.9, box: { x: F.box[0] * cv.width, y: F.box[1] * cv.height, width: F.box[2] * cv.width, height: F.box[3] * cv.height } }, landmarks: { positions: pts } };
+      return { detection: { score: 0.9, box: { x: bx + F.box[0] * bw, y: by + F.box[1] * bh, width: F.box[2] * bw, height: F.box[3] * bh } }, landmarks: { positions: pts } };
     });
   } };
 }`;
@@ -411,10 +421,31 @@ test('faces: ✂️ Cut out & save takes just the face along its own outline (no
       const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
       if (r > 200 && g > 160) skin++; else if (r < 120 && g < 80) hair++; else if (g > r) green++;
     }
-    return { skin, hair, green, w: bmp.width, h: bmp.height };
+    return { skin, hair, green, w: bmp.width, h: bmp.height, face: c.face };
   }, BASE);
   assert.ok(got.skin > 5000, `the face: ${JSON.stringify(got)}`);
   assert.ok(got.hair < got.skin * 0.01 && got.green < got.skin * 0.01, `no hair, no background: ${JSON.stringify(got)}`);
+  assert.ok(got.face?.pts?.length === 68, 'its face (all 68 points) kept with it');
+
+  // 🎭 Insert Character: that face back onto the same face. Sized and placed by its own features, it
+  // lands right where it came from: the photo, after it's placed (not blended), all but unchanged.
+  const shot = () => page.$eval('.ed-canvas', (c) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return Array.from(x.getImageData(0, 0, c.width, c.height).data); });
+  const before = await shot();
+  await page.getByRole('button', { name: '🎭 Insert Character' }).click();
+  await page.locator('dialog[open].ed-char-pick .char-card').first().click();
+  await page.waitForSelector('.ed-panel >> text=fitted to the face');
+  await page.$eval('input[aria-label="Blend into the photo"]', (r) => { r.value = '0'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForTimeout(250);
+  // Its size: about the face's own (the cut was ~150 px wide of a 400 px photo), not a much bigger one.
+  const size = Number(await page.$eval('input[aria-label="Character size"]', (r) => r.value));
+  assert.ok(size >= 30 && size <= 45, `sized to the face: ${size}% of the photo's width`);
+  await page.getByRole('button', { name: '✓ Place' }).click();
+  await page.waitForSelector('text=/Placed .+\\. Undo/');
+  await page.waitForTimeout(250);
+  const after = await shot();
+  let off = 0; let n = 0;
+  for (let i = 0; i < before.length; i += 16) { n++; if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1]) + Math.abs(before[i + 2] - after[i + 2]) > 60) off++; }
+  assert.ok(off / n < 0.01, `lands where it came from: ${(100 * off / n).toFixed(2)}% of the photo changed`);
   assert.deepEqual(errors, []);
   await context.close();
 });

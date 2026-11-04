@@ -959,7 +959,7 @@ export function mount(host, { file: initialFile } = {}) {
       const blob = await encodeCanvas(cut, 'image/png');
       const name = await nameCharacter(blob, `Face ${(await listCharacters()).length + 1}`);
       if (name == null) { fm.note = ''; return; }
-      await addCharacter(blob, { name, width: cut.width, height: cut.height });
+      await addCharacter(blob, { name, width: cut.width, height: cut.height, face: cut.face });
       fm.note = `Saved "${name}" as a Character. 🎭 Insert Character puts it on a face (here or in another photo); fine-tune its edge in Cutout if you like.`;
     } catch (err) { fm.note = `Couldn't cut it out: ${err.message}`; }
     finally { fm.busy = false; renderPanel(); }
@@ -1065,7 +1065,7 @@ export function mount(host, { file: initialFile } = {}) {
       grid.replaceChildren(...await Promise.all(list.map(async (c) => {
         const blob = await getCharacterBlob(c.id); if (!blob) return null;
         const u = URL.createObjectURL(blob); urls.push(u);
-        return el('button', { type: 'button', class: 'char-card', 'aria-label': c.name, onclick: () => { picked = { blob, name: c.name }; dlg.close(); } },
+        return el('button', { type: 'button', class: 'char-card', 'aria-label': c.name, onclick: () => { picked = { blob, name: c.name, face: c.face ?? null }; dlg.close(); } },
           el('span', { class: 'checker' }, el('img', { src: u, alt: '' })), el('span', { class: 'small', text: c.name }));
       })).then((x) => x.filter(Boolean)));
       input.addEventListener('change', () => { const f = input.files[0]; if (f) { picked = { blob: f, name: f.name.replace(/\.[^.]+$/, '') }; dlg.close(); } });
@@ -1093,7 +1093,7 @@ export function mount(host, { file: initialFile } = {}) {
       const full = pixelsOf(bitmap, 1024); const small = pixelsOf(bitmap, 420);
       bitmap.close?.();
       const W = source.width; const H = source.height;
-      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: undefined };
+      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: pick.face ?? undefined };
       renderShown();
       placeNote = 'Lining it up…'; renderPanel(); schedule();
       await placeOnFace(true, fm.faces?.length ? fm.sel : 'next');
@@ -1112,7 +1112,23 @@ export function mount(host, { file: initialFile } = {}) {
     if (!placing.faces.length || placing.charFace !== undefined) return;
     const c = document.createElement('canvas'); c.width = placing.full.w; c.height = placing.full.h;
     c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(placing.full.rgba), c.width, c.height), 0, 0);
-    try { const own = await detectFaces(c, { minScore: 0.5 }); placing.charFace = own.sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0] ?? null; } catch { placing.charFace = null; }
+    placing.charFace = await ownFace(detectFaces, c);
+  }
+  /**
+   * The face in a Character's image (one saved before its face was kept with it, or any picture of a
+   * face): looked for with room around it on a plain background (a face cropped tight to its edges
+   * is hard to find), then put back in the image's own terms. null when there's none.
+   */
+  async function ownFace(detectFaces, img) {
+    const w = img.width; const h = img.height; const m = Math.round(Math.max(w, h) * 0.45);
+    const pad = document.createElement('canvas'); pad.width = w + 2 * m; pad.height = h + 2 * m;
+    const px = pad.getContext('2d'); px.fillStyle = '#808080'; px.fillRect(0, 0, pad.width, pad.height); px.drawImage(img, m, m);
+    try {
+      const found = (await detectFaces(pad, { minScore: 0.4 })).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0];
+      if (!found) return null;
+      const { faceInCrop } = await import('./facemask.js');
+      return faceInCrop(found, pad.width, pad.height, { x: m, y: m, width: w, height: h });
+    } catch { return null; }
   }
   /**
    * Where the Character goes on face `f`: with a face of its own, its eyes on the face's eyes and its
@@ -1121,7 +1137,14 @@ export function mount(host, { file: initialFile } = {}) {
   function layoutOn(f) {
     const W = source.width; const H = source.height;
     if (placing.charFace) return bestPlacement(placing.charFace, placing.full.w, placing.full.h, f, W, H);
+    // No face of its own found: a face-only Character as wide as the face itself (jaw to jaw), a mask
+    // a little wider; centered and turned with the face.
     const m = maskLayer(f, placing.aspect, W / H, 1.35);
+    const c = faceContour(f, W, H);
+    if (c && f.pts) {
+      const jaw = Math.hypot((f.pts[16][0] - f.pts[0][0]) * W, (f.pts[16][1] - f.pts[0][1]) * H);
+      return { x: m.x * W, y: m.y * H, width: Math.min(m.scale * W, jaw * 1.08), rot: m.rot };
+    }
     return { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot };
   }
   /** 🙂 On a face: the Character over face `which` (an index; 'next' for the next one). */

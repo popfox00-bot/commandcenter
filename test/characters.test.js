@@ -154,3 +154,22 @@ test('lining a Character\'s face up on a face: the fit recovers scale and turn; 
   assert.ok(Math.abs(a.rot - Math.atan2(-21, 36)) < 0.05, 'turned with the face');
   assert.ok(a.width > 100 && a.width < 160, `sized to the face (${a.width.toFixed(0)} px wide)`);
 });
+
+test('a Character keeps its face: the points moved into its own picture, and carried through a saved folder', async () => {
+  const { faceInCrop } = await import('../web/tools/editor/facemask.js').catch(() => ({}));
+  if (faceInCrop) {
+    const face = { eyes: [[0.4, 0.4], [0.6, 0.4]], mouth: [0.5, 0.6], nose: [0.5, 0.5], angle: 0, score: 0.9, size: 0.3, box: { x: 0.35, y: 0.3, w: 0.3, h: 0.4 }, pts: [[0.5, 0.5]] };
+    const c = faceInCrop(face, 400, 300, { x: 140, y: 90, width: 120, height: 120 });
+    assert.deepEqual(c.eyes.map((p) => p.map((v) => Math.round(v * 1000) / 1000)), [[0.167, 0.25], [0.833, 0.25]]);
+    assert.deepEqual(c.box, { x: 0, y: 0, w: 1, h: 1 });
+    assert.deepEqual(c.pts[0].map((v) => Math.round(v * 1000) / 1000), [0.5, 0.5]);
+  }
+  const own = { eyes: [[0.3, 0.4], [0.7, 0.4]], mouth: [0.5, 0.7], pts: [[0.1, 0.2]] };
+  const from = fakeStore([{ id: 'a', name: 'Me', blob: png(10), width: 1, height: 2 }]);
+  (await from.list())[0].face = own;
+  const listed = await from.list();
+  const { blob } = await charactersZip({ list: async () => listed.map((c) => ({ ...c, face: own })), get: from.get });
+  const to = fakeStore();
+  await installCharacters([new File([blob], 'Characters.zip', { type: 'application/zip' })], to);
+  assert.deepEqual((await to.list())[0].face, own);
+});

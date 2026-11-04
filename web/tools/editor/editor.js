@@ -1217,7 +1217,7 @@ export function mount(host, { file: initialFile } = {}) {
       // Blended both ways at the border: the Character toward the photo's skin there, and what's left
       // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway.
       const faceW = at.faceObj.box.w * W;
-      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.16)), region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.4)) : 0 });
+      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.16)), region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0 });
       return patch;
     }
     const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);

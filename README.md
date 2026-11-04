@@ -155,8 +155,10 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
      **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
      (the same way all over, so its own shading and detail stay), then blended both ways at its border:
      it's matched to the face's own skin there (never the hair or background past it), and what's left
-     of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek)
-     takes on its colors, easing back to the photo further out, so nothing of the old face stands out.
+     of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
+     and any skin of that face past its outline, found by its skin color) takes on its colors, easing
+     back to the photo further out, so nothing of the old face stands out. Its edges fade in widely,
+     so it looks part of the face rather than cut out and laid on it.
      Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
      to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
      hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.

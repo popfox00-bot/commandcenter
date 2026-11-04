@@ -48,11 +48,11 @@ test('fitted onto a face: its eyes on the eyes and its jaw on the jaw (a wider c
   const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true, bend: 1 });
   const at = ([x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2, p.rgba[o + 3]]; };
   // Each control point of the face shows the matching point of the Character (within a couple of px).
-  // (The jaw is the face's own outline, so it's on the soft edge of the trim; the rest well inside.)
+  // (The jaw is the face's own outline, so it's on the soft edge of the trim, a wide one; the rest well inside.)
   for (const i of [36, 45, 48, 54, 30, 4, 8, 12]) {
     const [u, v, a] = at(tPts[i]);
     const jaw = i <= 16;
-    assert.ok(a > (jaw ? 40 : 200) && Math.hypot(u - cPts[i][0], v - cPts[i][1]) < 2.5, `landmark ${i}: shows ${u.toFixed(1)},${v.toFixed(1)} of the Character (alpha ${a}), its ${cPts[i].map((n) => n.toFixed(1))}`);
+    assert.ok(a > (jaw ? 20 : 200) && Math.hypot(u - cPts[i][0], v - cPts[i][1]) < 2.5, `landmark ${i}: shows ${u.toFixed(1)},${v.toFixed(1)} of the Character (alpha ${a}), its ${cPts[i].map((n) => n.toFixed(1))}`);
   }
   // Beyond the face's own outline (below the chin, out past the cheek, the hair above the forehead): trimmed away.
   for (const q of [[tPts[8][0], tPts[8][1] + 14], [tPts[0][0] - 14, tPts[0][1]], [200, tPts[19][1] - 40]]) assert.ok(at(q)[2] < 10, `trimmed at ${q.map(Math.round)}: alpha ${at(q)[2]}`);
@@ -204,6 +204,7 @@ test('blended both ways: the face it goes on, where the Character doesn\'t reach
   const W = 200; const H = 200;
   // The photo: pale skin (with hair outside the face's outline); the Character, darker, covering only the lower part of the face.
   const photo = new Uint8ClampedArray(W * H * 4); for (let i = 0; i < W * H; i++) photo.set([230, 200, 190, 255], i * 4);
+  for (let y = 0; y < 200; y++) for (let x = 170; x < 200; x++) photo.set([60, 40, 25, 255], (y * W + x) * 4); // hair on one side
   const outline = [[40, 30], [160, 30], [160, 170], [40, 170]];
   const pw = 200; const ph = 200;
   const rgba = new Uint8ClampedArray(pw * ph * 4);
@@ -216,4 +217,8 @@ test('blended both ways: the face it goes on, where the Character doesn\'t reach
   assert.ok(top[0] > just[0], `easing back to the photo further up: ${top}`);
   assert.equal(away[3], 0, 'outside the face, the photo left alone');
   assert.ok(px(100, 140)[0] < 170, 'its middle still its own');
+  // Skin past the outline (the face found too small) blended too; the hair beside it not.
+  const beyond = px(30, 120);
+  assert.ok(beyond[3] === 255 && beyond[0] < 222, `the skin just past the outline toned: ${beyond}`);
+  assert.equal(px(180, 120)[3], 0, 'the hair left alone');
 });

@@ -284,3 +284,71 @@ test('clean up → 🎨 Reverse Fill: pick the label\'s shades, trace roughly ar
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('crop → 🪄 Generative Expand: a new shape, the photo to one side, the black space filled from it; use it, and back', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const workers = [];
+  page.on('worker', (w) => workers.push(w.url()));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // A 240×160 landscape: sky on top, grass below the middle.
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(240, 160);
+    const x = c.getContext('2d');
+    const sky = x.createLinearGradient(0, 0, 0, 90); sky.addColorStop(0, 'rgb(80,140,230)'); sky.addColorStop(1, 'rgb(170,210,235)');
+    x.fillStyle = sky; x.fillRect(0, 0, 240, 90);
+    x.fillStyle = 'rgb(60,130,50)'; x.fillRect(0, 90, 240, 70);
+    for (let i = 0; i < 400; i++) { x.fillStyle = i % 2 ? 'rgb(80,150,60)' : 'rgb(45,110,40)'; x.fillRect((i * 37) % 240, 90 + ((i * 53) % 70), 3, 2); }
+    const b = await c.convertToBlob({ type: 'image/png' });
+    return Array.from(new Uint8Array(await b.arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'field.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: 'Crop' }).click();
+  await page.getByRole('button', { name: '🪄 Generative Expand' }).click();
+  const dlg = page.locator('dialog[open].ed-expand');
+  await dlg.waitFor();
+  // 16:9: wider, the photo on the left, black on the right in the preview.
+  await dlg.getByRole('button', { name: '16:9', exact: true }).click();
+  await dlg.getByRole('button', { name: '◀ Left' }).click();
+  assert.match(await dlg.locator('p[aria-live]').textContent(), /16:9: \d+ px of new space on the right/);
+  const black = await dlg.locator('canvas').evaluate((c) => { const d = c.getContext('2d').getImageData(c.width - 3, c.height >> 1, 1, 1).data; return [d[0], d[1], d[2], c.width / c.height]; });
+  assert.deepEqual(black.slice(0, 3), [0, 0, 0], 'the space to fill shows black');
+  assert.ok(Math.abs(black[3] - 16 / 9) < 0.03);
+  // Tall instead: 9:16 has Top / Middle / Bottom; the photo at the top.
+  await dlg.getByRole('button', { name: '9:16', exact: true }).click();
+  await dlg.getByRole('button', { name: '▲ Top' }).click();
+  assert.match(await dlg.locator('p[aria-live]').textContent(), /9:16: \d+ px of new space below/);
+  assert.equal(await dlg.getByRole('button', { name: '4:3', exact: true }).isDisabled(), false);
+  assert.equal(await dlg.getByRole('button', { name: '3:2', exact: true }).isDisabled(), true, 'the shape it is already');
+  await dlg.getByRole('button', { name: '✨ Expand' }).click();
+  await dlg.locator('text=/Expanded to 9:16/').waitFor({ timeout: 60000 });
+  assert.ok(workers.some((u) => u.endsWith('/expand-worker.js')), 'filled in a worker');
+  // The preview: no black left; grass carried on down below the photo.
+  const filled = await dlg.locator('canvas').evaluate((c) => {
+    const x = c.getContext('2d'); const d = x.getImageData(0, 0, c.width, c.height).data; let black = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 40) black++;
+    const p = x.getImageData(c.width >> 1, c.height - 4, 1, 1).data;
+    return { black, bottom: [p[0], p[1], p[2]], ratio: c.width / c.height };
+  });
+  assert.equal(filled.black, 0);
+  assert.ok(filled.bottom[1] > filled.bottom[2] + 30, `grass at the bottom (${filled.bottom})`);
+  assert.ok(Math.abs(filled.ratio - 9 / 16) < 0.02);
+  await dlg.getByRole('button', { name: '✓ Use it' }).click();
+  // The expanded picture is the photo now: 9:16, its top the photo's sky.
+  await page.waitForFunction(() => { const c = document.querySelector('.ed-canvas'); return c && Math.abs(c.width / c.height - 9 / 16) < 0.02; });
+  await page.waitForTimeout(200);
+  const top = await pixel(page, 0.5, 0.05);
+  assert.ok(top[2] > 200 && top[2] > top[1], `the photo's sky at the top (${top})`);
+  const low = await pixel(page, 0.5, 0.92);
+  assert.ok(low[1] > low[2] + 30, `filled with grass at the bottom (${low})`);
+  // And back to the photo from before.
+  await page.getByRole('button', { name: '↩ Before expanding' }).click();
+  await page.waitForFunction(() => { const c = document.querySelector('.ed-canvas'); return c && Math.abs(c.width / c.height - 1.5) < 0.02; });
+  assert.equal(await page.isVisible('text=↩ Before expanding'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

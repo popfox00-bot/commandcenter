@@ -112,6 +112,17 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   **🙂 Level face** (only when you tap it): finds the faces and turns the photo so the biggest one is
   upright, eyes level and above the mouth (quarter turns and straighten; undo to go back).
   **🎭 Face swap**: on to Collage with this photo, to cover its faces with a Character or a mask.
+  **🪄 Generative Expand**: a new shape (1:1, 4:5, 3:4, 2:3, 9:16, 4:3, 3:2, 16:9, 2:1) without
+  cropping. The photo, with its edits, stays as it is on the side you pick (left / center / right,
+  or top / middle / bottom), a preview shows the black space, and **✨ Expand** fills it from the
+  photo's own detail (`web/tools/editor/expand.js`, in a worker; on the phone, offline). First, the
+  photo is carried on from its seam: each piece continues from the strip of the photo whose edge
+  matches best, so a horizon or a wall's edge lines up. Where nothing continues it better than the
+  edge itself (a sky that darkens upward), the edge is drawn on. Then the new space is rebuilt from
+  patches of the photo, coarse to fine, at a working size and refined up to 1200 px. A smooth sky
+  keeps its light and only takes fine detail from the patches. **✓ Use it** opens the expanded
+  picture (up to 2048 px) as the photo to keep editing; **↩ Before expanding** goes back to the
+  original and its edits.
 - **Faces** are found on the phone, offline (`web/lib/face.js`: face-api's tiny face detector and its
   68-point landmarks for the eyes and mouth, vendored in `web/vendor/face`), tried with the picture
   turned too, so a tilted head or a photo on its side is found.

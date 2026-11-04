@@ -13,6 +13,7 @@ import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
 import { applyPatches, makePatch } from './retouch.js';
 import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab } from './cleanup.js';
 import { levelTurn, mainFace } from '../../lib/face-core.js';
+import { openExpandDialog } from './expand-ui.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
@@ -51,6 +52,8 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   // Fill From on), the rough trace around it (source pixels and its mask), the match tolerance, and the
   // preview of what matches (cached by what it was made from).
   let rf = null;
+  // Generative Expand: the photo (file, name, edits) from before the last expand, to go back to.
+  let beforeExpand = null; let pendingBefore = null;
   const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null });
   const cleanups = [];
 
@@ -101,6 +104,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       const fit = fitSize(bitmap.width, bitmap.height, PREVIEW_MAX);
       source = drawToCanvas(bitmap, fit.width, fit.height, null);
       rf = null; lastClean = null; copyFrom = null; pixelsCache = null;
+      beforeExpand = pendingBefore; pendingBefore = null;
       bitmap.close?.();
       file = blob;
       fileName = name;
@@ -792,6 +796,10 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
         el('button', { class: 'btn small-btn', text: '🙂 Level face', onclick: (e) => levelFace(e.currentTarget, faceNote) }),
         onFaceSwap ? el('button', { class: 'btn small-btn', text: '🎭 Face swap', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const f = await unmount.currentPhoto(); if (f) onFaceSwap(f); } finally { b.disabled = false; } } }) : null,
         faceNote),
+      // A new shape for the photo, the space filled from the photo.
+      el('div', { class: 'ed-row ed-expand-row' },
+        el('button', { class: 'btn small-btn', text: '🪄 Generative Expand', onclick: (e) => startExpand(e.currentTarget) }),
+        beforeExpand ? el('button', { class: 'btn small-btn ghost', text: '↩ Before expanding', onclick: backFromExpand }) : null),
       el('div', { class: 'ed-row' },
         el('button', { class: 'btn small-btn', text: '⟳ Rotate', onclick: () => commit(rotateClockwise(state())) }),
         el('button', { class: 'btn small-btn', text: '⇋ Flip', onclick: () => commit(flipHorizontal(state())) }),
@@ -799,6 +807,30 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       el('strong', { class: 'small', text: 'Straighten' }),
       straighten,
     ];
+  }
+
+  /** 🪄 Generative Expand: the photo with its edits, into the dialog; the result opens as a new photo. */
+  async function startExpand(btn) {
+    btn.disabled = true;
+    try {
+      const { canvas } = await renderEdited(file, state(), { maxEdge: 2048 });
+      openExpandDialog({
+        photo: canvas, ratio: prefs.expandRatio, place: prefs.expandPlace,
+        onUse: async ({ blob, ratio, place }) => {
+          prefs.expandRatio = ratio; prefs.expandPlace = place; savePrefs();
+          pendingBefore = beforeExpand ?? { blob: file, name: fileName, state: state() };
+          await openFile(blob, renameExt(fileName.replace(/-expanded(?=\.[^.]+$)/, ''), 'jpg', '-expanded'), null, 'crop');
+        },
+      });
+    } catch (err) { window.alert(`Couldn't get the photo ready to expand: ${err.message}`); }
+    finally { btn.disabled = false; }
+  }
+  /** Back to the photo (and its edits) from before expanding. */
+  async function backFromExpand() {
+    const b = beforeExpand; if (!b) return;
+    if (!isDefault(state()) && !window.confirm('Go back to the photo before expanding? Edits made since are dropped.')) return;
+    await openFile(b.blob, b.name, b.state, 'crop');
+    persist(true);
   }
 
   let faceNoteText = '';

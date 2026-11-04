@@ -156,3 +156,28 @@ export function alignOnFace(charFace, cw, ch, face, W, H) {
   const dx = cw / 2 - cm[0]; const dy = ch / 2 - cm[1]; const co = Math.cos(rot); const si = Math.sin(rot);
   return { x: tm[0] + s * (dx * co - dy * si), y: tm[1] + s * (dx * si + dy * co), width: s * cw, rot };
 }
+
+/**
+ * The outline of the face itself (no hair, ears or background) for a W×H picture, from its 68
+ * landmarks: the jaw from ear to ear (0–16), then across the forehead along the brows (26 back to
+ * 17), raised by `forehead` of the brows-to-chin height (below the hairline), in the picture's
+ * pixels. null when the landmarks don't make a face shape (then use faceOutline instead).
+ */
+export function faceContour(face, W, H, { forehead = 0.2 } = {}) {
+  const pts = face.pts;
+  if (!pts || pts.length !== 68) return null;
+  const P = (i) => [pts[i][0] * W, pts[i][1] * H];
+  const brow = [0, 1].map((k) => (P(19)[k] + P(24)[k]) / 2);
+  const chin = P(8);
+  // "Up" on the face: from the chin toward the brows.
+  const ux = brow[0] - chin[0]; const uy = brow[1] - chin[1]; const len = Math.hypot(ux, uy);
+  if (len < 4) return null;
+  const lift = forehead * len;
+  const up = [(ux / len) * lift, (uy / len) * lift];
+  const poly = [];
+  for (let i = 0; i <= 16; i++) poly.push(P(i));
+  for (let i = 26; i >= 17; i--) { const p = P(i); poly.push([p[0] + up[0], p[1] + up[1]]); }
+  // A face, not a sliver: its area at least a quarter of the face box's.
+  let a = 0; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += (poly[j][0] + poly[i][0]) * (poly[j][1] - poly[i][1]);
+  return Math.abs(a) / 2 >= 0.25 * face.box.w * W * face.box.h * H ? poly : null;
+}

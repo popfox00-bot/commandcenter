@@ -6,7 +6,7 @@
 // the photo seamlessly: at its edge it takes on what's next to it there (above, below, each side, each
 // differently), eased smoothly inward. Pure: RGBA in, patch pixels out.
 
-import { faceOutline, alignOnFace } from '../../lib/face-core.js';
+import { faceOutline, faceContour, alignOnFace, similarityFit } from '../../lib/face-core.js';
 import { placedCorners } from './place.js';
 import { membrane } from './cleanup.js';
 import { featherAlpha } from '../cutout/cutout-core.js';
@@ -80,13 +80,30 @@ function soften(m, w, h, r) {
 }
 
 /**
+ * Where the Character goes before it's bent: sized and turned to the face by all its landmarks at
+ * once (jaw, brows, nose, eyes, mouth: a least-squares fit, the eyes counting most), so its size suits
+ * the face as a whole, not just the eyes' spacing. By the eyes alone when the landmarks aren't there.
+ * { x, y, width, rot } in the picture's pixels.
+ */
+export function bestPlacement(charFace, cw, ch, face, W, H) {
+  if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return alignOnFace(charFace, cw, ch, face, W, H);
+  const from = CONTROL.map((i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]);
+  const to = CONTROL.map((i) => [face.pts[i][0] * W, face.pts[i][1] * H]);
+  const weights = CONTROL.map((i) => (i >= 36 && i <= 45 ? 3 : 1));
+  const m = similarityFit(from, to, weights);
+  if (!(m.s > 0) || !Number.isFinite(m.s)) return alignOnFace(charFace, cw, ch, face, W, H);
+  const c = Math.cos(m.rot) * m.s; const s = Math.sin(m.rot) * m.s;
+  return { x: c * (cw / 2) - s * (ch / 2) + m.tx, y: s * (cw / 2) + c * (ch / 2) + m.ty, width: m.s * cw, rot: m.rot };
+}
+
+/**
  * The Character (RGBA cw×ch, with its own face `charFace`) fitted onto `face` in a W×H picture:
  * placed by its eyes first (alignOnFace), then bent so its landmarks meet the face's, and (with
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
 export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true } = {}) {
-  const base = alignOnFace(charFace, cw, ch, face, W, H);
+  const base = bestPlacement(charFace, cw, ch, face, W, H);
   // Where the Character's edges go when just placed by the eyes: anchors that keep it steady far from the face.
   const anchorsSrc = [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]];
   const k = base.width / cw; const co = Math.cos(base.rot); const si = Math.sin(base.rot);
@@ -128,15 +145,67 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true } = {}
     }
   }
   if (trim) {
-    // The head's outline in the photo, a little roomier (hair and ears count), its edge a soft ramp.
-    const out = faceOutline(face, W, H, 64).map(([u, v]) => [u * W, v * H]);
+    // The face's own outline in the photo (jaw and forehead; or the head's oval when its landmarks
+    // don't make one), a touch roomier, its edge a soft ramp: nothing of the Character beyond it.
+    const contour = faceContour(face, W, H);
+    const out = contour ?? faceOutline(face, W, H, 64).map(([u, v]) => [u * W, v * H]);
+    const grow = contour ? 1.03 : 1.12;
     const cx = out.reduce((s, p) => s + p[0], 0) / out.length; const cy = out.reduce((s, p) => s + p[1], 0) / out.length;
-    const roomy = out.map(([x, y]) => [cx + (x - cx) * 1.12, cy + (y - cy) * 1.12]);
+    const roomy = out.map(([x, y]) => [cx + (x - cx) * grow, cy + (y - cy) * grow]);
     const headH = Math.max(...out.map((p) => p[1])) - Math.min(...out.map((p) => p[1]));
-    const m = soften(fillPolygon(roomy, x0, y0, pw, ph), pw, ph, Math.max(2, Math.round(headH * 0.04)));
+    const m = soften(fillPolygon(roomy, x0, y0, pw, ph), pw, ph, Math.max(2, Math.round(headH * 0.035)));
     for (let i = 0; i < pw * ph; i++) rgba[i * 4 + 3] *= Math.min(1, m[i] * 1.15);
   }
   return { x0, y0, pw, ph, rgba };
+}
+
+/** A box blur (radius r, twice over) of RGB where `use(i)` says, each value the mean of those near it. */
+function maskedBlur(get, use, w, h, r) {
+  let a = new Float32Array(w * h * 3); let wt = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) if (use(i)) { const c = get(i); a[i * 3] = c[0]; a[i * 3 + 1] = c[1]; a[i * 3 + 2] = c[2]; wt[i] = 1; }
+  const pass = (src, ch, horiz) => {
+    const out = new Float32Array(src.length); const [n, lines] = horiz ? [w, h] : [h, w];
+    for (let l = 0; l < lines; l++) for (let c = 0; c < ch; c++) {
+      const at = (i) => (horiz ? l * w + i : i * w + l) * ch + c;
+      let acc = 0; let cnt = 0;
+      for (let i = 0; i < Math.min(n, r + 1); i++) { acc += src[at(i)]; cnt++; }
+      for (let i = 0; i < n; i++) {
+        out[at(i)] = acc / cnt;
+        if (i + r + 1 < n) { acc += src[at(i + r + 1)]; cnt++; }
+        if (i - r >= 0) { acc -= src[at(i - r)]; cnt--; }
+      }
+    }
+    return out;
+  };
+  for (let k = 0; k < 2; k++) { a = pass(pass(a, 3, true), 3, false); wt = pass(pass(wt, 1, true), 1, false); }
+  for (let i = 0; i < w * h; i++) for (let c = 0; c < 3; c++) a[i * 3 + c] = wt[i] > 1e-4 ? a[i * 3 + c] / wt[i] : 0;
+  return { a, wt };
+}
+
+/**
+ * The light and color across the face, not only at its edge: over the face in the photo, its broad
+ * shading (light from one side, a warmer cheek, a shadow under the brows, blurred so pores and freckles
+ * don't count) is carried onto the Character's face, in place of its own, by `strength` (0–1); its
+ * own detail stays. Only where both are face (inside the face's outline). In place on the patch.
+ */
+export function shadeMatch(patch, photo, W, H, face, strength = 0.8) {
+  if (strength <= 0) return patch;
+  const { x0, y0, pw, ph, rgba } = patch;
+  const contour = faceContour(face, W, H) ?? faceOutline(face, W, H, 64).map(([u, v]) => [u * W, v * H]);
+  const inFace = fillPolygon(contour, x0, y0, pw, ph);
+  const headH = Math.max(...contour.map((p) => p[1])) - Math.min(...contour.map((p) => p[1]));
+  const r = Math.max(2, Math.round(headH * 0.08));
+  const covered = (i) => inFace[i] && rgba[i * 4 + 3] > 128;
+  const them = maskedBlur((i) => { const X = x0 + (i % pw); const Y = y0 + ((i / pw) | 0); const o = (Y * W + X) * 4; return [photo[o], photo[o + 1], photo[o + 2]]; }, (i) => inFace[i] > 0, pw, ph, r).a;
+  const us = maskedBlur((i) => [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]], covered, pw, ph, r).a;
+  // Eased in from the edge of the face (the seamless blend takes it from there), full inside it.
+  const ramp = soften(inFace, pw, ph, Math.max(1, Math.round(r / 2)));
+  for (let i = 0; i < pw * ph; i++) {
+    if (!rgba[i * 4 + 3] || !ramp[i]) continue;
+    const k = strength * ramp[i];
+    for (let c = 0; c < 3; c++) rgba[i * 4 + c] += k * (them[i * 3 + c] - us[i * 3 + c]);
+  }
+  return patch;
 }
 
 /**

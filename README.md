@@ -132,21 +132,24 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
 - **🙂 FaceMask** (a tab of its own beside ✏️ Edit, 🧩 Collage and ✂️ Cutout: the same photo, with only
   the face tools): everything for faces, in three steps.
-  1. **🙂 Identify faces**: the faces are found (on the phone) and outlined; with more than one, each
-     gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
-  2. **✂️ Cut out & save as Character**: the picked face is cut out in one go (an oval from its eyes
-     and mouth, with the forehead, brought in to the head's own edge by Cutout's smart edges), shown,
-     named and kept with your Characters (`web/tools/editor/facemask.js`). Fine-tune its edge in
-     Cutout if you like.
+  1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
+     with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
+  2. **✂️ Cut out & save as Character**: just the face, cut out in one go along its own outline from
+     its landmarks: the jaw from ear to ear and a forehead line just above the brows, so no hair, ears
+     or background; a fringe over the forehead (anything there that isn't the face's skin color) is
+     left out too. Its edge is softened, and it's shown, named and kept with your Characters
+     (`web/tools/editor/facemask.js`). Fine-tune its edge in Cutout if you like.
   3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
-     Character with a face of its own (one cut out like this) is **🧬 fitted to the face**: placed by
-     its eyes first, then bent so about thirty of its landmarks (jaw and chin, brows, nose, eye
-     corners, mouth) meet the face's own (moving least squares: smooth, and it stays itself away from
-     the face), and **✂️ trimmed to the head**: softly faded out beyond that head's outline, so a
-     different hairline, ears or neck don't stick out (`web/tools/editor/facefit.js`). Any other image
-     covers the face, turned with it. **🎨 Blend into the photo** (0–100, on by default) matches it
-     seamlessly: at its edge it takes on what's right next to it there (above, below, each side, each
-     its own), eased smoothly inward, so there's no seam and no one-tint-for-all; its own detail stays.
+     Character with a face of its own (one cut out like this) is **🧬 fitted to the face**: sized and
+     turned to it by all its landmarks at once (a least-squares fit, the eyes counting most), then bent
+     so about thirty of them (jaw and chin, brows, nose, eye corners, mouth) meet the face's own (moving
+     least squares: smooth, and it stays itself away from the face), and **✂️ trimmed** softly to that
+     face's own outline, so nothing sticks out past the jaw, cheeks or forehead
+     (`web/tools/editor/facefit.js`). Any other image covers the face, turned with it. **🎨 Blend into
+     the photo** (0–100, on by default) blends it in two ways: across the whole face, the photo face's
+     broad light and color (lit from one side, a warmer cheek, shadow under the brows) are carried onto
+     it in place of its own; and at its edge it takes on what's right next to it there (above, below,
+     each side, each its own), eased smoothly inward, so there's no seam. Its own detail stays.
      Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
      to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
      hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.

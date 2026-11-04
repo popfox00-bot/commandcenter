@@ -9,10 +9,11 @@ export async function listCharacters() {
   return (await idb.get(INDEX)) ?? [];
 }
 
-export async function addCharacter(blob, { name, width, height }) {
+/** face: the Character's own face (eyes, mouth, landmarks, in 0..1 of its image), when it is one. */
+export async function addCharacter(blob, { name, width, height, face = null }) {
   const list = await listCharacters();
   const id = crypto.randomUUID();
-  const entry = { id, name: name || `Character ${list.length + 1}`, width, height, createdAt: Date.now() };
+  const entry = { id, name: name || `Character ${list.length + 1}`, width, height, createdAt: Date.now(), ...(face ? { face } : {}) };
   await idb.set(blobKey(id), blob);
   await idb.set(INDEX, [entry, ...list]);
   return entry;

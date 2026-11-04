@@ -28,7 +28,7 @@ export async function characterFiles({ list = listCharacters, get = getCharacter
     for (let i = 2; used.has(`${base}.${ext}`.toLowerCase()); i++) base = `${safeName(c.name)} (${i})`;
     const file = `${base}.${ext}`; used.add(file.toLowerCase());
     files.push({ name: file, blob });
-    entries.push({ file, name: c.name, width: c.width, height: c.height, createdAt: c.createdAt });
+    entries.push({ file, name: c.name, width: c.width, height: c.height, createdAt: c.createdAt, ...(c.face ? { face: c.face } : {}) });
   }
   const manifest = { app: 'Command Center', kind: 'characters', version: 1, savedAt: new Date().toISOString(), characters: entries };
   files.push({ name: MANIFEST, blob: new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }) });
@@ -109,7 +109,7 @@ export async function installCharacters(picked, { list = listCharacters, add = a
     if (sizes.has(`${name}|${f.blob.size}`)) { skipped++; continue; }
     const blob = f.blob.type ? f.blob : new Blob([f.blob], { type: TYPE[f.name.split('.').pop().toLowerCase()] ?? 'image/png' });
     const dims = meta?.width ? { width: meta.width, height: meta.height } : (await measure(blob)) ?? { width: 0, height: 0 };
-    await add(blob, { name, ...dims });
+    await add(blob, { name, ...dims, ...(meta?.face ? { face: meta.face } : {}) });
     sizes.set(`${name}|${blob.size}`, true);
     added++; names.unshift(name);
   }

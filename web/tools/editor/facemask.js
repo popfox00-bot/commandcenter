@@ -45,7 +45,22 @@ export function cutOutFace(img, face, { feather = 2 } = {}) {
   if (!b) return null;
   const crop = document.createElement('canvas'); crop.width = b.width; crop.height = b.height;
   crop.getContext('2d').drawImage(out, b.x, b.y, b.width, b.height, 0, 0, b.width, b.height);
+  crop.face = faceInCrop(face, W, H, b);
   return crop;
+}
+
+/**
+ * The face's points (eyes, mouth, nose, box, all 68 landmarks) moved into the cut's own picture, a
+ * crop of a W×H one at (x, y, width × height): kept with the Character, so it's fitted onto faces by
+ * its real features (not found again on a tight crop, where finding faces is unreliable).
+ */
+export function faceInCrop(face, W, H, { x, y, width, height }) {
+  const m = ([u, v]) => [(u * W - x) / width, (v * H - y) / height];
+  return {
+    eyes: face.eyes.map(m), mouth: m(face.mouth), nose: m(face.nose), angle: face.angle, score: face.score,
+    box: { x: (face.box.x * W - x) / width, y: (face.box.y * H - y) / height, w: (face.box.w * W) / width, h: (face.box.h * H) / height },
+    size: face.size, pts: face.pts?.map(m),
+  };
 }
 
 /**

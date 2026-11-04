@@ -156,7 +156,7 @@ function ownMask(img, cw, ch, charFace) {
   const poly = targetOutline(img, cw, ch, charFace) ?? faceContour(charFace, cw, ch, { forehead: 0.55 });
   if (!poly) return null;
   // Roomier along the jaw (the face it goes on trims there), not past its own hairline (no hair of its own).
-  const g = grow(poly, 1.12); const roomy = poly.map((p, i) => (i <= 16 ? g[i] : p));
+  const g = grow(poly, 1.05); const roomy = poly.map((p, i) => (i <= 16 && !poly.snapped?.[i] ? g[i] : p));
   const hh = Math.max(...roomy.map((p) => p[1])) - Math.min(...roomy.map((p) => p[1]));
   const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.05)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
@@ -240,11 +240,41 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
 }
 
 /**
+ * The face's own skin, as a test: its colors (Lab) measured between the eyes and the mouth (the
+ * cheeks and nose), each channel with its own spread, so a color is judged by how far it is from that
+ * skin in each (lightness, redness, yellowness). Lightness counts for less than hue, brighter least (a
+ * highlight or a shadow is still skin; hair, even blond, is darker and of a different hue). null without the landmarks.
+ * `.off(L, a, b)`: how far, in spreads (3 or more: not this skin).
+ */
+export function skinModel(photo, W, H, face) {
+  const pts = face.pts;
+  if (!pts || pts.length !== 68) return null;
+  const P = (i) => [pts[i][0] * W, pts[i][1] * H];
+  const at = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= W || Y >= H) return null; const o = (Y * W + X) * 4; return photo[o + 3] < 128 ? null : rgbToLab(photo[o], photo[o + 1], photo[o + 2]); };
+  let skin = [];
+  const a = P(29); const b = P(33); const l = P(2); const r = P(14);
+  for (let t = 0; t <= 1; t += 0.1) for (let s2 = 0.2; s2 <= 0.8; s2 += 0.05) {
+    const c = at(l[0] + (r[0] - l[0]) * s2, a[1] + (b[1] - a[1]) * t + (l[1] + (r[1] - l[1]) * s2 - (l[1] + r[1]) / 2)); if (c) skin.push(c);
+  }
+  if (skin.length < 10) return null;
+  const stats = (xs) => { const m = [0, 1, 2].map((k) => xs.reduce((t, c) => t + c[k], 0) / xs.length); return [m, [0, 1, 2].map((k) => Math.sqrt(xs.reduce((t, c) => t + (c[k] - m[k]) ** 2, 0) / xs.length))]; };
+  let [mean, sd] = stats(skin);
+  // Without what isn't skin there (a nostril, a freckle's shadow): the far ones left out once.
+  const trimmed = skin.filter((c) => [0, 1, 2].every((k) => Math.abs(c[k] - mean[k]) <= 2.5 * sd[k] + 1e-6));
+  if (trimmed.length >= 10) { skin = trimmed; [mean, sd] = stats(skin); }
+  sd = [Math.max(7, sd[0]), Math.max(2.5, sd[1]), Math.max(3, sd[2])];
+  const off = (L, A, B) => { let dl = (L - mean[0]) / sd[0]; dl *= dl > 0 ? 0.5 : 0.7; return Math.hypot(dl, (A - mean[1]) / sd[1], (B - mean[2]) / sd[2]); };
+  return { mean, sd, off, isSkin: (rr, gg, bb) => { const c = rgbToLab(rr, gg, bb); return off(c[0], c[1], c[2]) < 3; } };
+}
+
+/**
  * Where the face in the photo ends: its own clean outline, the jaw from ear to ear (0–16), then up
  * across the forehead to the hairline, found in the photo itself: from the brows up, column by column,
- * the first place the skin gives way to hair (a color well away from the face's own skin, judged from
- * its cheeks and nose). Where there's no hair to find (a bald head, a high forehead), a forehead's
- * usual height. In the picture's pixels, or null without the landmarks.
+ * the first place the skin gives way to hair (judged by skinModel). The jaw too is brought in where
+ * the face's skin ends before it (hair over a cheek or temple, the far side of a turned face, a
+ * flower by the ear): from the nose out to each jaw point, the first stretch that isn't that skin.
+ * Where there's no hair to find (a bald head, a high forehead), a forehead's usual height. In the
+ * picture's pixels, or null without the landmarks. `.snapped[i]`: whether jaw point i was brought in.
  */
 export function targetOutline(photo, W, H, face) {
   const pts = face.pts;
@@ -254,38 +284,74 @@ export function targetOutline(photo, W, H, face) {
   const ux = brow[0] - chin[0]; const uy = brow[1] - chin[1]; const len = Math.hypot(ux, uy);
   if (len < 6) return null;
   const up = [ux / len, uy / len];
-  // (A clear pixel, past the edge of a cut-out face, is no skin.)
-  const CLEAR = [-1000, 0, 0];
-  const at = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= W || Y >= H) return null; const o = (Y * W + X) * 4; return photo[o + 3] < 128 ? CLEAR : rgbToLab(photo[o], photo[o + 1], photo[o + 2]); };
-  // The skin: between the eyes and the mouth, inside the jaw.
-  const skin = [];
-  const a = P(29); const b = P(33); const l = P(2); const r = P(14);
-  for (let t = 0; t <= 1; t += 0.1) for (let s2 = 0.25; s2 <= 0.75; s2 += 0.05) {
-    const cx = l[0] + (r[0] - l[0]) * s2; const cy = a[1] + (b[1] - a[1]) * t;
-    const c = at(cx, cy); if (c && c !== CLEAR) skin.push(c);
-  }
-  if (skin.length < 10) return null;
-  const mean = [0, 1, 2].map((k) => skin.reduce((s3, c) => s3 + c[k], 0) / skin.length);
-  const sd = Math.sqrt(skin.reduce((s3, c) => s3 + (c[0] - mean[0]) ** 2 * 0.25 + (c[1] - mean[1]) ** 2 + (c[2] - mean[2]) ** 2, 0) / skin.length);
-  const limit = Math.max(14, sd * 2.5);
-  const far = (c) => Math.sqrt((c[0] - mean[0]) ** 2 * 0.25 + (c[1] - mean[1]) ** 2 + (c[2] - mean[2]) ** 2) > limit;
-  // Up from each brow point (26 back to 17) to the hairline: the first of three steps in a row off the skin.
-  const lo = 0.08 * len; const hi = 0.75 * len; const usual = 0.42 * len;
-  const lifts = [];
-  for (let i = 26; i >= 17; i--) {
-    const [bx, by] = P(i); let found = null; let run = 0;
-    for (let d = lo; d <= hi; d += Math.max(1, len / 80)) {
-      const c = at(bx + up[0] * d, by + up[1] * d);
-      if (!c) break;
-      if (c === CLEAR || far(c)) { run++; if (run === 3) { found = d - 2 * Math.max(1, len / 80); break; } } else run = 0;
+  const model = skinModel(photo, W, H, face);
+  if (!model) return null;
+  const step = Math.max(1, len / 90); const r = Math.max(1, Math.round(step / 2));
+  // A point's color (Lab, averaged over a few pixels so a single strand or freckle counts for less);
+  // null past the picture's edge or on a clear or partly clear pixel (the edge of a cut-out face).
+  const lab = (x, y) => {
+    const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= W || Y >= H) return null;
+    let rr = 0; let gg = 0; let bb = 0; let n = 0;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const xx = Math.min(W - 1, Math.max(0, X + dx)); const yy = Math.min(H - 1, Math.max(0, Y + dy)); const o = (yy * W + xx) * 4;
+      if (photo[o + 3] < 250) return null; // (its soft edge too: it carries what was around the face)
+      rr += photo[o]; gg += photo[o + 1]; bb += photo[o + 2]; n++;
     }
-    lifts.push(found ?? usual);
+    return rgbToLab(rr / n, gg / n, bb / n);
+  };
+  // Out along a line from (px, py), from `from` to `to`: where the skin ends. Each point is compared with
+  // the skin just before it on the same line (so shading and a redder cheek or a paler forehead are
+  // still skin), and the edge is where most of the next stretch differs: hair, a flower, the background.
+  const win = Math.max(4, Math.round((0.05 * len) / step));
+  const TOL = 13;
+  function edgeAlong(px, py, vx, vy, from, to, ref0 = null) {
+    let ref = ref0 ? ref0.slice() : null; let n = ref0 ? 3 : 0; const bad = [];
+    const dE = (c, q) => Math.hypot((c[0] - q[0]) * 0.7, c[1] - q[1], c[2] - q[2]);
+    let first = ref0 ? ref0.slice() : null; // never drifting far from the skin it started on (a soft edge into hair)
+    for (let d = from; d <= to + 1e-6; d += step) {
+      const c = lab(px + vx * d, py + vy * d); let b;
+      if (!c) b = true;
+      else if (n < 3) { b = model.off(c[0], c[1], c[2]) > 4.5; if (!b) { ref = ref ? ref.map((v, k) => (v * n + c[k]) / (n + 1)) : c.slice(); n++; if (n === 3) first = ref.slice(); } }
+      else { b = dE(c, ref) > TOL || dE(c, first) > 1.6 * TOL; if (!b) ref = ref.map((v, k) => v * 0.85 + c[k] * 0.15); }
+      bad.push(b);
+      // The edge: the start of the first window in which nearly all of it is off the skin.
+      if (bad.length >= win) {
+        const s0 = bad.length - win; let cnt = 0; for (let k = s0; k < bad.length; k++) cnt += bad[k];
+        if (cnt >= Math.ceil(win * 0.6)) { let k = s0; while (!bad[k]) k++; return from + k * step; }
+      }
+    }
+    return null;
   }
-  // Smoothed along the forehead (one stray strand doesn't dent it), and never lower at the temples than the middle needs.
+  // Up from each brow point (26 back to 17) to the hairline, each compared with the forehead's own skin
+  // (just above the inner brows: nearly always skin), so hair at the temples is found from the start.
+  const lo = 0.08 * len; const hi = 0.75 * len; const usual = 0.42 * len;
+  const mid = [(P(21)[0] + P(22)[0]) / 2, (P(21)[1] + P(22)[1]) / 2]; const fs = [];
+  for (const t of [0.04, 0.07, 0.1]) for (const sx of [-0.06, 0, 0.06]) { const c = lab(mid[0] + up[0] * t * len - up[1] * sx * len, mid[1] + up[1] * t * len + up[0] * sx * len); if (c && model.off(c[0], c[1], c[2]) < 4.5) fs.push(c); }
+  let forehead = fs.length ? [0, 1, 2].map((k) => fs.reduce((t, c) => t + c[k], 0) / fs.length) : null;
+  if (!forehead) forehead = model.mean;
+  const lifts = [];
+  for (let i = 26; i >= 17; i--) { const [bx, by] = P(i); lifts.push(edgeAlong(bx, by, up[0], up[1], lo, hi, forehead) ?? usual); }
+  // Smoothed along the forehead (one stray strand doesn't dent it).
   const smooth = lifts.map((v, k) => { const w = lifts.slice(Math.max(0, k - 1), k + 2); return w.reduce((s3, x) => s3 + x, 0) / w.length; });
-  const poly = [];
-  for (let i = 0; i <= 16; i++) poly.push(P(i));
+  // The jaw: out from the nose tip toward each jaw point (starting past the eyes, brows, nose and
+  // mouth on the way), the start of the first stretch off the skin long enough not to be a freckle.
+  const nose = P(30);
+  const features = []; for (let i = 17; i < 68; i++) if (i < 27 || i > 30) features.push(P(i));
+  const poly = []; const snapped = [];
+  for (let i = 0; i <= 16; i++) {
+    const [jx, jy] = P(i); const dist = Math.hypot(jx - nose[0], jy - nose[1]);
+    const vx = (jx - nose[0]) / dist; const vy = (jy - nose[1]) / dist;
+    let from = 0.55 * dist;
+    for (const [fx, fy] of features) {
+      const along = (fx - nose[0]) * vx + (fy - nose[1]) * vy; const across = Math.abs((fx - nose[0]) * vy - (fy - nose[1]) * vx);
+      if (across < 0.1 * len && along < dist) from = Math.max(from, along + 0.04 * len);
+    }
+    from = Math.min(from, 0.82 * dist);
+    const hit = edgeAlong(nose[0], nose[1], vx, vy, from, dist);
+    if (hit !== null) { const t = hit / dist; poly.push([nose[0] + (jx - nose[0]) * t, nose[1] + (jy - nose[1]) * t]); snapped.push(true); } else { poly.push([jx, jy]); snapped.push(false); }
+  }
   for (let k = 0, i = 26; i >= 17; i--, k++) { const [bx, by] = P(i); poly.push([bx + up[0] * smooth[k], by + up[1] * smooth[k]]); }
+  poly.snapped = snapped;
   return poly;
 }
 
@@ -319,7 +385,7 @@ export function recolor(patch, photo, W, H, outline, strength = 0.8) {
  * it meets every side of what's around it with no seam while keeping its own detail. Its edge is
  * softened by a couple of pixels too. In place; returns the patch.
  */
-export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0, region = null, spread = 0 } = {}) {
+export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0, region = null, spread = 0, skin = null } = {}) {
   const { x0, y0, pw, ph, rgba } = patch;
   // Colors first (on its edge as it is), then the soft edge: the rim pixels softening adds have no
   // color of their own, so its own edge colors are carried out to them first.
@@ -329,7 +395,7 @@ export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0
     // just past it: the forehead up to the hairline, the cheeks it doesn't reach) takes on its colors
     // too, easing back to the photo as it is further out, so there's no patch of the old face left
     // standing out; the two meet halfway.
-    const zone = region && spread > 0 ? skinZone(rgba, x0, y0, pw, ph, photo, W, H, reg, reg, spread) : null;
+    const zone = region && spread > 0 ? skinZone(rgba, x0, y0, pw, ph, photo, W, H, reg, spread, skin) : null;
     blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band, reg, zone, spread);
   }
   if (soft) { bleed(rgba, pw, ph, soft * 3 + 2); featherAlpha(rgba, pw, ph, soft); }
@@ -342,23 +408,26 @@ export function blendIn(patch, photo, W, H, strength = 0.8, { soft = 2, band = 0
  * temple, the side of a cheek), reached from the Character without crossing anything else, as far as
  * 1.5 × `spread`. 1 there.
  */
-function skinZone(rgba, x0, y0, pw, ph, photo, W, H, reg, inside, spread) {
-  const lab = new Float32Array(pw * ph * 3); const ok = new Uint8Array(pw * ph);
-  const sum = [0, 0, 0]; const sq = [0, 0, 0]; let n = 0;
-  for (let k = 0; k < pw * ph; k++) {
-    const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) continue;
-    const o = (Y * W + X) * 4; const c = rgbToLab(photo[o], photo[o + 1], photo[o + 2]);
-    lab[k * 3] = c[0]; lab[k * 3 + 1] = c[1]; lab[k * 3 + 2] = c[2]; ok[k] = 1;
-    if (reg[k]) { n++; for (let j = 0; j < 3; j++) { sum[j] += c[j]; sq[j] += c[j] * c[j]; } }
-  }
+function skinZone(rgba, x0, y0, pw, ph, photo, W, H, inside, spread, model = null) {
   const zone = new Uint8Array(pw * ph);
-  if (!n) { for (let k = 0; k < pw * ph; k++) zone[k] = inside[k]; return zone; }
-  const mean = sum.map((v) => v / n); const sd = sq.map((v, j) => Math.sqrt(Math.max(0, v / n - mean[j] ** 2)));
-  // Skin: its hue close to the face's (a, b), its lightness anywhere from shadow to highlight.
-  const tolAB = Math.max(7, 2.2 * Math.hypot(sd[1], sd[2])); const tolL = Math.max(22, 3 * sd[0]);
-  const skin = (k) => ok[k] && Math.hypot(lab[k * 3 + 1] - mean[1], lab[k * 3 + 2] - mean[2]) < tolAB && Math.abs(lab[k * 3] - mean[0]) < tolL;
+  // Skin: by the face's own skin model (skinModel); without one, a color like the skin inside the outline.
+  let isSkin = model?.isSkin;
+  if (!isSkin) {
+    const sum = [0, 0, 0]; const sq = [0, 0, 0]; let n = 0;
+    for (let k = 0; k < pw * ph; k++) {
+      if (!inside[k]) continue;
+      const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) continue;
+      const o = (Y * W + X) * 4; const c = rgbToLab(photo[o], photo[o + 1], photo[o + 2]); n++;
+      for (let j = 0; j < 3; j++) { sum[j] += c[j]; sq[j] += c[j] * c[j]; }
+    }
+    if (!n) { for (let k = 0; k < pw * ph; k++) zone[k] = inside[k]; return zone; }
+    const mean = sum.map((v) => v / n); const sd = sq.map((v, j) => Math.max(j ? 2.5 : 7, Math.sqrt(Math.max(0, v / n - mean[j] ** 2))));
+    isSkin = (r, g, b) => { const c = rgbToLab(r, g, b); let dl = (c[0] - mean[0]) / sd[0]; if (dl > 0) dl *= 0.5; return Math.hypot(dl, (c[1] - mean[1]) / sd[1], (c[2] - mean[2]) / sd[2]) < 3; };
+  }
+  const skin = (k) => { const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) return false; const o = (Y * W + X) * 4; return isSkin(photo[o], photo[o + 1], photo[o + 2]); };
   const depth = new Float32Array(pw * ph).fill(Infinity); const q = [];
-  for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > 24) { depth[k] = 0; q.push(k); }
+  // From where it's mostly solid (as blendColors counts it), so its faint outer edge is in the zone too.
+  for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > 128) { depth[k] = 0; q.push(k); }
   const far = 1.5 * spread;
   for (let h = 0; h < q.length; h++) {
     const k = q[h]; const x = k % pw;
@@ -371,26 +440,63 @@ function skinZone(rgba, x0, y0, pw, ph, photo, W, H, reg, inside, spread) {
   return zone;
 }
 
+/**
+ * membrane() for a big area: the difference is smooth anyway, so it's worked out on a coarser grid
+ * (each cell: the measured edge in it if any, else free if any of it is, else held at nothing) and
+ * spread back smoothly; the measured edge itself kept exactly. In place on `diff`.
+ */
+function smoothField(diff, free, fixed, pw, ph) {
+  const f = Math.ceil(Math.sqrt((pw * ph) / 120000));
+  if (f <= 1) return membrane(diff, free, pw, ph);
+  const cw = Math.ceil(pw / f); const ch = Math.ceil(ph / f);
+  const cd = new Float32Array(cw * ch * 3); const cn = new Float32Array(cw * ch); const cfree = new Uint8Array(cw * ch);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const k = y * pw + x; const c = Math.floor(y / f) * cw + Math.floor(x / f);
+    if (fixed[k]) { cn[c]++; for (let j = 0; j < 3; j++) cd[c * 3 + j] += diff[k * 3 + j]; } else if (free[k]) cfree[c] = 1;
+  }
+  for (let c = 0; c < cw * ch; c++) if (cn[c]) { cfree[c] = 0; for (let j = 0; j < 3; j++) cd[c * 3 + j] /= cn[c]; }
+  membrane(cd, cfree, cw, ch);
+  for (let y = 0; y < ph; y++) {
+    const gy = Math.min(ch - 1, Math.max(0, (y + 0.5) / f - 0.5)); const j0 = Math.min(ch - 2, Math.floor(gy)); const ty = ch > 1 ? gy - j0 : 0;
+    for (let x = 0; x < pw; x++) {
+      const k = y * pw + x; if (!free[k]) continue;
+      const gx = Math.min(cw - 1, Math.max(0, (x + 0.5) / f - 0.5)); const i0 = Math.min(cw - 2, Math.floor(gx)); const tx = cw > 1 ? gx - i0 : 0;
+      const a = (j0 * cw + Math.max(0, i0)) * 3; const b = a + (cw > 1 ? 3 : 0); const c = a + (ch > 1 ? cw * 3 : 0); const d = c + (cw > 1 ? 3 : 0);
+      for (let j = 0; j < 3; j++) diff[k * 3 + j] = (cd[a + j] * (1 - tx) + cd[b + j] * tx) * (1 - ty) + (cd[c + j] * (1 - tx) + cd[d + j] * tx) * ty;
+    }
+  }
+  return diff;
+}
+
 /** The colors of the pixels it covers carried out into the clear pixels around it, `rings` deep (alpha left as it is). */
 function bleed(rgba, pw, ph, rings) {
-  let has = Uint8Array.from({ length: pw * ph }, (_, i) => (rgba[i * 4 + 3] > 24 ? 1 : 0));
-  for (let r = 0; r < rings; r++) {
-    const next = Uint8Array.from(has);
-    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
-      const i = y * pw + x; if (has[i]) continue;
+  const has = Uint8Array.from({ length: pw * ph }, (_, i) => (rgba[i * 4 + 3] > 24 ? 1 : 0));
+  const seen = Uint8Array.from(has);
+  const near = (k) => { const x = k % pw; return [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, k >= pw ? k - pw : -1, k + pw < pw * ph ? k + pw : -1]; };
+  // Ring by ring, only the clear pixels next to covered ones (not the whole patch each time).
+  let front = [];
+  for (let k = 0; k < pw * ph; k++) if (!has[k] && near(k).some((t) => t >= 0 && has[t])) { front.push(k); seen[k] = 1; }
+  for (let r = 0; r < rings && front.length; r++) {
+    const cols = front.map((k) => {
       const sum = [0, 0, 0]; let n = 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= pw || Y >= ph || !has[Y * pw + X]) continue;
-        const o = (Y * pw + X) * 4; sum[0] += rgba[o]; sum[1] += rgba[o + 1]; sum[2] += rgba[o + 2]; n++;
-      }
-      if (n) { rgba[i * 4] = sum[0] / n; rgba[i * 4 + 1] = sum[1] / n; rgba[i * 4 + 2] = sum[2] / n; next[i] = 1; }
-    }
-    has = next;
+      for (const t of near(k)) if (t >= 0 && has[t]) { sum[0] += rgba[t * 4]; sum[1] += rgba[t * 4 + 1]; sum[2] += rgba[t * 4 + 2]; n++; }
+      return n ? sum.map((v) => v / n) : null;
+    });
+    const next = [];
+    front.forEach((k, j) => {
+      if (!cols[j]) return;
+      rgba[k * 4] = cols[j][0]; rgba[k * 4 + 1] = cols[j][1]; rgba[k * 4 + 2] = cols[j][2]; has[k] = 1;
+    });
+    for (const k of front) if (has[k]) for (const t of near(k)) if (t >= 0 && !seen[t]) { seen[t] = 1; next.push(t); }
+    front = next;
   }
 }
 
 function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, region = null, zone = null, spread = 0) {
-  const on = (x, y) => x >= 0 && y >= 0 && x < pw && y < ph && rgba[(y * pw + x) * 4 + 3] > 24;
+  // Where it counts as the Character: with a zone, only where it's mostly solid (its faint outer edge
+  // is laid over the photo instead, so the edge it's matched along is a clean one).
+  const ON = zone ? 128 : 24;
+  const on = (x, y) => x >= 0 && y >= 0 && x < pw && y < ph && rgba[(y * pw + x) * 4 + 3] > ON;
   const free = new Uint8Array(pw * ph); const diff = new Float32Array(pw * ph * 3);
   // What its edge is matched to: the photo just outside it; or, with a `region` (the face it replaces),
   // that face's own skin under and around its edge (never the hair or background past the outline).
@@ -413,18 +519,19 @@ function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, regi
     else free[k] = 1;
   }
   // Past its edge, inside the zone: the difference carried out too (to nothing at the zone's edge).
-  if (zone) for (let k = 0; k < pw * ph; k++) if (zone[k] && rgba[k * 4 + 3] <= 24) free[k] = 1;
-  membrane(diff, free, pw, ph);
+  const fixed = Uint8Array.from(free, (v, k) => (!v && rgba[k * 4 + 3] > ON ? 1 : 0)); // its edge, where the difference was measured
+  if (zone) for (let k = 0; k < pw * ph; k++) if (zone[k] && rgba[k * 4 + 3] <= ON) free[k] = 1;
+  smoothField(diff, free, fixed, pw, ph);
   // With a `band`: the blend only near the border, eased out to nothing `band` pixels in (inside it,
   // the Character exactly as it is, recolored).
   let depth = null;
   if (band > 0) {
     depth = new Float32Array(pw * ph).fill(Infinity); const q = [];
-    for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > 24 && !free[k]) { depth[k] = 0; q.push(k); }
+    for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > ON && !free[k]) { depth[k] = 0; q.push(k); }
     for (let h2 = 0; h2 < q.length; h2++) {
       const k = q[h2]; const x = k % pw;
       for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, k - pw, k + pw]) {
-        if (t < 0 || t >= pw * ph || !free[t] || rgba[t * 4 + 3] <= 24 || depth[t] <= depth[k] + 1) continue;
+        if (t < 0 || t >= pw * ph || !free[t] || rgba[t * 4 + 3] <= ON || depth[t] <= depth[k] + 1) continue;
         depth[t] = depth[k] + 1; q.push(t);
       }
     }
@@ -440,7 +547,7 @@ function blendColors(rgba, x0, y0, pw, ph, photo, W, H, strength, band = 0, regi
   // The photo around it, in the zone: its own pixels shifted toward the Character's colors (eased out
   // over `spread` from its edge), the Character's soft edge laid over them; all of it now in the patch.
   const out = new Float32Array(pw * ph).fill(Infinity); const q = [];
-  for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > 24) { out[k] = 0; q.push(k); }
+  for (let k = 0; k < pw * ph; k++) if (rgba[k * 4 + 3] > ON) { out[k] = 0; q.push(k); }
   for (let h2 = 0; h2 < q.length; h2++) {
     const k = q[h2]; const x = k % pw;
     for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, k - pw, k + pw]) {

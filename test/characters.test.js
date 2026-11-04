@@ -126,3 +126,31 @@ test('installing: from the ZIP on another phone (names, sizes, order kept); twic
   const r2 = await installCharacters([new File([other], 'chars.zip', { type: 'application/zip' })], to);
   assert.deepEqual(r2.names, ['Bow']);
 });
+
+test('lining a Character\'s face up on a face: the fit recovers scale and turn; its eyes land on the eyes', async () => {
+  const { similarityFit, throughFit, alignOnFace, faceFrom } = await import('../web/lib/face-core.js');
+  // A known similarity: ×2.5, turned 30°, shifted.
+  const truth = { s: 2.5, rot: Math.PI / 6, tx: 40, ty: -12 };
+  const from = [[10, 20], [60, 25], [35, 80]];
+  const to = from.map((p) => throughFit(truth, p));
+  const m = similarityFit(from, to);
+  assert.ok(Math.abs(m.s - 2.5) < 1e-9 && Math.abs(m.rot - Math.PI / 6) < 1e-9 && Math.abs(m.tx - 40) < 1e-6 && Math.abs(m.ty + 12) < 1e-6);
+  // A Character (200×240) with its eyes at (70, 100), (130, 100), mouth (100, 170); a face in a 800×600
+  // photo, smaller and tilted.
+  const face = (eyeA, eyeB, mouth, w, h) => {
+    const pts = Array.from({ length: 68 }, () => mouth);
+    for (let i = 36; i < 42; i++) pts[i] = eyeA;
+    for (let i = 42; i < 48; i++) pts[i] = eyeB;
+    for (let i = 48; i < 68; i++) pts[i] = mouth;
+    return faceFrom({ x: 0, y: 0, width: 10, height: 10 }, pts, w, h);
+  };
+  const own = face([70, 100], [130, 100], [100, 170], 200, 240);
+  const target = face([400, 300], [436, 279], [432, 345], 800, 600);
+  const a = alignOnFace(own, 200, 240, target, 800, 600);
+  // Where the Character's eyes go, placed like that.
+  const at = ([px, py]) => { const c = Math.cos(a.rot); const s = Math.sin(a.rot); const k = a.width / 200; const dx = (px - 100) * k; const dy = (py - 120) * k; return [a.x + dx * c - dy * s, a.y + dx * s + dy * c]; };
+  const eyeA = at([70, 100]); const eyeB = at([130, 100]);
+  assert.ok(Math.hypot(eyeA[0] - 400, eyeA[1] - 300) < 4 && Math.hypot(eyeB[0] - 436, eyeB[1] - 279) < 4, `eyes on the eyes: ${eyeA.map(Math.round)} ${eyeB.map(Math.round)}`);
+  assert.ok(Math.abs(a.rot - Math.atan2(-21, 36)) < 0.05, 'turned with the face');
+  assert.ok(a.width > 100 && a.width < 160, `sized to the face (${a.width.toFixed(0)} px wide)`);
+});

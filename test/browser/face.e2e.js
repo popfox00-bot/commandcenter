@@ -185,3 +185,117 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+// Two faces in a 400×300 photo (the left one bigger), and one in a square Character (its eyes at
+// 35% and 65% across, 40% down).
+const FAKE2 = `
+const PHOTO = [
+  { a: [0.25, 0.45], b: [0.35, 0.45], mouth: [0.30, 0.62], box: [0.18, 0.32, 0.24, 0.42] },
+  { a: [0.65, 0.42], b: [0.75, 0.38], mouth: [0.72, 0.58], box: [0.60, 0.28, 0.20, 0.36] },
+];
+const CHAR = [{ a: [0.35, 0.4], b: [0.65, 0.4], mouth: [0.5, 0.72], box: [0.15, 0.1, 0.7, 0.8] }];
+export const tf = { setBackend: async () => true, ready: async () => {} };
+export const nets = { tinyFaceDetector: { loadFromUri: async () => {} }, faceLandmark68Net: { loadFromUri: async () => {} } };
+export class TinyFaceDetectorOptions { constructor(o) { this.o = o; } }
+export function detectAllFaces(cv) {
+  return { withFaceLandmarks: async () => {
+    const r = cv.width / cv.height;
+    const set = Math.abs(r - 4 / 3) < 0.02 ? PHOTO : Math.abs(r - 1) < 0.02 ? CHAR : [];
+    return set.map((F) => {
+      const p = ([u, v]) => ({ x: u * cv.width, y: v * cv.height });
+      const pts = Array.from({ length: 68 }, () => p(F.mouth));
+      for (let i = 36; i < 42; i++) pts[i] = p(F.a);
+      for (let i = 42; i < 48; i++) pts[i] = p(F.b);
+      return { detection: { score: 0.9, box: { x: F.box[0] * cv.width, y: F.box[1] * cv.height, width: F.box[2] * cv.width, height: F.box[3] * cv.height } }, landmarks: { positions: pts } };
+    });
+  } };
+}`;
+
+test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, pick one (tap its number) or put it on every face; the magnifier shows under the finger', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE2, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // The Character: a face cut out, tan, with red eyes where its own face's eyes are.
+  await page.evaluate(async (base) => {
+    const c = new OffscreenCanvas(120, 120); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(230,190,150)'; x.beginPath(); x.ellipse(60, 62, 42, 54, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgb(255,0,0)'; for (const ex of [42, 78]) { x.beginPath(); x.arc(ex, 48, 6, 0, Math.PI * 2); x.fill(); }
+    const m = await import(`${base}lib/characters.js`);
+    await m.addCharacter(await c.convertToBlob({ type: 'image/png' }), { name: 'Me', width: 120, height: 120 });
+  }, BASE);
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(40,90,160)'; x.fillRect(0, 0, 400, 300);
+    x.fillStyle = '#fff'; x.fillRect(196, 146, 8, 8);
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'two.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  const pixel = (sel, u, v) => page.$eval(sel, (c, [uu, vv]) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(uu * (c.width - 1)), Math.round(vv * (c.height - 1)), 1, 1).data]; }, [u, v]);
+  const red = (p) => p[0] > 200 && p[1] < 70 && p[2] < 70;
+
+  // Clean Up: holding a finger down shows the magnifier above it (its yellow crosshair); lifting cleans up.
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const ov = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, e.width / r.width]; });
+  const sx = ov[0] + ov[2] * 0.5; const sy = ov[1] + ov[3] * 0.85;
+  await page.mouse.move(sx, sy); await page.mouse.down();
+  await page.waitForTimeout(100);
+  // Its center is 34 + 58 px above the finger; the crosshair arm 6 px right of it.
+  const arm = await page.$eval('.ed-overlay', (c, [x, y]) => [...c.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data], [(ov[2] * 0.5 + 6) * ov[4], (ov[3] * 0.85 - 92) * ov[4]]);
+  assert.ok(arm[0] > 200 && arm[1] > 170 && arm[2] < 80 && arm[3] > 200, `the magnifier's crosshair above the finger: ${arm}`);
+  assert.equal(await page.isVisible('text=Spot cleaned up'), false, 'nothing done while the finger is down');
+  await page.mouse.up();
+  await page.waitForSelector('text=Spot cleaned up');
+
+  // ➕ Character: on the bigger face, its red eyes on that face's eyes.
+  await page.getByRole('tab', { name: 'Markup' }).click();
+  const place = async () => {
+    await page.getByRole('button', { name: '➕ Character' }).click();
+    await page.locator('dialog[open].ed-char-pick').getByRole('button', { name: 'Me' }).click();
+    await page.waitForSelector('.ed-panel >> text=lined up by its eyes and mouth');
+  };
+  await place();
+  assert.match(await page.textContent('.ed-panel'), /On face 1 of 2/);
+  assert.equal(await page.locator('.ed-panel').getByRole('button', { name: 'Face 2' }).count(), 1);
+  await page.getByRole('button', { name: '✓ Place' }).click();
+  await page.waitForSelector('text=Placed Me.');
+  await page.waitForTimeout(200);
+  for (const [u, v] of [[0.25, 0.45], [0.35, 0.45]]) assert.ok(red(await pixel('.ed-canvas', u, v)), `its eye on face 1's eye at ${u},${v}: ${await pixel('.ed-canvas', u, v)}`);
+  assert.ok(!red(await pixel('.ed-canvas', 0.65, 0.42)), 'not on face 2');
+
+  // Again: tap face 2's number to move it there; then put it on every face.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await place();
+  const badge = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x + 0.70 * r.width, r.y + 0.28 * r.height]; });
+  await page.mouse.click(...badge);
+  await page.waitForSelector('.ed-panel >> text=On face 2 of 2');
+  await page.getByRole('button', { name: '🙂 On every face' }).click();
+  await page.waitForSelector('text=Placed Me on 2 faces.');
+  await page.waitForTimeout(200);
+  for (const [u, v] of [[0.25, 0.45], [0.35, 0.45], [0.65, 0.42], [0.75, 0.38]]) assert.ok(red(await pixel('.ed-canvas', u, v)), `an eye on an eye at ${u},${v}: ${await pixel('.ed-canvas', u, v)}`);
+
+  // Cutout: a patch is aimed with the magnifier and applied when the finger lifts.
+  await page.getByRole('tab', { name: '✂️ Cutout' }).click();
+  await page.locator('dialog[open]').getByRole('button', { name: '✂️ Trace a cutout' }).click();
+  await page.waitForSelector('.co-canvas');
+  await page.getByRole('button', { name: '🙂 Cut out face' }).click();
+  await page.waitForSelector('text=Traced the face');
+  await page.getByRole('radio', { name: '🩹 Patch fix' }).click();
+  const co = await page.$eval('.co-canvas', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, e.width / r.width]; });
+  const px = co[0] + co[2] * 0.3; const py = co[1] + co[3] * 0.85;
+  await page.mouse.move(px, py); await page.mouse.down(); await page.mouse.move(px + 20, py, { steps: 4 });
+  await page.waitForTimeout(100);
+  const coArm = await page.$eval('.co-canvas', (c, [x, y]) => [...c.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data], [(co[2] * 0.3 + 20 + 6) * co[4], (co[3] * 0.85 - 92) * co[4]]);
+  assert.ok(coArm[0] > 200 && coArm[1] > 170 && coArm[2] < 80, `the magnifier above the finger in Cutout: ${coArm}`);
+  const done = /^(Cut away|Brought back|Nothing to)/;
+  assert.equal(await page.$$eval('.ed-panel p', (ps, re) => ps.some((p) => new RegExp(re).test(p.textContent)), done.source), false, 'nothing applied while the finger is down');
+  await page.mouse.up();
+  await page.waitForFunction((re) => [...document.querySelectorAll('.ed-panel p')].some((p) => new RegExp(re).test(p.textContent)), done.source);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

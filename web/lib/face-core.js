@@ -112,3 +112,47 @@ export function faceOutline(face, w, h, n = 48) {
     return [Math.min(1, Math.max(0, (cx + x * c - y * s) / w)), Math.min(1, Math.max(0, (cy + x * s + y * c) / h))];
   });
 }
+
+/**
+ * The least-squares similarity (scale, turn and shift; no stretch or mirror) taking the points `from`
+ * onto `to` (in pairs, two or more; each counted by its `weights`): { s, rot, tx, ty }, so
+ * p → s·R(rot)·p + t.
+ */
+export function similarityFit(from, to, weights = from.map(() => 1)) {
+  const n = from.length; const W = weights.reduce((a, w) => a + w, 0);
+  const fm = [0, 1].map((k) => from.reduce((a, p, i) => a + p[k] * weights[i], 0) / W);
+  const tm = [0, 1].map((k) => to.reduce((a, p, i) => a + p[k] * weights[i], 0) / W);
+  let a = 0; let b = 0; let den = 0;
+  for (let i = 0; i < n; i++) {
+    const fx = from[i][0] - fm[0]; const fy = from[i][1] - fm[1]; const tx = to[i][0] - tm[0]; const ty = to[i][1] - tm[1];
+    const w = weights[i];
+    a += w * (fx * tx + fy * ty); b += w * (fx * ty - fy * tx); den += w * (fx * fx + fy * fy);
+  }
+  const s = den ? Math.hypot(a, b) / den : 1; const rot = Math.atan2(b, a);
+  const c = Math.cos(rot) * s; const si = Math.sin(rot) * s;
+  return { s, rot, tx: tm[0] - (c * fm[0] - si * fm[1]), ty: tm[1] - (si * fm[0] + c * fm[1]) };
+}
+/** A point through a similarity from similarityFit. */
+export const throughFit = (m, [x, y]) => [m.s * (Math.cos(m.rot) * x - Math.sin(m.rot) * y) + m.tx, m.s * (Math.sin(m.rot) * x + Math.cos(m.rot) * y) + m.ty];
+
+/**
+ * Where a Character that has a face in it (`charFace`, found in its cw×ch image) goes to cover `face`
+ * in a W×H picture: the middle of its eyes on the middle of the face's eyes, turned so its eye line
+ * lies along the face's, and sized mostly by the eyes' spacing (and a little by the eyes-to-mouth
+ * length, so a face seen from the side isn't made tiny). { x, y (its center), width, rot (radians) }
+ * in the picture's pixels.
+ */
+export function alignOnFace(charFace, cw, ch, face, W, H) {
+  const px = (f, w, h) => ({ a: [f.eyes[0][0] * w, f.eyes[0][1] * h], b: [f.eyes[1][0] * w, f.eyes[1][1] * h], m: [f.mouth[0] * w, f.mouth[1] * h] });
+  const c = px(charFace, cw, ch); const t = px(face, W, H);
+  const mid = (p) => [(p.a[0] + p.b[0]) / 2, (p.a[1] + p.b[1]) / 2];
+  const cm = mid(c); const tm = mid(t);
+  const eyes = (p) => Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
+  const drop = (p, m) => Math.hypot(p.m[0] - m[0], p.m[1] - m[1]);
+  const kEyes = eyes(t) / (eyes(c) || 1); const kMouth = drop(t, tm) / (drop(c, cm) || 1);
+  const s = Math.exp(0.7 * Math.log(kEyes) + 0.3 * Math.log(kMouth));
+  const rot = Math.atan2(t.b[1] - t.a[1], t.b[0] - t.a[0]) - Math.atan2(c.b[1] - c.a[1], c.b[0] - c.a[0]);
+  // The Character's center, from its eye middle, turned and scaled onto the face's eye middle.
+  const dx = cw / 2 - cm[0]; const dy = ch / 2 - cm[1]; const co = Math.cos(rot); const si = Math.sin(rot);
+  return { x: tm[0] + s * (dx * co - dy * si), y: tm[1] + s * (dx * si + dy * co), width: s * cw, rot };
+}

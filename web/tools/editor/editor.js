@@ -17,8 +17,9 @@ import { openExpandDialog } from './expand-ui.js';
 import { placedPatch, placedBox } from './place.js';
 import { colorStats, matchColors } from '../../lib/color-match.js';
 import { listCharacters, getCharacterBlob } from '../../lib/characters.js';
-import { maskLayer } from '../../lib/face-core.js';
+import { maskLayer, alignOnFace } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
+import { drawLoupe } from '../../lib/loupe.js';
 
 const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
@@ -61,6 +62,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   let beforeExpand = null; let pendingBefore = null;
   // ➕ Character: the image being placed (see startPlacing), and the pointers moving or pinching it.
   let placing = null; const placePointers = new Map(); let placeGesture = null;
+  let aimCopy = null; // Copy From Area: the spot being aimed at (overlay px), picked when the finger lifts
   const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null });
   const cleanups = [];
 
@@ -139,7 +141,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       onChange: () => schedule(),
       enabled: () => !(mode === 'markup' && placing),
       onGesture: () => {
-        cleanStroke = null; draft = null;
+        cleanStroke = null; draft = null; aimCopy = null;
         if (drag?.kind === 'crop') history.replace(drag.before);
         drag = null; schedule();
       },
@@ -267,6 +269,9 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   /** The Clean Up stroke being drawn (a soft glowing trail), the Copy From spot, Reverse Fill's trace and what it'll remove. */
   function drawCleanUi(ctx, dpr) {
     if (rf) drawReverseUi(ctx, dpr);
+    // The magnifier: what's under the finger, just above it, while a stroke or a spot is being aimed.
+    const under = cleanStroke?.pts.at(-1) ?? aimCopy;
+
     if (cleanStroke) {
       ctx.save();
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -277,6 +282,10 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
       if (cleanStroke.pts.length === 1) ctx.lineTo(cleanStroke.pts[0][0] + 0.1, cleanStroke.pts[0][1]);
       ctx.stroke();
       ctx.restore();
+    }
+    if (under) {
+      const k = overlay.width / (overlay.getBoundingClientRect().width || overlay.width);
+      drawLoupe(ctx, glCanvas, under[0], under[1], { k, ring: cleanStroke && !cleanStroke.thin ? cleanStroke.r : 0, color: copyMode ? '#30d158' : '#ffd60a' });
     }
     if (copyMode && copyFrom) {
       const p = sourceToOverlay(copyFrom.x, copyFrom.y);
@@ -357,7 +366,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
         if (cleaning) return;
         const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
         const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
-        if (copyMode && !copyFrom) { pickCopyFrom(pt); return; }
+        if (copyMode && !copyFrom) { aimCopy = pt; overlay.setPointerCapture(e.pointerId); schedule(); return; }
         cleanStroke = { pts: [pt], r: rf ? 10 * k : prefs.cleanSize * k, thin: !!rf };
         overlay.setPointerCapture(e.pointerId);
         schedule();
@@ -392,6 +401,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     });
     overlay.addEventListener('pointermove', (e) => {
       if (placeGesture) { placeMove(e); return; }
+      if (aimCopy) { const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width; aimCopy = [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; schedule(); return; }
       if (cleanStroke) {
         const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
         const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; const last = cleanStroke.pts.at(-1);
@@ -415,6 +425,7 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     });
     const end = (e) => {
       if (placePointers.size || placeGesture) { placeUp(e); return; }
+      if (aimCopy) { const pt = aimCopy; aimCopy = null; if (e?.type === 'pointerup') pickCopyFrom(pt); else schedule(); return; }
       if (cleanStroke) { const st = cleanStroke; cleanStroke = null; if (rf) reverseStroke(st); else runCleanUp(st); return; }
       if (!drag) return;
       if (drag.kind === 'crop') {
@@ -994,23 +1005,46 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
   }
 
   /** 🙂 On a face: the Character over the next face found (sized and turned to it). */
-  async function placeOnFace(first = false) {
+  /**
+   * The faces in the photo (biggest first), and the Character's own face if it has one (a face cut out
+   * in Cutout), found once per placing.
+   */
+  async function findFaces() {
+    if (placing.faces) return;
+    const { detectFaces } = await import('../../lib/face.js');
+    placing.faces = (await detectFaces(applyPatches(source, state().patches ?? []))).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+    if (!placing.faces.length) return;
+    const c = document.createElement('canvas'); c.width = placing.full.w; c.height = placing.full.h;
+    c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(placing.full.rgba), c.width, c.height), 0, 0);
+    try { const own = await detectFaces(c, { minScore: 0.5 }); placing.charFace = own.sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0] ?? null; } catch { placing.charFace = null; }
+  }
+  /**
+   * Where the Character goes on face `f`: with a face of its own, its eyes on the face's eyes and its
+   * mouth on the mouth (sized and turned by them); otherwise covering the face, turned with it.
+   */
+  function layoutOn(f) {
+    const W = source.width; const H = source.height;
+    if (placing.charFace) return alignOnFace(placing.charFace, placing.full.w, placing.full.h, f, W, H);
+    const m = maskLayer(f, placing.aspect, W / H, 1.35);
+    return { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot };
+  }
+  /** 🙂 On a face: the Character over face `which` (an index; 'next' for the next one). */
+  async function placeOnFace(first = false, which = 'next') {
     if (!placing) return;
     try {
-      if (!placing.faces) {
-        const { detectFaces } = await import('../../lib/face.js');
-        placing.faces = (await detectFaces(applyPatches(source, state().patches ?? []))).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
-      }
+      await findFaces();
       if (!placing?.faces.length) { placeNote = first ? 'No face found: placed in the middle. Drag it where it goes.' : 'No face found in this photo.'; return; }
-      placing.face = (placing.face + 1) % placing.faces.length;
-      const W = source.width; const H = source.height;
-      const m = maskLayer(placing.faces[placing.face], placing.aspect, W / H, 1.35);
-      Object.assign(placing, { x: m.x * W, y: m.y * H, width: m.scale * W, rot: m.rot });
-      placeNote = `On ${placing.faces.length > 1 ? `face ${placing.face + 1} of ${placing.faces.length}` : 'the face'}. Drag, pinch or use the sliders to adjust.`;
+      const n = placing.faces.length;
+      placing.face = which === 'next' ? (placing.face + 1) % n : Math.max(0, Math.min(n - 1, which));
+      Object.assign(placing, layoutOn(placing.faces[placing.face]));
+      const how = placing.charFace ? 'lined up by its eyes and mouth' : 'sized to the face';
+      placeNote = n > 1 ? `On face ${placing.face + 1} of ${n} (${how}). Tap a number to pick another face.` : `On the face (${how}). Drag, pinch or use the sliders to adjust.`;
       if (placing.match) renderShown();
     } catch (err) { placeNote = `Couldn't look for faces: ${err.message}`; }
     finally { renderPanel(); schedule(); }
   }
+  /** The numbered badges on the faces (source px): where to tap to pick one. */
+  const faceBadges = () => (placing?.faces ?? []).map((f, i) => ({ i, x: (f.box.x + f.box.w / 2) * source.width, y: f.box.y * source.height }));
 
   /** The colors to match: the area picked, or what's behind the Character (and a little around it). */
   function matchTarget() {
@@ -1046,6 +1080,18 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     ctx.lineWidth = (1.5 * dpr) / k; ctx.setLineDash([(6 * dpr) / k, (4 * dpr) / k]); ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.strokeRect(-w / 2, -h / 2, w, h);
     ctx.restore();
+    // With more than one face: a number on each (the one it's on highlighted), to tap to move it there.
+    if ((placing.faces?.length ?? 0) > 1) {
+      const r = (13 * dpr) / k;
+      for (const b of faceBadges()) {
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = b.i === placing.face ? '#0a84ff' : 'rgba(0,0,0,0.6)'; ctx.fill();
+        ctx.lineWidth = (2 * dpr) / k; ctx.strokeStyle = '#fff'; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = `700 ${(14 * dpr) / k}px -apple-system, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(b.i + 1), b.x, b.y + 0.5 / k);
+      }
+    }
     const area = placeGesture?.kind === 'area' ? norm(placeGesture.a, placeGesture.b) : placing.from;
     if (area) {
       ctx.lineWidth = (2 * dpr) / k; ctx.setLineDash([(5 * dpr) / k, (3 * dpr) / k]); ctx.strokeStyle = '#ffd60a';
@@ -1057,6 +1103,13 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
 
   const srcPoint = (e) => { const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width; return overlayToSource((e.clientX - r.left) * k, (e.clientY - r.top) * k); };
   function placeDown(e) {
+    // A tap on a face's number: the Character moves to that face.
+    if (!placePointers.size && !placing.picking && (placing.faces?.length ?? 0) > 1) {
+      const p = srcPoint(e); const T = sourceToOverlayMatrix(); const k = T ? Math.hypot(T[0], T[1]) : 1;
+      const r = overlay.width / (overlay.getBoundingClientRect().width || overlay.width); // overlay px per screen px
+      const hit = faceBadges().find((b) => Math.hypot(b.x - p[0], b.y - p[1]) * k <= 22 * r);
+      if (hit) { placeOnFace(false, hit.i); return; }
+    }
     overlay.setPointerCapture(e.pointerId);
     placePointers.set(e.pointerId, srcPoint(e));
     const pts = [...placePointers.values()];
@@ -1106,6 +1159,9 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
     const match = slider({ min: 0, max: 100, value: p.match, label: 'Match color', onInput: (v) => { p.match = v; later(() => { renderShown(); schedule(); }); }, onChange: () => renderPanel() });
     return [
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: `➕ ${p.name}` }), el('span', { class: 'muted small', 'aria-live': 'polite', text: placeNote })),
+      (p.faces?.length ?? 0) > 1 ? el('div', { class: 'chips', role: 'group', 'aria-label': 'Which face' },
+        ...p.faces.map((_, i) => el('button', { class: `chip${p.face === i ? ' active' : ''}`, 'aria-pressed': String(p.face === i), text: `Face ${i + 1}`, onclick: () => placeOnFace(false, i) })),
+        el('button', { class: 'chip', text: '🙂 On every face', onclick: () => finishPlacing(true) })) : null,
       el('div', { class: 'chips' },
         el('button', { class: 'chip', text: '🙂 On a face', onclick: () => placeOnFace() }),
         el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { p.x = source.width / 2; p.y = source.height / 2; schedule(); } })),
@@ -1117,22 +1173,31 @@ export function mount(host, { file: initialFile, onFaceSwap = null } = {}) {
         el('button', { class: `chip${p.from || p.picking ? ' active' : ''}`, 'aria-pressed': String(!!(p.from || p.picking)), text: '🎯 Pick an area', onclick: () => { p.picking = true; placeNote = 'Drag over the area to take the colors from.'; renderPanel(); } })),
       el('div', { class: 'row end' },
         el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { placing = null; placeNote = ''; renderPanel(); schedule(); } }),
-        el('button', { class: 'btn primary', text: '✓ Place', onclick: finishPlacing })),
+        el('button', { class: 'btn primary', text: '✓ Place', onclick: () => finishPlacing() })),
     ];
   }
 
-  /** ✓ Place: the Character painted onto the photo (full detail, color matched), one undo step. */
-  function finishPlacing() {
+  /**
+   * ✓ Place: the Character painted onto the photo (full detail, color matched), one undo step. `all`:
+   * one on every face found, each lined up to its face (and matched to what's behind it there).
+   */
+  function finishPlacing(all = false) {
     const p = placing; if (!p) return;
     const W = source.width; const H = source.height;
-    const target = p.match ? matchTarget() : null;
-    const rgba = target ? matchColors(p.full.rgba, p.full.w, p.full.h, target, p.match / 100) : p.full.rgba;
-    const patch = placedPatch(rgba, p.full.w, p.full.h, p, W, H);
+    const spots = all && p.faces?.length ? p.faces.map((f) => ({ ...p, ...layoutOn(f) })) : [p];
+    const patches = [];
+    for (const at of spots) {
+      placing = at; // matchTarget reads where it is
+      const target = p.match ? matchTarget() : null;
+      const rgba = target ? matchColors(p.full.rgba, p.full.w, p.full.h, target, p.match / 100) : p.full.rgba;
+      const patch = placedPatch(rgba, p.full.w, p.full.h, at, W, H);
+      if (patch) patches.push(makePatch(patch, W, H));
+    }
     placing = null;
-    if (!patch) { placeNote = 'It was off the photo: nothing placed.'; renderPanel(); schedule(); return; }
-    placeNote = `Placed ${p.name}. Undo takes it back.`;
+    if (!patches.length) { placeNote = 'It was off the photo: nothing placed.'; renderPanel(); schedule(); return; }
+    placeNote = patches.length > 1 ? `Placed ${p.name} on ${patches.length} faces. Undo takes them back.` : `Placed ${p.name}. Undo takes it back.`;
     const s = state();
-    commit({ ...s, patches: [...(s.patches ?? []), makePatch(patch, W, H)] });
+    commit({ ...s, patches: [...(s.patches ?? []), ...patches] });
   }
 
   // ---------- close / export ----------

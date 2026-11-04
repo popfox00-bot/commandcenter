@@ -10,6 +10,7 @@ import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from 
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
 import { faceOutline, mainFace } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
+import { drawLoupe as loupeAt } from '../../lib/loupe.js';
 import { charactersZip, saveToDirectory, saveToSavedFiles, installCharacters, installFromSavedFiles } from '../../lib/characters-io.js';
 import { connectedSecure } from '../../lib/saved-files.js';
 import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, softColors, textureMap, edgeDistance, colorModel, refineSpot, wand, wandAuto, refineEdge, brush, applyChanges } from './cutout-core.js';
@@ -37,7 +38,8 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   let patchDir = 'auto'; let paintDir = 'auto';
   let wandTol = Number(store.get('cc.cutout.tol')) || 28;
   let stroke = null; // a patch or brush stroke in progress (see startStroke)
-  let loupe = null;  // [u, v] under the finger while fixing: shown magnified
+  let loupe = null;  // [u, v] under the finger while fixing or tracing: shown magnified above it
+  let aim = null;    // a patch or brush stroke being drawn: its points, applied when the finger lifts
   const outlines = () => traces.filter((t) => t.op === 'add' || t.op === 'sub');
   const fixes = () => traces.filter((t) => t.op === 'fix');
   const FIX_MODES = ['patch', 'wand', 'brush'];
@@ -164,7 +166,7 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
         el('button', { class: 'btn primary small-btn', text: 'Done', onclick: finish })),
       el('div', { class: 'ed-stage co-stage' }, el('div', { class: 'co-zoom' }, canvas)), panel);
     // Two fingers zoom within the photo for fine tracing and fixing; one finger keeps tracing.
-    zoomable(canvas.closest('.co-stage'), canvas.parentElement, { onGesture: () => { drawing = null; loupe = null; stroke = null; draw(); } });
+    zoomable(canvas.closest('.co-stage'), canvas.parentElement, { onGesture: () => { drawing = null; loupe = null; aim = null; stroke = null; draw(); } });
     bindPointer();
     window.addEventListener('resize', draw);
     refresh();
@@ -533,25 +535,26 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       ctx.setLineDash([]); ctx.strokeStyle = mode === 'add' ? '#0a84ff' : '#ff3b30'; ctx.lineWidth = 3 * dpr;
       ctx.beginPath(); drawing.forEach(([u, v], i) => (i ? ctx.lineTo(u * w, v * h) : ctx.moveTo(u * w, v * h))); ctx.stroke();
     }
+    // A patch or brush stroke being drawn: its path, as wide as the patch or brush (applied on release).
+    if (aim && aim.length && mode !== 'wand') {
+      const k = canvas.width / (canvas.getBoundingClientRect().width || canvas.width);
+      ctx.save(); ctx.setLineDash([]); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = mode === 'brush' && paintDir === 'keep' ? 'rgba(48,209,88,0.35)' : 'rgba(255,214,10,0.35)';
+      ctx.lineWidth = patchSize * k * 2;
+      ctx.beginPath(); aim.forEach(([u, v], i) => (i ? ctx.lineTo(u * w, v * h) : ctx.moveTo(u * w, v * h)));
+      if (aim.length === 1) ctx.lineTo(aim[0][0] * w + 0.1, aim[0][1] * h);
+      ctx.stroke(); ctx.restore();
+    }
     if (loupe) drawLoupe(ctx, w, h, dpr);
+    else if (drawing?.length) drawLoupe(ctx, w, h, dpr, drawing.at(-1));
   }
 
-  /** A magnifier of what's under the finger (3×), in the top corner away from it, with the patch or brush size. */
-  function drawLoupe(ctx, w, h, dpr) {
-    const [u, v] = loupe; const x = u * w; const y = v * h;
-    const R = Math.min(64 * dpr, w * 0.22); const zoom = 3; const src = R / zoom;
-    const cx = u < 0.5 ? w - R - 8 * dpr : R + 8 * dpr; const cy = R + 8 * dpr;
-    ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.closePath();
-    ctx.fillStyle = '#000'; ctx.fill(); ctx.clip();
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(canvas, x - src, y - src, src * 2, src * 2, cx - R, cy - R, R * 2, R * 2);
-    ctx.restore();
-    ctx.setLineDash([]);
-    ctx.lineWidth = 3 * dpr; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
-    ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = paintDir === 'keep' && mode !== 'patch' ? '#30d158' : '#ffd60a';
-    if (mode === 'wand') { ctx.beginPath(); ctx.moveTo(cx - 8 * dpr, cy); ctx.lineTo(cx + 8 * dpr, cy); ctx.moveTo(cx, cy - 8 * dpr); ctx.lineTo(cx, cy + 8 * dpr); ctx.stroke(); }
-    else { const rr = Math.min(R - 2, (patchSize * dpr) * zoom); ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke(); }
+  /** A magnifier of what's under the finger, just above it, with the patch or brush size (or a crosshair for the wand). */
+  function drawLoupe(ctx, w, h, dpr, at = loupe) {
+    const [u, v] = at;
+    const k = canvas.width / (canvas.getBoundingClientRect().width || canvas.width); // canvas px per screen px, at any zoom
+    const ring = mode === 'patch' || mode === 'brush' ? patchSize * k : 0;
+    loupeAt(ctx, canvas, u * w, v * h, { k, ring, color: paintDir === 'keep' && mode !== 'patch' ? '#30d158' : '#ffd60a', w, h });
   }
 
   function drawChecker(ctx, w, h, s) {
@@ -570,8 +573,8 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
         e.preventDefault();
         if (!outlines().some((t) => t.op === 'add')) { patchNote = 'Trace around something first.'; renderPanel(); return; }
         canvas.setPointerCapture(e.pointerId);
-        loupe = at(e);
-        if (mode !== 'wand') startStroke(...loupe);
+        // Aimed with the magnifier: the patch, brush or wand happens when the finger lifts.
+        loupe = at(e); aim = [loupe];
         draw();
         return;
       }
@@ -582,12 +585,16 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
     });
     canvas.addEventListener('pointermove', (e) => {
       if (drawing) { drawing.push(at(e)); draw(); return; }
-      if (loupe) { loupe = at(e); if (stroke) strokeTo(...loupe); draw(); }
+      if (loupe) { loupe = at(e); if (aim && mode !== 'wand') aim.push(loupe); draw(); }
     });
     const end = () => {
       if (loupe) {
-        const spot = loupe; loupe = null;
-        if (stroke) endStroke(); else if (mode === 'wand') wandAt(...spot); else draw();
+        const spot = loupe; const pts = aim ?? [spot]; loupe = null; aim = null;
+        if (mode === 'wand') { wandAt(...spot); return; }
+        // The stroke as drawn, applied now: each patch or brush dab along it in turn.
+        startStroke(...pts[0]);
+        for (const p of pts.slice(1)) strokeTo(...p);
+        endStroke();
         return;
       }
       if (!drawing) return;

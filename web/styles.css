@@ -844,3 +844,19 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .ed-zoom, .co-zoom { position: relative; will-change: transform; }
 .ed-stage, .co-stage { touch-action: none; }
 .zoom-fit { position: absolute; right: 8px; bottom: 8px; z-index: 2; min-height: 32px; padding: 0 10px; border: 0; border-radius: 16px; background: rgb(0 0 0 / .6); color: #fff; font: inherit; font-size: .8rem; }
+
+/* The thin scroll bar on phones (see app.js): a wide enough strip to touch, a thin thumb to see. */
+.scroll-rail { position: fixed; top: 0; right: 0; bottom: 0; width: 22px; z-index: 50; touch-action: none; -webkit-user-select: none; user-select: none; }
+.scroll-rail[hidden] { display: none; }
+.scroll-rail::before { content: ''; position: absolute; top: 4px; bottom: 4px; right: 3px; width: 3px; border-radius: 2px; background: rgb(127 127 127 / .18); }
+.scroll-thumb { position: absolute; top: 0; right: 2px; width: 5px; border-radius: 3px; background: rgb(127 127 127 / .6); transition: width .12s, background .12s; }
+.scroll-rail.active .scroll-thumb { width: 8px; background: var(--primary); }
+/* FaceMask */
+.fm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.fm-actions .btn { flex: 1 1 auto; }
+.co-chars-options { display: grid; gap: 8px; margin-bottom: 8px; }
+/* The editor's tabs (six of them): snug, one line, and never wider than the phone (they scroll
+   sideways on a very narrow one instead of widening the page). */
+.ed-modes { display: flex; gap: 2px; padding: 4px 3px; overflow-x: auto; scrollbar-width: none; }
+.ed-modes::-webkit-scrollbar { display: none; }
+.ed-modes .seg { flex: 1 0 auto; padding: 0 4px; font-size: .8rem; white-space: nowrap; }

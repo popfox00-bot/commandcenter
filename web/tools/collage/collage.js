@@ -591,14 +591,6 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     selected = i;
     commit({ ...s, cells });
   };
-  /** A photo from the editor as the background in Free / Superimpose, then a face swap on it. */
-  unmount.faceSwapOn = async (blob) => {
-    await ready;
-    const id = await addImage(blob);
-    selected = null;
-    commit({ ...st(), mode: 'free', base: id, aspect: 'base' });
-    await faceSwap();
-  };
   /** A photo from the editor as the background in Free / Superimpose, then pick a Character for it. */
   unmount.characterOn = async (blob) => {
     await ready;

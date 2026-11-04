@@ -109,9 +109,6 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   Sepia, each with an intensity slider.
 - **Crop**: Freeform, Original, Square, 4:5, 3:4, 2:3, 9:16 and the landscape ratios; drag corners,
   edges or the whole box; rotate 90°, flip, and straighten ±45° (auto-zooms so no corners go empty).
-  **🙂 Level face** (only when you tap it): finds the faces and turns the photo so the biggest one is
-  upright, eyes level and above the mouth (quarter turns and straighten; undo to go back).
-  **🎭 Face swap**: on to Collage with this photo, to cover its faces with a Character or a mask.
   **🪄 Generative Expand**: a new shape (1:1, 4:5, 3:4, 2:3, 9:16, 4:3, 3:2, 16:9, 2:1) without
   cropping. The photo, with its edits, stays as it is on the side you pick (left / center / right,
   or top / middle / bottom), a preview shows the black space, and **✨ Expand** fills it from the
@@ -133,17 +130,25 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   pointer. **⤢ Fit** goes back to the whole photo (`web/lib/zoom.js`).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
-  **➕ Character**: put one of your Characters (or any transparent image) on the photo. It goes
-  straight onto the biggest face found, or the middle. A Character that has a face of its own (one
-  cut out with 🙂 Cut out face) is **lined up by its eyes and mouth**: the middle of its eyes on the
-  face's, its eye line along the face's, sized by the eyes' spacing (and a little by the eyes-to-mouth
-  length). Any other image covers the face, turned with it. With more than one face, each gets a
-  number: tap one (or **Face 1**, **Face 2**…) to move it there, or **🙂 On every face** to put one on
-  each, every one lined up to its own face. Drag to move, pinch (or the **Size** and **Turn** sliders) to resize and
-  rotate. **🎨 Match color** (0–100) gives it the light and color of what's **behind it**, or of an
-  area you drag over with **🎯 Pick an area**: its colors move toward that area's average and spread
-  (in Lab; `web/lib/color-match.js`) as far as the slider says, keeping its own detail. **✓ Place**
-  paints it in at full detail: one undo step, part of every export.
+- **FaceMask**: everything for faces, in one place, in three steps.
+  1. **🙂 Identify faces**: the faces are found (on the phone) and outlined; with more than one, each
+     gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
+  2. **✂️ Cut out & save as Character**: the picked face is cut out in one go (an oval from its eyes
+     and mouth, with the forehead, brought in to the head's own edge by Cutout's smart edges), shown,
+     named and kept with your Characters (`web/tools/editor/facemask.js`). Fine-tune its edge in
+     Cutout if you like.
+  3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
+     Character with a face of its own (one cut out like this) is **lined up by its eyes and mouth**:
+     the middle of its eyes on the face's, its eye line along the face's, sized by the eyes' spacing
+     (and a little by the eyes-to-mouth length). Any other image covers the face, turned with it. Tap
+     another face's number to move it there, or **🙂 On every face** to put one on each. Drag to move,
+     pinch (or the **Size** and **Turn** sliders) to resize and rotate. **🎨 Match color** (0–100)
+     gives it the light and color of what's **behind it**, or of an area you drag over with **🎯 Pick
+     an area** (its colors move toward that area's average and spread, in Lab;
+     `web/lib/color-match.js`). **✓ Place** paints it in at full detail: one undo step, part of every
+     export.
+  **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
+  mouth (quarter turns and straighten; undo to go back).
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
   overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
   it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
@@ -299,12 +304,13 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
 - **🙂 Cut out face** finds the faces (on the phone) and traces around the biggest one's head (an
   oval from the eyes and mouth, with the forehead), smart edges bringing it in to the head's own
   edge; **🙂 All faces** traces every face. Fix the edge as usual, then **Save as Character**.
-- **Your Characters as a folder**: **⬇ Save all (folder .zip)** saves every Character as
-  `Characters.zip`, a "Characters" folder of their images with a `characters.json` of their names.
-  On a computer, **📁 Save to a folder…** writes that folder straight to disk. With Saved Files set
-  up, **☁️ Save to Saved Files** puts it in a "Characters" folder in your Drive. **⬆ Install
-  Characters** (the ZIP, or images), **📂 Install a folder**, or **☁️ Install from Saved Files** put
-  them back on this phone or another. Names and order are kept; ones already here are skipped.
+- **Your Characters as a folder**: **⬇ Save all…** saves every Character as `Characters.zip`, a
+  "Characters" folder of their images with a `characters.json` of their names; on a computer it can
+  also write that folder straight to disk, and with Saved Files set up, put it in a "Characters"
+  folder in your Drive. **⬆ Install…** puts them back on this phone or another, from the ZIP or
+  images, a folder, or Saved Files. Names and order are kept; ones already here are skipped.
+- **A thin scroll bar on the right** (phones): the photo takes every touch for tracing, so to scroll
+  the page past it, drag the bar at the right edge (or tap along it).
 - Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
   cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
 - **A magnifier under the finger**: while your finger is down (tracing, Patch, Wand, Brush, and in

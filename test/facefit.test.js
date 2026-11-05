@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, recolor, matchTexture, keepSkinTexture, keepOwnFace, hairInFront, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, matchTexture, keepSkinTexture, keepOwnFace, hairInFront, faceNormals, shadeByShape, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -372,4 +372,36 @@ test('painted by hand: less of it where brushed (the photo shows), more of it ba
   assert.ok(at(painted, [200, 150]) < 10, 'less of it: the photo shows');
   assert.ok(at(painted, below) > 240, 'more of it: back past the chin');
   assert.ok(at(painted, [200, 120]) > 240, 'not where it wasn\'t brushed');
+});
+
+test('lit as that face is lit, by its shape: a face lit from one side, and the Character on it shaded to match', () => {
+  // A face shaped like half a ball (its mesh: 478 points over it), 200×200, the light from the left.
+  const W = 200; const H = 200; const R = 70; const C = [100, 100];
+  const mesh = [];
+  for (let i = 0; i < 478; i++) {
+    const a = i * 2.39996; const r = R * 0.97 * Math.sqrt((i + 0.5) / 478); // (sunflower spiral: evenly over the disc)
+    const x = C[0] + r * Math.cos(a); const y = C[1] + r * Math.sin(a); const z = -Math.sqrt(Math.max(0, R * R - r * r));
+    mesh.push([x / W, y / H, z / W]);
+  }
+  const n = faceNormals(mesh, W, H, 0, 0, W, H);
+  // It faces the way a ball does: left on its left, toward the camera in its middle.
+  const at = (x, y) => [n[(y * W + x) * 3], n[(y * W + x) * 3 + 1], n[(y * W + x) * 3 + 2]];
+  assert.ok(at(45, 100)[0] < -0.5 && at(155, 100)[0] > 0.5 && at(100, 100)[2] < -0.9, `${at(45, 100)} ${at(155, 100)} ${at(100, 100)}`);
+  // The photo: lit from the left (brighter where it faces left); the Character on it: evenly lit.
+  const photo = new Uint8ClampedArray(W * H * 4); const rgba = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const k = y * W + x; const [nx, , nz] = [n[k * 3], n[k * 3 + 1], n[k * 3 + 2]];
+    const L = nz ? 150 - 60 * nx : 150; photo.set([L, L * 0.8, L * 0.7, 255], k * 4); rgba.set([150, 120, 105, 255], k * 4);
+  }
+  const pts = landmarks(100, 100, 0.9);
+  const face = { ...faceAt(pts, W, H), mesh, skin: { isSkin: () => true } };
+  const outline = Array.from({ length: 32 }, (_, i) => [C[0] + R * Math.cos((i / 32) * 2 * Math.PI), C[1] + R * Math.sin((i / 32) * 2 * Math.PI)]);
+  const patch = shadeByShape({ x0: 0, y0: 0, pw: W, ph: H, rgba, charPts: pts }, photo, W, H, face, outline, 1);
+  assert.ok(patch.light.theirs[1] < -30 && Math.abs(patch.light.mine[1]) < 5, JSON.stringify(patch.light));
+  const left = patch.rgba[(100 * W + 50) * 4]; const right = patch.rgba[(100 * W + 150) * 4];
+  assert.ok(left > 160 && right < 140, `shaded like the photo: left ${left}, right ${right}`);
+  // No mesh: nothing done.
+  const plain = { x0: 0, y0: 0, pw: W, ph: H, rgba: new Uint8ClampedArray(W * H * 4).fill(150) };
+  shadeByShape(plain, photo, W, H, { ...face, mesh: undefined }, outline, 1);
+  assert.equal(plain.rgba[(100 * W + 50) * 4], 150);
 });

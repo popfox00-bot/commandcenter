@@ -460,3 +460,65 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and the face is cut out, fitted and placed, ready to save; kept as a Character if wanted', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE3, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // Two drawn faces in the same place (the fake finds a face there in any 4:3 picture): the base has
+  // no eyes drawn; the other has dark eyes where its landmarks put them.
+  const make = (eyes) => page.evaluate(async (eyes) => {
+    const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(40,140,60)'; x.fillRect(0, 0, 400, 300);
+    x.fillStyle = 'rgb(90,50,20)'; x.beginPath(); x.ellipse(200, 120, 90, 95, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgb(225,180,150)'; x.beginPath(); x.ellipse(200, 160, 70, 80, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgb(90,50,20)'; x.fillRect(120, 60, 160, 45);
+    if (eyes) { x.fillStyle = 'rgb(20,15,15)'; for (const ex of [172, 228]) { x.beginPath(); x.arc(ex, 129, 7, 0, Math.PI * 2); x.fill(); } }
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  }, eyes);
+  const base = await make(false); const face = await make(true);
+  // From the start screen: ⚡ Quick Swap faces, then the two photos.
+  await page.getByRole('button', { name: '⚡ Quick Swap faces' }).click();
+  await page.waitForSelector('dialog[open].qs-pick');
+  const swap = page.locator('dialog[open].qs-pick').getByRole('button', { name: '⚡ Swap' });
+  assert.equal(await swap.isDisabled(), true, 'nothing to swap until both are chosen');
+  await page.setInputFiles('#qs-base', { name: 'base.png', mimeType: 'image/png', buffer: Buffer.from(base) });
+  assert.equal(await swap.isDisabled(), true);
+  await page.setInputFiles('#qs-face', { name: 'face.png', mimeType: 'image/png', buffer: Buffer.from(face) });
+  await swap.click();
+  await page.waitForFunction(() => location.hash === '#/files/facemask');
+  await page.waitForSelector('.ed-panel >> text=/⚡ Swapped/');
+  await page.waitForTimeout(250);
+  // The new face's eyes are on the base face now, and the background around it is as it was.
+  const read = () => page.$eval('.ed-canvas', (c) => {
+    const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0);
+    const at = (u, v) => [...x.getImageData(Math.round(u * c.width), Math.round(v * c.height), 1, 1).data].slice(0, 3);
+    return { eye: at(172 / 400, 129 / 300), cheek: at(200 / 400, 190 / 300), corner: at(10 / 400, 290 / 300) };
+  });
+  const after = await read();
+  assert.ok(after.eye[0] < 120, `its eye on the face: ${after.eye}`);
+  assert.ok(after.cheek[0] > 170, `still skin around it: ${after.cheek}`);
+  assert.ok(Math.abs(after.corner[0] - 40) < 12 && Math.abs(after.corner[1] - 140) < 12, `the background left alone: ${after.corner}`);
+  // One undo step takes it back.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.waitForTimeout(250);
+  assert.ok((await read()).eye[0] > 170, 'undone: no eye there');
+  await page.getByRole('button', { name: 'Redo' }).click();
+  // The face it used, kept as a Character.
+  await page.getByRole('button', { name: '✂️ Keep that face as a Character' }).click();
+  await page.locator('dialog[open].fm-save').getByRole('button', { name: 'Save' }).click();
+  await page.waitForSelector('.ed-panel >> text=/Saved ".+" as a Character/');
+  // From the panel, ⚡ Quick Swap offers this photo as the first.
+  await page.getByRole('button', { name: '⚡ Quick Swap', exact: true }).click();
+  await page.waitForSelector('dialog[open].qs-pick >> text=This photo');
+  await page.locator('dialog[open].qs-pick').getByRole('button', { name: 'Cancel' }).click();
+  // Ready to save: Done opens the export sheet.
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.waitForSelector('dialog[open]');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

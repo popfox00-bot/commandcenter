@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, recolor, targetOutline, bestPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -130,16 +130,17 @@ test('kept as it is: with the usual light bend its features keep their own propo
   const W = 400; const H = 300;
   const tPts = landmarks(200, 150, 1.4, 1.2); // a much wider jaw
   const face = faceAt(tPts, W, H);
-  const rigid = fitPatch(img, cw, ch, own, face, W, H, { trim: false, bend: 0 });
-  const light = fitPatch(img, cw, ch, own, face, W, H, { trim: false });
+  const rigid = fitPatch(img, cw, ch, own, face, W, H, { trim: false, bend: 0, own: false });
+  const light = fitPatch(img, cw, ch, own, face, W, H, { trim: false, own: false });
   const read = (p, [x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2]; };
   // Rigid: the Character's eye spacing scaled evenly; its eyes and mouth keep their relative places.
-  const b = bestPlacement(own, cw, ch, face, W, H); const k = b.width / cw;
+  const b = realPlacement(own, cw, ch, face, W, H); const k = b.width / cw;
   const eyeL = read(rigid, tPts[36]); const eyeR = read(rigid, tPts[45]);
   assert.ok(Math.abs(Math.hypot(eyeR[0] - eyeL[0], eyeR[1] - eyeL[1]) * k - Math.hypot(tPts[45][0] - tPts[36][0], tPts[45][1] - tPts[36][1])) < 8, 'eye spacing as the face has it, by an even scale');
   // The light bend moves the jaw a little toward the new one, the middle of the face hardly at all.
   const midR = read(rigid, tPts[30]); const midL = read(light, tPts[30]);
-  const jawR = read(rigid, tPts[4]); const jawL = read(light, tPts[4]);
+  const jawR = read(rigid, tPts[6]); const jawL = read(light, tPts[6]);
+  assert.ok(jawR[0] > 0 && jawL[0] > 0, `the jaw point is on it: ${jawR} / ${jawL}`);
   assert.ok(Math.hypot(midR[0] - midL[0], midR[1] - midL[1]) < 2, 'the nose: kept');
   assert.ok(Math.hypot(jawR[0] - jawL[0], jawR[1] - jawL[1]) > Math.hypot(midR[0] - midL[0], midR[1] - midL[1]), 'the jaw: bent a little');
 });
@@ -244,4 +245,27 @@ test('the outline ends where the face\'s skin does: hair over one side brings th
     if (x > 80) assert.ok(y > 50 && y < 60, `the hairline at ${x.toFixed(0)}, y ${y.toFixed(1)} (hair from 55)`);
     if (x < 72) assert.ok(y > 52, `under the hair at ${x.toFixed(0)}: just above the brow, y ${y.toFixed(1)}`);
   }
+});
+
+test('placed for a realistic face: a tall forehead on the face it goes on isn\'t left that tall; its chin stays at the chin; its own proportions kept', () => {
+  const cw = 160; const ch = 160; const W = 400; const H = 400;
+  const own = faceAt(landmarks(80, 85, 0.9), cw, ch);
+  // Its own forehead low (the hairline 0.3 of brow-to-chin above the brows).
+  const ownLine = (f, w, h, r) => { const P = (i) => [f.pts[i][0] * w, f.pts[i][1] * h]; const low = P(8)[1] - (P(19)[1] + P(24)[1]) / 2; return [...Array.from({ length: 17 }, (_, i) => P(i)), ...Array.from({ length: 10 }, (_, k) => { const [x, y] = P(26 - k); return [x, y - r * low]; })]; };
+  const tPts = landmarks(200, 220, 1.6); const face = faceAt(tPts, W, H);
+  const P = (i) => [tPts[i][0], tPts[i][1]]; const low = P(8)[1] - (P(19)[1] + P(24)[1]) / 2;
+  const plain = realPlacement(own, cw, ch, face, W, H);
+  // The face it goes on: a very high forehead (0.8 of brow-to-chin).
+  const tall = realPlacement(own, cw, ch, face, W, H, { outline: ownLine(face, W, H, 0.8), own: ownLine(own, cw, ch, 0.3) });
+  const k = tall.width / plain.width;
+  assert.ok(k > 1.1 && k <= 1.3, `bigger, for a natural forehead: ×${k.toFixed(2)}`);
+  // Where its brows and chin land.
+  const at = (pl, [u, v]) => { const s = pl.width / cw; const c = Math.cos(pl.rot); const si = Math.sin(pl.rot); const dx = (u * cw - cw / 2) * s; const dy = (v * ch - ch / 2) * s; return [pl.x + dx * c - dy * si, pl.y + dx * si + dy * c]; };
+  const chin = at(tall, own.pts[8]); const brow = at(tall, own.pts[19]);
+  assert.ok(Math.abs(chin[1] - P(8)[1]) < low * 0.12, `its chin near the chin: ${chin[1].toFixed(0)} vs ${P(8)[1].toFixed(0)}`);
+  const hair = P(19)[1] - 0.8 * low; const r = (brow[1] - hair) / (chin[1] - brow[1]);
+  assert.ok(r > 0.3 && r < 0.65, `a natural forehead now: ${r.toFixed(2)} of brow-to-chin (was 0.8)`);
+  // A usual forehead already: hardly changed.
+  const usual = realPlacement(own, cw, ch, face, W, H, { outline: ownLine(face, W, H, 0.42), own: ownLine(own, cw, ch, 0.42) });
+  assert.ok(Math.abs(usual.width / plain.width - 1) < 0.1, `a usual one: ×${(usual.width / plain.width).toFixed(2)}`);
 });

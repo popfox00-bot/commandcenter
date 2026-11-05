@@ -15,7 +15,7 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, targetOutline, skinModel, bestPlacement, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
+import { fitPatch, blendIn, recolor, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -90,6 +90,9 @@ export function mount(host, { file: initialFile } = {}) {
       el('div', { class: 'drop' },
         el('label', { class: 'btn primary block', for: 'ed-file', text: 'Choose photos' }),
         el('p', { class: 'muted small center', text: 'Pick one photo to edit it, or many to edit them all at once (Auto-Crop, filters, light and color, size). Your originals are never changed, and nothing leaves this phone.' })),
+      el('div', { class: 'drop qs-start' },
+        el('button', { class: 'btn block', text: '⚡ Quick Swap faces', onclick: () => quickSwap() }),
+        el('p', { class: 'muted small center', text: 'Two photos: the one to change, then the one with the face to put on it. The face is cut out, fitted and blended for you, ready to save.' })),
       input,
     ].filter(Boolean));
   }
@@ -987,6 +990,9 @@ export function mount(host, { file: initialFile } = {}) {
     return [
       el('p', { class: 'small muted', text: 'Find the faces, then cut one out to keep as a Character, or put one of your Characters on a face.' }),
       el('div', { class: 'fm-actions' },
+        el('button', { class: 'btn', text: '⚡ Quick Swap', disabled: fm.busy, onclick: () => quickSwap(true) }),
+        fm.quickCut ? el('button', { class: 'btn', text: '✂️ Keep that face as a Character', disabled: fm.busy, onclick: keepQuickFace }) : null),
+      el('div', { class: 'fm-actions' },
         el('button', { class: `btn${looked ? '' : ' primary'}`, text: looked ? '🙂 Find faces again' : '🙂 Identify faces', disabled: fm.busy, onclick: identifyFaces })),
       n > 1 ? el('div', { class: 'chips', role: 'group', 'aria-label': 'Which face' },
         ...fm.faces.map((_, i) => el('button', { class: `chip${fm.sel === i ? ' active' : ''}`, 'aria-pressed': String(fm.sel === i), text: `Face ${i + 1}`, onclick: () => { fm.sel = i; renderPanel(); schedule(); } }))) : null,
@@ -996,6 +1002,104 @@ export function mount(host, { file: initialFile } = {}) {
         n ? el('button', { class: 'btn', text: '🙂 Level this face', disabled: fm.busy, onclick: () => levelFace(fm.faces[fm.sel]) }) : null) : null,
       fm.note ? el('p', { class: 'small', 'aria-live': 'polite', text: fm.note }) : null,
     ].filter(Boolean);
+  }
+
+  // ---------- ⚡ Quick Swap ----------
+
+  /**
+   * The two photos for a Quick Swap: the one to change (`here`: this photo, unless another is picked)
+   * and the one with the face to put on it. { base (a file, or null for this photo), face } or null.
+   */
+  function pickSwapPhotos(here) {
+    return new Promise((resolve) => {
+      const chosen = { base: null, face: null };
+      const slot = (key, n, label, hint) => {
+        const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', class: 'visually-hidden', id: `qs-${key}` });
+        const thumb = el('span', { class: 'qs-thumb', 'aria-hidden': 'true' });
+        const name = el('span', { class: 'small muted', text: key === 'base' && here ? 'This photo' : hint });
+        const pick = el('label', { class: 'btn small-btn', for: `qs-${key}`, text: key === 'base' && here ? 'Change' : 'Choose' });
+        input.addEventListener('change', () => {
+          const f = input.files[0]; input.value = ''; if (!f) return;
+          chosen[key] = f; name.textContent = f.name || 'Photo chosen'; pick.textContent = 'Change';
+          const url = URL.createObjectURL(f); thumb.replaceChildren(el('img', { src: url, alt: '' })); thumb.querySelector('img').onload = () => URL.revokeObjectURL(url);
+          ready();
+        });
+        return el('div', { class: 'qs-slot' }, thumb,
+          el('div', { class: 'qs-text' }, el('strong', { text: `${n}. ${label}` }), name), pick, input);
+      };
+      const go = el('button', { class: 'btn primary', value: 'go', text: '⚡ Swap', disabled: true });
+      const ready = () => { go.disabled = !((chosen.base || here) && chosen.face); };
+      const dlg = el('dialog', { class: 'ed-dialog qs-pick' }, el('form', { method: 'dialog', class: 'sheet' },
+        el('h2', { text: '⚡ Quick Swap' }),
+        el('p', { class: 'small muted', text: 'The face in the second photo goes on the face in the first (the biggest one, if there are several): cut out, fitted, recolored and blended, then placed. Undo takes it back.' }),
+        slot('base', 1, 'The photo to change', 'Choose the photo whose face is replaced'),
+        slot('face', 2, 'The face to put on it', 'Choose a photo of the new face'),
+        el('div', { class: 'row end' }, el('button', { class: 'btn ghost', value: 'cancel', text: 'Cancel' }), go)));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'go' ? chosen : null); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
+  }
+
+  /**
+   * ⚡ Quick Swap: two photos in, a finished swap out. The first opens (in FaceMask); the biggest face
+   * in the second is cut out (with its landmarks); it's fitted onto the biggest face in the first,
+   * recolored and blended, and placed as one undo step, ready to save with Done. `here`: offer this
+   * photo as the first.
+   */
+  async function quickSwap(here = false) {
+    const picked = await pickSwapPhotos(here && !!(history && file));
+    if (!picked) return;
+    if (picked.base) {
+      if (history && file && !isDefault(state()) && !window.confirm('Open the new photo? Edits to the current one will be discarded.')) return;
+      if (!faceOnly && location.hash !== '#/files/facemask') location.hash = '#/files/facemask';
+      faceOnly = true; mode = 'face';
+      teardown();
+      await openFile(picked.base, picked.base.name || 'photo.jpg');
+      if (!history || !source) return;
+    }
+    fm.busy = true; fm.quickCut = null; fm.note = '⚡ Finding the faces…'; renderPanel();
+    try {
+      const { detectFaces } = await import('../../lib/face.js');
+      const { cutOutFace } = await import('./facemask.js');
+      const biggest = (faces) => faces.sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+      // The face to put on: the biggest one in the second photo, cut out with its landmarks.
+      const bm = await decodeImage(picked.face, await sniffType(picked.face));
+      const fit = fitSize(bm.width, bm.height, PREVIEW_MAX);
+      const other = drawToCanvas(bm, fit.width, fit.height, null); bm.close?.();
+      const theirs = biggest(await detectFaces(other))[0];
+      if (!theirs) { fm.note = 'No face found in the second photo. Try one where the face is clear and facing the camera.'; return; }
+      fm.note = '⚡ Cutting out the face…'; renderPanel();
+      const cut = cutOutFace(other, theirs);
+      if (!cut?.face) { fm.note = 'Couldn\'t cut the face out of the second photo.'; return; }
+      // The face it goes on: the biggest one here.
+      fm.faces = biggest(await detectFaces(applyPatches(source, state().patches ?? []))); fm.sel = 0;
+      if (!fm.faces.length) { fm.note = 'No face found in the first photo.'; return; }
+      fm.note = '⚡ Fitting and blending…'; renderPanel();
+      const W = source.width; const H = source.height;
+      const full = pixelsOf(cut, 1024); const small = pixelsOf(cut, 420);
+      placing = { name: 'the new face', full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: cut.face, flip: false, userFlip: false, mirror: {} };
+      renderShown();
+      await placeOnFace(true, 0);
+      if (!placing?.fit) { placing = null; fm.note = 'Couldn\'t line the faces up. Try 🎭 Insert Character to place it by hand.'; return; }
+      const flipped = placing.flip;
+      finishPlacing();
+      fm.quickCut = cut;
+      fm.note = `⚡ Swapped${flipped ? ' (flipped to look the same way)' : ''}. Tap Done to save or share it; Undo takes it back.`;
+    } catch (err) { placing = null; fm.note = `Quick Swap didn't work: ${err.message}`; }
+    finally { fm.busy = false; renderPanel(); schedule(); }
+  }
+  /** The face a Quick Swap used, kept as a Character (to use again). */
+  async function keepQuickFace() {
+    const cut = fm.quickCut; if (!cut) return;
+    try {
+      const blob = await encodeCanvas(cut, 'image/png');
+      const name = await nameCharacter(blob, `Face ${(await listCharacters()).length + 1}`);
+      if (name == null) return;
+      await addCharacter(blob, { name, width: cut.width, height: cut.height, face: cut.face });
+      fm.quickCut = null; fm.note = `Saved "${name}" as a Character.`;
+    } catch (err) { fm.note = `Couldn't save it: ${err.message}`; }
+    renderPanel();
   }
 
   let autoCropNote = 'Crops a screenshot of a post to just its photo or video.';
@@ -1139,7 +1243,10 @@ export function mount(host, { file: initialFile } = {}) {
     // Flipped when it looks the other way from that face (and flipped again by hand with ⇋ Flip).
     if (placing.charFace) {
       const flip = shouldFlip(placing.charFace, placing.full.w, placing.full.h, f, W, H) !== placing.userFlip;
-      return { ...bestPlacement(charOf({ ...placing, flip }), placing.full.w, placing.full.h, f, W, H), flip };
+      // Placed for a realistic face on it (by its features, sized for a natural forehead), as it's painted.
+      const at = { ...placing, flip }; const cf = charOf(at); const img = pixelsAt(at, 'full');
+      f.outline ??= targetOutline(sourcePixels(), W, H, f);
+      return { ...realPlacement(cf, img.w, img.h, f, W, H, { outline: f.outline, own: ownOutline(img.rgba, img.w, img.h, cf) }), flip };
     }
     const flip = placing.userFlip;
     // No face of its own found: a face-only Character as wide as the face itself (jaw to jaw), a mask

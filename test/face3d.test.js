@@ -2,7 +2,7 @@
 // the generic head, and a Character turned to another face's pose.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEMPLATE, fitPose, triangulate, turnFace } from '../web/tools/editor/face3d.js';
+import { TEMPLATE, fitPose, triangulate, turnFace, symmetrize } from '../web/tools/editor/face3d.js';
 
 /** The generic head posed (yaw, pitch, roll) and seen at scale s around (tx, ty): its 68 landmarks in pixels. */
 function posed(yaw, pitch, roll, s = 100, tx = 200, ty = 200) {
@@ -53,4 +53,39 @@ test('a Character seen straight on, turned to a face turned away: its landmarks 
   assert.ok(Math.abs(r.rgba[o] / 0.6 - cp[30][0]) < 4 && Math.abs(r.rgba[o + 1] / 0.6 - cp[30][1]) < 4, `its nose: ${r.rgba[o] / 0.6}, ${r.rgba[o + 1] / 0.6} (was ${cp[30]})`);
   // Posed alike already: left as it is.
   assert.equal(turnFace(img, cw, ch, charFace, { pts: posed(0.02, 0, 0.3, 80, 500, 300).map(([x, y]) => [x / 1000, y / 600]) }, 1000, 600), null);
+});
+
+test('made symmetric where it was seen least: the far side taken from the near side, flipped across the middle line; its landmarks moved to match', () => {
+  const w = 200; const h = 200;
+  const pts = posed(0, 0, 0, 50, 100, 90);
+  // Near side (left of the nose) red, far side blue.
+  const img = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) img.set(x < 100 ? [220, 30, 30, 255] : [30, 30, 220, 255], (y * w + x) * 4);
+  const far = pts.map((p) => p.slice()); far[45] = [far[45][0] + 8, far[45][1]]; // its far eye corner a little off
+  const r = symmetrize(img, w, h, far, true, 0.8);
+  const at = (x, y) => [...r.rgba.subarray((y * w + x) * 4, (y * w + x) * 4 + 3)];
+  assert.ok(at(150, 100)[0] > 150 && at(150, 100)[2] < 90, `the far side now mostly the near side's: ${at(150, 100)}`);
+  assert.deepEqual(at(50, 100), [220, 30, 30], 'the near side as it was');
+  assert.ok(at(101, 100)[2] > 200, `at the middle line, as it was: ${at(101, 100)}`);
+  // The far eye corner moved most of the way to the near one's mirror image.
+  const mirror = 2 * 100 - pts[36][0];
+  assert.ok(Math.abs(r.pts[45][0] - mirror) < 3, `far eye corner at ${r.pts[45][0].toFixed(1)} (mirror ${mirror})`);
+});
+
+test('a Character seen turned, put on a face turned the other way: its barely-seen side drawn from its well-seen side', () => {
+  const cw = 400; const ch = 400;
+  const cp = posed(0.45, 0, 0, 100, 200, 170);
+  const charFace = { pts: cp.map(([x, y]) => [x / cw, y / ch]), score: 1 };
+  // Which side it shows more of (the near side): the jaw end farther from its nose tip.
+  const nearLeft = Math.hypot(cp[30][0] - cp[0][0], cp[30][1] - cp[0][1]) > Math.hypot(cp[30][0] - cp[16][0], cp[30][1] - cp[16][1]);
+  const nose = cp[30][0];
+  const img = new Uint8ClampedArray(cw * ch * 4);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img.set(((x < nose) === nearLeft) ? [220, 30, 30, 255] : [30, 30, 220, 255], (y * cw + x) * 4);
+  const face = { pts: posed(-0.35, 0, 0, 100, 500, 300).map(([x, y]) => [x / 1000, y / 600]) };
+  const plain = turnFace(img, cw, ch, charFace, face, 1000, 600, { symmetric: false });
+  const sym = turnFace(img, cw, ch, charFace, face, 1000, 600);
+  // On its far cheek (between its far eye's outer corner and the far side of its jaw): red now, from the near side.
+  const farCheek = (r) => { const P = r.face.pts.map(([u, v]) => [u * r.w, v * r.h]); const i = nearLeft ? [45, 13] : [36, 3]; const x = Math.round((P[i[0]][0] + P[i[1]][0]) / 2); const y = Math.round((P[i[0]][1] + P[i[1]][1]) / 2); const o = (y * r.w + x) * 4; return [r.rgba[o], r.rgba[o + 2]]; };
+  const [pr, pb] = farCheek(plain); const [sr, sb] = farCheek(sym);
+  assert.ok(pb > pr, `without it: the squeezed far side, stretched (${pr},${pb})`);
+  assert.ok(sr > sb, `with it: drawn from the near side (${sr},${sb})`);
 });

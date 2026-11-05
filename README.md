@@ -519,7 +519,10 @@ saves the face it used.
    gives how each is turned left/right and up/down, and the Character's own face, given that depth,
    is turned by the difference (most of the left/right, a little of the up/down) and drawn again
    over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
-   (`web/tools/editor/face3d.js`). Then it's turned by its eye line
+   (`web/tools/editor/face3d.js`). A Character photographed turned, being turned toward the side it
+   barely shows, is first turned to face straight on and made symmetric there: its far side drawn
+   from its well-seen near side, flipped across its middle line (more of it the more it was turned),
+   then turned to the pose, so that side is a full face rather than a thin strip stretched wide. Then it's turned by its eye line
    onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
    narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
    them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own

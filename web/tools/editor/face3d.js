@@ -98,22 +98,23 @@ export function triangulate(pts) {
   return tris.filter((t) => t.v.every((k) => k < n)).map((t) => t.v);
 }
 
+/** Each of the 68 landmarks' mirror image (left ↔ right). */
+export const MIRROR = (() => {
+  const m = Array.from({ length: 68 }, (_, i) => i);
+  const pair = (a, b) => { m[a] = b; m[b] = a; };
+  for (let i = 0; i < 8; i++) pair(i, 16 - i);
+  for (let i = 0; i < 5; i++) pair(17 + i, 26 - i);
+  for (const [a, b] of [[31, 35], [32, 34], [36, 45], [37, 44], [38, 43], [39, 42], [40, 47], [41, 46], [48, 54], [49, 53], [50, 52], [55, 59], [56, 58], [60, 64], [61, 63], [65, 67]]) pair(a, b);
+  return m;
+})();
+
 /**
- * The Character (RGBA cw×ch, its face `charFace`, 0..1 points) turned to the pose of `face` (in a W×H
- * picture): left/right by most of the difference between their poses (up to 40°), up/down by a little
- * of it (up to about 9°). { rgba, w, h, face } (its face moved with it), or null when they're posed
- * alike already (within about 6°) or the landmarks aren't there.
+ * A picture (RGBA cw×ch) with a face at `cp` (68 points, pixels) posed `pc` (fitPose), turned in 3D by
+ * `dyaw` and `dpitch` (radians): drawn again over a mesh of its landmarks (and more of the head, and the
+ * picture's corners), nearest last. { rgba, w, h, pts } (its landmarks where they went).
  */
-export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.7, maxPitch = 0.15, yawGain = 0.85, pitchGain = 0.3, min = 0.1 } = {}) {
-  if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return null;
-  const cp = charFace.pts.map(([u, v]) => [u * cw, v * ch]);
-  const pc = fitPose(cp); const pb = fitPose(face.pts.map(([u, v]) => [u * W, v * H]));
-  if (!pc || !pb) return null;
-  // Left/right by most of the difference (the landmarks show it well); up/down only a little (faces
-  // differ in their up/down proportions, and a smile changes them, so it's less sure).
-  const dyaw = Math.max(-maxYaw, Math.min(maxYaw, yawGain * (pb.yaw - pc.yaw))); const dpitch = Math.max(-maxPitch, Math.min(maxPitch, pitchGain * (pb.pitch - pc.pitch)));
-  if (Math.abs(dyaw) < min && Math.abs(dpitch) < min) return null;
-  // The mesh: its landmarks where they are, more of its head where the fitted pose puts them, the cut-out's corners.
+function warpTurn(img, cw, ch, cp, pc, dyaw, dpitch) {
+  // The mesh: its landmarks where they are, more of its head where the fitted pose puts them, the picture's corners.
   const cam = (m) => { const q = [m[0], m[1], -m[2]]; return [0, 1, 2].map((r) => pc.R[r][0] * q[0] + pc.R[r][1] * q[1] + pc.R[r][2] * q[2]); };
   const src = []; const depth = [];
   cp.forEach((p, i) => { src.push(p); depth.push(cam(TEMPLATE[i])[2] * pc.s); });
@@ -151,19 +152,99 @@ export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.7, maxP
       const l1 = ((bx - px) * (qy - py) - (qx - px) * (by - py)) / det; const l2 = ((qx - px) * (ay - py) - (ax - px) * (qy - py)) / det; const l3 = 1 - l1 - l2;
       if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
       const u = l1 * sa[0] + l2 * sb[0] + l3 * sc[0] - 0.5; const v = l1 * sa[1] + l2 * sb[1] + l3 * sc[1] - 0.5;
-      const uf = Math.floor(u); const vf = Math.floor(v); const fu = u - uf; const fv = v - vf;
-      let al = 0; let r = 0; let g = 0; let bb = 0;
-      for (const [X, Y, wt] of [[uf, vf, (1 - fu) * (1 - fv)], [uf + 1, vf, fu * (1 - fv)], [uf, vf + 1, (1 - fu) * fv], [uf + 1, vf + 1, fu * fv]]) {
-        if (X < 0 || Y < 0 || X >= cw || Y >= ch || !wt) continue;
-        const o = (Y * cw + X) * 4; const aw = img[o + 3] * wt; al += aw; r += img[o] * aw; g += img[o + 1] * aw; bb += img[o + 2] * aw;
-      }
-      const o = (y * w + x) * 4;
-      if (al < 0.5) { out[o + 3] = 0; continue; }
-      out[o] = r / al; out[o + 1] = g / al; out[o + 2] = bb / al; out[o + 3] = al;
+      const o = (y * w + x) * 4; const c = sample(img, cw, ch, u, v);
+      if (c[3] < 0.5) { out[o + 3] = 0; continue; }
+      out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2]; out[o + 3] = c[3];
     }
   }
+  return { rgba: out, w, h, pts: D.slice(0, 68) };
+}
+
+/** A picture's color at (u, v) (pixel centers at integers), bilinear, alpha-weighted: [r, g, b, a]. */
+function sample(img, cw, ch, u, v) {
+  const uf = Math.floor(u); const vf = Math.floor(v); const fu = u - uf; const fv = v - vf;
+  let al = 0; let r = 0; let g = 0; let b = 0;
+  for (const [X, Y, wt] of [[uf, vf, (1 - fu) * (1 - fv)], [uf + 1, vf, fu * (1 - fv)], [uf, vf + 1, (1 - fu) * fv], [uf + 1, vf + 1, fu * fv]]) {
+    if (X < 0 || Y < 0 || X >= cw || Y >= ch || !wt) continue;
+    const o = (Y * cw + X) * 4; const aw = img[o + 3] * wt; al += aw; r += img[o] * aw; g += img[o + 1] * aw; b += img[o + 2] * aw;
+  }
+  return al < 0.5 ? [0, 0, 0, 0] : [r / al, g / al, b / al, al];
+}
+
+/**
+ * A face seen straight on (RGBA w×h, landmarks `pts`) made symmetric where it was seen least: its far
+ * side (the one a turned head showed squeezed) taken from its near side flipped across its middle line,
+ * `amount` of the way (0..1), easing in from the middle; its far-side landmarks moved to match. In place
+ * on a copy: { rgba, pts }.
+ */
+export function symmetrize(rgba, w, h, pts, nearLeft, amount) {
+  if (!(amount > 0)) return { rgba, pts };
+  // Its middle line, x = m·y + c, through the nose, mouth and chin.
+  const mid = [27, 28, 29, 30, 33, 51, 57, 62, 66, 8].map((i) => pts[i]);
+  const my = mid.reduce((t, p) => t + p[1], 0) / mid.length; const mx = mid.reduce((t, p) => t + p[0], 0) / mid.length;
+  let num = 0; let den = 0; for (const [x, y] of mid) { num += (y - my) * (x - mx); den += (y - my) ** 2; }
+  const m = den > 0 ? num / den : 0; const c = mx - m * my;
+  const lineX = (y) => m * y + c;
+  const faceW = Math.hypot(pts[16][0] - pts[0][0], pts[16][1] - pts[0][1]) || w;
+  const ease = 0.12 * faceW;
+  const out = Uint8ClampedArray.from(rgba);
+  for (let y = 0; y < h; y++) {
+    const lx = lineX(y + 0.5);
+    for (let x = 0; x < w; x++) {
+      const d = x + 0.5 - lx; // > 0: right of the middle
+      const far = nearLeft ? d > 0 : d < 0; if (!far) continue;
+      const t = Math.min(1, Math.abs(d) / ease); const k = amount * t * t * (3 - 2 * t);
+      if (k <= 0) continue;
+      const src = sample(rgba, w, h, lx - d - 0.5, y);
+      if (src[3] < 0.5) continue;
+      const o = (y * w + x) * 4;
+      for (let j = 0; j < 3; j++) out[o + j] = out[o + j] * (1 - k) + src[j] * k;
+      out[o + 3] = Math.max(out[o + 3], out[o + 3] * (1 - k) + src[3] * k);
+    }
+  }
+  // Its far-side landmarks: toward its near side's, flipped across the middle line.
+  const P = pts.map((p) => p.slice());
+  for (let i = 0; i < 68; i++) {
+    const j = MIRROR[i]; if (j === i) continue;
+    const [x, y] = pts[i]; const d = x - lineX(y); const far = nearLeft ? d > 0 : d < 0; if (!far) continue;
+    const [qx, qy] = pts[j]; const fx = 2 * lineX(qy) - qx;
+    P[i] = [x + amount * (fx - x), y + amount * (qy - y)];
+  }
+  return { rgba: out, pts: P };
+}
+
+/**
+ * The Character (RGBA cw×ch, its face `charFace`, 0..1 points) turned to the pose of `face` (in a W×H
+ * picture): left/right by most of the difference between their poses (up to 40°), up/down by a little
+ * of it (up to about 9°). A Character seen turned is first turned to face straight on and made
+ * symmetric where it was seen least (its far side from its near side, flipped: `symmetric`), then
+ * turned to that pose, so a side it barely showed isn't stretched thin. { rgba, w, h, face } (its face
+ * moved with it), or null when they're posed alike already (within about 6°) or the landmarks aren't there.
+ */
+export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.7, maxPitch = 0.15, yawGain = 0.85, pitchGain = 0.3, min = 0.1, symmetric = true } = {}) {
+  if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return null;
+  const cp = charFace.pts.map(([u, v]) => [u * cw, v * ch]);
+  const pc = fitPose(cp); const pb = fitPose(face.pts.map(([u, v]) => [u * W, v * H]));
+  if (!pc || !pb) return null;
+  // Left/right by most of the difference (the landmarks show it well); up/down only a little (faces
+  // differ in their up/down proportions, and a smile changes them, so it's less sure).
+  const clampY = (v) => Math.max(-maxYaw, Math.min(maxYaw, v)); const clampP = (v) => Math.max(-maxPitch, Math.min(maxPitch, v));
+  const dyaw = clampY(yawGain * (pb.yaw - pc.yaw)); const dpitch = clampP(pitchGain * (pb.pitch - pc.pitch));
+  if (Math.abs(dyaw) < min && Math.abs(dpitch) < min) return null;
+  // Seen turned, and turned toward its far side (that side shown more than the photo has it): straight
+  // on first, its far side from its near side flipped (more of it the more it was turned), then turned.
+  const amount = Math.max(0, Math.min(0.85, (Math.abs(pc.yaw) - 0.1) / 0.35));
+  const revealing = Math.sign(dyaw) !== 0 && Math.sign(dyaw) === -Math.sign(pc.yaw);
+  let res;
+  if (symmetric && amount > 0 && revealing) {
+    const front = warpTurn(img, cw, ch, cp, pc, clampY(-pc.yaw), 0);
+    const nearLeft = Math.hypot(cp[30][0] - cp[0][0], cp[30][1] - cp[0][1]) > Math.hypot(cp[30][0] - cp[16][0], cp[30][1] - cp[16][1]);
+    const sym = symmetrize(front.rgba, front.w, front.h, front.pts, nearLeft, amount);
+    const pf = fitPose(sym.pts);
+    res = pf ? warpTurn(sym.rgba, front.w, front.h, sym.pts, pf, clampY(yawGain * pb.yaw - pf.yaw), dpitch) : warpTurn(img, cw, ch, cp, pc, dyaw, dpitch);
+  } else res = warpTurn(img, cw, ch, cp, pc, dyaw, dpitch);
+  const { rgba: out, w, h, pts } = res;
   // Its face, moved with it (0..1 of the new picture).
-  const pts = D.slice(0, 68);
   const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);
   const box = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   const nf = faceFrom(box, pts, w, h, charFace.score ?? 1);

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "785ee53cb83c",
+  "version": "83a5388428b3",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -49,6 +49,7 @@ const PRECACHE = {
     "lib/dom.js",
     "lib/face-core.js",
     "lib/face-mesh.js",
+    "lib/face-parts.js",
     "lib/face.js",
     "lib/files.js",
     "lib/idb.js",
@@ -86,6 +87,8 @@ const PRECACHE = {
     "tools/editor/face3d.js",
     "tools/editor/facefit.js",
     "tools/editor/facemask.js",
+    "tools/editor/fit-pipeline.js",
+    "tools/editor/fit-worker.js",
     "tools/editor/geometry.js",
     "tools/editor/markup.js",
     "tools/editor/place.js",
@@ -117,6 +120,7 @@ const PRECACHE = {
     "vendor/face/model/tiny_face_detector_model.bin",
     "vendor/mediapipe/LICENSE",
     "vendor/mediapipe/face_landmarker.task",
+    "vendor/mediapipe/selfie_multiclass_256x256.tflite",
     "vendor/mediapipe/vision_bundle.mjs",
     "vendor/mediapipe/wasm/vision_wasm_internal.js",
     "vendor/mediapipe/wasm/vision_wasm_internal.wasm",

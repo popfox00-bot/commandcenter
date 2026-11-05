@@ -339,6 +339,33 @@ export function shadeMask(rgba, w, h, region, box, shades, tol = 18, { edge = 0 
 }
 
 /**
+ * Everything within `pad` pixels of `sel` (a mask over w×h, within `box`), by a distance spread out from
+ * it (3–4 chamfer: close to round). { mask, box } (its box grown by `pad`, inside the picture).
+ */
+export function roomAround(sel, w, h, b, pad) {
+  const box = { x0: Math.max(0, b.x0 - pad), y0: Math.max(0, b.y0 - pad), x1: Math.min(w, b.x1 + pad), y1: Math.min(h, b.y1 + pad) };
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
+  const dist = new Float32Array(bw * bh).fill(Infinity);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (sel[(box.y0 + y) * w + box.x0 + x]) dist[y * bw + x] = 0;
+  // Two passes of a chamfer distance (3-4: close to round).
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; let d = dist[k];
+    if (x > 0) d = Math.min(d, dist[k - 1] + 1); if (y > 0) d = Math.min(d, dist[k - bw] + 1);
+    if (x > 0 && y > 0) d = Math.min(d, dist[k - bw - 1] + 1.4142); if (x < bw - 1 && y > 0) d = Math.min(d, dist[k - bw + 1] + 1.4142);
+    dist[k] = d;
+  }
+  for (let y = bh - 1; y >= 0; y--) for (let x = bw - 1; x >= 0; x--) {
+    const k = y * bw + x; let d = dist[k];
+    if (x < bw - 1) d = Math.min(d, dist[k + 1] + 1); if (y < bh - 1) d = Math.min(d, dist[k + bw] + 1);
+    if (x < bw - 1 && y < bh - 1) d = Math.min(d, dist[k + bw + 1] + 1.4142); if (x > 0 && y < bh - 1) d = Math.min(d, dist[k + bw - 1] + 1.4142);
+    dist[k] = d;
+  }
+  const mask = new Uint8Array(w * h);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (dist[y * bw + x] <= pad) mask[(box.y0 + y) * w + box.x0 + x] = 1;
+  return { mask, box };
+}
+
+/**
  * Reverse Fill's automatic trace, from colors picked on the photo: what's joined to the picked spots
  * (`seeds`, [x, y] pixels) and near the picked `shades` ([r, g, b]s; within `tol`, ΔE, or half as much
  * again, or of the same hue however light or dark where it shades smoothly on from them: in shadow, in the light), the whole of it as one area however it winds (a label, a logo, a stain), then a loop around it
@@ -374,28 +401,10 @@ export function autoTrace(rgba, w, h, seeds, shades, tol = 18) {
       sel[t] = 1; q.push(t);
     }
   }
-  // The loop around it: everything within `pad` of what was selected (by a distance spread out from it).
+  // The loop around it: everything within `pad` of what was selected.
   const size = Math.max(x1 - x0, y1 - y0);
   const pad = Math.round(Math.max(8, Math.min(60, size / 6)));
-  const box = { x0: Math.max(0, x0 - pad), y0: Math.max(0, y0 - pad), x1: Math.min(w, x1 + pad), y1: Math.min(h, y1 + pad) };
-  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
-  const dist = new Float32Array(bw * bh).fill(Infinity);
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (sel[(box.y0 + y) * w + box.x0 + x]) dist[y * bw + x] = 0;
-  // Two passes of a chamfer distance (3-4: close to round).
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
-    const k = y * bw + x; let d = dist[k];
-    if (x > 0) d = Math.min(d, dist[k - 1] + 1); if (y > 0) d = Math.min(d, dist[k - bw] + 1);
-    if (x > 0 && y > 0) d = Math.min(d, dist[k - bw - 1] + 1.4142); if (x < bw - 1 && y > 0) d = Math.min(d, dist[k - bw + 1] + 1.4142);
-    dist[k] = d;
-  }
-  for (let y = bh - 1; y >= 0; y--) for (let x = bw - 1; x >= 0; x--) {
-    const k = y * bw + x; let d = dist[k];
-    if (x < bw - 1) d = Math.min(d, dist[k + 1] + 1); if (y < bh - 1) d = Math.min(d, dist[k + bw] + 1);
-    if (x < bw - 1 && y < bh - 1) d = Math.min(d, dist[k + bw + 1] + 1.4142); if (x > 0 && y < bh - 1) d = Math.min(d, dist[k + bw - 1] + 1.4142);
-    dist[k] = d;
-  }
-  const mask = new Uint8Array(w * h);
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (dist[y * bw + x] <= pad) mask[(box.y0 + y) * w + box.x0 + x] = 1;
+  const { mask, box } = roomAround(sel, w, h, { x0, y0, x1, y1 }, pad);
   return { mask, box, sel: q.length, share: q.length / (w * h), pad };
 }
 

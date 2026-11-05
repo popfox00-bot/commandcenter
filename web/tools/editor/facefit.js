@@ -373,7 +373,7 @@ function ownMask(img, cw, ch, charFace) {
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, photo = null } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, photo = null, tune = null, paint = null } = {}) {
   // Turned in 3D first (face3d.js) to the pose of the face it goes on, when they're posed differently.
   let turned = false; let opened = false;
   if (turn) { const t = turnedFor(img, cw, ch, charFace, face, W, H, photo); if (t) { ({ rgba: img, w: cw, h: ch, face: charFace } = t); turned = true; opened = !!t.opened; } }
@@ -387,7 +387,15 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   // (squash: narrowed across, for a face turned away.)
   const k = base.width / cw; const co = Math.cos(base.rot); const si = Math.sin(base.rot);
   // (Realistic placement gives its whole map, `affine`: narrowed and slanted for a turned head.)
-  const A = base.affine ?? (() => { const kx = k * (base.squash ?? 1); return [kx * co, -k * si, base.x - (cw / 2) * kx * co + (ch / 2) * k * si, kx * si, k * co, base.y - (cw / 2) * kx * si - (ch / 2) * k * co]; })();
+  let A = base.affine ?? (() => { const kx = k * (base.squash ?? 1); return [kx * co, -k * si, base.x - (cw / 2) * kx * co + (ch / 2) * k * si, kx * si, k * co, base.y - (cw / 2) * kx * si - (ch / 2) * k * co]; })();
+  // Fine-tuned by hand after the fit (`tune`: { scale, rot, dx, dy } about the face's middle, in photo
+  // pixels; soft, the edge's softness 0..100): on top of the fit, which stays.
+  if (tune && (tune.scale !== 1 || tune.rot || tune.dx || tune.dy)) {
+    const c = [(face.box.x + face.box.w / 2) * W, (face.box.y + face.box.h / 2) * H];
+    const sc = tune.scale ?? 1; const tc = Math.cos(tune.rot ?? 0) * sc; const ts = Math.sin(tune.rot ?? 0) * sc;
+    const M = [tc, -ts, c[0] + (tune.dx ?? 0) - tc * c[0] + ts * c[1], ts, tc, c[1] + (tune.dy ?? 0) - ts * c[0] - tc * c[1]];
+    A = [M[0] * A[0] + M[1] * A[3], M[0] * A[1] + M[1] * A[4], M[0] * A[2] + M[1] * A[5] + M[2], M[3] * A[0] + M[4] * A[3], M[3] * A[1] + M[4] * A[4], M[3] * A[2] + M[4] * A[5] + M[5]];
+  }
   const det = A[0] * A[4] - A[1] * A[3];
   const place = ([x, y]) => [A[0] * x + A[1] * y + A[2], A[3] * x + A[4] * y + A[5]];
   // (Realistic: each jaw point pulled toward that face's only a little way, never far: a turned head's
@@ -453,6 +461,8 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
       rgba[o] = col[0] / a; rgba[o + 1] = col[1] / a; rgba[o + 2] = col[2] / a; rgba[o + 3] = a;
     }
   }
+  // (Before the trim, how much of it there is everywhere: what the brush can bring back.)
+  const reach = paint?.length ? Uint8ClampedArray.from({ length: pw * ph }, (_, k) => rgba[k * 4 + 3]) : null;
   if (trim) {
     // The face's own outline in the photo (jaw and forehead; or the head's oval when its landmarks
     // don't make one), a touch roomier, its edge a soft ramp: nothing of the Character beyond it.
@@ -462,7 +472,7 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     const headH = Math.max(...out.map((p) => p[1])) - Math.min(...out.map((p) => p[1]));
     // The soft edge kept inside the outline (it fades to nothing at it, not past it onto what's around).
     // A wide one, so it fades into the face rather than ending at a line.
-    const r = Math.max(2, Math.round(headH * 0.055));
+    const r = Math.max(2, Math.round(headH * 0.055 * (0.4 + 1.2 * ((tune?.soft ?? 50) / 100))));
     const m = soften(fillPolygon(roomy, x0, y0, pw, ph), pw, ph, r);
     // Never thin over that face's own features (its eyes, brows, nose and mouth, with room around them):
     // on a turned head they come close to its outline, and they'd show through the soft edge.
@@ -476,6 +486,9 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     }
     for (let i = 0; i < pw * ph; i++) rgba[i * 4 + 3] *= Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   }
+  // Painted by hand (`paint`: strokes { pts: [[x, y]…] photo px, r, add }): more of it where it was
+  // trimmed away (as much as there is of it there), or less of it (the photo showing), soft-edged.
+  if (reach) for (const st of paint) paintStroke(rgba, reach, x0, y0, pw, ph, st);
   // (Where its landmarks went, for relight: as placed, before the light bend.)
   const charPts = charFace.pts?.length === 68 ? charFace.pts.map(([u, v]) => place([u * cw, v * ch])) : null;
   // (Its mouth opened: where it's see-through between its lips, now on that face's open mouth: `open`, kept so by the blend.)
@@ -485,6 +498,26 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     open = []; for (let k = 0; k < pw * ph; k++) if (lips[k] && rgba[k * 4 + 3] < 230) open.push(k);
   }
   return { x0, y0, pw, ph, rgba, charPts, open };
+}
+
+/** One brush stroke on the patch's alpha (see fitPatch's `paint`): within r of its line, eased out over the outer half. */
+function paintStroke(rgba, reach, x0, y0, pw, ph, { pts, r, add }) {
+  if (!pts?.length || !(r > 0)) return;
+  const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);
+  const bx0 = Math.max(0, Math.floor(Math.min(...xs) - r - x0)); const bx1 = Math.min(pw, Math.ceil(Math.max(...xs) + r - x0));
+  const by0 = Math.max(0, Math.floor(Math.min(...ys) - r - y0)); const by1 = Math.min(ph, Math.ceil(Math.max(...ys) + r - y0));
+  for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) {
+    const px = x0 + x + 0.5; const py = y0 + y + 0.5; let d = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]; const b = pts[Math.min(pts.length - 1, i + 1)];
+      const vx = b[0] - a[0]; const vy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((px - a[0]) * vx + (py - a[1]) * vy) / (vx * vx + vy * vy || 1)));
+      d = Math.min(d, Math.hypot(px - a[0] - t * vx, py - a[1] - t * vy));
+    }
+    const cov = Math.max(0, Math.min(1, (r - d) / (r * 0.5)));
+    if (!cov) continue;
+    const k = y * pw + x;
+    rgba[k * 4 + 3] = add ? Math.max(rgba[k * 4 + 3], cov * reach[k]) : rgba[k * 4 + 3] * (1 - cov);
+  }
 }
 
 /**
@@ -853,6 +886,48 @@ export function matchTexture(patch, photo, W, H, face, outline, strength = 0.8) 
     let g = 0;
     if (noise > 0) { let h = Math.imul(x0 + x, 0x9e3779b1) ^ Math.imul(y0 + y, 0x85ebca77); h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d); const u1 = (((h >>> 0) % 65535) + 1) / 65536; h = Math.imul(h ^ (h >>> 13), 0x297a2d39); const u2 = (h >>> 0) / 4294967296; g = noise * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); }
     for (let j = 0; j < 3; j++) { const v = rgba[k * 4 + j]; rgba[k * 4 + j] = Math.max(0, Math.min(255, v + amt * (v - blur[j][k]) + g)); }
+  }
+  return patch;
+}
+
+/** How sure `parts` (face-parts.js: { w, h, hair, face }) is of `key` at (u, v), 0..1 of the picture: 0..1, smoothly between its pixels. */
+function partAt(parts, key, u, v) {
+  const x = Math.min(parts.w - 1, Math.max(0, u * parts.w - 0.5)); const y = Math.min(parts.h - 1, Math.max(0, v * parts.h - 0.5));
+  const i0 = Math.floor(x); const j0 = Math.floor(y); const i1 = Math.min(parts.w - 1, i0 + 1); const j1 = Math.min(parts.h - 1, j0 + 1); const fx = x - i0; const fy = y - j0;
+  const m = parts[key]; const at = (i, j) => m[j * parts.w + i];
+  return ((at(i0, j0) * (1 - fx) + at(i1, j0) * fx) * (1 - fy) + (at(i0, j1) * (1 - fx) + at(i1, j1) * fx) * fy) / 255;
+}
+
+/**
+ * A Character's own face only, by its face-part map (`parts`, of the same picture): what's face skin, and
+ * its eyes, brows, nose and mouth (by its landmarks, with room: the map can miss a dark eye or open
+ * mouth), kept; its hair, the background and anything else in its border (a flower behind an ear) made
+ * see-through, with a soft edge. A copy ({ rgba, w, h }).
+ */
+export function keepOwnFace(img, parts, charFace = null) {
+  const { rgba, w, h } = img; const out = Uint8ClampedArray.from(rgba);
+  const feat = charFace?.pts?.length === 68 ? fillPolygon(grow(hull(charFace.pts.slice(17).map(([u, v]) => [u * w, v * h])), 1.08), 0, 0, w, h) : null;
+  const keep = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = y * w + x; const f = partAt(parts, 'face', (x + 0.5) / w, (y + 0.5) / h);
+    keep[k] = Math.max(feat?.[k] ?? 0, Math.max(0, Math.min(1, (f - 0.2) / 0.5)));
+  }
+  const soft = soften(keep, w, h, Math.max(1, Math.round(Math.max(w, h) / 300)));
+  for (let k = 0; k < w * h; k++) out[k * 4 + 3] = Math.round(out[k * 4 + 3] * Math.min(1, soft[k] * 1.15));
+  return { rgba: out, w, h };
+}
+
+/**
+ * The hair of the face it goes on kept in front of the Character (bangs, a strand across the forehead or
+ * cheek), by that photo's face-part map (`parts`, of the W×H photo): the patch see-through there, as sure
+ * as the map is. In place; returns the patch.
+ */
+export function hairInFront(patch, parts, W, H) {
+  const { x0, y0, pw, ph, rgba } = patch;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const k = y * pw + x; if (!rgba[k * 4 + 3]) continue;
+    const hair = partAt(parts, 'hair', (x0 + x + 0.5) / W, (y0 + y + 0.5) / H);
+    if (hair > 0.25) rgba[k * 4 + 3] = Math.round(rgba[k * 4 + 3] * Math.max(0, 1 - (hair - 0.25) / 0.45));
   }
   return patch;
 }

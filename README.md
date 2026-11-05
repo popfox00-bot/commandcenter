@@ -542,7 +542,11 @@ saves the face it used.
    before it (so shading, a redder cheek or a paler forehead are still skin), and the edge is where
    it changes to something else: hair over a temple or cheek, the far side of a turned face. Only
    the Character's own face goes in (its own jaw and hairline, found the same way), never the hair,
-   background or anything else (a flower behind an ear) kept in its border. A Character looking
+   background or anything else (a flower behind an ear) kept in its border. **Face-part maps** make
+   that exact (`web/lib/face-parts.js`: MediaPipe's multiclass selfie segmenter, vendored in
+   `web/vendor/mediapipe`, Apache 2.0, telling hair from face skin pixel by pixel): the Character keeps
+   only its face skin and features, and that face's own hair (bangs, a strand across the forehead or
+   cheek) stays in front of the new face. A Character looking
    the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
    Any other image covers the face, turned with it.
    **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
@@ -562,8 +566,13 @@ saves the face it used.
    same photos give the same result), so it isn't the one smooth or crisp thing in the picture. Its edges fade in widely,
    so it looks part of the face rather than cut out and laid on it.
    Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
-   to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
-   hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
+   to its own face). Fitted, **🎚 Fine-tune** it without losing the fit: **Size**, **Across**, **Up /
+   down**, **Turn** and **Edge softness** (dragging and pinching it do the same; **↺ Reset fine-tuning**
+   puts it back), and **🖌 More of it** / **🧽 Less of it** paint more of the new face in (where it was
+   trimmed away) or let the photo show (with a brush size; **↶ Last stroke** takes one back). Not
+   fitted, drag to move, pinch (or **Size** and **Turn**) to resize and rotate. The preview shows it as
+   it will be. The fitting and blending run off the page's thread (`fit-worker.js`), so the screen
+   doesn't freeze while it's worked out.
    **✓ Place** paints it in at full detail: one undo step, part of every export.
 **🎨 Reverse Fill** (FM's second tab; not in the Photo Editor) removes a thing by its colors, a label
 off a can, a sticker, a logo, a flower in the hair, and fills in with the surface around it, its color,
@@ -578,7 +587,9 @@ fill** takes it out (with a few pixels of its soft edge, so no halo is left) and
 parts of the surface that border it most (the can above and below the label), coarse to fine, its
 light and color evened out with it, and the surface's grain added where the fill is smoother. With
 **🎯 Fill From**, pick the surface to fill with yourself; **✏️ Draw my own loop** traces it by hand
-instead (tap the shades, then draw a rough loop around it). One undo step.
+instead (tap the shades, then draw a rough loop around it). Pick the same color in other places to take
+them all at once (each is found and outlined), and touch up what goes with **🖌 Add to it** and **🧽 Take
+away** (brushed, with a brush size). One undo step.
 **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
 mouth (quarter turns and straighten; undo to go back).
 

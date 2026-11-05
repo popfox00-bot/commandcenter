@@ -203,3 +203,15 @@ test('Reverse Fill\'s own trace: from a picked spot, the whole of that thing (it
   // Nothing of that color at the spot: null.
   assert.equal(autoTrace(rgba, w, h, [[10, 10]], [[245, 245, 241]], 18), null);
 });
+
+test('Reverse Fill\'s own trace: picked in two places, both found (each with room around it), nothing between', () => {
+  const w = 200; const h = 100; const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const white = Math.hypot(x - 40, y - 50) < 15 || Math.hypot(x - 160, y - 50) < 15;
+    rgba.set(white ? [245, 245, 240, 255] : [40, 60, 160, 255], (y * w + x) * 4);
+  }
+  const t = autoTrace(rgba, w, h, [[40, 50], [160, 50]], [[245, 245, 240]], 18);
+  assert.ok(t.mask[50 * w + 40] && t.mask[50 * w + 160], 'both');
+  assert.ok(t.mask[50 * w + 62] && t.mask[50 * w + 138], 'with room around each');
+  assert.ok(!t.mask[50 * w + 100], 'not between them');
+});

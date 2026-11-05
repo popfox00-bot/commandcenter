@@ -3,6 +3,10 @@ MediaPipe Tasks Vision 0.10.14 (@mediapipe/tasks-vision, npm) and its Face Landm
 under the Apache License 2.0 (below). Unchanged, except the source-map comment removed from
 vision_bundle.mjs (its map is not vendored).
 
+Also its Selfie Multiclass Segmentation model (selfie_multiclass_256x256.tflite, float32, from
+storage.googleapis.com/mediapipe-models/image_segmenter; its model card: "Licensed under Apache License,
+Version 2.0"), unchanged: what's hair, face skin and so on, for FM's face swaps.
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

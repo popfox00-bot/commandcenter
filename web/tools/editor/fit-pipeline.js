@@ -8,13 +8,14 @@ import { fitPatch, blendIn, recolor, relight, keepSkinTexture, matchTexture, hai
 /**
  * The patch ({ x0, y0, pw, ph, rgba }, or null) for Character `img` ({ rgba, w, h }, its face `charFace`)
  * on `face` of `photo` (RGBA W×H). `face.outline` and `face.skin` are worked out (and kept on it) if it
- * hasn't them. opts: { trim, blend (0–100), tune, paint, parts }.
+ * hasn't them. opts: { trim, blend (0–100), tune, paint, parts, turn3d, mouth } (turned in 3D to its pose,
+ * its mouth closed or opened to match: both off unless asked for, as each can look forced).
  */
-export function buildFitted(photo, W, H, img, charFace, face, { trim = true, blend = 70, tune = null, paint = null, parts = null } = {}) {
+export function buildFitted(photo, W, H, img, charFace, face, { trim = true, blend = 70, tune = null, paint = null, parts = null, turn3d = false, mouth = false } = {}) {
   face.outline ??= targetOutline(photo, W, H, face);
   face.skin ??= skinModel(photo, W, H, face);
   const outline = face.outline; const s = blend / 100;
-  const patch = fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint });
+  const patch = fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint, turn3d, mouth });
   if (!patch) return null;
   if (outline) { recolor(patch, photo, W, H, outline, s, face); relight(patch, photo, W, H, face, outline, s); keepSkinTexture(patch, photo, W, H, face, outline, s); matchTexture(patch, photo, W, H, face, outline, s); }
   // Blended both ways at the border: the Character toward the photo's skin there, and what's left of that

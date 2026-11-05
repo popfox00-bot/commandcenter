@@ -1458,7 +1458,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     if (at.fit && at.charFace && at.faceObj) {
       // (The face in the photo, where it ends: its jaw and its hairline, found once per face.)
       at.faceObj.outline ??= targetOutline(photo, W, H, at.faceObj);
-      const opts = { trim: at.trim, blend: at.blend, tune: at.tune, paint: at.paint };
+      const opts = { trim: at.trim, blend: at.blend, tune: at.tune, paint: at.paint, turn3d: !!at.turn3d, mouth: !!at.mouth };
       // Off the page's thread (fit-worker.js), so the screen doesn't freeze; here if that can't be.
       try { return await fitOffThread(photo, W, H, img, charOf(at), at.faceObj, at.parts, opts); } catch { /* here */ }
       return buildFitted(photo, W, H, img, charOf(at), at.faceObj, { ...opts, parts: at.parts });
@@ -1623,6 +1623,9 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       el('div', { class: 'chips' },
         canFit ? el('button', { class: `chip${p.fit ? ' active' : ''}`, 'aria-pressed': String(p.fit), text: '🧬 Fit to face', onclick: () => placeOnFace(false, Math.max(0, p.face)) }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.trim ? ' active' : ''}`, 'aria-pressed': String(p.trim), text: '✂️ Trim to head', onclick: () => { p.trim = !p.trim; refreshPreview(); renderPanel(); } }) : null,
+        // (Off unless asked for: each can look forced. Its own mouth and its own pose, as it is.)
+        canFit && p.fit ? el('button', { class: `chip${p.mouth ? ' active' : ''}`, 'aria-pressed': String(!!p.mouth), text: '👄 Match the mouth', onclick: () => { p.mouth = !p.mouth; placeNote = p.mouth ? 'Its mouth closed (or opened) to match the face it\'s on.' : 'Its own mouth, as it is.'; refreshPreview(); renderPanel(); } }) : null,
+        canFit && p.fit ? el('button', { class: `chip${p.turn3d ? ' active' : ''}`, 'aria-pressed': String(!!p.turn3d), text: '🧊 Turn to its pose', onclick: () => { p.turn3d = !p.turn3d; placeNote = p.turn3d ? 'Turned in 3D to the pose of the face it\'s on.' : 'As it faces in its own picture.'; refreshPreview(); renderPanel(); } }) : null,
         !canFit ? el('button', { class: 'chip', text: '🙂 On a face', onclick: () => placeOnFace() }) : null,
         el('button', { class: `chip${p.flip ? ' active' : ''}`, 'aria-pressed': String(p.flip), text: '⇋ Flip', onclick: flipPlacing }),
         el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { unfit(); p.x = source.width / 2; p.y = source.height / 2; refreshPreview(); renderPanel(); schedule(); } })),

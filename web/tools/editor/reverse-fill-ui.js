@@ -11,6 +11,22 @@ import { strokeMask, strokeShape, shadeMask, reverseFill, sampleShade, toLab, au
  * The tool. env: { source(), pixels(), state(), commit(next), makePatch(p, w, h), overlayToSource(x, y),
  * sourceToOverlayMatrix(), slider(opts), renderPanel(), schedule() }.
  */
+/**
+ * A mask over the whole photo (w wide) kept as just its box: { local, box } (`local`: box-sized). A brush
+ * stroke covers a small part of the photo, and keeping each one photo-sized adds up fast on a phone.
+ */
+function cropMask(mask, w, box) {
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; const local = new Uint8Array(bw * bh);
+  for (let y = 0; y < bh; y++) local.set(mask.subarray((box.y0 + y) * w + box.x0, (box.y0 + y) * w + box.x1), y * bw);
+  return { local, box };
+}
+/** That mask over the whole photo again (w × h), for as long as it's needed. */
+function fullMask({ local, box }, w, h) {
+  const bw = box.x1 - box.x0; const mask = new Uint8Array(w * h);
+  for (let y = 0; y < box.y1 - box.y0; y++) mask.set(local.subarray(y * bw, (y + 1) * bw), (box.y0 + y) * w + box.x0);
+  return mask;
+}
+
 export function reverseFillTool(env) {
   // The shades picked to remove, the shades of the surface to fill from (optional, with Fill From on),
   // the trace around it (found by itself from `seeds`, the spots picked; or `hand`: a loop drawn), the
@@ -32,7 +48,7 @@ export function reverseFillTool(env) {
     if (st.brush) {
       const m = strokeMask(pts, r, w, h);
       if (m.box) {
-        rf.edits.push({ mask: m.mask, box: m.box, add: st.brush === 'add', r });
+        rf.edits.push({ ...cropMask(m.mask, w, m.box), add: st.brush === 'add', r });
         if (st.brush === 'add') { if (rf.hand && rf.trace) widenTrace(m, r); else traceFromSeeds(); }
         cleanNote = st.brush === 'add' ? 'Added to what goes.' : 'Taken out of what goes: it stays.';
       }
@@ -68,7 +84,7 @@ export function reverseFillTool(env) {
     const w = env.source().width; const h = env.source().height;
     let t = rf.seeds.length && rf.shades.length ? autoTrace(env.pixels(), w, h, rf.seeds, rf.shades, rf.tol) : null;
     // (And room around what was brushed in, too.)
-    for (const e of rf.edits) if (e.add) t = unionTrace(t, roomAround(e.mask, w, h, e.box, Math.round(Math.max(8, e.r * 2))), w);
+    for (const e of rf.edits) if (e.add) t = unionTrace(t, roomAround(fullMask(e, w, h), w, h, e.box, Math.round(Math.max(8, e.r * 2))), w);
     if (!t) { rf.trace = null; cleanNote = rf.seeds.length ? 'Nothing of that color there: press right on it (the magnifier shows what you\'re on).' : ''; return; }
     // Its outline, a couple of pixels wide in the photo, to draw over it.
     const { box } = t; const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; const lw = Math.max(1, Math.round(Math.max(w, h) / 500));
@@ -110,7 +126,8 @@ export function reverseFillTool(env) {
     // Then what was brushed in or out, in the order it was.
     if (rf.edits?.length) {
       for (const e of rf.edits) for (let y = e.box.y0; y < e.box.y1; y++) for (let x = e.box.x0; x < e.box.x1; x++) {
-        const i = y * w + x; if (!e.mask[i]) continue;
+        if (!e.local[(y - e.box.y0) * (e.box.x1 - e.box.x0) + x - e.box.x0]) continue;
+        const i = y * w + x;
         if (e.add) { if (rf.trace.mask[i]) m.mask[i] = 1; } else m.mask[i] = 0;
       }
       let x0 = w; let y0 = h; let x1 = 0; let y1 = 0; let count = 0; const tb2 = rf.trace.box;

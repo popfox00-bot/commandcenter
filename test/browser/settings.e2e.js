@@ -108,3 +108,30 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Settings → Diagnostics: what loaded, how long it took, and problems noted (kept after a reload, cleared)', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/settings`);
+  await page.waitForSelector('h2:text("Diagnostics")');
+  await page.waitForSelector('.st-diag >> text=Nothing yet');
+  // Something loaded, a step timed and a problem noted (as the face tools do), shown as they happen.
+  await page.evaluate(async () => {
+    const d = await import('./lib/diag.js');
+    await d.trackLoad('A model', new Promise((r) => setTimeout(r, 20)));
+    d.noteTimings('A job', { first: 12, second: 30 });
+    d.noteError('Doing a thing', new Error('it broke'));
+  });
+  await page.waitForSelector('.st-diag >> text=/✅ A model: \\d+ ms/');
+  await page.waitForSelector('.st-diag >> text=/A job .*: 42 ms/');
+  await page.waitForSelector('.st-diag >> text=/Doing a thing: it broke/');
+  // Problems are kept on the phone: still there after a reload.
+  await page.reload();
+  await page.waitForSelector('.st-diag >> text=/Doing a thing: it broke/');
+  await page.getByRole('button', { name: 'Clear problems' }).click();
+  await page.waitForSelector('.st-diag >> text=None.');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

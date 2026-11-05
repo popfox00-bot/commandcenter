@@ -10,6 +10,7 @@ import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from 
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
 import { zoomable } from '../../lib/zoom.js';
 import { drawLoupe as loupeAt } from '../../lib/loupe.js';
+import { inPolygon, segmentDistance as segDist } from '../../lib/geometry.js';
 import { charactersZip, saveToDirectory, saveToSavedFiles, installCharacters, installFromSavedFiles } from '../../lib/characters-io.js';
 import { connectedSecure } from '../../lib/saved-files.js';
 import { smoothClosed, polygonArea, thin, featherAlpha, alphaBounds, smartEdge, softColors, textureMap, edgeDistance, colorModel, refineSpot, wand, wandAuto, refineEdge, brush, applyChanges } from './cutout-core.js';
@@ -607,7 +608,7 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
       });
       if (best < 0) {
         let area = Infinity;
-        traces.forEach((t, i) => { if (t.op === 'fix') return; const pts = t.points.map(px); if (inPolygon(x, y, pts)) { const a = polygonArea(pts); if (a < area) { area = a; best = i; } } });
+        traces.forEach((t, i) => { if (t.op === 'fix') return; const pts = t.points.map(px); if (inPolygon(pts, x, y)) { const a = polygonArea(pts); if (a < area) { area = a; best = i; } } });
       }
       if (best >= 0) commit(traces.filter((_, i) => i !== best));
     }
@@ -667,18 +668,3 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   return unmount;
 }
 
-/** Distance from (x, y) to the segment a–b. */
-function segDist(x, y, [ax, ay], [bx, by]) {
-  const dx = bx - ax; const dy = by - ay; const l = dx * dx + dy * dy;
-  const t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
-  return Math.hypot(x - ax - t * dx, y - ay - t * dy);
-}
-/** Whether (x, y) is inside a polygon (even-odd). */
-function inPolygon(x, y, pts) {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const [xi, yi] = pts[i]; const [xj, yj] = pts[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}

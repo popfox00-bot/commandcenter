@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "5ad50da862b2",
+  "version": "56390fd6081c",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -52,6 +52,7 @@ const PRECACHE = {
     "lib/face-parts.js",
     "lib/face.js",
     "lib/files.js",
+    "lib/geometry.js",
     "lib/idb.js",
     "lib/image.js",
     "lib/loupe.js",
@@ -87,7 +88,14 @@ const PRECACHE = {
     "tools/editor/face3d.js",
     "tools/editor/facefit.js",
     "tools/editor/facemask.js",
+    "tools/editor/fit-blend.js",
+    "tools/editor/fit-client.js",
+    "tools/editor/fit-light.js",
+    "tools/editor/fit-parts.js",
     "tools/editor/fit-pipeline.js",
+    "tools/editor/fit-place.js",
+    "tools/editor/fit-skin.js",
+    "tools/editor/fit-texture.js",
     "tools/editor/fit-worker.js",
     "tools/editor/geometry.js",
     "tools/editor/markup.js",
@@ -95,6 +103,7 @@ const PRECACHE = {
     "tools/editor/render-file.js",
     "tools/editor/renderer.js",
     "tools/editor/retouch.js",
+    "tools/editor/reverse-fill-ui.js",
     "tools/editor/state.js",
     "tools/pdfwrite/annotate.js",
     "tools/pdfwrite/pdfwrite.js",

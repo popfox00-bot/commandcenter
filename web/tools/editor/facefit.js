@@ -174,9 +174,14 @@ function foreheadOf(pts, w, h, outline) {
 export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, own = null, turned = false } = {}) {
   if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return bestPlacement(charFace, cw, ch, face, W, H);
   const C = (i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]; const T = (i) => [face.pts[i][0] * W, face.pts[i][1] * H];
-  // Turned by its eye line onto that face's (not twisted by a nose or mouth that a turned head shows off-center).
+  // Turned by its eye line onto that face's (not by a nose or mouth, which a turned head shows off-center).
   const eyeLine = (P) => { const m = (lo, hi) => { let x = 0; let y = 0; for (let i = lo; i <= hi; i++) { x += P(i)[0]; y += P(i)[1]; } return [x / (hi - lo + 1), y / (hi - lo + 1)]; }; const l = m(36, 41); const r = m(42, 47); return Math.atan2(r[1] - l[1], r[0] - l[0]); };
-  let rot = eyeLine(T) - eyeLine(C); rot = Math.atan2(Math.sin(rot), Math.cos(rot));
+  // And by the line down its middle (the bridge of its nose to its chin: the long axis of its oval), so it
+  // lines up with that face's oval as well as its eyes; the two averaged.
+  const midLine = (P) => Math.atan2(P(8)[1] - P(27)[1], P(8)[0] - P(27)[0]);
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const rEye = wrap(eyeLine(T) - eyeLine(C)); const rMid = wrap(midLine(T) - midLine(C));
+  const rot = Math.atan2(0.5 * Math.sin(rEye) + 0.5 * Math.sin(rMid), 0.5 * Math.cos(rEye) + 0.5 * Math.cos(rMid));
   // Then sized and placed by its inner features in that face's own frame: as tall as they are there, and
   // as wide, so a face turned away (narrower across) gets a Character narrowed to match (0.75× to 1.1×).
   const co = Math.cos(rot); const si = Math.sin(rot);
@@ -209,8 +214,13 @@ export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, ow
     k = Math.max(k, (tf[0] + tf[1]) / (1 + rT) / (sy * cf[1]));
   }
   const jawT = Math.hypot(T(16)[0] - T(0)[0], T(16)[1] - T(0)[1]); const jawC = Math.hypot(C(16)[0] - C(0)[0], C(16)[1] - C(0)[1]);
-  if (jawC > 0) k = Math.min(k, (1.25 * jawT) / (sx * jawC));
-  k = Math.max(1, Math.min(1.3, k));
+  if (jawC > 0) k = Math.min(k, (1.15 * jawT) / (sx * jawC));
+  // Only a little bigger than its features alone make it (a face too big for its head is the first thing
+  // anyone sees), and its eyes never much farther apart than that face's: smaller if they would be.
+  k = Math.max(1, Math.min(1.08, k));
+  const eyeT = Math.hypot(tFrame(mid(T, 42, 47))[0] - tFrame(mid(T, 36, 41))[0], tFrame(mid(T, 42, 47))[1] - tFrame(mid(T, 36, 41))[1]);
+  const eyeC = Math.hypot(frame(mid(C, 42, 47))[0] - frame(mid(C, 36, 41))[0], frame(mid(C, 42, 47))[1] - frame(mid(C, 36, 41))[1]);
+  if (eyeC > 0) k = Math.max(0.9, Math.min(k, (1.04 * eyeT) / eyeC));
   // Lined up across the face by its eyes, and down it by its chin (a turned head's chin isn't under its eyes the
   // way a face seen straight on has it: lining up by the chin across would pull the whole face sideways).
   const down = (q) => chinT[1] + k * (q[1] - chinC[1]);
@@ -312,15 +322,17 @@ const grow = (poly, k) => {
 function ownMask(img, cw, ch, charFace) {
   const poly = ownOutline(img, cw, ch, charFace);
   if (!poly) return null;
-  // Roomier along the jaw (the face it goes on trims there), not past its own hairline (no hair of its own).
-  const g = grow(poly, 1.05); const roomy = poly.map((p, i) => (i <= 16 && !poly.snapped?.[i] ? g[i] : p));
+  // Its jaw and cheeks drawn in a little (0.93), with a wide soft edge: its own jawline (its shading)
+  // never lands inside the face it goes on as a second one; that face's own jaw and cheeks show there.
+  const g = grow(poly, 0.93); const roomy = poly.map((p, i) => (i <= 16 ? g[i] : p));
   const hh = Math.max(...roomy.map((p) => p[1])) - Math.min(...roomy.map((p) => p[1]));
-  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.05)));
+  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.08)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   // Its own features (eyes, brows, nose, mouth, with room around them) always kept, whatever its outline
   // search found (a shadow or a highlight on a cheek isn't the edge of its face).
   const feat = grow(hull(charFace.pts.slice(17).map(([u, v]) => [u * cw, v * ch])), 1.25);
-  const f = soften(fillPolygon(feat, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.03)));
+  // (Its edge as soft as the jaw's, so it never shows as a line.)
+  const f = soften(fillPolygon(feat, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.07)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(m[i], Math.min(1, f[i] * 1.6));
   // Its forehead fades out gently toward its own hairline (over a fifth of its brow-to-chin length), so
   // it melts into the forehead of the face it goes on rather than ending in a line across it.
@@ -397,10 +409,6 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   // Only the Character's own face (its jaw and up to its own hairline), not the border of hair or
   // background kept around it: that never lands inside the face it goes on.
   const keep = own && charFace.pts?.length === 68 ? ownMask(img, cw, ch, charFace) : null;
-  // Over that face's own features (eyes, brows, nose, mouth, with room around them), all of it where its
-  // own outline has even a little of its face (its soft edge): on a turned head they can land there, and
-  // they mustn't show through. (Not where it's none of its face at all: its hair or background.)
-  const over = keep && face.pts?.length === 68 ? soften(fillPolygon(grow(hull(face.pts.slice(17).map(([u, v]) => [u * W, v * H])), 1.18), x0, y0, pw, ph), pw, ph, 3) : null;
   const rgba = new Uint8ClampedArray(pw * ph * 4);
   for (let y = 0; y < ph; y++) {
     const gy = y / G; const j0 = Math.min(gh - 2, Math.floor(gy)); const ty = gy - j0;
@@ -411,10 +419,10 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
       const v = (g(0, 0, 1) * (1 - tx) + g(1, 0, 1) * tx) * (1 - ty) + (g(0, 1, 1) * (1 - tx) + g(1, 1, 1) * tx) * ty - 0.5;
       if (u < -1 || v < -1 || u > cw || v > ch) continue;
       const ua = Math.floor(u); const va = Math.floor(v); const fu = u - ua; const fv = v - va;
-      let a = 0; const col = [0, 0, 0]; const ov = over ? over[y * pw + x] : 0;
+      let a = 0; const col = [0, 0, 0];
       for (const [X, Y, wt] of [[ua, va, (1 - fu) * (1 - fv)], [ua + 1, va, fu * (1 - fv)], [ua, va + 1, (1 - fu) * fv], [ua + 1, va + 1, fu * fv]]) {
         if (X < 0 || Y < 0 || X >= cw || Y >= ch || !wt) continue;
-        const o = (Y * cw + X) * 4; const kk = keep ? keep[Y * cw + X] : 1; const al = img[o + 3] * wt * (kk + (1 - kk) * ov * Math.min(1, kk / 0.25)); a += al;
+        const o = (Y * cw + X) * 4; const al = img[o + 3] * wt * (keep ? keep[Y * cw + X] : 1); a += al;
         col[0] += img[o] * al; col[1] += img[o + 1] * al; col[2] += img[o + 2] * al;
       }
       if (a < 0.5) continue;
@@ -438,9 +446,10 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     if (face.pts?.length === 68) {
       const feat = grow(hull(face.pts.slice(17).map(([u, v]) => [u * W, v * H])), 1.18);
       // (Inside the outline, just: never out past that face's edge onto what's around it.)
-      const inside = fillPolygon(grow(roomy, 1.03), x0, y0, pw, ph);
-      const f = soften(fillPolygon(feat, x0, y0, pw, ph), pw, ph, Math.max(1, Math.round(r / 2)));
-      for (let i = 0; i < m.length; i++) if (inside[i]) m[i] = Math.max(m[i], 0.5 + f[i] / 2);
+      const inside = soften(fillPolygon(roomy, x0, y0, pw, ph), pw, ph, Math.max(2, Math.round(r * 1.5)));
+      // (Its edge as soft as the trim's own, so the Character doesn't step from thin to solid along it.)
+      const f = soften(fillPolygon(feat, x0, y0, pw, ph), pw, ph, Math.max(2, Math.round(r * 1.5)));
+      for (let i = 0; i < m.length; i++) m[i] = Math.max(m[i], f[i] * Math.min(1, inside[i] * 1.4));
     }
     for (let i = 0; i < pw * ph; i++) rgba[i * 4 + 3] *= Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   }
@@ -573,17 +582,31 @@ export function targetOutline(photo, W, H, face) {
  * the photo face's skin (their average and spread, in Lab), as far as `strength` says, the same way
  * all over it, so its own shading and detail (the face as it is) stay. In place on the patch.
  */
-export function recolor(patch, photo, W, H, outline, strength = 0.8) {
+export function recolor(patch, photo, W, H, outline, strength = 0.8, face = null) {
   if (strength <= 0 || !outline) return patch;
   const { x0, y0, pw, ph, rgba } = patch;
   const inFace = fillPolygon(outline, x0, y0, pw, ph);
+  // What it's matched to: that face's skin, and its neck's (just under the jaw, where it's skin), so the
+  // face and the body around it agree.
+  let ref = inFace;
+  if (face?.pts?.length === 68) {
+    const P = face.pts.map(([u, v]) => [u * W, v * H]); const fh = Math.hypot(P[8][0] - P[27][0], P[8][1] - P[27][1]);
+    const down = [(P[8][0] - P[27][0]) / (fh || 1), (P[8][1] - P[27][1]) / (fh || 1)];
+    const neck = [...P.slice(5, 12), ...P.slice(5, 12).reverse().map(([x, y]) => [x + down[0] * fh * 0.45, y + down[1] * fh * 0.45])];
+    const nm = fillPolygon(neck, x0, y0, pw, ph); const skin = skinModel(photo, W, H, face);
+    ref = Uint8Array.from(inFace, (v, i) => {
+      if (v) return 1; if (!nm[i] || !skin) return 0;
+      const X = x0 + (i % pw); const Y = y0 + Math.floor(i / pw); if (X >= W || Y >= H) return 0; const o = (Y * W + X) * 4;
+      return skin.isSkin(photo[o], photo[o + 1], photo[o + 2]) ? 1 : 0;
+    });
+  }
   const photoCrop = new Uint8ClampedArray(pw * ph * 4);
   for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
     const X = x0 + x; const Y = y0 + y; if (X >= W || Y >= H) continue;
     const o = (Y * W + X) * 4; const q = (y * pw + x) * 4;
     photoCrop[q] = photo[o]; photoCrop[q + 1] = photo[o + 1]; photoCrop[q + 2] = photo[o + 2]; photoCrop[q + 3] = 255;
   }
-  const target = colorStats(photoCrop, pw, ph, (i) => inFace[i] > 0, 2);
+  const target = colorStats(photoCrop, pw, ph, (i) => ref[i] > 0, 2);
   const own = colorStats(rgba, pw, ph, (i) => inFace[i] > 0 && rgba[i * 4 + 3] > 200, 2);
   if (!target || !own) return patch;
   const out = matchColors(rgba, pw, ph, target, strength, own);
@@ -592,11 +615,11 @@ export function recolor(patch, photo, W, H, outline, strength = 0.8) {
 }
 
 /**
- * The Character relit like the face it goes on: the smooth light and shade across that face's skin (its
- * eyes, brows, nose and mouth left out, filled in from around them) and the same across the
- * Character's, and the Character's shade swapped for that face's, `strength` of the way (0..1): lit
- * from the same side, as bright where that face is bright and as shaded where it's shaded, its own
- * detail kept. In place on the patch.
+ * The Character relit and toned like the face it goes on: the smooth light and color across that face's
+ * skin (its eyes, brows, nose and mouth left out, filled in from around them) and the same across the
+ * Character's, and the Character's swapped for that face's, each color on its own, `strength` of the way
+ * (0..1): lit from the same side, and the middle of its face the same skin tone as that face (a flushed
+ * cheek or a shadow of its own evened out), its own detail kept. In place on the patch.
  */
 export function relight(patch, photo, W, H, face, outline, strength = 0.8) {
   const { x0, y0, pw, ph, rgba, charPts } = patch;
@@ -612,34 +635,43 @@ export function relight(patch, photo, W, H, face, outline, strength = 0.8) {
     }
   }
   const faceW = Math.hypot((face.pts[16][0] - face.pts[0][0]) * W, (face.pts[16][1] - face.pts[0][1]) * H);
-  const R = Math.max(2, Math.round(faceW * 0.09));
-  const lum = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
-  /** The smooth shade over the face's skin (from `at(k)`, a pixel's lightness, or null where it isn't skin). */
+  // Worked out on a coarse grid (it's smooth anyway), then spread back smoothly: quick.
+  const G = Math.max(2, Math.round(faceW / 80)); const gw = Math.ceil(pw / G); const gh = Math.ceil(ph / G);
+  const R = Math.max(1, Math.round((faceW * 0.09) / G));
+  /** The smooth color over the face's skin (each channel), from `at(k)` ([r, g, b], or null where it isn't skin). */
   const shade = (at) => {
-    const v = new Float32Array(pw * ph * 3); const free = new Uint8Array(pw * ph); const fixed = new Uint8Array(pw * ph);
-    let sum = 0; let n = 0;
-    for (let k = 0; k < pw * ph; k++) { const l = inFace[k] && !feat[k] ? at(k) : null; if (l == null) { free[k] = 1; continue; } fixed[k] = 1; v[k * 3] = l; sum += l; n++; }
-    if (n < 50) return null;
-    const mean = sum / n; for (let k = 0; k < pw * ph; k++) if (free[k]) v[k * 3] = mean;
-    smoothField(v, free, fixed, pw, ph);
-    const f = new Float32Array(pw * ph); for (let k = 0; k < pw * ph; k++) f[k] = v[k * 3];
-    return soften(f, pw, ph, R);
+    const sum = new Float32Array(gw * gh * 3); const cnt = new Float32Array(gw * gh);
+    for (let k = 0; k < pw * ph; k++) {
+      if (!inFace[k] || feat[k]) continue; const c = at(k); if (!c) continue;
+      const q = Math.floor(Math.floor(k / pw) / G) * gw + Math.floor((k % pw) / G); cnt[q]++;
+      sum[q * 3] += c[0]; sum[q * 3 + 1] += c[1]; sum[q * 3 + 2] += c[2];
+    }
+    let n = 0; const mean = [0, 0, 0];
+    for (let q = 0; q < gw * gh; q++) if (cnt[q] >= Math.max(1, G * G * 0.3)) { n++; for (let j = 0; j < 3; j++) { sum[q * 3 + j] /= cnt[q]; mean[j] += sum[q * 3 + j]; } } else cnt[q] = 0;
+    if (n < 12) return null;
+    const free = new Uint8Array(gw * gh); const fixed = new Uint8Array(gw * gh);
+    for (let q = 0; q < gw * gh; q++) { if (cnt[q]) fixed[q] = 1; else { free[q] = 1; for (let j = 0; j < 3; j++) sum[q * 3 + j] = mean[j] / n; } }
+    membrane(sum, free, gw, gh);
+    return [0, 1, 2].map((j) => soften(Float32Array.from({ length: gw * gh }, (_, q) => sum[q * 3 + j]), gw, gh, R));
   };
-  // (Their shade from their skin only: not hair or shadow at the edge of the face.)
   const skin = skinModel(photo, W, H, face);
-  const theirs = shade((k) => { const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) return null; const o = (Y * W + X) * 4; if (skin && !skin.isSkin(photo[o], photo[o + 1], photo[o + 2])) return null; return lum(photo[o], photo[o + 1], photo[o + 2]); });
-  const mine = shade((k) => (rgba[k * 4 + 3] > 200 ? lum(rgba[k * 4], rgba[k * 4 + 1], rgba[k * 4 + 2]) : null));
+  // (Theirs from their skin only: not hair or shadow at the edge of the face.)
+  const theirs = shade((k) => { const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) return null; const o = (Y * W + X) * 4; if (skin && !skin.isSkin(photo[o], photo[o + 1], photo[o + 2])) return null; return [photo[o], photo[o + 1], photo[o + 2]]; });
+  const mine = shade((k) => (rgba[k * 4 + 3] > 200 ? [rgba[k * 4], rgba[k * 4 + 1], rgba[k * 4 + 2]] : null));
   if (!theirs || !mine) return patch;
-  // Their shade over its own, evened out over the face (the overall color is recolor's), within reason.
-  let sr = 0; let n = 0;
-  for (let k = 0; k < pw * ph; k++) if (inFace[k] && rgba[k * 4 + 3] > 200) { sr += theirs[k] / Math.max(1, mine[k]); n++; }
+  // Their light and tone over its own, each channel, evened out over the face (the overall color is
+  // recolor's), within reason: a flushed or shadowed patch of its own takes on that face's skin there.
+  const at = (f, x, y) => { const gx = Math.min(gw - 1, Math.max(0, (x + 0.5) / G - 0.5)); const gy = Math.min(gh - 1, Math.max(0, (y + 0.5) / G - 0.5)); const i0 = Math.min(gw - 2, Math.floor(gx)); const j0 = Math.min(gh - 2, Math.floor(gy)); const tx = gw > 1 ? gx - i0 : 0; const ty = gh > 1 ? gy - j0 : 0; const A = j0 * gw + Math.max(0, i0); const B = gw > 1 ? A + 1 : A; const Cc = gh > 1 ? A + gw : A; const Dd = gw > 1 ? Cc + 1 : Cc; return (f[A] * (1 - tx) + f[B] * tx) * (1 - ty) + (f[Cc] * (1 - tx) + f[Dd] * tx) * ty; };
+  const avg = [0, 0, 0]; let n = 0;
+  for (let q = 0; q < gw * gh; q++) { const k = Math.min(pw * ph - 1, Math.floor(q / gw) * G * pw + (q % gw) * G); if (!inFace[k]) continue; n++; for (let j = 0; j < 3; j++) avg[j] += theirs[j][q] / Math.max(1, mine[j][q]); }
   if (!n) return patch;
-  const avg = sr / n;
-  for (let k = 0; k < pw * ph; k++) {
-    if (!rgba[k * 4 + 3]) continue;
-    const r = Math.max(0.75, Math.min(1.3, theirs[k] / Math.max(1, mine[k]) / avg));
-    const g = 1 + strength * (r - 1);
-    for (let c = 0; c < 3; c++) rgba[k * 4 + c] = Math.min(255, rgba[k * 4 + c] * g);
+  for (let j = 0; j < 3; j++) avg[j] /= n;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const k = y * pw + x; if (!rgba[k * 4 + 3]) continue;
+    for (let j = 0; j < 3; j++) {
+      const r = Math.max(0.72, Math.min(1.35, at(theirs[j], x, y) / Math.max(1, at(mine[j], x, y)) / avg[j]));
+      rgba[k * 4 + j] = Math.min(255, rgba[k * 4 + j] * (1 + strength * (r - 1)));
+    }
   }
   return patch;
 }

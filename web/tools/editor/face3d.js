@@ -267,9 +267,10 @@ export function meshWarp(img, cw, ch, src, dst) {
   for (let i = 0; i < 16; i++) { const a = (2 * Math.PI * i) / 16; const p = [cx + rx * Math.cos(a), cy + ry * Math.sin(a)]; S.push(p); D.push(p); }
   for (const p of [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]]) { S.push(p); D.push(p); }
   const out = Uint8ClampedArray.from(img);
-  // Only where something moved: the triangles with a moved corner drawn again (the rest is as it was).
+  // Triangles over where the points went (so the new picture has no gaps or folds), each drawn from where
+  // its corners came from; only those with a moved corner (the rest is as it was).
   const moved = S.map((p, i) => Math.hypot(p[0] - D[i][0], p[1] - D[i][1]) > 0.01);
-  for (const [a, b, c] of triangulate(S)) {
+  for (const [a, b, c] of triangulate(D)) {
     if (!moved[a] && !moved[b] && !moved[c]) continue;
     const [ax, ay] = D[a]; const [bx, by] = D[b]; const [qx, qy] = D[c];
     const det = (bx - ax) * (qy - ay) - (qx - ax) * (by - ay); if (Math.abs(det) < 1e-6) continue;
@@ -296,7 +297,7 @@ export function meshWarp(img, cw, ch, src, dst) {
 export function closeMouth(img, cw, ch, pts, to = 0) {
   const open = mouthOpen(pts);
   if (open - to < 0.05) return null;
-  const f = 1 - Math.max(0, to) / open; // how much of the gap goes
+  const f = Math.min(0.96, 1 - Math.max(0, to) / open); // how much of the gap goes (a hair left, so no two points meet)
   const P = pts.map((p) => p.slice());
   // Inner lips, upper (61, 62, 63) and lower (67, 66, 65), to where each pair meets.
   for (const [u, l, ou, ol] of [[61, 67, [49, 50], [59, 58]], [62, 66, [51], [57]], [63, 65, [52, 53], [56, 55]]]) {
@@ -313,6 +314,37 @@ export function closeMouth(img, cw, ch, pts, to = 0) {
   return { rgba: out, pts: P };
 }
 
+/**
+ * A picture (RGBA cw×ch) bent smoothly so each landmark `src[i]` goes to `dst[i]` (pixels): every pixel
+ * near the ones that move follows them by how near it is to each (inverse square distance; the landmarks
+ * that stay, and a ring around them, hold the rest in place). No triangles, so no straight seams. A copy.
+ */
+function smoothWarp(img, cw, ch, src, dst) {
+  const out = Uint8ClampedArray.from(img);
+  const moved = src.map((p, i) => Math.hypot(p[0] - dst[i][0], p[1] - dst[i][1]) > 0.01);
+  if (!moved.some(Boolean)) return out;
+  const mx = src.filter((_, i) => moved[i]); const span = Math.hypot(src[54][0] - src[48][0], src[54][1] - src[48][1]) || 20;
+  const x0 = Math.max(0, Math.floor(Math.min(...mx.map((p) => p[0])) - span)); const x1 = Math.min(cw, Math.ceil(Math.max(...mx.map((p) => p[0])) + span));
+  const y0 = Math.max(0, Math.floor(Math.min(...mx.map((p) => p[1])) - span)); const y1 = Math.min(ch, Math.ceil(Math.max(...mx.map((p) => p[1])) + span));
+  // Controls (in the new picture): where each landmark went, and how to get back to where it came from;
+  // and a ring of still points around the area, so it ends where it began.
+  const C = src.map((p, i) => [dst[i][0], dst[i][1], p[0] - dst[i][0], p[1] - dst[i][1]]);
+  for (let k = 0; k < 24; k++) {
+    const a = (2 * Math.PI * k) / 24; const cx = (x0 + x1) / 2; const cy = (y0 + y1) / 2;
+    C.push([cx + ((x1 - x0) / 2) * Math.cos(a), cy + ((y1 - y0) / 2) * Math.sin(a), 0, 0]);
+  }
+  const eps = (span * 0.04) ** 2;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    let sw = 0; let dx = 0; let dy = 0;
+    for (const [qx, qy, ux, uy] of C) { const w = 1 / ((x + 0.5 - qx) ** 2 + (y + 0.5 - qy) ** 2 + eps); sw += w; dx += w * ux; dy += w * uy; }
+    dx /= sw; dy /= sw;
+    if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) continue;
+    const c = sample(img, cw, ch, x + dx, y + dy); const o = (y * cw + x) * 4;
+    out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2]; out[o + 3] = c[3];
+  }
+  return out;
+}
+
 /** Teeth showing within a mouth's lips (`P`: its landmarks), colored like the lips around them, keeping their shading. In place. */
 function hideTeeth(rgba, w, h, P) {
   const poly = P.slice(48, 60);
@@ -327,9 +359,9 @@ function hideTeeth(rgba, w, h, P) {
   const byRed = labs.map((c, i) => [c[1], i]).sort((a, b) => b[0] - a[0]).slice(0, Math.ceil(labs.length / 2)).map(([, i]) => i);
   const lip = [0, 1, 2].map((k) => byRed.reduce((t, i) => t + rgba[px[i] + k], 0) / byRed.length);
   const lipLab = rgbToLab(...lip);
-  // Teeth (clearly lighter than the lips, less red, nearly white), one pixel roomier, then toward the lips' color and smoothed.
+  // Teeth (within the lips but much less red than them, and not dark), one pixel roomier, then toward the lips' color and smoothed.
   const mask = new Uint8Array(w * h);
-  labs.forEach((c, i) => { if (c[0] > lipLab[0] + 10 && c[1] < lipLab[1] - 8 && Math.hypot(c[1], c[2]) < 22) mask[px[i] / 4] = 1; });
+  labs.forEach((c, i) => { if (c[0] > lipLab[0] - 4 && c[1] < lipLab[1] - 7) mask[px[i] / 4] = 1; });
   const grown = Uint8Array.from(mask);
   for (let k = 0; k < w * h; k++) if (mask[k]) for (const t of [k - 1, k + 1, k - w, k + w]) if (t >= 0 && t < w * h) grown[t] = 1;
   for (let k = 0; k < w * h; k++) if (grown[k]) for (let j = 0; j < 3; j++) rgba[k * 4 + j] = rgba[k * 4 + j] * 0.35 + lip[j] * 0.85 * 0.65;

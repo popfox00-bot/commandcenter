@@ -49,7 +49,11 @@ const copies = [
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 
-rmSync(out, { recursive: true, force: true });
+// Vendored by hand, kept: MediaPipe's Face Landmarker (Apache-2.0; its model isn't on npm, see
+// web/vendor/mediapipe/LICENSE for where each file is from): the dense face mesh, on the phone.
+const KEEP = new Set(['mediapipe']);
+mkdirSync(out, { recursive: true });
+for (const d of readdirSync(out)) if (!KEEP.has(d)) rmSync(join(out, d), { recursive: true, force: true });
 for (const [from, to] of copies) {
   mkdirSync(join(out, to, '..'), { recursive: true });
   cpSync(join(nm, from), join(out, to), { recursive: true });

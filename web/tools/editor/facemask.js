@@ -66,6 +66,8 @@ export function faceInCrop(face, W, H, { x, y, width, height }) {
     eyes: face.eyes.map(m), mouth: m(face.mouth), nose: m(face.nose), angle: face.angle, score: face.score,
     box: { x: (face.box.x * W - x) / width, y: (face.box.y * H - y) / height, w: (face.box.w * W) / width, h: (face.box.h * H) / height },
     size: face.size, pts: face.pts?.map(m),
+    // The dense mesh, when it was found by it: its depth in the cut's own width too.
+    ...(face.mesh ? { mesh: face.mesh.map(([u, v, z]) => [...m([u, v]), (z * W) / width]) } : {}),
   };
 }
 

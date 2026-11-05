@@ -12,7 +12,7 @@ import { createPdf } from '../../web/lib/pdf-writer.js';
 
 const WEB = resolve(import.meta.dirname, '../../web');
 const BASE_PATH = '/commandcenter/web/';
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm', '.pfb': 'application/octet-stream', '.ttf': 'font/ttf' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm', '.pfb': 'application/octet-stream', '.ttf': 'font/ttf' };
 
 let server; let browser; let origin; let files;
 

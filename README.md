@@ -148,7 +148,12 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
      Cutout if you like. Characters saved before that have their face looked for with room around it.
   3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
      Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
-     realistic result rather than pinned to every point of the face it replaces: turned by its eye line
+     realistic result rather than pinned to every point of the face it replaces. First it's **turned in
+     3D** to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
+     gives how each is turned left/right and up/down, and the Character's own face, given that depth,
+     is turned by the difference (most of the left/right, a little of the up/down) and drawn again
+     over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
+     (`web/tools/editor/face3d.js`). Then it's turned by its eye line
      onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
      narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
      them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own

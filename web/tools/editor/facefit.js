@@ -8,6 +8,7 @@
 
 import { faceOutline, faceContour, alignOnFace, similarityFit } from '../../lib/face-core.js';
 import { membrane } from './cleanup.js';
+import { turnFace } from './face3d.js';
 import { featherAlpha } from '../cutout/cutout-core.js';
 import { rgbToLab, colorStats, matchColors } from '../../lib/color-match.js';
 
@@ -229,6 +230,16 @@ export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, ow
   return { x, y, width: sy * k * cw, rot, squash, shear, affine };
 }
 
+/** The Character turned in 3D to `face`'s pose (turnFace), worked out once per picture and face. */
+const turnCache = new WeakMap();
+export function turnedFor(img, cw, ch, charFace, face, W, H) {
+  let m = turnCache.get(img); if (!m) { m = new WeakMap(); turnCache.set(img, m); }
+  const hit = m.get(face); if (hit && hit.charFace === charFace && hit.W === W && hit.H === H) return hit.t;
+  const t = turnFace(img, cw, ch, charFace, face, W, H);
+  m.set(face, { charFace, W, H, t });
+  return t;
+}
+
 /** The Character's own outline (targetOutline on its own pixels), worked out once per picture. */
 const ownCache = new WeakMap();
 export function ownOutline(img, cw, ch, charFace) {
@@ -280,7 +291,9 @@ function ownMask(img, cw, ch, charFace) {
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real } = {}) {
+  // Turned in 3D first (face3d.js) to the pose of the face it goes on, when they're posed differently.
+  if (turn) { const t = turnedFor(img, cw, ch, charFace, face, W, H); if (t) ({ rgba: img, w: cw, h: ch, face: charFace } = t); }
   // Realistic (the default): placed by its inner features and sized for a natural face (realPlacement),
   // and bent only along its jaw (toward that face's), its eyes, nose and mouth left as they are.
   const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;

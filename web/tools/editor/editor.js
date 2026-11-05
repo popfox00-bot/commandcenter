@@ -15,7 +15,7 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, targetOutline, skinModel, bestPlacement, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
+import { fitPatch, blendIn, recolor, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -1139,7 +1139,10 @@ export function mount(host, { file: initialFile } = {}) {
     // Flipped when it looks the other way from that face (and flipped again by hand with ⇋ Flip).
     if (placing.charFace) {
       const flip = shouldFlip(placing.charFace, placing.full.w, placing.full.h, f, W, H) !== placing.userFlip;
-      return { ...bestPlacement(charOf({ ...placing, flip }), placing.full.w, placing.full.h, f, W, H), flip };
+      // Placed for a realistic face on it (by its features, sized for a natural forehead), as it's painted.
+      const at = { ...placing, flip }; const cf = charOf(at); const img = pixelsAt(at, 'full');
+      f.outline ??= targetOutline(sourcePixels(), W, H, f);
+      return { ...realPlacement(cf, img.w, img.h, f, W, H, { outline: f.outline, own: ownOutline(img.rgba, img.w, img.h, cf) }), flip };
     }
     const flip = placing.userFlip;
     // No face of its own found: a face-only Character as wide as the face itself (jaw to jaw), a mask

@@ -6,7 +6,7 @@
 // the photo seamlessly: at its edge it takes on what's next to it there (above, below, each side, each
 // differently), eased smoothly inward. Pure: RGBA in, patch pixels out.
 
-import { faceOutline, faceContour, alignOnFace, similarityFit } from '../../lib/face-core.js';
+import { faceOutline, faceContour, alignOnFace, similarityFit, throughFit } from '../../lib/face-core.js';
 import { placedCorners } from './place.js';
 import { membrane } from './cleanup.js';
 import { featherAlpha } from '../cutout/cutout-core.js';
@@ -145,6 +145,65 @@ export function bestPlacement(charFace, cw, ch, face, W, H) {
   return { x: c * (cw / 2) - s * (ch / 2) + m.tx, y: s * (cw / 2) + c * (ch / 2) + m.ty, width: m.s * cw, rot: m.rot };
 }
 
+/** The inner features (nose, eyes, mouth): where a face is and which way it's turned, whatever its jaw. */
+const INNER = [27, 28, 29, 30, 31, 33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 51, 54, 57];
+const median = (xs) => { const a = [...xs].sort((p, q) => p - q); return a.length ? a[Math.floor(a.length / 2)] : 0; };
+/** How high a face's forehead is (its hairline above its brows, along the face) for its brow-to-chin length: [forehead, brow-to-chin]. */
+function foreheadOf(pts, w, h, outline) {
+  const P = (i) => [pts[i][0] * w, pts[i][1] * h];
+  const brow = [(P(19)[0] + P(24)[0]) / 2, (P(19)[1] + P(24)[1]) / 2]; const chin = P(8);
+  const low = Math.hypot(brow[0] - chin[0], brow[1] - chin[1]); if (low < 1) return null;
+  const up = [(brow[0] - chin[0]) / low, (brow[1] - chin[1]) / low];
+  // The middle of the forehead (above brows 24 to 19), not the temples (where hair often comes lower).
+  const lifts = outline ? outline.slice(19, 25).map(([x, y]) => (x - brow[0]) * up[0] + (y - brow[1]) * up[1]) : [];
+  const cut = (outline?.clipped?.slice(2, 8).filter(Boolean).length ?? 0) >= 3; // its top cut off (by a cut-out's edge): taller than that
+  // Its tallest there: what shows of a forehead is up to where its hairline is highest (hair falling over part of it doesn't make it a low one).
+  return [lifts.length ? Math.max(0, ...lifts) : 0.42 * low, low, cut];
+}
+
+/**
+ * Where the Character goes, for a realistic face rather than one pinned to every point of the face
+ * it replaces: placed and turned by its inner features (eyes most, then mouth and nose) on that
+ * face's, so it sits where that face is and looks where it looks, its own face kept symmetric; then
+ * sized so the new face has a natural forehead within that face's own height (hairline to chin): its
+ * forehead mostly its own, a little toward a usual one (about 0.45 of the brow-to-chin length), its chin on
+ * that face's chin. Only ever bigger (up to 1.3×), and never much wider than that face's jaw. `outline`: that
+ * face's (targetOutline); `own`: the Character's own, in its pixels. { x, y, width, rot }.
+ */
+export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, own = null } = {}) {
+  if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return bestPlacement(charFace, cw, ch, face, W, H);
+  const C = (i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]; const T = (i) => [face.pts[i][0] * W, face.pts[i][1] * H];
+  const m = similarityFit(INNER.map(C), INNER.map(T), INNER.map((i) => (i >= 36 && i <= 47 ? 3 : i >= 48 ? 2 : 1)));
+  if (!(m.s > 0) || !Number.isFinite(m.s)) return bestPlacement(charFace, cw, ch, face, W, H);
+  let k = 1; let anchor = null; let chinP = null;
+  const tf = outline ? foreheadOf(face.pts, W, H, outline) : null; const cf = foreheadOf(charFace.pts, cw, ch, own);
+  if (tf && cf) {
+    // (Its own forehead cut off by the edge of its cut-out: at least that tall, so no taller than the face's own.)
+    const rC = cf[2] ? Math.max(cf[0] / cf[1], tf[0] / tf[1]) : cf[0] / cf[1];
+    // Its own, nudged toward a usual one only if that's taller (so the same face put back stays as it was).
+    const rT = Math.max(rC, Math.max(0.3, Math.min(0.5, 0.8 * rC + 0.2 * 0.45)));
+    k = (tf[0] + tf[1]) / (1 + rT) / (m.s * cf[1]);
+    const jawT = Math.hypot(T(16)[0] - T(0)[0], T(16)[1] - T(0)[1]); const jawC = Math.hypot(C(16)[0] - C(0)[0], C(16)[1] - C(0)[1]);
+    if (jawC > 0) k = Math.min(k, (1.25 * jawT) / (m.s * jawC));
+    // Only ever bigger than its features alone make it (never a smaller face with a bigger forehead), and only so far.
+    k = Math.max(1, Math.min(1.3, k));
+    // Grown (or shrunk) about its chin, which goes on that face's chin.
+    chinP = throughFit(m, C(8)); anchor = T(8);
+  }
+  const P = throughFit(m, [cw / 2, ch / 2]);
+  const c = anchor ? [anchor[0] + k * (P[0] - chinP[0]), anchor[1] + k * (P[1] - chinP[1])] : P;
+  return { x: c[0], y: c[1], width: m.s * k * cw, rot: m.rot };
+}
+
+/** The Character's own outline (targetOutline on its own pixels), worked out once per picture. */
+const ownCache = new WeakMap();
+export function ownOutline(img, cw, ch, charFace) {
+  const key = ownCache.get(img); if (key?.face === charFace) return key.poly;
+  const poly = charFace.pts?.length === 68 ? targetOutline(img, cw, ch, charFace) ?? faceContour(charFace, cw, ch, { forehead: 0.55 }) : null;
+  ownCache.set(img, { face: charFace, poly });
+  return poly;
+}
+
 /** A polygon grown by `k` around its middle. */
 const grow = (poly, k) => {
   const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length; const cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
@@ -153,13 +212,31 @@ const grow = (poly, k) => {
 
 /** How much of each of the Character's pixels is its own face (0..1): inside its jaw and its own hairline, a soft edge just inside. */
 function ownMask(img, cw, ch, charFace) {
-  const poly = targetOutline(img, cw, ch, charFace) ?? faceContour(charFace, cw, ch, { forehead: 0.55 });
+  const poly = ownOutline(img, cw, ch, charFace);
   if (!poly) return null;
   // Roomier along the jaw (the face it goes on trims there), not past its own hairline (no hair of its own).
   const g = grow(poly, 1.05); const roomy = poly.map((p, i) => (i <= 16 && !poly.snapped?.[i] ? g[i] : p));
   const hh = Math.max(...roomy.map((p) => p[1])) - Math.min(...roomy.map((p) => p[1]));
   const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.05)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
+  // Its forehead fades out gently toward its own hairline (over a fifth of its brow-to-chin length), so
+  // it melts into the forehead of the face it goes on rather than ending in a line across it.
+  const P = (i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch];
+  const brow = [(P(19)[0] + P(24)[0]) / 2, (P(19)[1] + P(24)[1]) / 2]; const chin = P(8);
+  const low = Math.hypot(brow[0] - chin[0], brow[1] - chin[1]);
+  if (low > 4) {
+    const up = [(brow[0] - chin[0]) / low, (brow[1] - chin[1]) / low]; const across = [-up[1], up[0]];
+    // The hairline as lift above the brows, by place across the face (the forehead points, in order).
+    const line = poly.slice(17).map(([x, y]) => [(x - brow[0]) * across[0] + (y - brow[1]) * across[1], (x - brow[0]) * up[0] + (y - brow[1]) * up[1]]).sort((a, b) => a[0] - b[0]);
+    const hairAt = (t) => { if (t <= line[0][0]) return line[0][1]; for (let j = 1; j < line.length; j++) if (t <= line[j][0]) { const f = (t - line[j - 1][0]) / (line[j][0] - line[j - 1][0] || 1); return line[j - 1][1] + f * (line[j][1] - line[j - 1][1]); } return line[line.length - 1][1]; };
+    const fade = 0.2 * low;
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      const i = y * cw + x; if (!m[i]) continue;
+      const lift = (x - brow[0]) * up[0] + (y - brow[1]) * up[1]; if (lift <= 0) continue;
+      const t = Math.max(0, Math.min(1, (hairAt((x - brow[0]) * across[0] + (y - brow[1]) * across[1]) - lift) / fade));
+      m[i] *= t * t * (3 - 2 * t);
+    }
+  }
   return m;
 }
 
@@ -169,14 +246,18 @@ function ownMask(img, cw, ch, charFace) {
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true } = {}) {
-  const base = bestPlacement(charFace, cw, ch, face, W, H);
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true } = {}) {
+  // Realistic (the default): placed by its inner features and sized for a natural face (realPlacement),
+  // and bent only along its jaw (toward that face's), its eyes, nose and mouth left as they are.
+  const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;
+  const real2 = real && usePts;
+  const base = real2 ? realPlacement(charFace, cw, ch, face, W, H, { outline, own: ownOutline(img, cw, ch, charFace) }) : bestPlacement(charFace, cw, ch, face, W, H);
   // Where the Character's edges go when just placed by the eyes: anchors that keep it steady far from the face.
   const anchorsSrc = [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]];
   const k = base.width / cw; const co = Math.cos(base.rot); const si = Math.sin(base.rot);
   const place = ([x, y]) => { const dx = (x - cw / 2) * k; const dy = (y - ch / 2) * k; return [base.x + dx * co - dy * si, base.y + dx * si + dy * co]; };
-  const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;
-  const tgt = usePts ? CONTROL.map((i) => [face.pts[i][0] * W, face.pts[i][1] * H]) : [face.eyes[0], face.eyes[1], face.mouth].map(([u, v]) => [u * W, v * H]);
+  const tgt = real2 ? CONTROL.map((i) => (i <= 16 ? [face.pts[i][0] * W, face.pts[i][1] * H] : place([charFace.pts[i][0] * cw, charFace.pts[i][1] * ch])))
+    : usePts ? CONTROL.map((i) => [face.pts[i][0] * W, face.pts[i][1] * H]) : [face.eyes[0], face.eyes[1], face.mouth].map(([u, v]) => [u * W, v * H]);
   const src = usePts ? CONTROL.map((i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]) : [charFace.eyes[0], charFace.eyes[1], charFace.mouth].map(([u, v]) => [u * cw, v * ch]);
   // Picture point → Character point (the inverse direction, for sampling): mostly the plain placement
   // (its face kept as it is: eyes, nose and mouth in their own proportions), bent only by `bend` of
@@ -306,20 +387,22 @@ export function targetOutline(photo, W, H, face) {
   const TOL = 13;
   function edgeAlong(px, py, vx, vy, from, to, ref0 = null) {
     let ref = ref0 ? ref0.slice() : null; let n = ref0 ? 3 : 0; const bad = [];
-    const dE = (c, q) => Math.hypot((c[0] - q[0]) * 0.7, c[1] - q[1], c[2] - q[2]);
+    // (Brighter counts for less than darker: a highlight is still skin; hair is darker.)
+    const dE = (c, q) => Math.hypot((c[0] - q[0]) * (c[0] > q[0] ? 0.3 : 0.7), c[1] - q[1], c[2] - q[2]);
     let first = ref0 ? ref0.slice() : null; // never drifting far from the skin it started on (a soft edge into hair)
     for (let d = from; d <= to + 1e-6; d += step) {
       const c = lab(px + vx * d, py + vy * d); let b;
       if (!c) b = true;
       else if (n < 3) { b = model.off(c[0], c[1], c[2]) > 4.5; if (!b) { ref = ref ? ref.map((v, k) => (v * n + c[k]) / (n + 1)) : c.slice(); n++; if (n === 3) first = ref.slice(); } }
       else { b = dE(c, ref) > TOL || dE(c, first) > 1.6 * TOL; if (!b) ref = ref.map((v, k) => v * 0.85 + c[k] * 0.15); }
-      bad.push(b);
+      bad.push(!c ? 2 : b ? 1 : 0); // (2: the edge of the picture or of a cut-out, not hair)
       // The edge: the start of the first window in which nearly all of it is off the skin.
       if (bad.length >= win) {
-        const s0 = bad.length - win; let cnt = 0; for (let k = s0; k < bad.length; k++) cnt += bad[k];
-        if (cnt >= Math.ceil(win * 0.6)) { let k = s0; while (!bad[k]) k++; return from + k * step; }
+        const s0 = bad.length - win; let cnt = 0; for (let k = s0; k < bad.length; k++) cnt += bad[k] ? 1 : 0;
+        if (cnt >= Math.ceil(win * 0.6)) { let k = s0; while (!bad[k]) k++; edgeAlong.clear = bad[k] === 2; return from + k * step; }
       }
     }
+    edgeAlong.clear = false;
     return null;
   }
   // Up from each brow point (26 back to 17) to the hairline, each compared with the forehead's own skin
@@ -329,8 +412,8 @@ export function targetOutline(photo, W, H, face) {
   for (const t of [0.04, 0.07, 0.1]) for (const sx of [-0.06, 0, 0.06]) { const c = lab(mid[0] + up[0] * t * len - up[1] * sx * len, mid[1] + up[1] * t * len + up[0] * sx * len); if (c && model.off(c[0], c[1], c[2]) < 4.5) fs.push(c); }
   let forehead = fs.length ? [0, 1, 2].map((k) => fs.reduce((t, c) => t + c[k], 0) / fs.length) : null;
   if (!forehead) forehead = model.mean;
-  const lifts = [];
-  for (let i = 26; i >= 17; i--) { const [bx, by] = P(i); lifts.push(edgeAlong(bx, by, up[0], up[1], lo, hi, forehead) ?? usual); }
+  const lifts = []; const clipped = [];
+  for (let i = 26; i >= 17; i--) { const [bx, by] = P(i); lifts.push(edgeAlong(bx, by, up[0], up[1], lo, hi, forehead) ?? usual); clipped.push(edgeAlong.clear); }
   // Smoothed along the forehead (one stray strand doesn't dent it).
   const smooth = lifts.map((v, k) => { const w = lifts.slice(Math.max(0, k - 1), k + 2); return w.reduce((s3, x) => s3 + x, 0) / w.length; });
   // The jaw: out from the nose tip toward each jaw point (starting past the eyes, brows, nose and
@@ -352,6 +435,7 @@ export function targetOutline(photo, W, H, face) {
   }
   for (let k = 0, i = 26; i >= 17; i--, k++) { const [bx, by] = P(i); poly.push([bx + up[0] * smooth[k], by + up[1] * smooth[k]]); }
   poly.snapped = snapped;
+  poly.clipped = clipped; // forehead points stopped by the picture's (or cut-out's) edge, not hair: the forehead is at least that tall
   return poly;
 }
 

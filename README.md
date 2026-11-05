@@ -142,11 +142,14 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
      cropped this tight is hard to find again) (`web/tools/editor/facemask.js`). Fine-tune its edge in
      Cutout if you like. Characters saved before that have their face looked for with room around it.
   3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
-     Character with a face of its own (one cut out like this) is **🧬 fitted to the face**, keeping the
-     face as it is: sized and turned to it by all its landmarks at once (a least-squares fit, the eyes
-     counting most), then bent only a little toward the face's own landmarks (moving least squares, a
-     third of the way: its outline follows the new jaw while its eyes, nose and mouth keep their own
-     proportions), and **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
+     Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
+     realistic result rather than pinned to every point of the face it replaces: placed and turned by
+     its eyes, nose and mouth on that face's (so it's where that face is and looks where it looks, its
+     own face kept symmetric), then sized so the new face has a natural forehead within that face's own
+     height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
+     1.3×, and never much wider than that jaw). Only its jaw is bent a little toward that face's
+     (moving least squares, a third of the way), its eyes, nose and mouth keep their own proportions,
+     and its forehead fades gently into the one it's on. It's **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
      hairline, found in the photo (from the brows up, where the skin gives way to hair), with the soft
      edge inside it (`web/tools/editor/facefit.js`). The outline ends where the face's own skin does:
      along lines out from the nose and up from the brows, each point is compared with the skin just

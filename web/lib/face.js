@@ -5,18 +5,20 @@
 // nose, angle, pts; 0..1 of the image), with `mesh` when the mesh found them.
 
 import { faceFrom, dedupe, unturn } from './face-core.js';
+import { trackLoad, noteError } from './diag.js';
 
 let apiPromise = null;
 function faceApi() {
-  apiPromise ??= (async () => {
-    const api = await import('../vendor/face/face-api.esm.js');
+  apiPromise ??= trackLoad('Face finder (face-api)', (async () => {
+    // (By its URL: the vendored bundle isn't ours to type-check.)
+    const api = await import(new URL('../vendor/face/face-api.esm.js', import.meta.url).href);
     const base = new URL('../vendor/face/model/', import.meta.url).href;
     try { await api.tf.setBackend('webgl'); } catch { await api.tf.setBackend('cpu'); }
     await api.tf.ready();
     await api.nets.tinyFaceDetector.loadFromUri(base);
     await api.nets.faceLandmark68Net.loadFromUri(base);
     return api;
-  })();
+  })());
   apiPromise.catch(() => { apiPromise = null; });
   return apiPromise;
 }
@@ -46,7 +48,7 @@ export async function detectFaces(img, opts = {}) {
     const { detectMesh } = await import('./face-mesh.js');
     const faces = await detectMesh(img);
     if (faces.length) return faces;
-  } catch { /* not available here: the other finder */ }
+  } catch (err) { noteError('Face mesh: used the other face finder', err); }
   return detectFaces68(img, opts);
 }
 

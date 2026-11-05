@@ -8,6 +8,7 @@
 import { faceFrom } from '../../lib/face-core.js';
 import { rgbToLab } from '../../lib/color-match.js';
 import { MESH68 } from '../../lib/face-mesh.js';
+import { inPolygon, edgeDistance } from '../../lib/geometry.js';
 
 /** The generic face, frontal: [x, y, depth] (x right, y down, depth toward the camera; the jaw 2 wide). */
 export const TEMPLATE = (() => {
@@ -129,7 +130,7 @@ function warpTurn(img, cw, ch, cp, pc, dyaw, dpitch, mesh = null) {
     cp.forEach((p, i) => { src.push(p); depth.push(md[i] + shift); });
     const lips = cp.slice(48, 60); const lc = [lips.reduce((t, p) => t + p[0], 0) / 12, lips.reduce((t, p) => t + p[1], 0) / 12];
     const mouth = lips.map(([x, y]) => [lc[0] + (x - lc[0]) * 1.4, lc[1] + (y - lc[1]) * 1.4]);
-    const inMouth = (x, y) => { let c = false; for (let i = 0, j = mouth.length - 1; i < mouth.length; j = i++) { const [xi, yi] = mouth[i]; const [xj, yj] = mouth[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+    const inMouth = (x, y) => inPolygon(mouth, x, y);
     const used = new Set(MESH68);
     mesh.forEach(([x, y, z], i) => {
       if (used.has(i) || inMouth(x, y)) return;
@@ -361,15 +362,9 @@ export function openMouth(img, cw, ch, pts, to) {
   const ex = Math.min(cw, Math.ceil(Math.max(...xs)) + 1); const ey = Math.min(ch, Math.ceil(Math.max(...ys)) + 1);
   const soft = Math.max(1, wid * 0.03);
   for (let y = by; y < ey; y++) for (let x = bx; x < ex; x++) {
-    const px = x + 0.5; const py = y + 0.5; let inside = false; let d = Infinity;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[i]; const [xj, yj] = poly[j];
-      if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
-      const vx = xj - xi; const vy = yj - yi; const t = Math.max(0, Math.min(1, ((px - xi) * vx + (py - yi) * vy) / (vx * vx + vy * vy || 1)));
-      d = Math.min(d, Math.hypot(px - xi - t * vx, py - yi - t * vy));
-    }
-    if (!inside) continue;
-    const o = (y * cw + x) * 4; out[o + 3] = Math.round(out[o + 3] * Math.max(0, 1 - d / soft));
+    const px = x + 0.5; const py = y + 0.5;
+    if (!inPolygon(poly, px, py)) continue;
+    const o = (y * cw + x) * 4; out[o + 3] = Math.round(out[o + 3] * Math.max(0, 1 - edgeDistance(poly, px, py) / soft));
   }
   return { rgba: out, pts: P };
 }

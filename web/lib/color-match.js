@@ -1,3 +1,4 @@
+// @ts-check
 // Match color: a cutout (a Character, a pasted photo) made to sit in a picture by giving it the light
 // and color of what's behind it, or of an area picked by hand. The cutout's colors (in CIE Lab, so
 // it looks right) are shifted and scaled toward that area's: its average and spread (Reinhard's color
@@ -8,9 +9,12 @@ const gam = (v) => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 
 const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
 const fi = (t) => (t ** 3 > 216 / 24389 ? t ** 3 : (116 * t - 16) / (24389 / 27));
 
+// (sRGB to linear for each of the 256 levels, looked up: the conversion is run millions of times a photo.)
+const LIN = Float64Array.from({ length: 256 }, (_, v) => lin(v));
 /** sRGB (0–255) → [L, a, b]. */
 export function rgbToLab(r, g, b) {
-  const R = lin(r); const G = lin(g); const B = lin(b);
+  const L = (v) => ((v & 255) === v ? LIN[v] : lin(v)); // (a whole 0–255 level: looked up; anything else worked out)
+  const R = L(r); const G = L(g); const B = L(b);
   const fx = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047); const fy = f(0.2126 * R + 0.7152 * G + 0.0722 * B); const fz = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
@@ -25,6 +29,8 @@ export function labToRgb(L, A, B) {
 /**
  * The average and spread of the colors in `rgba` (w×h) where `use(i)` says (each pixel weighted by its
  * alpha), in Lab: { mean: [L, a, b], sd: [L, a, b], n } or null when there's nothing to go by.
+ * @param {ArrayLike<number>} rgba @param {number} w @param {number} h
+ * @param {(i: number, x: number, y: number) => boolean} [use] @param {number} [step]
  */
 export function colorStats(rgba, w, h, use = () => true, step = 1) {
   const s = [0, 0, 0]; const q = [0, 0, 0]; let n = 0;

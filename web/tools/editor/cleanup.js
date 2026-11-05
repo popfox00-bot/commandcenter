@@ -6,6 +6,7 @@
 // smudged. Pure: RGBA in, patch pixels out ({ x0, y0, pw, ph, rgba }, alpha = coverage).
 
 import { complete } from './retouch.js';
+import { rgbToLab } from '../../lib/color-match.js';
 
 /** Total length of a polyline. */
 function pathLength(pts) {
@@ -247,13 +248,7 @@ export function cloneFrom(rgba, w, h, mask, box, dx, dy) {
 // ---------- Reverse Fill ----------
 
 /** sRGB (0–255) → CIE Lab, for color distances that look right. */
-export function toLab(r, g, b) {
-  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-  const R = lin(r); const G = lin(g); const B = lin(b);
-  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
-  const fx = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047); const fy = f(0.2126 * R + 0.7152 * G + 0.0722 * B); const fz = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
-  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-}
+export const toLab = rgbToLab;
 
 /** The color at (x, y): the median of a small square around it (a speck or the grain doesn't count). */
 export function sampleShade(rgba, w, h, x, y, rad = 2) {

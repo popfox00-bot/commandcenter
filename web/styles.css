@@ -873,3 +873,7 @@ label.btn.disabled { opacity: .5; pointer-events: none; }
 .ed-modes .seg { flex: 1 0 auto; padding: 0 4px; font-size: .8rem; white-space: nowrap; }
 /* While the phone's scroll bar shows, nothing sits under it: the page (photos too) stops short of it. */
 body.has-rail { padding-right: 22px; }
+/* Settings → Diagnostics. */
+.st-diag h3 { margin: 12px 0 4px; }
+.st-diag-list { margin: 0; padding-left: 18px; overflow-wrap: anywhere; }
+.st-diag-timing p { margin: 6px 0 2px; }

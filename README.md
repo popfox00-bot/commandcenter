@@ -486,7 +486,21 @@ PNG (1080×1440), **Open in** the app, edit or delete it. Cards stay on the phon
 npm run vendor          # re-copy web/vendor from node_modules (after upgrading pdfjs-dist / @jsquash/webp)
 npm run precache        # regenerate the offline file list in web/sw.js (a test fails if it is stale)
 npm run test:web        # browser tests in Chromium: conversions, WebP encoder, offline mode
+npm run typecheck       # TypeScript checks the files marked // @ts-check (tsconfig.check.json)
+node scripts/score-swaps.mjs <folder>   # FM's face swaps on your own photos, scored (see below)
 ```
+
+**Scoring FM's swaps** (`scripts/score-swaps.mjs`, `web/tools/editor/swap-score.js`): give it a folder
+with one folder per pair, each holding `base.jpg` (the photo to change) and `char.jpg` (the new face).
+For each pair it runs ⚡ Quick Swap in the real app (a local browser, offline), finds the faces again in
+the result, and prints three numbers, each 0 when perfect: **aligned** (how far the result's landmarks
+are from the base face's, as a share of the eye spacing: ~0.05 is close), **shape** (how much the new
+face's own proportions changed, eye size, nose, mouth width and so on: ~0.05 is itself, 0.1 or more
+looks reshaped) and **seam** (how much busier the picture is along the edge of what was put in than the
+photo was there: ~0 can't be seen). Any `result*.jpg` in a pair's folder is scored too, so earlier or
+other results can be compared. The seam number is steadier on the swaps it runs itself than on saved
+JPEGs (their compression noise blurs where the change begins). The photos stay where they are; `--json
+out.json` saves the numbers.
 
 Add a tool: create `web/tools/<id>/<id>.js` exporting `mount(host)` (return an unmount function),
 add it to `web/tools/index.js`, and run `npm run precache`.
@@ -784,6 +798,12 @@ wake itself up at a set time, so reminders have to come from something that's al
 
 **Saved Files (Google Drive)**: the web app URL and access key for Files → Saved Files are entered
 here (and **Disconnect this phone**).
+
+**Diagnostics** shows what's loaded on the phone (the face mesh, the face-part maps, face-api, the
+upscaler) and how long each took, how long the last face swap took step by step (finding the faces, the
+face-part maps, upscaling, fitting, each blend step), and any problem where the app carried on without
+something (a model that didn't load, the fit worker missing): the last 20 kept on the phone, with **Copy
+report** to share them and **Clear problems** (`web/lib/diag.js`).
 
 **Edit Home Screen** puts the apps in the order you like (↑ ↓ next to each; **Reset to default order**:
 Calendar, Weather, Sports, Notes, Files, FM, Draw, QR, Rap, Games, Settings). **Jobs** (background runs, push

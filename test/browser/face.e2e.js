@@ -75,11 +75,11 @@ test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 
   await page.goto(`${origin}${BASE}#/files/facemask`);
   await page.waitForFunction(() => location.hash === '#/fm');
   await page.waitForSelector('#ed-file', { state: 'attached' });
-  // FM: its own start (Quick Swap first), then only the face tools on the photo.
+  // FM: its own start (Quick Swap first), then only its own tools on the photo: faces, and Reverse Fill.
   await page.getByRole('button', { name: '⚡ Quick Swap faces' }).waitFor();
   await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  await page.waitForSelector('.ed-modes', { state: 'hidden' });
+  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['🎭 Faces', '🎨 Reverse Fill']);
   await page.waitForSelector('text=✨ Auto-Enhance', { state: 'hidden' });
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
@@ -551,6 +551,126 @@ test('faces: the face mesh (vendor/mediapipe) loads on the page, under its CSP, 
     return { n: faces.length };
   });
   assert.equal(out.n, 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+/** Pixel [r,g,b] at a fraction across and down the preview canvas. */
+function pixel(page, fx, fy) {
+  return page.evaluate(([fx2, fy2]) => {
+    const c = document.querySelector('.ed-canvas');
+    const t = document.createElement('canvas'); t.width = c.width; t.height = c.height;
+    const x = t.getContext('2d'); x.drawImage(c, 0, 0);
+    const d = x.getImageData(Math.floor(fx2 * (c.width - 1)), Math.floor(fy2 * (c.height - 1)), 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, [fx, fy]);
+}
+
+/** FM with a photo of a can: a green wall; a blue can (x 70–130) with a white label (y 40–70), red bands on it, black print. */
+async function canInFm() {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
+  await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fm`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(200, 120);
+    const x = c.getContext('2d');
+    x.fillStyle = 'rgb(80,130,70)'; x.fillRect(0, 0, 200, 120);
+    x.fillStyle = 'rgb(40,70,190)'; x.fillRect(70, 0, 60, 120);
+    x.fillStyle = 'rgb(240,240,236)'; x.fillRect(70, 40, 60, 30);
+    x.fillStyle = 'rgb(210,30,35)'; x.fillRect(70, 40, 60, 6); x.fillRect(70, 64, 60, 6);
+    x.fillStyle = 'rgb(20,20,20)'; x.fillRect(85, 50, 4, 10); x.fillRect(100, 52, 14, 3);
+    const b = await c.convertToBlob({ type: 'image/png' });
+    return Array.from(new Uint8Array(await b.arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'can.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
+  await page.getByRole('tab', { name: '🎨 Reverse Fill' }).click();
+  const box = async () => { await page.evaluate(() => window.scrollTo(0, 0)); return page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }); };
+  const at = (b, fx, fy) => [b[0] + fx * b[2], b[1] + fy * b[3]];
+  // The label gone and filled with the can, not the wall; Undo brings it back.
+  const check = async () => {
+    await page.getByRole('button', { name: '✨ Remove & fill' }).click();
+    await page.waitForSelector('text=Removed and filled from the surface around it');
+    await page.waitForTimeout(200);
+    for (const [fx, fy] of [[0.5, 0.47], [0.44, 0.45], [0.6, 0.355], [0.53, 0.44], [0.37, 0.56], [0.63, 0.4]]) {
+      const p = await pixel(page, fx, fy);
+      assert.ok(p[2] > 150 && p[0] < 90 && p[1] < 110, `blue can at ${fx},${fy} (${p})`);
+    }
+    for (const [fx, fy] of [[0.32, 0.47], [0.68, 0.5], [0.2, 0.2]]) {
+      const p = await pixel(page, fx, fy);
+      assert.ok(p[1] > 110 && p[2] < 100, `the wall beside it stays (${p})`);
+    }
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.waitForTimeout(150);
+    const back = await pixel(page, 0.6, 0.47);
+    assert.ok(back[0] > 220 && back[2] > 220, `undo: the label again (${back})`);
+  };
+  return { context, page, errors, box, at, check };
+}
+
+test('FM → 🎨 Reverse Fill: press on a color (a magnifier shows it), the area is found and outlined by itself; removed and filled with the can, not the wall', async () => {
+  const { context, page, errors, box, at, check } = await canInFm();
+  await page.waitForSelector('text=/Press on the color to remove/');
+  // Pressed beside the label, moved onto it (the magnifier follows), let go: the white picked there.
+  let b = await box();
+  await page.mouse.move(...at(b, 0.6, 0.2)); await page.mouse.down();
+  await page.mouse.move(...at(b, 0.6, 0.47), { steps: 6 });
+  await page.mouse.up();
+  await page.waitForSelector('text=/Pink shows what goes: \\d+% of the outlined area/');
+  // Then the red bands too (a tap).
+  b = await box();
+  await page.mouse.click(...at(b, 0.6, 0.355));
+  assert.equal(await page.locator('.ed-shade').count(), 2);
+  await page.waitForSelector('text=/Pink shows what goes/');
+  await check();
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('FM → 🎨 Reverse Fill, ✏️ Draw my own loop: pick the shades, trace roughly around it', async () => {
+  const { context, page, errors, box, at, check } = await canInFm();
+  await page.getByRole('button', { name: '✏️ Draw my own loop' }).click();
+  let b = await box();
+  await page.mouse.click(...at(b, 0.6, 0.47));
+  await page.mouse.click(...at(b, 0.6, 0.355));
+  assert.equal(await page.locator('.ed-shade').count(), 2);
+  // A rough loop around the label, wider than the can (onto the wall).
+  b = await box();
+  const loop = [[0.3, 0.27], [0.7, 0.27], [0.7, 0.63], [0.3, 0.63], [0.3, 0.29]];
+  await page.mouse.move(...at(b, ...loop[0])); await page.mouse.down();
+  for (let i = 1; i < loop.length; i++) await page.mouse.move(...at(b, ...loop[i]), { steps: 8 });
+  await page.mouse.up();
+  await page.waitForSelector('text=/Pink shows what goes: \\d+% of the outlined area/');
+  await check();
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('faces: the upscaler (vendor/esrgan, by face-api\'s TensorFlow.js) loads on the page and makes a picture twice as big, its colors kept', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/i.test(m.text())) errors.push(m.text()); });
+  await page.goto(`${origin}${BASE}#/fm`);
+  const out = await page.evaluate(async () => {
+    const { upscale2x } = await import('./lib/upscale.js');
+    // 24×20: left half red, right half blue, half see-through at the bottom.
+    const w = 24; const h = 20; const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) rgba.set(x < 12 ? [200, 40, 40, y < 10 ? 255 : 128] : [40, 60, 200, y < 10 ? 255 : 128], (y * w + x) * 4);
+    const r = await upscale2x({ rgba, w, h }, { tile: 16, margin: 4 });
+    const at = (x, y) => Array.from(r.rgba.slice((y * r.w + x) * 4, (y * r.w + x) * 4 + 4));
+    return { w: r.w, h: r.h, left: at(8, 8), right: at(40, 8), low: at(8, 36) };
+  });
+  assert.equal(out.w, 48); assert.equal(out.h, 40);
+  assert.ok(out.left[0] > 150 && out.left[2] < 90, `red stays red: ${out.left}`);
+  assert.ok(out.right[2] > 150 && out.right[0] < 90, `blue stays blue: ${out.right}`);
+  assert.equal(out.left[3], 255); assert.ok(Math.abs(out.low[3] - 128) < 3);
   assert.deepEqual(errors, []);
   await context.close();
 });

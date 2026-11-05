@@ -2,7 +2,7 @@
 // covers, filling it in from the picture around it, and Copy From Area (a copy blended in).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { strokeShape, strokeMask, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab, surfaceOf } from '../web/tools/editor/cleanup.js';
+import { strokeShape, strokeMask, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab, surfaceOf, autoTrace } from '../web/tools/editor/cleanup.js';
 
 const noise = (x, y, k) => ((((x * 73856093) ^ (y * 19349663) ^ (k * 83492791)) >>> 0) % 1000) / 1000;
 function scene(w, h, paint) {
@@ -177,4 +177,29 @@ test('Reverse Fill: the surface is found by itself (the can, bordering the label
   const wall = surfaceOf(px, w, h, trace.mask, m.mask, [sampleShade(px, w, h, 34, 61), sampleShade(px, w, h, 34, 67)]);
   assert.equal(wall[80 * w + 34], 1);
   assert.equal(wall[55 * w + 80], 0);
+});
+
+test('Reverse Fill\'s own trace: from a picked spot, the whole of that thing (its shaded side too), not what\'s beside it, with room around it', () => {
+  // 200×120: a dark wall; a white disc (centre 100,60, r 30) shaded to grey on its right; a cream blob touching it; a white square far off.
+  const w = 200; const h = 120; const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const o = (y * w + x) * 4; let c = [40, 45, 40];
+    const d = Math.hypot(x - 100, y - 60);
+    if (d < 30) { const v = 245 - Math.max(0, x - 100) * 3; c = [v, v, v - 4]; }
+    else if (Math.hypot(x - 60, y - 60) < 14) c = [235, 205, 140];
+    if (x >= 170 && x < 190 && y >= 10 && y < 30) c = [245, 245, 241];
+    rgba.set([...c, 255], o);
+  }
+  const t = autoTrace(rgba, w, h, [[90, 60]], [sampleShade(rgba, w, h, 90, 60)], 18);
+  assert.ok(t);
+  // Its shaded side (as dark as 155) is in; the cream blob beside it, the square far off and the wall aren't.
+  const inSel = (x, y) => t.mask[y * w + x];
+  assert.equal(t.sel > 2400 && t.sel < 2900, true, `the disc, all of it: ${t.sel}`);
+  assert.ok(inSel(126, 60), 'its shaded side');
+  // The trace: around it with room (8 px at least), not reaching the square.
+  assert.ok(inSel(135, 60) && !inSel(165, 60), 'room around it');
+  assert.ok(!inSel(180, 20), 'not the square far off');
+  assert.ok(t.box.x0 >= 50 && t.box.x1 <= 150);
+  // Nothing of that color at the spot: null.
+  assert.equal(autoTrace(rgba, w, h, [[10, 10]], [[245, 245, 241]], 18), null);
 });

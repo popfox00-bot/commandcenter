@@ -21,7 +21,7 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
   by default) and **[Sports](#sports)** (a calendar of your teams' games, plus college football near
   your ZIP, with live scores, TV, lines and results): two apps. Both work on the phone with no setup;
   the same rules drive push notifications from two jobs.
-- **[FM](#fm-facemask)** (FaceMask): face swaps, ⚡ Quick Swap and Characters, on the phone, offline.
+- **[FM](#fm-facemask)** (FaceMask): face swaps, ⚡ Quick Swap, Characters and 🎨 Reverse Fill, on the phone, offline.
 - **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
@@ -52,7 +52,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
-- [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters
+- [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters, Reverse Fill
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
@@ -142,15 +142,8 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   and color are evened out where it meets the photo (`web/tools/editor/cleanup.js`). If a fill looks
   smudged, **📋 Copy From Area**: tap a clean spot elsewhere (sand, sky, wall), then tap, brush or
   circle the area to cover: it gets that spot one to one, its edge blended into the new surroundings
-  (or **Use on the last clean-up** to redo the last one that way). **🎨 Reverse Fill** removes a
-  thing by its colors, a label off a can, a sticker, a logo: **tap** the shades to remove (several:
-  the label's white, its red…), and **draw a rough loop** around it. What matches shows in pink (with
-  shadowed and anti-aliased shades next to them, and the print they close around), **Match** sets
-  how close a shade counts, and **✨ Remove & fill** takes it out and fills it from the surface it was
-  on: the parts of the loop that border it most (the can above and below the label), not what's
-  behind (the wall a rough loop takes in). Fill sources are limited to that surface (`forbid` in
-  `complete()`), and its edges are matched to it only. With **🎯 Fill From**, tap the surface to fill
-  with yourself. If the loop is drawn tight, it looks a little past it for the same surface. Each
+  (or **Use on the last clean-up** to redo the last one that way). (Reverse Fill, removing a thing
+  by its colors, is in [FM](#fm-facemask).) Each
   clean-up is one undo step, is shown without it under ◑, and is part of every export.
 - With a mouse, chip rows (Adjust, Filters, Markup…) have a scroll bar, and the scroll wheel moves
   them sideways.
@@ -296,7 +289,7 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
 - Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
   cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
 - **A magnifier under the finger**: while your finger is down (tracing, Patch, Wand, Brush, and in
-  the editor Clean Up, Reverse Fill and Copy From Area), what's under it shows enlarged just above it
+  the editor Clean Up and Copy From Area, and FM's Reverse Fill), what's under it shows enlarged just above it
   (below it near the top), with a crosshair at the exact spot and the patch or brush size. Slide to
   aim; **the edit happens when you lift your finger** (a patch or brush stroke is drawn as a trail,
   then applied along it).
@@ -524,7 +517,14 @@ saves the face it used.
    (its own, from the face mesh, when it was found by it: all 478 points of its real shape, its mouth
    aside), is turned by the difference (most of the left/right, a little of the up/down) and drawn again
    over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
-   (`web/tools/editor/face3d.js`). A Character photographed turned, being turned toward the side it
+   (`web/tools/editor/face3d.js`). Its mouth is matched first: closed when that face's is shut, or,
+   when that face's is open (its teeth showing) and the Character's isn't, **opened**: its lips parted
+   (each as thick as it was, its chin dropping a little), put right onto that face's lips, and
+   see-through between them, so that face's own teeth and open mouth show there. A Character whose face
+   is much smaller than the one it goes on is first **made twice as big with its detail drawn in**
+   (`web/lib/upscale.js`: ESRGAN Slim ×2, a compact super-resolution network under 1 MB, vendored in
+   `web/vendor/esrgan`, MIT, run by the TensorFlow.js that comes with face-api), its face only, so it
+   isn't put on blurry. A Character photographed turned, being turned toward the side it
    barely shows, is first turned to face straight on and made symmetric there: its far side drawn
    from its well-seen near side, flipped across its middle line (more of it the more it was turned),
    then turned to the pose, so that side is a full face rather than a thin strip stretched wide. Then it's turned by its eye line
@@ -546,11 +546,16 @@ saves the face it used.
    the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
    Any other image covers the face, turned with it.
    **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
-   (the same way all over, so its own shading and detail stay), then blended both ways at its border:
-   it's matched to the face's own skin there (never the hair or background past it), and what's left
+   (the same way all over, so its own shading and detail stay), then blended both ways at its border
+   (the difference at its edge carried smoothly across all of it, as a gradient-domain blend does:
+   that face's light and color, its own detail), matched to the face's own skin there (never the hair
+   or background past it), and what's left
    of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
    and any skin of that face past its outline, found by its skin color) takes on its colors, easing
-   back to the photo further out, so nothing of the old face stands out. Its **texture** is matched
+   back to the photo further out, so nothing of the old face stands out. That face's **own skin
+   texture** is kept: over the skin (its features left out), half of the Character's fine detail is
+   swapped for the photo's there, its pores and grain where they are, so the new face is on that face's
+   skin rather than airbrushed (its own freckles still show). Its **texture** is matched
    too: how sharply it's drawn, by its strongest edges and the face's (eyes, brows, lips), a Character
    crisper than the photo softened to it and a softer one (from a smaller or blurrier picture)
    sharpened, within reason; then the photo's grain added over its skin where it has less (seeded: the
@@ -560,6 +565,20 @@ saves the face it used.
    to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
    hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
    **✓ Place** paints it in at full detail: one undo step, part of every export.
+**🎨 Reverse Fill** (FM's second tab; not in the Photo Editor) removes a thing by its colors, a label
+off a can, a sticker, a logo, a flower in the hair, and fills in with the surface around it, its color,
+light and texture, not what's behind. **Press on the color** to remove: a magnifier shows what's under
+your finger, closer up, with the exact color it will pick beside it; slide to aim and let go to pick
+it. The area of that color is **found and outlined by itself** (yellow): everything joined to where
+you pressed that's near that color, or of its hue in shadow or catching the light (each step on from
+the last a small one: an edge stops it), with room around it for the surface it's on
+(`autoTrace` in `web/tools/editor/cleanup.js`). What will go shows in pink; pick more shades of it
+(its center, its edge) and each joins in, and **Match** sets how close a shade counts. **✨ Remove &
+fill** takes it out (with a few pixels of its soft edge, so no halo is left) and fills it from the
+parts of the surface that border it most (the can above and below the label), coarse to fine, its
+light and color evened out with it, and the surface's grain added where the fill is smoother. With
+**🎯 Fill From**, pick the surface to fill with yourself; **✏️ Draw my own loop** traces it by hand
+instead (tap the shades, then draw a rough loop around it). One undo step.
 **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
 mouth (quarter turns and straighten; undo to go back).
 

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "4e81f3d53cf0",
+  "version": "785ee53cb83c",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -58,6 +58,7 @@ const PRECACHE = {
     "lib/pdf-writer.js",
     "lib/saved-files-setup.js",
     "lib/saved-files.js",
+    "lib/upscale.js",
     "lib/vault-ui.js",
     "lib/vault.js",
     "lib/webp.js",
@@ -105,6 +106,9 @@ const PRECACHE = {
     "tools/scan/scan-core.js",
     "tools/scan/scan.js",
     "tools/studio/studio.js",
+    "vendor/esrgan/LICENSE",
+    "vendor/esrgan/x2/group1-shard1of1.bin",
+    "vendor/esrgan/x2/model.json",
     "vendor/face/LICENSE",
     "vendor/face/face-api.esm.js",
     "vendor/face/model/face_landmark_68_model-weights_manifest.json",

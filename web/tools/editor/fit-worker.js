@@ -1,3 +1,4 @@
+// @ts-check
 // The fitted Character (fit-pipeline.js) worked out off the page's thread, so the screen never freezes
 // while it's lined up, turned and blended. What it works on is sent once and kept by key: { put: key,
 // value } (the photo, a Character's pixels, a face, a face-part map); then { build: seq, photo, img,

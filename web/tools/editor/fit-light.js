@@ -1,3 +1,4 @@
+// @ts-check
 // FaceMask's fitting, color and light: the Character recolored to that face's skin (recolor), relit with its
 // light and tone (relight), and shaded by that face's shape (faceNormals, shadeByShape). Pure; in place on a patch.
 
@@ -18,6 +19,7 @@ export function recolor(patch, photo, W, H, outline, strength = 0.8, face = null
   const inFace = fillPolygon(outline, x0, y0, pw, ph);
   // What it's matched to: that face's skin, and its neck's (just under the jaw, where it's skin), so the
   // face and the body around it agree.
+  /** @type {ArrayLike<number>} */
   let ref = inFace;
   if (face?.pts?.length === 68) {
     const P = face.pts.map(([u, v]) => [u * W, v * H]); const fh = Math.hypot(P[8][0] - P[27][0], P[8][1] - P[27][1]);

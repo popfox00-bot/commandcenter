@@ -1,3 +1,4 @@
+// @ts-check
 // The page's side of fit-worker.js: a fitted Character worked out off the page's thread. What it works on
 // is sent once and kept there by key (the photo as it is now, a Character's pixels, a face, a face-part
 // map); each build only names them. A new photo (after an edit) replaces the old one there.
@@ -5,6 +6,7 @@
 /**
  * A client: { build(photo, W, H, img, charFace, face, parts, opts) → Promise<patch | null>, close() }.
  * build rejects when there's no worker here (or it failed): work it out on the page's thread then.
+ * @returns {{ build: (photo: Uint8ClampedArray, W: number, H: number, img: import('./fit-types.js').Pixels, charFace: import('./fit-types.js').Face, face: import('./fit-types.js').Face, parts: import('./fit-types.js').Parts | null, opts: import('./fit-types.js').FitOptions) => Promise<import('./fit-types.js').Patch | null>, close: () => void }}
  */
 export function fitClient() {
   let worker = null; let seq = 0; let photoKey = null; let n = 0;

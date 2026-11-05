@@ -9,7 +9,8 @@ import { faceFrom, dedupe, unturn } from './face-core.js';
 let apiPromise = null;
 function faceApi() {
   apiPromise ??= (async () => {
-    const api = await import('../vendor/face/face-api.esm.js');
+    // (By its URL: the vendored bundle isn't ours to type-check.)
+    const api = await import(new URL('../vendor/face/face-api.esm.js', import.meta.url).href);
     const base = new URL('../vendor/face/model/', import.meta.url).href;
     try { await api.tf.setBackend('webgl'); } catch { await api.tf.setBackend('cpu'); }
     await api.tf.ready();

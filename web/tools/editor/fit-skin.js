@@ -1,3 +1,4 @@
+// @ts-check
 // FaceMask's fitting, where each face's skin is and ends: that face's skin as a test (skinModel), its outline
 // in the photo, jaw to hairline (targetOutline), and the Character's own face in its picture (ownOutline,
 // ownMask). Pure.
@@ -117,6 +118,8 @@ export function targetOutline(photo, W, H, face) {
   // still skin), and the edge is where most of the next stretch differs: hair, a flower, the background.
   const win = Math.max(4, Math.round((0.05 * len) / step));
   const TOL = 13;
+  // (Whether the last edge found was the picture's own edge, or a cut-out's, rather than hair.)
+  let edgeClear = false;
   function edgeAlong(px, py, vx, vy, from, to, ref0 = null) {
     let ref = ref0 ? ref0.slice() : null; let n = ref0 ? 3 : 0; const bad = [];
     // (Brighter counts for less than darker: a highlight is still skin; hair is darker.)
@@ -131,10 +134,10 @@ export function targetOutline(photo, W, H, face) {
       // The edge: the start of the first window in which nearly all of it is off the skin.
       if (bad.length >= win) {
         const s0 = bad.length - win; let cnt = 0; for (let k = s0; k < bad.length; k++) cnt += bad[k] ? 1 : 0;
-        if (cnt >= Math.ceil(win * 0.6)) { let k = s0; while (!bad[k]) k++; edgeAlong.clear = bad[k] === 2; return from + k * step; }
+        if (cnt >= Math.ceil(win * 0.6)) { let k = s0; while (!bad[k]) k++; edgeClear = bad[k] === 2; return from + k * step; }
       }
     }
-    edgeAlong.clear = false;
+    edgeClear = false;
     return null;
   }
   // Up from each brow point (26 back to 17) to the hairline, each compared with the forehead's own skin
@@ -145,13 +148,14 @@ export function targetOutline(photo, W, H, face) {
   let forehead = fs.length ? [0, 1, 2].map((k) => fs.reduce((t, c) => t + c[k], 0) / fs.length) : null;
   if (!forehead) forehead = model.mean;
   const lifts = []; const clipped = [];
-  for (let i = 26; i >= 17; i--) { const [bx, by] = P(i); lifts.push(edgeAlong(bx, by, up[0], up[1], lo, hi, forehead) ?? usual); clipped.push(edgeAlong.clear); }
+  for (let i = 26; i >= 17; i--) { const [bx, by] = P(i); lifts.push(edgeAlong(bx, by, up[0], up[1], lo, hi, forehead) ?? usual); clipped.push(edgeClear); }
   // Smoothed along the forehead (one stray strand doesn't dent it).
   const smooth = lifts.map((v, k) => { const w = lifts.slice(Math.max(0, k - 1), k + 2); return w.reduce((s3, x) => s3 + x, 0) / w.length; });
   // The jaw: out from the nose tip toward each jaw point (starting past the eyes, brows, nose and
   // mouth on the way), the start of the first stretch off the skin long enough not to be a freckle.
   const nose = P(30);
   const features = []; for (let i = 17; i < 68; i++) if (i < 27 || i > 30) features.push(P(i));
+  /** @type {any} */
   const poly = []; const snapped = [];
   for (let i = 0; i <= 16; i++) {
     const [jx, jy] = P(i); const dist = Math.hypot(jx - nose[0], jy - nose[1]);

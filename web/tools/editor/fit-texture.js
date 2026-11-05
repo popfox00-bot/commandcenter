@@ -1,3 +1,4 @@
+// @ts-check
 // FaceMask's fitting, texture: that face's own skin texture kept (keepSkinTexture), and the Character's
 // sharpness and grain matched to the photo's (matchTexture). Pure; in place on a patch.
 

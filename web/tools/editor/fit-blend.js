@@ -1,3 +1,4 @@
+// @ts-check
 // FaceMask's fitting, the blend: the patch's colors blended into the photo seamlessly, both ways at its border
 // (blendIn, with its zone, the smooth difference field and the soft edge). Pure; in place on a patch.
 

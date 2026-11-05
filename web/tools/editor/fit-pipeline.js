@@ -1,3 +1,4 @@
+// @ts-check
 // A Character fitted onto a face in a photo, all of it (see facefit.js for each step): placed by its
 // features and turned to that face's pose, trimmed to its outline, recolored and relit to its skin, its
 // texture matched, blended in both ways, and that face's hair kept in front. Pure, so it can run off the
@@ -55,6 +56,10 @@ function hideOldFeatures(patch, photo, W, H, face, paint) {
  * on `face` of `photo` (RGBA W×H). `face.outline` and `face.skin` are worked out (and kept on it) if it
  * hasn't them. opts: { trim, blend (0–100), tune, paint, parts, turn3d, mouth } (turned in 3D to its pose,
  * its mouth closed or opened to match: both off unless asked for, as each can look forced).
+ * @param {Uint8ClampedArray} photo @param {number} W @param {number} H
+ * @param {import('./fit-types.js').Pixels} img @param {import('./fit-types.js').Face} charFace
+ * @param {import('./fit-types.js').Face} face @param {import('./fit-types.js').FitOptions} [opts]
+ * @returns {import('./fit-types.js').Patch | null}
  */
 export function buildFitted(photo, W, H, img, charFace, face, { trim = true, blend = 70, tune = null, paint = null, parts = null, turn3d = false, mouth = false } = {}) {
   face.outline ??= targetOutline(photo, W, H, face);

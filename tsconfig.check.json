@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "WebWorker"
+    ],
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "files": [
+    "web/lib/geometry.js",
+    "web/lib/color-match.js",
+    "web/lib/face-parts.js",
+    "web/lib/upscale.js",
+    "web/tools/editor/fit-pipeline.js",
+    "web/tools/editor/fit-client.js",
+    "web/tools/editor/fit-worker.js",
+    "web/tools/editor/fit-parts.js",
+    "web/tools/editor/fit-texture.js",
+    "web/tools/editor/fit-blend.js",
+    "web/tools/editor/fit-light.js",
+    "web/tools/editor/fit-skin.js",
+    "web/tools/editor/reverse-fill-ui.js",
+    "web/tools/editor/fit-types.js"
+  ]
+}

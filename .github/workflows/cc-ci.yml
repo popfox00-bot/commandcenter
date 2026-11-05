@@ -20,6 +20,7 @@ jobs:
         with:
           browser: "true"
       - run: npm run check
+      - run: npm run typecheck
       - run: npm run validate
       - run: npm test
       - name: Browser tests (PWA tools)

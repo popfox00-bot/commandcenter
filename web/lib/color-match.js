@@ -1,3 +1,4 @@
+// @ts-check
 // Match color: a cutout (a Character, a pasted photo) made to sit in a picture by giving it the light
 // and color of what's behind it, or of an area picked by hand. The cutout's colors (in CIE Lab, so
 // it looks right) are shifted and scaled toward that area's: its average and spread (Reinhard's color
@@ -28,6 +29,8 @@ export function labToRgb(L, A, B) {
 /**
  * The average and spread of the colors in `rgba` (w×h) where `use(i)` says (each pixel weighted by its
  * alpha), in Lab: { mean: [L, a, b], sd: [L, a, b], n } or null when there's nothing to go by.
+ * @param {ArrayLike<number>} rgba @param {number} w @param {number} h
+ * @param {(i: number, x: number, y: number) => boolean} [use] @param {number} [step]
  */
 export function colorStats(rgba, w, h, use = () => true, step = 1) {
   const s = [0, 0, 0]; const q = [0, 0, 0]; let n = 0;

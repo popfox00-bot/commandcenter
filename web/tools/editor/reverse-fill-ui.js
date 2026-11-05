@@ -1,3 +1,4 @@
+// @ts-check
 // FM's 🎨 Reverse Fill, its tool on the photo: press on a color (the magnifier showing it), the area of
 // that color found and outlined by itself (autoTrace), or a loop drawn by hand; brushed in or out; then
 // taken out and filled from the surface around it (cleanup.js). Its own state; the editor hands it what
@@ -67,7 +68,7 @@ export function reverseFillTool(env) {
     const w = env.source().width; const h = env.source().height;
     let t = rf.seeds.length && rf.shades.length ? autoTrace(env.pixels(), w, h, rf.seeds, rf.shades, rf.tol) : null;
     // (And room around what was brushed in, too.)
-    for (const e of rf.edits) if (e.add) t = unionTrace(t, roomAround(e.mask, w, h, e.box, Math.round(Math.max(8, e.r * 2))), w, h);
+    for (const e of rf.edits) if (e.add) t = unionTrace(t, roomAround(e.mask, w, h, e.box, Math.round(Math.max(8, e.r * 2))), w);
     if (!t) { rf.trace = null; cleanNote = rf.seeds.length ? 'Nothing of that color there: press right on it (the magnifier shows what you\'re on).' : ''; return; }
     // Its outline, a couple of pixels wide in the photo, to draw over it.
     const { box } = t; const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; const lw = Math.max(1, Math.round(Math.max(w, h) / 500));
@@ -94,7 +95,7 @@ export function reverseFillTool(env) {
   /** A loop drawn by hand, widened to take in a brushed-in area (with room around it). */
   function widenTrace(m, r) {
     const w = env.source().width; const h = env.source().height;
-    const u = unionTrace(rf.trace, roomAround(m.mask, w, h, m.box, Math.round(Math.max(8, r * 2))), w, h);
+    const u = unionTrace(rf.trace, roomAround(m.mask, w, h, m.box, Math.round(Math.max(8, r * 2))), w);
     rf.trace = { ...rf.trace, mask: u.mask, box: u.box };
   }
 

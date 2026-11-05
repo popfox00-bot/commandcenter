@@ -1,3 +1,4 @@
+// @ts-check
 // FaceMask's fitting, by the face-part maps (lib/face-parts.js: what's hair, what's face skin): the Character's
 // own face only (keepOwnFace), and that face's hair kept in front of it (hairInFront). Pure.
 

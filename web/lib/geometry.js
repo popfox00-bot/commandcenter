@@ -1,8 +1,9 @@
+// @ts-check
 // Shapes and masks, shared by the photo tools (face fitting, Clean Up, Reverse Fill, Cutout): polygons
 // (inside, filled, grown, hull, distance to an edge) and masks over a box of pixels (softened, blurred
 // where they're set). Pure, no DOM: runs on the page and in workers alike.
 
-/** @typedef {[number, number]} Point (pixels) */
+/** @typedef {number[]} Point [x, y] (pixels) */
 /** @typedef {Point[]} Polygon */
 
 /** Whether (x, y) is inside the polygon (even-odd). @param {Polygon} poly */
@@ -15,8 +16,12 @@ export function inPolygon(poly, x, y) {
   return c;
 }
 
-/** Distance from (x, y) to the segment a–b. @param {Point} a @param {Point} b */
-export function segmentDistance(x, y, [ax, ay], [bx, by]) {
+/**
+ * Distance from (x, y) to the segment a–b.
+ * @param {number} x @param {number} y @param {Point} a @param {Point} b
+ */
+export function segmentDistance(x, y, a, b) {
+  const [ax, ay] = a; const [bx, by] = b;
   const dx = bx - ax; const dy = by - ay; const l = dx * dx + dy * dy;
   const t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
   return Math.hypot(x - ax - t * dx, y - ay - t * dy);
@@ -64,10 +69,10 @@ export function scalePolygon(poly, k) {
 
 /**
  * A mask (w × h, 0..1) blurred by radius `r` (a box, twice over: close to a Gaussian), its edges made a
- * soft ramp. The same mask when r < 1. @param {ArrayLike<number>} m @returns {Float32Array | ArrayLike<number>}
+ * soft ramp. The same mask when r < 1. @param {ArrayLike<number>} m @returns {Float32Array}
  */
 export function softenMask(m, w, h, r) {
-  if (r < 1) return m;
+  if (r < 1) return Float32Array.from(m);
   const pass = (src, horiz) => {
     const out = new Float32Array(src.length); const [n, lines] = horiz ? [w, h] : [h, w];
     for (let l = 0; l < lines; l++) {
@@ -82,7 +87,7 @@ export function softenMask(m, w, h, r) {
     }
     return out;
   };
-  let a = m;
+  let a = /** @type {Float32Array} */ (m);
   for (let k = 0; k < 2; k++) a = pass(pass(a, true), false);
   return a;
 }

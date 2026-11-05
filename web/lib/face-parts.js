@@ -1,3 +1,4 @@
+// @ts-check
 // What's what around a face, pixel by pixel, on the phone (vendor/mediapipe: MediaPipe's multiclass
 // selfie segmenter, run by WebAssembly; offline once cached): how sure it is each pixel is hair, and
 // face skin. For FM: the Character's own face only (not its hair, the background, a flower behind an
@@ -8,7 +9,8 @@ let segmenter = null;
 function imageSegmenter() {
   segmenter ??= (async () => {
     const base = new URL('../vendor/mediapipe/', import.meta.url).href;
-    const { ImageSegmenter } = await import('../vendor/mediapipe/vision_bundle.mjs');
+    // (By its URL: the vendored bundle isn't ours to type-check.)
+    const { ImageSegmenter } = await import(new URL('../vendor/mediapipe/vision_bundle.mjs', import.meta.url).href);
     return ImageSegmenter.createFromOptions(
       { wasmLoaderPath: `${base}wasm/vision_wasm_internal.js`, wasmBinaryPath: `${base}wasm/vision_wasm_internal.wasm` },
       { baseOptions: { modelAssetPath: `${base}selfie_multiclass_256x256.tflite`, delegate: 'CPU' }, runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true },

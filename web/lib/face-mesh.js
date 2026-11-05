@@ -19,7 +19,8 @@ let landmarker = null;
 function faceLandmarker() {
   landmarker ??= (async () => {
     const base = new URL('../vendor/mediapipe/', import.meta.url).href;
-    const { FaceLandmarker } = await import('../vendor/mediapipe/vision_bundle.mjs');
+    // (By its URL: the vendored bundle isn't ours to type-check.)
+    const { FaceLandmarker } = await import(new URL('../vendor/mediapipe/vision_bundle.mjs', import.meta.url).href);
     return FaceLandmarker.createFromOptions(
       { wasmLoaderPath: `${base}wasm/vision_wasm_internal.js`, wasmBinaryPath: `${base}wasm/vision_wasm_internal.wasm` },
       { baseOptions: { modelAssetPath: `${base}face_landmarker.task`, delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 6, minFaceDetectionConfidence: 0.4, minFacePresenceConfidence: 0.4 },

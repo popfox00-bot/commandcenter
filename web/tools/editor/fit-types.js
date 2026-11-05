@@ -41,6 +41,7 @@
  * @property {boolean} [trim] @property {number} [blend] 0–100
  * @property {Tune | null} [tune] @property {Stroke[] | null} [paint] @property {Parts | null} [parts]
  * @property {boolean} [turn3d] turned in 3D to its pose @property {boolean} [mouth] its mouth matched
+ * @property {boolean} [keepShape] its own shape kept (placed as one piece, its own outline; the default)
  */
 
 export {};

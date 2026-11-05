@@ -525,8 +525,11 @@ saves the face it used.
    Cutout if you like. Characters saved before that have their face looked for with room around it.
 3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
    Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
-   realistic result rather than pinned to every point of the face it replaces. Its own mouth and its
-   own pose are kept as they are (reshaping them looked forced); two chips do it when you want:
+   realistic result rather than pinned to every point of the face it replaces. **Its own shape is kept**:
+   it's placed as one piece by its eyes, nose and mouth (the eyes counting most: moved, sized and turned,
+   never bent, narrowed or stretched, `rigidPlacement`), so it looks like itself; **📐 Fit its shape to
+   the face** bends and sizes it to that face instead (as described below). Its own mouth and its
+   own pose are kept as they are too (reshaping them looked forced); two chips do it when you want:
    **🧊 Turn to its pose** turns it in 3D to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
    gives how each is turned left/right and up/down, and the Character's own face, given that depth
    (its own, from the face mesh, when it was found by it: all 478 points of its real shape, its mouth

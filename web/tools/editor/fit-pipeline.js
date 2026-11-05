@@ -78,7 +78,18 @@ function hideOldFeatures(patch, photo, W, H, face, paint) {
   // Filled smoothly from the skin around them (a membrane: each color carried in from the edge), with
   // that skin's grain: they end up mostly under the Character, so a smooth fill is all that's wanted,
   // and it's quick.
-  const fill = smoothFill(photo, W, H, hole, { x0: bx0, y0: by0, x1: bx1, y1: by1 });
+  // (From the picture as it will be, the Character laid over the photo: so the fill carries on the new
+  // face's skin around it, not the old one's.)
+  const sx0 = Math.max(0, bx0 - 4); const sy0 = Math.max(0, by0 - 4); const sx1 = Math.min(W, bx1 + 4); const sy1 = Math.min(H, by1 + 4);
+  const view = Uint8ClampedArray.from(photo.subarray(sy0 * W * 4, sy1 * W * 4));
+  for (let y = sy0; y < sy1; y++) for (let x = sx0; x < sx1; x++) {
+    const X = x - x0; const Y = y - y0; if (X < 0 || Y < 0 || X >= pw || Y >= ph) continue;
+    const o = (Y * pw + X) * 4; const a = rgba[o + 3] / 255; if (!a) continue;
+    const v = ((y - sy0) * W + x) * 4;
+    for (let c = 0; c < 3; c++) view[v + c] = a * rgba[o + c] + (1 - a) * view[v + c];
+  }
+  const f0 = smoothFill(view, W, sy1 - sy0, hole.subarray(sy0 * W, sy1 * W), { x0: bx0, y0: by0 - sy0, x1: bx1, y1: by1 - sy0 });
+  const fill = { ...f0, y0: f0.y0 + sy0 };
   // Under the Character: its own pixels over the fill, as much as it covers there.
   for (let y = 0; y < fill.ph; y++) for (let x = 0; x < fill.pw; x++) {
     const fo = (y * fill.pw + x) * 4; const fa = fill.rgba[fo + 3]; if (!fa) continue;
@@ -100,14 +111,14 @@ function hideOldFeatures(patch, photo, W, H, face, paint) {
  * @param {import('./fit-types.js').Face} face @param {import('./fit-types.js').FitOptions} [opts]
  * @returns {import('./fit-types.js').Patch | null}
  */
-export function buildFitted(photo, W, H, img, charFace, face, { trim = true, blend = 70, tune = null, paint = null, parts = null, turn3d = false, mouth = false } = {}) {
+export function buildFitted(photo, W, H, img, charFace, face, { trim = true, blend = 70, tune = null, paint = null, parts = null, turn3d = false, mouth = false, keepShape = true } = {}) {
   // (How long each step took, in ms: kept on the patch as `timings`, for the diagnostics.)
   /** @type {Record<string, number>} */
   const timings = {};
   const step = (name, fn) => { const t0 = performance.now(); const r = fn(); timings[name] = (timings[name] ?? 0) + performance.now() - t0; return r; };
   step('outline', () => { face.outline ??= targetOutline(photo, W, H, face); face.skin ??= skinModel(photo, W, H, face); });
   const outline = face.outline; const s = blend / 100;
-  const patch = step('fit', () => fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint, turn3d, mouth }));
+  const patch = step('fit', () => fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint, turn3d, mouth, keepShape }));
   if (!patch) return null;
   if (outline) {
     step('recolor', () => recolor(patch, photo, W, H, outline, s, face));

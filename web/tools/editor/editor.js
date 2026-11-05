@@ -1276,7 +1276,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const { photo, W, H, face } = k < 1 ? previewOf(at.faceObj, k) : { photo: photo0, W: W0, H: H0, face: at.faceObj };
       const tune = at.tune && k < 1 ? { ...at.tune, dx: at.tune.dx * k, dy: at.tune.dy * k } : at.tune;
       const paint = at.paint?.length && k < 1 ? at.paint.map((st) => ({ ...st, r: st.r * k, pts: st.pts.map(([x, y]) => [x * k, y * k]) })) : at.paint;
-      const opts = { trim: at.trim, blend: at.blend, tune, paint, turn3d: !!at.turn3d, mouth: !!at.mouth };
+      const opts = { trim: at.trim, blend: at.blend, tune, paint, turn3d: !!at.turn3d, mouth: !!at.mouth, keepShape: !at.fitShape };
       // Off the page's thread (fit-worker.js), so the screen doesn't freeze; here if that can't be.
       let patch;
       try { patch = await fitOffThread(photo, W, H, img, charOf(at), face, at.parts, opts); } catch (err) {
@@ -1448,6 +1448,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         canFit ? el('button', { class: `chip${p.fit ? ' active' : ''}`, 'aria-pressed': String(p.fit), text: '🧬 Fit to face', onclick: () => placeOnFace(false, Math.max(0, p.face)) }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.trim ? ' active' : ''}`, 'aria-pressed': String(p.trim), text: '✂️ Trim to head', onclick: () => { p.trim = !p.trim; refreshPreview(); renderPanel(); } }) : null,
         // (Off unless asked for: each can look forced. Its own mouth and its own pose, as it is.)
+        // (Its own shape is kept unless asked: placed as one piece, never bent or stretched.)
+        canFit && p.fit ? el('button', { class: `chip${p.fitShape ? ' active' : ''}`, 'aria-pressed': String(!!p.fitShape), text: '📐 Fit its shape to the face', onclick: () => { p.fitShape = !p.fitShape; placeNote = p.fitShape ? 'Its shape bent and sized to the face it\'s on (less like itself).' : 'Its own shape, kept as it is: placed as one piece by its eyes, nose and mouth.'; refreshPreview(); renderPanel(); } }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.mouth ? ' active' : ''}`, 'aria-pressed': String(!!p.mouth), text: '👄 Match the mouth', onclick: () => { p.mouth = !p.mouth; placeNote = p.mouth ? 'Its mouth closed (or opened) to match the face it\'s on.' : 'Its own mouth, as it is.'; refreshPreview(); renderPanel(); } }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.turn3d ? ' active' : ''}`, 'aria-pressed': String(!!p.turn3d), text: '🧊 Turn to its pose', onclick: () => { p.turn3d = !p.turn3d; placeNote = p.turn3d ? 'Turned in 3D to the pose of the face it\'s on.' : 'As it faces in its own picture.'; refreshPreview(); renderPanel(); } }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.looks ? ' active' : ''}`, 'aria-pressed': String(!!p.looks), text: '🔀 Compare looks', onclick: () => { if (p.looks) { p.looks = null; renderPanel(); } else compareLooks(); } }) : null,

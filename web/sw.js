@@ -4,11 +4,12 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "24c205dfc94e",
+  "version": "639378cc88d4",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
     "apps/calendar/calendar.js",
+    "apps/fm/fm.js",
     "apps/games/fox/cc-frame.css",
     "apps/games/fox/fox.css",
     "apps/games/fox/fox.js",
@@ -24,10 +25,12 @@ const PRECACHE = {
     "apps/rap/rap-words.txt",
     "apps/rap/rap.js",
     "apps/settings/settings.js",
+    "apps/sports/sports.js",
     "apps/updates/college-sites.js",
     "apps/updates/sports-core.js",
     "apps/updates/updates.js",
     "apps/updates/weather-core.js",
+    "apps/weather/weather.js",
     "config.js",
     "decryption/FORMAT.md",
     "decryption/decrypt.html",
@@ -78,6 +81,7 @@ const PRECACHE = {
     "tools/editor/expand-ui.js",
     "tools/editor/expand-worker.js",
     "tools/editor/expand.js",
+    "tools/editor/face3d.js",
     "tools/editor/facefit.js",
     "tools/editor/facemask.js",
     "tools/editor/geometry.js",

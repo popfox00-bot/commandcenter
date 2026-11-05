@@ -1,5 +1,5 @@
-// Browser test for faces (`npm run test:web`): Photo Editor → Crop → 🙂 Level face, and 🎭 Face swap
-// into Collage with a mask image. The face library (vendor/face) is stood in for by a fake that
+// Browser test for faces (`npm run test:web`): the FM app (FaceMask): finding, leveling, cutting out
+// and inserting faces, Quick Swap. The face library (vendor/face) is stood in for by a fake that
 // "finds" one tilted face at known points, so no photo of a real person is needed (the geometry
 // itself is covered in test/face.test.js; the real library in a manual check).
 import { test, before, after } from 'node:test';
@@ -46,84 +46,94 @@ export function detectAllFaces(cv) {
   } };
 }`;
 
-test('faces: FaceMask → 🙂 Identify faces, 🙂 Level this face turns the photo so it is upright; 🎭 Face swap in Collage covers it with a mask', async () => {
+test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 Identify faces, 🙂 Level this face; Collage still matches a layer\'s colors', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
-  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // FM on the home screen.
+  await page.goto(`${origin}${BASE}#/`);
+  await page.waitForSelector('.app-tile[href="#/fm"]');
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
     x.fillStyle = '#c9a07a'; x.fillRect(0, 0, 400, 300);
     return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
   });
+  // The Photo Editor in Files: its own tabs and the standard editing tools, nothing for faces.
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  assert.equal(await page.getByRole('button', { name: '⚡ Quick Swap faces' }).count(), 0);
   await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  // The face tools are in a place of their own: a FaceMask tab beside Edit, Collage and Cutout. The
-  // editor's own tabs (and Crop, Markup) no longer have them.
-  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout', '🙂 FaceMask']);
+  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout']);
   assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['Adjust', 'Filters', 'Crop', 'Markup', 'Clean Up']);
-  await page.getByRole('tab', { name: 'Crop' }).click();
-  assert.equal(await page.getByRole('button', { name: '🙂 Level face' }).count(), 0);
-  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
-  await page.waitForFunction(() => location.hash === '#/files/facemask');
-  // All by itself: the same photo, only the face tools (no editing tabs or one-tap fixes).
+  assert.equal(await page.isVisible('text=✨ Auto-Enhance'), true);
+  assert.equal(await page.getByRole('button', { name: /Identify faces|Insert Character|Level/ }).count(), 0);
+  // An old link to the FaceMask tab opens FM.
+  await page.goto(`${origin}${BASE}#/files/facemask`);
+  await page.waitForFunction(() => location.hash === '#/fm');
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // FM: its own start (Quick Swap first), then only the face tools on the photo.
+  await page.getByRole('button', { name: '⚡ Quick Swap faces' }).waitFor();
+  await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
   await page.waitForSelector('.ed-modes', { state: 'hidden' });
   await page.waitForSelector('text=✨ Auto-Enhance', { state: 'hidden' });
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
   await page.getByRole('button', { name: '🙂 Level this face' }).click();
   await page.waitForSelector('text=Leveled: eyes level');
-  // Straightened by the tilt (20.6°), not turned a quarter (seen in Edit → Crop).
-  await page.getByRole('tab', { name: '✏️ Edit' }).click();
-  await page.waitForSelector('.ed-modes');
-  await page.getByRole('tab', { name: 'Crop' }).click();
-  const straighten = Number(await page.textContent('.ed-slider output'));
-  assert.ok(Math.abs(Math.abs(straighten) - 20.6) < 0.6, `straightened ${straighten}°`);
+  // Straightened by the tilt (20.6°), not turned a quarter: as kept in FM's own session.
+  const kept = () => page.evaluate(async (base) => { const { idb } = await import(`${base}lib/idb.js`); return (await idb.get('fm.session'))?.state; }, BASE);
+  const until = async (ok) => { for (let i = 0; i < 50; i++) { const v = await kept(); if (v && ok(v)) return v; await page.waitForTimeout(100); } return kept(); };
+  const st = await until((v) => Math.abs(v.straighten) > 1);
+  assert.ok(Math.abs(Math.abs(st.straighten) - 20.6) < 0.6 && !st.rotate, `straightened ${st.straighten}°, turned ${st.rotate}`);
   // Undo takes it back.
   await page.getByRole('button', { name: 'Undo' }).click();
-  assert.equal(Number(await page.textContent('.ed-slider output')), 0);
+  assert.ok(Math.abs((await until((v) => Math.abs(v.straighten) < 0.01)).straighten) < 0.01, 'undone');
+  // Files' photo is its own (FM's didn't replace it).
+  const files = await page.evaluate(async (base) => { const { idb } = await import(`${base}lib/idb.js`); return (await idb.get('editor.session'))?.name; }, BASE);
+  assert.equal(files, 'portrait.png');
 
-  // Face swap in Collage (Free / Superimpose): the photo as the background, a mask on the face.
-  await page.getByRole('tab', { name: '🧩 Collage' }).click();
+  // Collage (Free / Superimpose): no face swap there now; a layer still matches the colors behind it.
+  await page.goto(`${origin}${BASE}#/files/collage`);
   await page.waitForSelector('.cl-canvas');
   await page.getByRole('tab', { name: 'Free / Superimpose' }).click();
   await page.getByRole('button', { name: 'Background photo' }).click();
   await page.setInputFiles('#cl-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
-  await page.getByRole('button', { name: '🎭 Face swap' }).click();
-  await page.waitForSelector('dialog[open] >> text=Face swap');
+  await page.waitForTimeout(200);
+  assert.equal(await page.getByRole('button', { name: '🎭 Face swap' }).count(), 0);
   const mask = await page.evaluate(async () => {
     const c = new OffscreenCanvas(100, 120); const x = c.getContext('2d');
     x.fillStyle = '#ffcc00'; x.beginPath(); x.ellipse(50, 60, 48, 58, 0, 0, Math.PI * 2); x.fill();
     return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
   });
-  await page.setInputFiles('#cl-mask-file', { name: 'mask.png', mimeType: 'image/png', buffer: Buffer.from(mask) });
-  await page.waitForSelector('text=Covered 1 face');
-  // The mask sits on the face: yellow where the face is, the photo's color well away from it.
+  await page.getByRole('button', { name: '+ Photo' }).click();
+  await page.setInputFiles('#cl-file', { name: 'mask.png', mimeType: 'image/png', buffer: Buffer.from(mask) });
+  await page.waitForTimeout(300);
   const at = (u, v) => page.$eval('.cl-canvas', (c, [uu, vv]) => [...c.getContext('2d').getImageData(Math.round(uu * c.width), Math.round(vv * c.height), 1, 1).data], [u, v]);
-  const onFace = await at(0.5, 0.48); const away = await at(0.08, 0.92);
-  assert.ok(onFace[0] > 230 && onFace[1] > 180 && onFace[2] < 80, `mask on the face: ${onFace}`);
+  const onLayer = await at(0.5, 0.5); const away = await at(0.04, 0.96);
+  assert.ok(onLayer[0] > 230 && onLayer[1] > 180 && onLayer[2] < 80, `the layer: ${onLayer}`);
   assert.ok(Math.abs(away[0] - 201) < 12 && Math.abs(away[2] - 122) < 12, `the photo elsewhere: ${away}`);
-  // 🎨 Match color on the mask layer: its yellow moves toward the photo's tan behind it.
-  await page.locator('.cl-canvas').click({ position: await page.$eval('.cl-canvas', (c) => ({ x: c.clientWidth * 0.5, y: c.clientHeight * 0.48 })) });
+  // 🎨 Match color on the layer: its yellow moves toward the photo's tan behind it.
+  await page.locator('.cl-canvas').click({ position: await page.$eval('.cl-canvas', (c) => ({ x: c.clientWidth * 0.5, y: c.clientHeight * 0.5 })) });
   await page.waitForSelector('input[aria-label^="🎨 Match color"]');
   await page.$eval('input[aria-label^="🎨 Match color"]', (r) => { r.value = '100'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
   await page.waitForTimeout(200);
-  const matched = await at(0.5, 0.48);
-  assert.ok(matched[2] > onFace[2] + 25 && matched[1] < onFace[1], `matched toward the photo: ${matched} (was ${onFace})`);
+  const matched = await at(0.5, 0.5);
+  assert.ok(matched[2] > onLayer[2] + 25 && matched[1] < onLayer[1], `matched toward the photo: ${matched} (was ${onLayer})`);
   assert.deepEqual(errors, []);
   await context.close();
 });
 
-test('faces: ➕ Character in the editor goes on the face and matches the colors behind it; 🙂 Cut out face; Characters saved as a folder and installed again', async () => {
+test('faces: FM → ➕ Character goes on the face and matches the colors behind it; ✂️ a face saved as a Character; Characters saved as a folder and installed again', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, acceptDownloads: true });
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/fm`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // A Character: a bright green oval.
   await page.evaluate(async (base) => {
@@ -149,7 +159,6 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
     await page.locator('dialog[open].ed-char-pick').getByRole('button', { name: 'Green mask' }).click();
     await page.waitForSelector('.ed-panel >> text=On the face');
   };
-  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
   // ✂️ Cut out & save as Character: the face, cut out and named, kept with the others.
@@ -186,18 +195,8 @@ test('faces: ➕ Character in the editor goes on the face and matches the colors
   const matched = await pixel('.ed-canvas', 0.52, 0.48);
   assert.ok(matched[0] > plain[0] + 60 && matched[1] < plain[1] - 20, `matched to the warm photo: ${matched} (was ${plain})`);
 
-  // Cutout: 🙂 Cut out face traces around the head.
-  await page.getByRole('tab', { name: '✂️ Cutout' }).click();
-  await page.locator('dialog[open]').getByRole('button', { name: '✂️ Trace a cutout' }).click();
-  await page.waitForSelector('.co-canvas');
-  await page.getByRole('button', { name: '🙂 Cut out face' }).click();
-  await page.waitForSelector('text=Traced the face');
-  assert.equal(await page.isVisible('text=Show photo'), true, 'showing the cutout');
-  assert.equal(await page.$eval('.co-stage', (e) => !e.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))), true);
-
-  // All the Characters saved as a folder (a ZIP), then installed again.
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Close photo' }).click();
+  // All the Characters saved as a folder (a ZIP) from Cutout's list, then installed again.
+  await page.goto(`${origin}${BASE}#/files/cutout`);
   await page.waitForSelector('h3:text-is("Your Characters")');
   await page.getByRole('button', { name: '⬇ Save all…' }).click();
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('dialog[open]').getByRole('button', { name: '⬇ As a folder (.zip)' }).click()]);
@@ -299,8 +298,11 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   await page.mouse.up();
   await page.waitForSelector('text=Spot cleaned up');
 
-  // 🎭 Insert Character: on the bigger face, its red eyes on that face's eyes.
-  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
+  // FM: 🎭 Insert Character: on the bigger face, its red eyes on that face's eyes.
+  await page.goto(`${origin}${BASE}#/fm`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  await page.setInputFiles('#ed-file', { name: 'two.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForSelector('.ed-canvas');
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 2 faces');
   const place = async () => {
@@ -330,12 +332,19 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   await page.waitForTimeout(200);
   for (const [u, v] of [[0.25, 0.45], [0.35, 0.45], [0.65, 0.42], [0.75, 0.38]]) assert.ok(red(await pixel('.ed-canvas', u, v)), `an eye on an eye at ${u},${v}: ${await pixel('.ed-canvas', u, v)}`);
 
-  // Cutout: a patch is aimed with the magnifier and applied when the finger lifts.
+  // Cutout (in Files): a patch is aimed with the magnifier and applied when the finger lifts.
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.getByRole('button', { name: 'Continue' }).click(); // (Files' own photo, kept)
+  await page.waitForSelector('.ed-canvas');
   await page.getByRole('tab', { name: '✂️ Cutout' }).click();
   await page.locator('dialog[open]').getByRole('button', { name: '✂️ Trace a cutout' }).click();
   await page.waitForSelector('.co-canvas');
-  await page.getByRole('button', { name: '🙂 Cut out face' }).click();
-  await page.waitForSelector('text=Traced the face');
+  { // A rough trace around the middle of the photo.
+    const r = await page.$eval('.co-canvas', (e) => { const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; });
+    const pts = Array.from({ length: 24 }, (_, i) => { const a = (i / 24) * 2 * Math.PI; return [r[0] + r[2] * (0.5 + 0.3 * Math.cos(a)), r[1] + r[3] * (0.5 + 0.3 * Math.sin(a))]; });
+    await page.mouse.move(...pts[0]); await page.mouse.down(); for (const p of pts.slice(1)) await page.mouse.move(...p, { steps: 2 }); await page.mouse.move(...pts[0], { steps: 2 }); await page.mouse.up();
+    await page.waitForTimeout(300);
+  }
   await page.getByRole('radio', { name: '🩹 Patch fix' }).click();
   const co = await page.$eval('.co-canvas', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, e.width / r.width]; });
   const px = co[0] + co[2] * 0.3; const py = co[1] + co[3] * 0.85;
@@ -384,7 +393,7 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/fm`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
@@ -396,7 +405,6 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
   });
   await page.setInputFiles('#ed-file', { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  await page.getByRole('tab', { name: '🙂 FaceMask' }).click();
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
   await page.waitForTimeout(150);
@@ -467,7 +475,7 @@ test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and 
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/fm`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // Two drawn faces in the same place (the fake finds a face there in any 4:3 picture): the base has
   // no eyes drawn; the other has dark eyes where its landmarks put them.
@@ -490,7 +498,7 @@ test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and 
   assert.equal(await swap.isDisabled(), true);
   await page.setInputFiles('#qs-face', { name: 'face.png', mimeType: 'image/png', buffer: Buffer.from(face) });
   await swap.click();
-  await page.waitForFunction(() => location.hash === '#/files/facemask');
+  await page.waitForFunction(() => location.hash === '#/fm');
   await page.waitForSelector('.ed-panel >> text=/⚡ Swapped/');
   await page.waitForTimeout(250);
   // The new face's eyes are on the base face now, and the background around it is as it was.

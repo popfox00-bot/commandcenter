@@ -6,9 +6,9 @@
 // the photo seamlessly: at its edge it takes on what's next to it there (above, below, each side, each
 // differently), eased smoothly inward. Pure: RGBA in, patch pixels out.
 
-import { faceOutline, faceContour, alignOnFace, similarityFit, throughFit } from '../../lib/face-core.js';
-import { placedCorners } from './place.js';
+import { faceOutline, faceContour, alignOnFace, similarityFit } from '../../lib/face-core.js';
 import { membrane } from './cleanup.js';
+import { turnFace } from './face3d.js';
 import { featherAlpha } from '../cutout/cutout-core.js';
 import { rgbToLab, colorStats, matchColors } from '../../lib/color-match.js';
 
@@ -166,33 +166,78 @@ function foreheadOf(pts, w, h, outline) {
  * it replaces: placed and turned by its inner features (eyes most, then mouth and nose) on that
  * face's, so it sits where that face is and looks where it looks, its own face kept symmetric; then
  * sized so the new face has a natural forehead within that face's own height (hairline to chin): its
- * forehead mostly its own, a little toward a usual one (about 0.45 of the brow-to-chin length), its chin on
- * that face's chin. Only ever bigger (up to 1.3×), and never much wider than that face's jaw. `outline`: that
+ * forehead mostly its own, a little toward a usual one (about 0.45 of the brow-to-chin length); lined up
+ * across by the eyes and down by the chin. Turned by the eye line, and narrowed across (`squash`) for a
+ * face turned away. Only ever bigger (up to 1.3×), and never much wider than that face's jaw. `outline`: that
  * face's (targetOutline); `own`: the Character's own, in its pixels. { x, y, width, rot }.
  */
 export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, own = null } = {}) {
   if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return bestPlacement(charFace, cw, ch, face, W, H);
   const C = (i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]; const T = (i) => [face.pts[i][0] * W, face.pts[i][1] * H];
-  const m = similarityFit(INNER.map(C), INNER.map(T), INNER.map((i) => (i >= 36 && i <= 47 ? 3 : i >= 48 ? 2 : 1)));
-  if (!(m.s > 0) || !Number.isFinite(m.s)) return bestPlacement(charFace, cw, ch, face, W, H);
-  let k = 1; let anchor = null; let chinP = null;
+  // Turned by its eye line onto that face's (not twisted by a nose or mouth that a turned head shows off-center).
+  const eyeLine = (P) => { const m = (lo, hi) => { let x = 0; let y = 0; for (let i = lo; i <= hi; i++) { x += P(i)[0]; y += P(i)[1]; } return [x / (hi - lo + 1), y / (hi - lo + 1)]; }; const l = m(36, 41); const r = m(42, 47); return Math.atan2(r[1] - l[1], r[0] - l[0]); };
+  let rot = eyeLine(T) - eyeLine(C); rot = Math.atan2(Math.sin(rot), Math.cos(rot));
+  // Then sized and placed by its inner features in that face's own frame: as tall as they are there, and
+  // as wide, so a face turned away (narrower across) gets a Character narrowed to match (0.75× to 1.1×).
+  const co = Math.cos(rot); const si = Math.sin(rot);
+  const wts = INNER.map((i) => (i >= 36 && i <= 47 ? 3 : i >= 48 ? 2 : 1)); const sw = wts.reduce((t, v) => t + v, 0);
+  const tF = INNER.map((i) => { const [x, y] = T(i); return [x * co + y * si, -x * si + y * co]; }); const cP = INNER.map(C);
+  const mean = (pts, k) => pts.reduce((t, p, j) => t + p[k] * wts[j], 0) / sw;
+  const mt = [mean(tF, 0), mean(tF, 1)]; const mc = [mean(cP, 0), mean(cP, 1)];
+  const axis = (k) => { let num = 0; let den = 0; cP.forEach((p, j) => { num += wts[j] * (p[k] - mc[k]) * (tF[j][k] - mt[k]); den += wts[j] * (p[k] - mc[k]) ** 2; }); return den > 0 ? num / den : NaN; };
+  const sy = axis(1); const sxRaw = axis(0);
+  if (!(sy > 0) || !(sxRaw > 0)) return bestPlacement(charFace, cw, ch, face, W, H);
+  const squash = Math.max(0.75, Math.min(1.1, sxRaw / sy)); const sx = sy * squash;
+  // In that face's own frame (across, down): a Character point as placed by its features, and a point of that face.
+  const frame = ([x, y]) => [mt[0] + (x - mc[0]) * sx, mt[1] + (y - mc[1]) * sy];
+  const tFrame = ([x, y]) => [x * co + y * si, -x * si + y * co];
+  const mid = (P, lo, hi) => { let x = 0; let y = 0; for (let i = lo; i <= hi; i++) { x += P(i)[0]; y += P(i)[1]; } return [x / (hi - lo + 1), y / (hi - lo + 1)]; };
+  const eyesT = tFrame([(mid(T, 36, 41)[0] + mid(T, 42, 47)[0]) / 2, (mid(T, 36, 41)[1] + mid(T, 42, 47)[1]) / 2]);
+  const eyesC = frame([(mid(C, 36, 41)[0] + mid(C, 42, 47)[0]) / 2, (mid(C, 36, 41)[1] + mid(C, 42, 47)[1]) / 2]);
+  const chinT = tFrame(T(8)); const chinC = frame(C(8));
+  // Sized so its eyes-to-chin length is that face's (a turned or longer face: bigger), or bigger still for
+  // a natural forehead; only ever bigger than its features alone make it, up to 1.3×, never much wider than that jaw.
+  let k = chinC[1] - eyesC[1] > 1 ? (chinT[1] - eyesT[1]) / (chinC[1] - eyesC[1]) : 1;
   const tf = outline ? foreheadOf(face.pts, W, H, outline) : null; const cf = foreheadOf(charFace.pts, cw, ch, own);
   if (tf && cf) {
     // (Its own forehead cut off by the edge of its cut-out: at least that tall, so no taller than the face's own.)
     const rC = cf[2] ? Math.max(cf[0] / cf[1], tf[0] / tf[1]) : cf[0] / cf[1];
     // Its own, nudged toward a usual one only if that's taller (so the same face put back stays as it was).
     const rT = Math.max(rC, Math.max(0.3, Math.min(0.5, 0.8 * rC + 0.2 * 0.45)));
-    k = (tf[0] + tf[1]) / (1 + rT) / (m.s * cf[1]);
-    const jawT = Math.hypot(T(16)[0] - T(0)[0], T(16)[1] - T(0)[1]); const jawC = Math.hypot(C(16)[0] - C(0)[0], C(16)[1] - C(0)[1]);
-    if (jawC > 0) k = Math.min(k, (1.25 * jawT) / (m.s * jawC));
-    // Only ever bigger than its features alone make it (never a smaller face with a bigger forehead), and only so far.
-    k = Math.max(1, Math.min(1.3, k));
-    // Grown (or shrunk) about its chin, which goes on that face's chin.
-    chinP = throughFit(m, C(8)); anchor = T(8);
+    k = Math.max(k, (tf[0] + tf[1]) / (1 + rT) / (sy * cf[1]));
   }
-  const P = throughFit(m, [cw / 2, ch / 2]);
-  const c = anchor ? [anchor[0] + k * (P[0] - chinP[0]), anchor[1] + k * (P[1] - chinP[1])] : P;
-  return { x: c[0], y: c[1], width: m.s * k * cw, rot: m.rot };
+  const jawT = Math.hypot(T(16)[0] - T(0)[0], T(16)[1] - T(0)[1]); const jawC = Math.hypot(C(16)[0] - C(0)[0], C(16)[1] - C(0)[1]);
+  if (jawC > 0) k = Math.min(k, (1.25 * jawT) / (sx * jawC));
+  k = Math.max(1, Math.min(1.3, k));
+  // Lined up across the face by its eyes, and down it by its chin (a turned head's chin isn't under its eyes the
+  // way a face seen straight on has it: lining up by the chin across would pull the whole face sideways).
+  const down = (q) => chinT[1] + k * (q[1] - chinC[1]);
+  // Its nose, mouth and chin slanted along under its eyes to where that face has them (a turned head's
+  // middle line leans): fitted to them, gently (at most a fifth of the way across for each step down).
+  let num = 0; let den = 0;
+  for (const i of [30, 33, 51, 57, 62, 66, 8]) {
+    const q = frame(C(i)); const t = tFrame(T(i)); const dv = down(q) - eyesT[1];
+    num += dv * (t[0] - (eyesT[0] + k * (q[0] - eyesC[0])));
+    den += dv * dv;
+  }
+  const shear = den > 0 ? Math.max(-0.2, Math.min(0.2, num / den)) : 0;
+  const g = (q) => { const v = down(q); return [eyesT[0] + k * (q[0] - eyesC[0]) + shear * (v - eyesT[1]), v]; };
+  const pic = (p2) => { const [u, v] = g(frame(p2)); return [u * co - v * si, u * si + v * co]; };
+  // The whole of it as one map, Character pixels → picture pixels: [a, b, c, d, e, f] for (x, y) → (a x + b y + c, d x + e y + f).
+  const o = pic([0, 0]); const ax = pic([1, 0]); const ay = pic([0, 1]);
+  const affine = [ax[0] - o[0], ay[0] - o[0], o[0], ax[1] - o[1], ay[1] - o[1], o[1]];
+  const [x, y] = pic([cw / 2, ch / 2]);
+  return { x, y, width: sy * k * cw, rot, squash, shear, affine };
+}
+
+/** The Character turned in 3D to `face`'s pose (turnFace), worked out once per picture and face. */
+const turnCache = new WeakMap();
+export function turnedFor(img, cw, ch, charFace, face, W, H) {
+  let m = turnCache.get(img); if (!m) { m = new WeakMap(); turnCache.set(img, m); }
+  const hit = m.get(face); if (hit && hit.charFace === charFace && hit.W === W && hit.H === H) return hit.t;
+  const t = turnFace(img, cw, ch, charFace, face, W, H);
+  m.set(face, { charFace, W, H, t });
+  return t;
 }
 
 /** The Character's own outline (targetOutline on its own pixels), worked out once per picture. */
@@ -246,7 +291,9 @@ function ownMask(img, cw, ch, charFace) {
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real } = {}) {
+  // Turned in 3D first (face3d.js) to the pose of the face it goes on, when they're posed differently.
+  if (turn) { const t = turnedFor(img, cw, ch, charFace, face, W, H); if (t) ({ rgba: img, w: cw, h: ch, face: charFace } = t); }
   // Realistic (the default): placed by its inner features and sized for a natural face (realPlacement),
   // and bent only along its jaw (toward that face's), its eyes, nose and mouth left as they are.
   const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;
@@ -254,18 +301,26 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   const base = real2 ? realPlacement(charFace, cw, ch, face, W, H, { outline, own: ownOutline(img, cw, ch, charFace) }) : bestPlacement(charFace, cw, ch, face, W, H);
   // Where the Character's edges go when just placed by the eyes: anchors that keep it steady far from the face.
   const anchorsSrc = [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]];
+  // (squash: narrowed across, for a face turned away.)
   const k = base.width / cw; const co = Math.cos(base.rot); const si = Math.sin(base.rot);
-  const place = ([x, y]) => { const dx = (x - cw / 2) * k; const dy = (y - ch / 2) * k; return [base.x + dx * co - dy * si, base.y + dx * si + dy * co]; };
-  const tgt = real2 ? CONTROL.map((i) => (i <= 16 ? [face.pts[i][0] * W, face.pts[i][1] * H] : place([charFace.pts[i][0] * cw, charFace.pts[i][1] * ch])))
+  // (Realistic placement gives its whole map, `affine`: narrowed and slanted for a turned head.)
+  const A = base.affine ?? (() => { const kx = k * (base.squash ?? 1); return [kx * co, -k * si, base.x - (cw / 2) * kx * co + (ch / 2) * k * si, kx * si, k * co, base.y - (cw / 2) * kx * si - (ch / 2) * k * co]; })();
+  const det = A[0] * A[4] - A[1] * A[3];
+  const place = ([x, y]) => [A[0] * x + A[1] * y + A[2], A[3] * x + A[4] * y + A[5]];
+  // (Realistic: each jaw point pulled toward that face's only a little way, never far: a turned head's
+  // near-side jaw would otherwise squeeze its cheek and eye against its pinned features.)
+  const jawW = usePts ? Math.hypot((face.pts[16][0] - face.pts[0][0]) * W, (face.pts[16][1] - face.pts[0][1]) * H) : 0;
+  const near = (p, q, r) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); return d <= r ? q : [p[0] + ((q[0] - p[0]) * r) / d, p[1] + ((q[1] - p[1]) * r) / d]; };
+  const tgt = real2 ? CONTROL.map((i) => { const own2 = place([charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]); return i <= 16 ? near(own2, [face.pts[i][0] * W, face.pts[i][1] * H], 0.06 * jawW) : own2; })
     : usePts ? CONTROL.map((i) => [face.pts[i][0] * W, face.pts[i][1] * H]) : [face.eyes[0], face.eyes[1], face.mouth].map(([u, v]) => [u * W, v * H]);
   const src = usePts ? CONTROL.map((i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]) : [charFace.eyes[0], charFace.eyes[1], charFace.mouth].map(([u, v]) => [u * cw, v * ch]);
   // Picture point → Character point (the inverse direction, for sampling): mostly the plain placement
   // (its face kept as it is: eyes, nose and mouth in their own proportions), bent only by `bend` of
   // the way toward meeting the face's landmarks (so its outline follows the new face's jaw).
   const mls = mlsMap([...tgt, ...anchorsSrc.map(place)], [...src, ...anchorsSrc]);
-  const unplace = (x, y) => { const dx = x - base.x; const dy = y - base.y; return [(dx * co + dy * si) / k + cw / 2, (-dx * si + dy * co) / k + ch / 2]; };
+  const unplace = (x, y) => { const dx = x - A[2]; const dy = y - A[5]; return [(A[4] * dx - A[1] * dy) / det, (-A[3] * dx + A[0] * dy) / det]; };
   const map = (x, y) => { const r = unplace(x, y); if (bend <= 0) return r; const q = mls(x, y); return [r[0] + bend * (q[0] - r[0]), r[1] + bend * (q[1] - r[1])]; };
-  const cs = placedCorners(base, cw / ch);
+  const cs = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(place);
   const pad = base.width * 0.06;
   // Room for the whole face it goes on too (its outline and a little past it), so the blend can reach
   // the parts of it the Character doesn't cover.

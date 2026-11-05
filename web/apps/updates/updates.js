@@ -1,7 +1,8 @@
-// Updates app: Weather (NWS alerts and forecast, air quality) and Sports (a calendar of your teams'
-// games, with live scores and results, plus college football near your ZIP). Both load straight from public sources on the phone; no setup needed.
-// Push notifications for the same things come from the weather-alerts and sports jobs.
-// Routes: #/updates (weather), #/updates/sports.
+// Weather (NWS alerts and forecast, air quality) and Sports (a calendar of your teams' games, with
+// live scores and results, plus college football near your ZIP): two apps on the home screen
+// (web/apps/weather, web/apps/sports), each mounting its own part of this module with `only`. Both load
+// straight from public sources on the phone; no setup needed. Push notifications for the same things
+// come from the weather-alerts and sports jobs. Routes: #/weather, #/sports.
 
 import { el, store } from '../../lib/dom.js';
 import * as W from './weather-core.js';
@@ -28,19 +29,15 @@ const ago = (t) => {
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
-export function mount(host) {
-  const seg = el('div', { class: 'segmented upd-tabs', role: 'tablist' });
+/** mount(host, { only }): the Weather app (`only: 'weather'`) or the Sports app (`only: 'sports'`). */
+export function mount(host, { only = 'weather' } = {}) {
   const panes = { weather: el('section', { class: 'upd-pane' }), sports: el('section', { class: 'upd-pane' }) };
-  host.append(seg, ...Object.values(panes));
+  host.append(panes[only]);
   const timers = [];
   let active = null;
 
-  const current = () => (location.hash.split('/')[2] === 'sports' ? 'sports' : 'weather');
   function show() {
-    const id = current();
-    seg.replaceChildren(...[['weather', '🌤 Weather'], ['sports', '🏟 Sports']].map(([k, label]) => el('a', {
-      class: `seg${k === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(k === id), text: label, href: k === 'weather' ? '#/updates' : '#/updates/sports',
-    })));
+    const id = only;
     for (const [k, p] of Object.entries(panes)) p.hidden = k !== id;
     if (active !== id) { active = id; (id === 'weather' ? weather : sports).load(); }
   }
@@ -488,13 +485,10 @@ export function mount(host) {
     return box;
   }
 
-  const onHash = () => { if (location.hash.startsWith('#/updates')) show(); };
   const onVisible = () => { if (document.visibilityState === 'visible' && active) (active === 'weather' ? weather : sports).load(); };
-  window.addEventListener('hashchange', onHash);
   document.addEventListener('visibilitychange', onVisible);
   show();
   return () => {
-    window.removeEventListener('hashchange', onHash);
     document.removeEventListener('visibilitychange', onVisible);
     for (const t of timers) t();
   };

@@ -1,12 +1,12 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen of app icons: **Calendar**, **Updates**,
-**Notes**, **Files**, **Draw**, **QR**, **Games** and **Settings** (the order can be changed in
+A personal, phone-first app. It opens on a home screen of app icons: **Calendar**, **Weather**,
+**Sports**, **Notes**, **Files**, **FM**, **Draw**, **QR**, **Rap**, **Games** and **Settings** (the order can be changed in
 Settings → Edit Home Screen; **Jobs** is opened from Settings).
 
-- **Everything but Updates works offline** (after the first visit, from the phone's cache): Calendar,
-  Notes, Files, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
-  one with no connection. Only what's online by nature needs one: Updates (weather, sports), Saved
+- **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
+  Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
+  one with no connection. Only what's online by nature needs one: Weather, Sports, Saved
   Files (your Drive) and Jobs.
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
   setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
@@ -17,10 +17,11 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
   sketching canvas that saves to Photos or to Saved Files. [QR](#qr--barcode): scan codes with a
   link safety check before anything opens, and make your own QR codes.
 - **[Calendar](#calendar)**: your own events, in a week, day or month view, kept on the phone.
-- **[Updates](#updates)**: weather (Weather Service alerts, forecast, freezes, wind, air quality for
-  ZIP 80214 by default) and sports (a calendar of your teams' games, plus college football near
-  your ZIP, with live scores, TV, lines and results). Works on the phone with no setup; the same
-  rules drive push notifications from two jobs.
+- **[Weather](#weather)** (Weather Service alerts, forecast, freezes, wind, air quality for ZIP 80214
+  by default) and **[Sports](#sports)** (a calendar of your teams' games, plus college football near
+  your ZIP, with live scores, TV, lines and results): two apps. Both work on the phone with no setup;
+  the same rules drive push notifications from two jobs.
+- **[FM](#fm-facemask)** (FaceMask): face swaps, ⚡ Quick Swap and Characters, on the phone, offline.
 - **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
@@ -51,8 +52,9 @@ choices that keep usage under them.
 ## Contents
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
+- [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
-- [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
+- [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
 - [Cloud setup](#cloud-setup): [ntfy](#1-ntfy) · [Cloudflare](#2-cloudflare-worker--d1) · [GitHub](#3-github-secrets-and-token) · [PWA on iPhone](#4-install-the-pwa-on-iphone)
@@ -130,53 +132,6 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   pointer. **⤢ Fit** goes back to the whole photo (`web/lib/zoom.js`).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
-- **🙂 FaceMask** (a tab of its own beside ✏️ Edit, 🧩 Collage and ✂️ Cutout: the same photo, with only
-  the face tools): everything for faces, in three steps, or in one with **⚡ Quick Swap**: two photos,
-  the one to change and then the one with the new face (on the start screen, **⚡ Quick Swap faces**;
-  in FaceMask, **⚡ Quick Swap** offers the open photo as the first). The biggest face in the second is
-  cut out, fitted onto the biggest face in the first, recolored and blended (all as in step 3 below)
-  and placed as one undo step, ready to save with **Done**; **✂️ Keep that face as a Character**
-  saves the face it used.
-  1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
-     with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
-  2. **✂️ Cut out & save as Character**: the face, cut out in one go along its own outline from its
-     landmarks (the jaw from ear to ear, the forehead up toward the hairline) with a generous border
-     around it, so none of its detail is lost; it's trimmed to fit when it's put on a face. Its edge is
-     softened, and it's shown, named and kept with your Characters, along
-     with where its eyes, nose, mouth and jaw are (so it's always fitted by its real features; a face
-     cropped this tight is hard to find again) (`web/tools/editor/facemask.js`). Fine-tune its edge in
-     Cutout if you like. Characters saved before that have their face looked for with room around it.
-  3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
-     Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
-     realistic result rather than pinned to every point of the face it replaces: placed and turned by
-     its eyes, nose and mouth on that face's (so it's where that face is and looks where it looks, its
-     own face kept symmetric), then sized so the new face has a natural forehead within that face's own
-     height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
-     1.3×, and never much wider than that jaw). Only its jaw is bent a little toward that face's
-     (moving least squares, a third of the way), its eyes, nose and mouth keep their own proportions,
-     and its forehead fades gently into the one it's on. It's **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
-     hairline, found in the photo (from the brows up, where the skin gives way to hair), with the soft
-     edge inside it (`web/tools/editor/facefit.js`). The outline ends where the face's own skin does:
-     along lines out from the nose and up from the brows, each point is compared with the skin just
-     before it (so shading, a redder cheek or a paler forehead are still skin), and the edge is where
-     it changes to something else: hair over a temple or cheek, the far side of a turned face. Only
-     the Character's own face goes in (its own jaw and hairline, found the same way), never the hair,
-     background or anything else (a flower behind an ear) kept in its border. A Character looking
-     the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
-     Any other image covers the face, turned with it.
-     **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
-     (the same way all over, so its own shading and detail stay), then blended both ways at its border:
-     it's matched to the face's own skin there (never the hair or background past it), and what's left
-     of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
-     and any skin of that face past its outline, found by its skin color) takes on its colors, easing
-     back to the photo further out, so nothing of the old face stands out. Its edges fade in widely,
-     so it looks part of the face rather than cut out and laid on it.
-     Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
-     to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
-     hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
-     **✓ Place** paints it in at full detail: one undo step, part of every export.
-  **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
-  mouth (quarter turns and straighten; undo to go back).
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
   overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
   it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
@@ -318,9 +273,6 @@ Characters open). Each photo is handed over once (again after new edits).
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
   Delete and Opacity act on the selected layer. **🎨 Match color** blends the selected layer into
   the background photo behind it (or the background color), from 0 (as it is) to 100.
-- **🎭 Face swap** (with a background photo): every face in it is covered by a Character from Cutout
-  (cut a face out and save it: it's lined up by its own eyes and mouth) or any mask image, each sized, centered and turned to its face, as
-  layers to move and adjust like any other, like a camera filter.
 - Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
   Work is autosaved.
 
@@ -329,9 +281,6 @@ Characters open). Each photo is handed over once (again after new edits).
 Cut an object out of a photo: trace around it with your finger (**Trace**), with undo/redo and an
 **Edge softness** slider. **Preview cutout** shows the result on a checkerboard.
 
-- **🙂 Cut out face** finds the faces (on the phone) and traces around the biggest one's head (an
-  oval from the eyes and mouth, with the forehead), smart edges bringing it in to the head's own
-  edge; **🙂 All faces** traces every face. Fix the edge as usual, then **Save as Character**.
 - **Your Characters as a folder**: **⬇ Save all…** saves every Character as `Characters.zip`, a
   "Characters" folder of their images with a `characters.json` of their names; on a computer it can
   also write that folder straight to disk, and with Saved Files set up, put it in a "Characters"
@@ -546,9 +495,69 @@ npm run test:web        # browser tests in Chromium: conversions, WebP encoder, 
 Add a tool: create `web/tools/<id>/<id>.js` exporting `mount(host)` (return an unmount function),
 add it to `web/tools/index.js`, and run `npm run precache`.
 
-## Updates
+## FM (FaceMask)
 
-Open **Updates** on the home screen. Both tabs load directly from public sources on the phone (no
+Everything for faces, an app of its own on the home screen (`web/apps/fm/`: the photo editor with only
+its face tools, and a photo of its own, kept apart from the one open in Files), in three steps, or in one with **⚡ Quick Swap**: two photos,
+the one to change and then the one with the new face (on its start screen, **⚡ Quick Swap faces**;
+with a photo open, **⚡ Quick Swap** offers it as the first). The biggest face in the second is
+cut out, fitted onto the biggest face in the first, recolored and blended (all as in step 3 below)
+and placed as one undo step, ready to save with **Done**; **✂️ Keep that face as a Character**
+saves the face it used.
+1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
+   with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
+2. **✂️ Cut out & save as Character**: the face, cut out in one go along its own outline from its
+   landmarks (the jaw from ear to ear, the forehead up toward the hairline) with a generous border
+   around it, so none of its detail is lost; it's trimmed to fit when it's put on a face. Its edge is
+   softened, and it's shown, named and kept with your Characters, along
+   with where its eyes, nose, mouth and jaw are (so it's always fitted by its real features; a face
+   cropped this tight is hard to find again) (`web/tools/editor/facemask.js`). Fine-tune its edge in
+   Cutout if you like. Characters saved before that have their face looked for with room around it.
+3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
+   Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
+   realistic result rather than pinned to every point of the face it replaces. First it's **turned in
+   3D** to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
+   gives how each is turned left/right and up/down, and the Character's own face, given that depth,
+   is turned by the difference (most of the left/right, a little of the up/down) and drawn again
+   over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
+   (`web/tools/editor/face3d.js`). A Character photographed turned, being turned toward the side it
+   barely shows, is first turned to face straight on and made symmetric there: its far side drawn
+   from its well-seen near side, flipped across its middle line (more of it the more it was turned),
+   then turned to the pose, so that side is a full face rather than a thin strip stretched wide. Then it's turned by its eye line
+   onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
+   narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
+   them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own
+   height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
+   1.3×, and never much wider than that jaw). Only its jaw is bent a little toward that face's
+   (moving least squares, a third of the way), its eyes, nose and mouth keep their own proportions,
+   and its forehead fades gently into the one it's on. It's **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
+   hairline, found in the photo (from the brows up, where the skin gives way to hair), with the soft
+   edge inside it (`web/tools/editor/facefit.js`). The outline ends where the face's own skin does:
+   along lines out from the nose and up from the brows, each point is compared with the skin just
+   before it (so shading, a redder cheek or a paler forehead are still skin), and the edge is where
+   it changes to something else: hair over a temple or cheek, the far side of a turned face. Only
+   the Character's own face goes in (its own jaw and hairline, found the same way), never the hair,
+   background or anything else (a flower behind an ear) kept in its border. A Character looking
+   the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
+   Any other image covers the face, turned with it.
+   **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
+   (the same way all over, so its own shading and detail stay), then blended both ways at its border:
+   it's matched to the face's own skin there (never the hair or background past it), and what's left
+   of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
+   and any skin of that face past its outline, found by its skin color) takes on its colors, easing
+   back to the photo further out, so nothing of the old face stands out. Its edges fade in widely,
+   so it looks part of the face rather than cut out and laid on it.
+   Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
+   to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
+   hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
+   **✓ Place** paints it in at full detail: one undo step, part of every export.
+**🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
+mouth (quarter turns and straighten; undo to go back).
+
+## Weather and Sports
+
+**Weather** and **Sports** are two apps on the home screen (once one app, Updates, with a tab for
+each; its old links open the right one). Both load directly from public sources on the phone (no
 account, no key, no setup) and refresh when you come back to the app.
 
 ### Weather
@@ -621,7 +630,7 @@ are stored on the phone).
 **Try them without any setup:** Actions → **cc-try** → Run workflow. It checks every data source
 (status, CORS for the app, robots.txt) and runs both jobs in dry-run mode: nothing is stored, and the
 notifications they *would* send are printed in the log. It also runs automatically on pushes that
-change a job or the Updates app.
+change a job or the Weather and Sports apps.
 
 **Real pushes** need the [cloud setup](#cloud-setup) (ntfy, the Worker, GitHub secrets), then turn on
 the schedule in `cc-scheduled.yml` (it runs every 20 minutes; the weather job is due every run, the
@@ -730,7 +739,7 @@ wake itself up at a set time, so reminders have to come from something that's al
 here (and **Disconnect this phone**).
 
 **Edit Home Screen** puts the apps in the order you like (↑ ↓ next to each; **Reset to default order**:
-Calendar, Updates, Notes, Files, Draw, QR, Games, Settings). **Jobs** (background runs, push
+Calendar, Weather, Sports, Notes, Files, FM, Draw, QR, Rap, Games, Settings). **Jobs** (background runs, push
 notifications and their setup) opens from here too, and its **‹ Settings** leads back.
 
 **Settings** also sets the **background color** for the whole app: System (follows

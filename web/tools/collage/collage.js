@@ -288,9 +288,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           s.base ? el('button', { class: 'btn small-btn ghost', text: 'Remove background', onclick: () => commit({ ...st(), base: null, aspect: st().aspect === 'base' ? '1:1' : st().aspect }) }) : null),
         el('div', { class: 'row wrap' },
           el('button', { class: 'btn small-btn primary', text: '+ Photo', onclick: () => pick({ kind: 'layer' }, true) }),
-          el('button', { class: 'btn small-btn primary', text: '+ Character', onclick: chooseCharacter }),
-          s.base ? el('button', { class: 'btn small-btn', text: '🎭 Face swap', onclick: faceSwap }) : null),
-        faceNote ? el('p', { class: 'small muted', 'aria-live': 'polite', text: faceNote }) : null,
+          el('button', { class: 'btn small-btn primary', text: '+ Character', onclick: chooseCharacter })),
         layer ? el('div', { class: 'row wrap' },
           el('button', { class: 'btn small-btn', text: '⇋ Flip', onclick: () => upd({ flip: !layer.flip }) }),
           el('button', { class: 'btn small-btn', text: 'Forward', disabled: idx === s.layers.length - 1, onclick: () => { const L = [...st().layers]; [L[idx], L[idx + 1]] = [L[idx + 1], L[idx]]; commit({ ...st(), layers: L }); } }),
@@ -311,67 +309,6 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     const n = LAYOUTS[st().layout].cells.length;
     for (let i = 0; i < n; i++) if (!st().cells[i]?.src) return i;
     return 0;
-  }
-
-  // ---------- face swap ----------
-
-  let faceNote = '';
-  /** What goes on the faces: a Character, or a mask image picked from the phone. Resolves to a blob, or null. */
-  async function chooseMask() {
-    const list = await listCharacters();
-    return new Promise((resolve) => {
-      let picked = null;
-      const file = el('input', { type: 'file', accept: 'image/*,.heic,.heif', class: 'visually-hidden', id: 'cl-mask-file' });
-      const dlg = el('dialog', { class: 'ed-dialog' }, el('div', { class: 'sheet' },
-        el('h2', { text: 'Face swap' }),
-        el('p', { class: 'small muted', text: 'Put one of your Characters (from Cutout) or any mask image on every face found. Move, resize or turn them after.' }),
-        list.length ? el('div', { class: 'char-grid' }) : el('p', { class: 'muted small', text: 'No Characters yet: cut a face out in Cutout and save it as a Character, or use a mask image.' }),
-        el('label', { class: 'btn block', for: 'cl-mask-file', text: '🖼 A mask image…' }), file,
-        el('div', { class: 'row end' }, el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => dlg.close() }))));
-      const grid = dlg.querySelector('.char-grid'); const urls = [];
-      (async () => {
-        for (const c of list) {
-          const blob = await getCharacterBlob(c.id); if (!blob) continue;
-          const u = URL.createObjectURL(blob); urls.push(u);
-          grid.append(el('button', { type: 'button', class: 'char-card', 'aria-label': c.name, onclick: () => { picked = blob; dlg.close(); } }, el('span', { class: 'checker' }, el('img', { src: u, alt: '' })), el('span', { class: 'small', text: c.name })));
-        }
-      })();
-      file.addEventListener('change', () => { picked = file.files[0] ?? null; dlg.close(); });
-      dlg.addEventListener('close', () => { dlg.remove(); urls.forEach((u) => URL.revokeObjectURL(u)); resolve(picked); });
-      document.body.append(dlg); dlg.showModal();
-    });
-  }
-
-  /**
-   * 🎭 Face swap: the faces in the background photo (found on the phone), each covered by the Character
-   * or mask image chosen, as a layer sized, placed and turned to the face (then movable like any layer).
-   */
-  async function faceSwap() {
-    const s = st();
-    const base = images.get(s.base);
-    if (!base) { alert('Choose a background photo with faces first.'); return; }
-    faceNote = 'Looking for faces…'; renderPanel();
-    let faces;
-    try { const { detectFaces } = await import('../../lib/face.js'); faces = await detectFaces(base.bmp); } catch (err) { faceNote = `Couldn't look for faces: ${err.message}`; renderPanel(); return; }
-    if (!faces.length) { faceNote = 'No face found in the background photo.'; renderPanel(); return; }
-    faceNote = `${faces.length} face${faces.length === 1 ? '' : 's'} found. Pick what goes on ${faces.length === 1 ? 'it' : 'them'}.`; renderPanel();
-    const blob = await chooseMask();
-    if (!blob) { faceNote = ''; renderPanel(); return; }
-    const id = await addImage(blob); const im = images.get(id);
-    const { maskLayer, alignOnFace } = await import('../../lib/face-core.js');
-    // A Character with a face of its own (a face cut out in Cutout): its eyes and mouth lined up on
-    // each face's. Otherwise (a mask drawing) it covers each face, turned with it.
-    let own = null;
-    try { const { detectFaces } = await import('../../lib/face.js'); own = (await detectFaces(im.bmp, { minScore: 0.5 })).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0] ?? null; } catch { own = null; }
-    const at = (f) => {
-      if (!own) return maskLayer(f, im.w / im.h, base.w / base.h);
-      const a = alignOnFace(own, im.w, im.h, f, base.w, base.h);
-      return { x: a.x / base.w, y: a.y / base.h, scale: a.width / base.w, rot: a.rot };
-    };
-    const layers = faces.map((f) => ({ id: crypto.randomUUID(), src: id, ...at(f), opacity: 1, flip: false }));
-    selected = layers.at(-1).id;
-    faceNote = `Covered ${faces.length} face${faces.length === 1 ? '' : 's'}. Drag, pinch or use the blue dot to adjust.`;
-    commit({ ...st(), mode: 'free', aspect: 'base', layers: [...st().layers, ...layers] });
   }
 
   async function chooseCharacter() {

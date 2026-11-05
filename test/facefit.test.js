@@ -45,7 +45,7 @@ test('fitted onto a face: its eyes on the eyes and its jaw on the jaw (a wider c
   const W = 400; const H = 300;
   const tPts = landmarks(200, 150, 1.4, 1.12);
   const face = faceAt(tPts, W, H);
-  const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true, bend: 1, own: false }) // (a color gradient, not a face: its own outline isn't looked for);
+  const p = fitPatch(img, cw, ch, own, face, W, H, { trim: true, bend: 1, own: false, real: false }) // (pinned to every landmark; a color gradient, not a face: its own outline isn't looked for);
   const at = ([x, y]) => { const o = ((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4; return [p.rgba[o] / 2, p.rgba[o + 1] / 2, p.rgba[o + 3]]; };
   // Each control point of the face shows the matching point of the Character (within a couple of px).
   // (The jaw is the face's own outline, so it's on the soft edge of the trim, a wide one; the rest well inside.)

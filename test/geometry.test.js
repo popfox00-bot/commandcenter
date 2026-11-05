@@ -22,7 +22,7 @@ test('masks: softened into a ramp (as much in as before), blurred only over what
   const w = 40; const h = 1; const m = Float32Array.from({ length: w }, (_, x) => (x < 20 ? 1 : 0));
   const s = softenMask(m, w, h, 3);
   assert.ok(s[10] > 0.99 && s[30] < 0.01 && s[19] > 0.4 && s[19] < 0.8 && s[20] > 0.2 && s[20] < 0.6);
-  assert.equal(softenMask(m, w, h, 0), m);
+  assert.deepEqual(Array.from(softenMask(m, w, h, 0)), Array.from(m)); // (a copy: changing it doesn't change the mask)
   // Blur over the set pixels only: a set run of 10s next to unset 0s stays 10.
   const v = Float32Array.from({ length: w }, (_, x) => (x < 20 ? 10 : 0)); const ok = Uint8Array.from({ length: w }, (_, x) => (x < 20 ? 1 : 0));
   const b = boxBlur(v, ok, w, h, 2);

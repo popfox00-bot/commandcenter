@@ -215,3 +215,19 @@ test('Reverse Fill\'s own trace: picked in two places, both found (each with roo
   assert.ok(t.mask[50 * w + 62] && t.mask[50 * w + 138], 'with room around each');
   assert.ok(!t.mask[50 * w + 100], 'not between them');
 });
+
+test('Reverse Fill takes a soft-edged thing\'s halo too (its blur into what\'s around it), and stops where the tint does', () => {
+  // 120×120 dark background; a white disc (r 20) at the middle, its edge blurred over 8 px.
+  const w = 120; const h = 120; const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const d = Math.hypot(x - 60, y - 60); const t = Math.max(0, Math.min(1, (28 - d) / 8)); const v = 40 + t * 200;
+    rgba.set([v, v, v, 255], (y * w + x) * 4);
+  }
+  const region = new Uint8Array(w * h).fill(1); const box = { x0: 0, y0: 0, x1: w, y1: h };
+  const plain = shadeMask(rgba, w, h, region, box, [[240, 240, 240]], 18);
+  const withHalo = shadeMask(rgba, w, h, region, box, [[240, 240, 240]], 18, { halo: 12 });
+  const reach = (m) => { let r = 0; for (let x = 60; x < w; x++) if (m.mask[60 * w + x]) r = x - 60; return r; };
+  assert.ok(reach(plain) < 27, `without: stops inside the blur (${reach(plain)})`);
+  assert.ok(reach(withHalo) >= reach(plain) + 2 && reach(withHalo) <= 30, `with: farther out through the blur, to the background (${reach(plain)} → ${reach(withHalo)})`);
+  assert.equal(withHalo.mask[60 * w + 100], 0, 'not the background beyond');
+});

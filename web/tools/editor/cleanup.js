@@ -260,6 +260,44 @@ export function sampleShade(rgba, w, h, x, y, rad = 2) {
 }
 
 /**
+ * Pixels just around `mask` (within `R`, inside `region` and `box`) tinted by what it holds (closer to the
+ * shades `labs` than the surroundings a little farther out are), added to it, nearest first so a halo is
+ * taken from the inside out and stops where the tint does. How many were added. In place.
+ */
+function takeHalo(rgba, w, h, mask, region, box, labs, R) {
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
+  const dist = new Int16Array(bw * bh).fill(-1); const q = [];
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (mask[(box.y0 + y) * w + box.x0 + x]) { dist[y * bw + x] = 0; q.push(y * bw + x); }
+  const far = R + 4;
+  for (let hd = 0; hd < q.length; hd++) {
+    const k = q[hd]; const x = k % bw; const y = (k / bw) | 0; if (dist[k] >= far) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= bw || Y >= bh) continue;
+      const t = Y * bw + X; if (dist[t] >= 0) continue; dist[t] = dist[k] + 1; q.push(t);
+    }
+  }
+  const lab = (k) => { const i = ((box.y0 + ((k / bw) | 0)) * w + box.x0 + (k % bw)) * 4; return toLab(rgba[i], rgba[i + 1], rgba[i + 2]); };
+  const toShade = (c) => { let d = Infinity; for (const s of labs) d = Math.min(d, Math.sqrt((c[0] - s[0]) ** 2 * 0.6 + (c[1] - s[1]) ** 2 + (c[2] - s[2]) ** 2)); return d; };
+  let added = 0;
+  for (const k of q) {
+    const d = dist[k]; if (d < 1 || d > R) continue;
+    const x = k % bw; const y = (k / bw) | 0; const i = (box.y0 + y) * w + box.x0 + x;
+    if (!region[i]) continue;
+    // What's just beyond it: the pixels farther out (R+1 to R+4 from it) within a few of it.
+    let n = 0; const m = [0, 0, 0];
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= bw || Y >= bh) continue;
+      const t = Y * bw + X; if (dist[t] <= d) continue;
+      const c = lab(t); m[0] += c[0]; m[1] += c[1]; m[2] += c[2]; n++;
+    }
+    if (n < 3) continue;
+    const beyond = [m[0] / n, m[1] / n, m[2] / n]; const here = lab(k);
+    if (toShade(here) + 4 < toShade(beyond)) { mask[i] = 1; added++; }
+  }
+  return added;
+}
+
+/**
  * Reverse Fill's area: inside the traced `region` (a mask over w×h, with its box), the pixels whose
  * color is near one of the picked `shades` ([r, g, b]s): within `tol` (ΔE, CIE Lab), or within half as
  * much again where they touch those (the same color in shadow, an anti-aliased edge), with the small
@@ -267,7 +305,7 @@ export function sampleShade(rgba, w, h, x, y, rad = 2) {
  * (`edge` pixels of it: a soft-edged thing's blur into what's around it).
  * { mask, box, count } (box null when nothing matched).
  */
-export function shadeMask(rgba, w, h, region, box, shades, tol = 18, { edge = 0 } = {}) {
+export function shadeMask(rgba, w, h, region, box, shades, tol = 18, { edge = 0, halo = 0 } = {}) {
   const mask = new Uint8Array(w * h);
   if (!box || !shades.length) return { mask, box: null, count: 0 };
   const labs = shades.map(([r, g, b]) => toLab(r, g, b));
@@ -323,6 +361,10 @@ export function shadeMask(rgba, w, h, region, box, shades, tol = 18, { edge = 0 
       }
     }
   }
+  // With `halo`: its soft edge's blur into what's around it, however wide (up to `halo` px): each pixel
+  // near it that's closer to the picked shades than what's just beyond it (the background or surface a
+  // few pixels farther out) is tinted by it, and goes too. Otherwise a faint outline of it is left.
+  if (halo > 0) count += takeHalo(rgba, w, h, mask, region, box, labs, halo);
   const out = Uint8Array.from(mask);
   let x0 = w; let y0 = h; let x1 = 0; let y1 = 0;
   for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
@@ -501,14 +543,36 @@ function matchGrain(img, w, h, mask, box, allow) {
     else if (mask[y * w + x] && all3(mask, x, y)) fd.push(fine(x, y));
   }
   const gs = tm(sd); const gf = tm(fd);
-  if (!(gs > 0) || !(gf >= 0) || gf >= gs * 0.85) return;
+  if (!(gs > 0) || !(gf >= 0) || gf >= gs * 0.95) return;
   const noise = Math.sqrt(gs * gs - gf * gf);
+  // A grain a pixel or two across, as a photo's is (sensor noise and compression aren't single pixels):
+  // seeded noise, each pixel the average of it and its neighbours', brought back to the strength wanted.
+  const g = (x, y) => { let q = Math.imul(x, 0x9e3779b1) ^ Math.imul(y, 0x85ebca77); q = Math.imul(q ^ (q >>> 15), 0x2c1b3c6d); const u1 = (((q >>> 0) % 65535) + 1) / 65536; q = Math.imul(q ^ (q >>> 13), 0x297a2d39); const u2 = (q >>> 0) / 4294967296; return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); };
   for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
     const i = y * w + x; if (!mask[i]) continue;
-    let q = Math.imul(x, 0x9e3779b1) ^ Math.imul(y, 0x85ebca77); q = Math.imul(q ^ (q >>> 15), 0x2c1b3c6d);
-    const u1 = (((q >>> 0) % 65535) + 1) / 65536; q = Math.imul(q ^ (q >>> 13), 0x297a2d39); const u2 = (q >>> 0) / 4294967296;
-    const n = noise * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    const n = noise * 1.6 * (g(x, y) * 0.4 + (g(x + 1, y) + g(x, y + 1) + g(x + 1, y + 1)) * 0.2);
     for (let c = 0; c < 3; c++) img[i * 4 + c] = Math.max(0, Math.min(255, img[i * 4 + c] + n));
+  }
+}
+
+/**
+ * The fill's edge softened into what's around it: within a few pixels inside its edge, each pixel eased
+ * toward the average of the pixels around it (on both sides of the edge), most at the edge itself, so no
+ * step is left where the fill meets the photo. In place on `img` (the picture with the fill in it).
+ */
+function softenSeam(img, w, h, mask, box, r = 3) {
+  const x0 = Math.max(1, box.x0); const y0 = Math.max(1, box.y0); const x1 = Math.min(w - 1, box.x1); const y1 = Math.min(h - 1, box.y1);
+  const src = img.slice((Math.max(0, y0 - r - 1) * w) * 4, (Math.min(h, y1 + r + 1) * w) * 4); const sy = Math.max(0, y0 - r - 1);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = y * w + x; if (!mask[i]) continue;
+    // How far in from its edge (up to r).
+    let d = r + 1;
+    for (let dy = -r; dy <= r && d > 1; dy++) for (let dx = -r; dx <= r; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; if (!mask[Y * w + X]) d = Math.min(d, Math.max(Math.abs(dx), Math.abs(dy))); }
+    if (d > r) continue;
+    const t = (r + 1 - d) / (r + 1); // 1 at the edge, fading inward
+    const m = [0, 0, 0]; let n = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const o = ((Y - sy) * w + X) * 4; m[0] += src[o]; m[1] += src[o + 1]; m[2] += src[o + 2]; n++; }
+    for (let c = 0; c < 3; c++) img[i * 4 + c] = img[i * 4 + c] * (1 - 0.7 * t) + (m[c] / n) * 0.7 * t;
   }
 }
 
@@ -549,6 +613,7 @@ export function reverseFill(rgba, w, h, mask, box, region, { from = null } = {})
   const R = Math.max(4, Math.ceil(Math.max(g.box.x1 - g.box.x0, g.box.y1 - g.box.y0) / 2));
   const done = complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, { maxLevels: 6, minHole: 3, minSize: 24, forbid: (x, y) => !allow[y * w + x] });
   evenEdges(rgba, done, w, h, g.mask, g.box, allow);
+  softenSeam(done, w, h, g.mask, g.box, Math.max(2, Math.round(Math.max(w, h) / 400)));
   matchGrain(done, w, h, g.mask, g.box, allow);
   const p = patchOf(done, g.mask, w, h, g.box);
   return wide ? { ...p, wider: true } : p;

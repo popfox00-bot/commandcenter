@@ -122,7 +122,7 @@ export function reverseFillTool(env) {
     if (rf.preview?.key === key && rf.preview.trace === rf.trace && rf.preview.patches === env.state().patches) return rf.preview;
     const w = env.source().width; const h = env.source().height;
     // (In FM, a few pixels of rim too: a soft-edged thing's blur into what's around it, so none of it is left as a halo.)
-    const m = shadeMask(env.pixels(), w, h, rf.trace.mask, rf.trace.box, rf.shades, rf.tol, { edge: Math.max(2, Math.round(Math.max(w, h) / 350)) });
+    const m = shadeMask(env.pixels(), w, h, rf.trace.mask, rf.trace.box, rf.shades, rf.tol, { edge: Math.max(2, Math.round(Math.max(w, h) / 350)), halo: Math.max(4, Math.round(Math.max(w, h) / 70)) });
     // Then what was brushed in or out, in the order it was.
     if (rf.edits?.length) {
       for (const e of rf.edits) for (let y = e.box.y0; y < e.box.y1; y++) for (let x = e.box.x0; x < e.box.x1; x++) {

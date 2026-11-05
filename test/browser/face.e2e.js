@@ -12,7 +12,7 @@ import { readZip } from '../../web/lib/zip.js';
 
 const WEB = resolve(import.meta.dirname, '../../web');
 const BASE = '/commandcenter/web/';
-const TYPES = { '.wasm': 'application/wasm', '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
+const TYPES = { '.wasm': 'application/wasm', '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
 let server; let browser; let origin;
 
 before(async () => {
@@ -48,6 +48,7 @@ export function detectAllFaces(cv) {
 
 test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 Identify faces, 🙂 Level this face; Collage still matches a layer\'s colors', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
@@ -129,6 +130,7 @@ test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 
 
 test('faces: FM → ➕ Character goes on the face and matches the colors behind it; ✂️ a face saved as a Character; Characters saved as a folder and installed again', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, acceptDownloads: true });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
@@ -257,6 +259,7 @@ export function detectAllFaces(cv) {
 
 test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, pick one (tap its number) or put it on every face; the magnifier shows under the finger', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE2, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
@@ -389,6 +392,7 @@ export function detectAllFaces(cv) {
 
 test('faces: ✂️ Cut out & save keeps the face with a generous border (its detail kept); Identify draws its outline; inserted back, it\'s trimmed at the hairline and lands where it came from', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE3, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
@@ -471,6 +475,7 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
 
 test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and the face is cut out, fitted and placed, ready to save; kept as a Character if wanted', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE3, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
@@ -527,6 +532,25 @@ test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and 
   // Ready to save: Done opens the export sheet.
   await page.getByRole('button', { name: 'Done' }).click();
   await page.waitForSelector('dialog[open]');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('faces: the face mesh (vendor/mediapipe) loads on the page, under its CSP, and finds no face in a blank picture', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy|mediapipe/i.test(m.text())) errors.push(m.text()); });
+  await page.goto(`${origin}${BASE}#/fm`);
+  const out = await page.evaluate(async () => {
+    const { detectMesh } = await import('./lib/face-mesh.js');
+    const c = document.createElement('canvas'); c.width = 320; c.height = 240;
+    const x = c.getContext('2d'); x.fillStyle = '#8ab'; x.fillRect(0, 0, 320, 240);
+    const faces = await detectMesh(c);
+    return { n: faces.length };
+  });
+  assert.equal(out.n, 0);
   assert.deepEqual(errors, []);
   await context.close();
 });

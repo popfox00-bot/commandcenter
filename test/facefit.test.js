@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, recolor, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, matchTexture, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -268,4 +268,38 @@ test('placed for a realistic face: a tall forehead on the face it goes on isn\'t
   // A usual forehead already: hardly changed.
   const usual = realPlacement(own, cw, ch, face, W, H, { outline: ownLine(face, W, H, 0.42), own: ownLine(own, cw, ch, 0.42) });
   assert.ok(Math.abs(usual.width / plain.width - 1) < 0.1, `a usual one: ×${(usual.width / plain.width).toFixed(2)}`);
+});
+
+test('texture matched: a crisp Character on a soft photo is softened, a soft one on a crisp photo sharpened, a smooth one given the photo\'s grain', () => {
+  const W = 200; const H = 200; const pts = landmarks(100, 100, 1.2);
+  const face = { ...faceAt(pts, W, H), skin: { isSkin: () => true } };
+  const outline = [[40, 40], [160, 40], [160, 160], [40, 160]];
+  // Stripes (an edge every 12 pixels), crisp or blurred (a 7-pixel box), with or without grain.
+  const stripes = (x) => (Math.floor(x / 12) % 2 ? 190 : 90);
+  const blurred = (x) => { let s = 0; for (let d = -3; d <= 3; d++) s += stripes(x + d); return s / 7; };
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 - 0.5; };
+  const picture = (w, h, f, noise = 0) => { const a = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = f(x) + noise * rnd(); const o = (y * w + x) * 4; a[o] = v; a[o + 1] = v * 0.8; a[o + 2] = v * 0.7; a[o + 3] = 255; } return a; };
+  const patchOf = (f) => ({ x0: 20, y0: 20, pw: 160, ph: 160, rgba: picture(160, 160, (x) => f(x + 20)) });
+  // Steepest step across the stripes, along a row in the middle.
+  const steep = (p) => { let m = 0; const y = 80; for (let x = 30; x < 130; x++) m = Math.max(m, Math.abs(p.rgba[(y * p.pw + x + 1) * 4] - p.rgba[(y * p.pw + x) * 4])); return m; };
+  const crisp = patchOf(stripes); const before = steep(crisp);
+  matchTexture(crisp, picture(W, H, blurred), W, H, face, outline, 1);
+  assert.ok(steep(crisp) < before * 0.85, `softened: ${before} → ${steep(crisp)}`);
+  assert.ok(crisp.texture.amount < 0);
+  const soft = patchOf(blurred); const was = steep(soft);
+  matchTexture(soft, picture(W, H, stripes), W, H, face, outline, 1);
+  assert.ok(steep(soft) > was * 1.15, `sharpened: ${was} → ${steep(soft)}`);
+  assert.ok(soft.texture.amount > 0 && soft.texture.amount <= 1, JSON.stringify(soft.texture));
+  // Grain: a smooth Character on a grainy photo gets some (where the stripes are flat).
+  const flat = (p) => { const v = []; for (let y = 40; y < 120; y++) v.push(p.rgba[(y * p.pw + 4 + 6 * 12 - 20 + 2) * 4]); const m = v.reduce((t, x) => t + x, 0) / v.length; return Math.sqrt(v.reduce((t, x) => t + (x - m) ** 2, 0) / v.length); };
+  const smooth = patchOf(stripes);
+  matchTexture(smooth, picture(W, H, stripes, 24), W, H, face, outline, 1);
+  assert.ok(smooth.texture.noise > 1 && flat(smooth) > 1.5, `grain: ${smooth.texture.noise}, ${flat(smooth)}`);
+  // The same again: the same result (seeded).
+  seed = 7; const a2 = patchOf(stripes); seed = 7; matchTexture(a2, picture(W, H, stripes, 24), W, H, face, outline, 1);
+  seed = 7; const a3 = patchOf(stripes); seed = 7; matchTexture(a3, picture(W, H, stripes, 24), W, H, face, outline, 1);
+  assert.deepEqual(a2.rgba, a3.rgba);
+  // Nothing to do at strength 0.
+  const none = patchOf(stripes); const copy = none.rgba.slice(); matchTexture(none, picture(W, H, blurred), W, H, face, outline, 0);
+  assert.deepEqual(none.rgba, copy);
 });

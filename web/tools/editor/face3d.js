@@ -7,6 +7,7 @@
 
 import { faceFrom } from '../../lib/face-core.js';
 import { rgbToLab } from '../../lib/color-match.js';
+import { MESH68 } from '../../lib/face-mesh.js';
 
 /** The generic face, frontal: [x, y, depth] (x right, y down, depth toward the camera; the jaw 2 wide). */
 export const TEMPLATE = (() => {
@@ -114,11 +115,28 @@ export const MIRROR = (() => {
  * `dyaw` and `dpitch` (radians): drawn again over a mesh of its landmarks (and more of the head, and the
  * picture's corners), nearest last. { rgba, w, h, pts } (its landmarks where they went).
  */
-function warpTurn(img, cw, ch, cp, pc, dyaw, dpitch) {
+function warpTurn(img, cw, ch, cp, pc, dyaw, dpitch, mesh = null) {
   // The mesh: its landmarks where they are, more of its head where the fitted pose puts them, the picture's corners.
   const cam = (m) => { const q = [m[0], m[1], -m[2]]; return [0, 1, 2].map((r) => pc.R[r][0] * q[0] + pc.R[r][1] * q[1] + pc.R[r][2] * q[2]); };
   const src = []; const depth = [];
-  cp.forEach((p, i) => { src.push(p); depth.push(cam(TEMPLATE[i])[2] * pc.s); });
+  const tdepth = cp.map((_, i) => cam(TEMPLATE[i])[2] * pc.s);
+  if (mesh?.length === 478) {
+    // Its own face's shape (the dense mesh, pixels, depth into the picture): each landmark's depth its
+    // own, and all its other points too, the whole put at the generic head's depth (so the head around
+    // it fits). Not inside its mouth (a mouth just closed would open again), nor on top of a landmark.
+    const md = MESH68.map((i) => mesh[i][2]);
+    const shift = tdepth.reduce((t, v) => t + v, 0) / 68 - md.reduce((t, v) => t + v, 0) / 68;
+    cp.forEach((p, i) => { src.push(p); depth.push(md[i] + shift); });
+    const lips = cp.slice(48, 60); const lc = [lips.reduce((t, p) => t + p[0], 0) / 12, lips.reduce((t, p) => t + p[1], 0) / 12];
+    const mouth = lips.map(([x, y]) => [lc[0] + (x - lc[0]) * 1.4, lc[1] + (y - lc[1]) * 1.4]);
+    const inMouth = (x, y) => { let c = false; for (let i = 0, j = mouth.length - 1; i < mouth.length; j = i++) { const [xi, yi] = mouth[i]; const [xj, yj] = mouth[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+    const used = new Set(MESH68);
+    mesh.forEach(([x, y, z], i) => {
+      if (used.has(i) || inMouth(x, y)) return;
+      if (src.some((q) => Math.abs(q[0] - x) < 1.5 && Math.abs(q[1] - y) < 1.5)) return;
+      src.push([x, y]); depth.push(z + shift);
+    });
+  } else cp.forEach((p, i) => { src.push(p); depth.push(tdepth[i]); });
   for (const m of EXTRA) { const c = cam(m); src.push([pc.t[0] + pc.s * c[0], pc.t[1] + pc.s * c[1]]); depth.push(c[2] * pc.s); }
   const far = Math.max(...depth);
   for (const p of [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]]) { src.push(p); depth.push(far); }
@@ -225,6 +243,8 @@ export function symmetrize(rgba, w, h, pts, nearLeft, amount) {
 export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.5, maxPitch = 0.1, yawGain = 0.7, pitchGain = 0.25, min = 0.12, symmetric = true } = {}) {
   if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return null;
   const cp = charFace.pts.map(([u, v]) => [u * cw, v * ch]);
+  // Its own face's dense mesh, when it has one (pixels; depth in pixels too).
+  const mesh = charFace.mesh?.length === 478 ? charFace.mesh.map(([u, v, z]) => [u * cw, v * ch, z * cw]) : null;
   const pc = fitPose(cp); const pb = fitPose(face.pts.map(([u, v]) => [u * W, v * H]));
   if (!pc || !pb) return null;
   // Left/right by most of the difference (the landmarks show it well); up/down only a little (faces
@@ -238,12 +258,12 @@ export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.5, maxP
   const revealing = Math.sign(dyaw) !== 0 && Math.sign(dyaw) === -Math.sign(pc.yaw);
   let res;
   if (symmetric && amount > 0 && revealing) {
-    const front = warpTurn(img, cw, ch, cp, pc, clampY(-pc.yaw), 0);
+    const front = warpTurn(img, cw, ch, cp, pc, clampY(-pc.yaw), 0, mesh);
     const nearLeft = Math.hypot(cp[30][0] - cp[0][0], cp[30][1] - cp[0][1]) > Math.hypot(cp[30][0] - cp[16][0], cp[30][1] - cp[16][1]);
     const sym = symmetrize(front.rgba, front.w, front.h, front.pts, nearLeft, amount);
     const pf = fitPose(sym.pts);
-    res = pf ? warpTurn(sym.rgba, front.w, front.h, sym.pts, pf, clampY(yawGain * pb.yaw - pf.yaw), dpitch) : warpTurn(img, cw, ch, cp, pc, dyaw, dpitch);
-  } else res = warpTurn(img, cw, ch, cp, pc, dyaw, dpitch);
+    res = pf ? warpTurn(sym.rgba, front.w, front.h, sym.pts, pf, clampY(yawGain * pb.yaw - pf.yaw), dpitch) : warpTurn(img, cw, ch, cp, pc, dyaw, dpitch, mesh);
+  } else res = warpTurn(img, cw, ch, cp, pc, dyaw, dpitch, mesh);
   const { rgba: out, w, h, pts } = res;
   // Its face, moved with it (0..1 of the new picture).
   const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);

@@ -122,9 +122,12 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   keeps its light and only takes fine detail from the patches. **✓ Use it** opens the expanded
   picture (up to 2048 px) as the photo to keep editing; **↩ Before expanding** goes back to the
   original and its edits.
-- **Faces** are found on the phone, offline (`web/lib/face.js`: face-api's tiny face detector and its
-  68-point landmarks for the eyes and mouth, vendored in `web/vendor/face`), tried with the picture
-  turned too, so a tilted head or a photo on its side is found.
+- **Faces** are found on the phone, offline (`web/lib/face.js`): first by a dense face mesh
+  (`web/lib/face-mesh.js`: MediaPipe's Face Landmarker, WebAssembly, vendored in
+  `web/vendor/mediapipe`, Apache 2.0), 478 points with their depth (the face's real shape), from which
+  the usual 68 landmarks are taken, steadier than before on a soft or turned face; where that can't
+  run, by face-api's tiny face detector and its 68-point landmarks (`web/vendor/face`), tried with the
+  picture turned too, so a tilted head or a photo on its side is found.
 - **Zoom within the photo** (in every mode, and in Cutout): pinch with two fingers to zoom in and
   out, and drag with two to move around; one finger keeps drawing, tracing, cleaning up or fixing
   where you touch the zoomed photo. The page itself doesn't zoom. Zoomed in, the photo is drawn at
@@ -517,14 +520,16 @@ saves the face it used.
    Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
    realistic result rather than pinned to every point of the face it replaces. First it's **turned in
    3D** to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
-   gives how each is turned left/right and up/down, and the Character's own face, given that depth,
-   is turned by the difference (most of the left/right, a little of the up/down) and drawn again
+   gives how each is turned left/right and up/down, and the Character's own face, given that depth
+   (its own, from the face mesh, when it was found by it: all 478 points of its real shape, its mouth
+   aside), is turned by the difference (most of the left/right, a little of the up/down) and drawn again
    over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
    (`web/tools/editor/face3d.js`). A Character photographed turned, being turned toward the side it
    barely shows, is first turned to face straight on and made symmetric there: its far side drawn
    from its well-seen near side, flipped across its middle line (more of it the more it was turned),
    then turned to the pose, so that side is a full face rather than a thin strip stretched wide. Then it's turned by its eye line
-   onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
+   onto that face's and lined up across by the eyes and down by its eyes, mouth and chin together (the
+   eyes the most, so the old eyes never show past the new ones); for a head turned away,
    narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
    them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own
    height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
@@ -545,7 +550,11 @@ saves the face it used.
    it's matched to the face's own skin there (never the hair or background past it), and what's left
    of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
    and any skin of that face past its outline, found by its skin color) takes on its colors, easing
-   back to the photo further out, so nothing of the old face stands out. Its edges fade in widely,
+   back to the photo further out, so nothing of the old face stands out. Its **texture** is matched
+   too: how sharply it's drawn, by its strongest edges and the face's (eyes, brows, lips), a Character
+   crisper than the photo softened to it and a softer one (from a smaller or blurrier picture)
+   sharpened, within reason; then the photo's grain added over its skin where it has less (seeded: the
+   same photos give the same result), so it isn't the one smooth or crisp thing in the picture. Its edges fade in widely,
    so it looks part of the face rather than cut out and laid on it.
    Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
    to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by

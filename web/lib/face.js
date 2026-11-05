@@ -1,6 +1,8 @@
-// Finding faces in a photo, on the phone (vendor/face: face-api with TensorFlow.js; its tiny face
-// detector and 68-point landmarks). Loaded the first time it's asked for; works offline.
-// detectFaces(image) → faces as in face-core.js (box, eyes, mouth, nose, angle; 0..1 of the image).
+// Finding faces in a photo, on the phone, offline: first by MediaPipe's dense face mesh (face-mesh.js:
+// 478 points with depth, and the 68 landmarks from them), else by face-api with TensorFlow.js (vendor/face:
+// its tiny face detector and 68-point landmarks; it also finds a face in a photo on its side). Each is
+// loaded the first time it's asked for. detectFaces(image) → faces as in face-core.js (box, eyes, mouth,
+// nose, angle, pts; 0..1 of the image), with `mesh` when the mesh found them.
 
 import { faceFrom, dedupe, unturn } from './face-core.js';
 
@@ -37,7 +39,19 @@ function turned(img, deg, max) {
  * a tilted one read again with the picture turned its way (its eyes and mouth are placed better
  * when it's upright); a photo on its side or upside down (no face found upright) tried turned.
  */
-export async function detectFaces(img, { max = 720, minScore = 0.45 } = {}) {
+export async function detectFaces(img, opts = {}) {
+  // The mesh first (steadier landmarks, and the face's real shape); the 68-point finder when it finds
+  // none (a photo on its side) or can't run.
+  try {
+    const { detectMesh } = await import('./face-mesh.js');
+    const faces = await detectMesh(img);
+    if (faces.length) return faces;
+  } catch { /* not available here: the other finder */ }
+  return detectFaces68(img, opts);
+}
+
+/** The faces by the 68-point finder (face-api): see detectFaces. */
+export async function detectFaces68(img, { max = 720, minScore = 0.45 } = {}) {
   const api = await faceApi();
   const opts = new api.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: minScore });
   /** The faces found with the picture turned `deg`, back in the unturned picture. */

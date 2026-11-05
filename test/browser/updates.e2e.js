@@ -10,7 +10,7 @@ import { NOW, iso, ev, pointJson, alertsJson, hourlyJson, dailyJson, gridJson, a
 
 const WEB = resolve(import.meta.dirname, '../../web');
 const BASE = '/commandcenter/web/';
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm' };
 let server; let browser; let origin;
 
 before(async () => {

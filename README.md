@@ -1,12 +1,12 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen of app icons: **Calendar**, **Updates**,
-**Notes**, **Files**, **Draw**, **QR**, **Games** and **Settings** (the order can be changed in
+A personal, phone-first app. It opens on a home screen of app icons: **Calendar**, **Weather**,
+**Sports**, **Notes**, **Files**, **FM**, **Draw**, **QR**, **Rap**, **Games** and **Settings** (the order can be changed in
 Settings → Edit Home Screen; **Jobs** is opened from Settings).
 
-- **Everything but Updates works offline** (after the first visit, from the phone's cache): Calendar,
-  Notes, Files, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
-  one with no connection. Only what's online by nature needs one: Updates (weather, sports), Saved
+- **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
+  Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
+  one with no connection. Only what's online by nature needs one: Weather, Sports, Saved
   Files (your Drive) and Jobs.
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
   setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
@@ -17,10 +17,11 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
   sketching canvas that saves to Photos or to Saved Files. [QR](#qr--barcode): scan codes with a
   link safety check before anything opens, and make your own QR codes.
 - **[Calendar](#calendar)**: your own events, in a week, day or month view, kept on the phone.
-- **[Updates](#updates)**: weather (Weather Service alerts, forecast, freezes, wind, air quality for
-  ZIP 80214 by default) and sports (a calendar of your teams' games, plus college football near
-  your ZIP, with live scores, TV, lines and results). Works on the phone with no setup; the same
-  rules drive push notifications from two jobs.
+- **[Weather](#weather)** (Weather Service alerts, forecast, freezes, wind, air quality for ZIP 80214
+  by default) and **[Sports](#sports)** (a calendar of your teams' games, plus college football near
+  your ZIP, with live scores, TV, lines and results): two apps. Both work on the phone with no setup;
+  the same rules drive push notifications from two jobs.
+- **[FM](#fm-facemask)** (FaceMask): face swaps, ⚡ Quick Swap and Characters, on the phone, offline.
 - **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
@@ -53,7 +54,7 @@ choices that keep usage under them.
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
 - [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
-- [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
+- [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
 - [Cloud setup](#cloud-setup): [ntfy](#1-ntfy) · [Cloudflare](#2-cloudflare-worker--d1) · [GitHub](#3-github-secrets-and-token) · [PWA on iPhone](#4-install-the-pwa-on-iphone)
@@ -553,9 +554,10 @@ saves the face it used.
 **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
 mouth (quarter turns and straighten; undo to go back).
 
-## Updates
+## Weather and Sports
 
-Open **Updates** on the home screen. Both tabs load directly from public sources on the phone (no
+**Weather** and **Sports** are two apps on the home screen (once one app, Updates, with a tab for
+each; its old links open the right one). Both load directly from public sources on the phone (no
 account, no key, no setup) and refresh when you come back to the app.
 
 ### Weather
@@ -628,7 +630,7 @@ are stored on the phone).
 **Try them without any setup:** Actions → **cc-try** → Run workflow. It checks every data source
 (status, CORS for the app, robots.txt) and runs both jobs in dry-run mode: nothing is stored, and the
 notifications they *would* send are printed in the log. It also runs automatically on pushes that
-change a job or the Updates app.
+change a job or the Weather and Sports apps.
 
 **Real pushes** need the [cloud setup](#cloud-setup) (ntfy, the Worker, GitHub secrets), then turn on
 the schedule in `cc-scheduled.yml` (it runs every 20 minutes; the weather job is due every run, the
@@ -737,7 +739,7 @@ wake itself up at a set time, so reminders have to come from something that's al
 here (and **Disconnect this phone**).
 
 **Edit Home Screen** puts the apps in the order you like (↑ ↓ next to each; **Reset to default order**:
-Calendar, Updates, Notes, Files, Draw, QR, Games, Settings). **Jobs** (background runs, push
+Calendar, Weather, Sports, Notes, Files, FM, Draw, QR, Rap, Games, Settings). **Jobs** (background runs, push
 notifications and their setup) opens from here too, and its **‹ Settings** leads back.
 
 **Settings** also sets the **background color** for the whole app: System (follows

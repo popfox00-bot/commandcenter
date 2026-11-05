@@ -44,7 +44,8 @@ test('handles as each app writes them; cards checked; colors', () => {
 });
 
 test('home screen: the default order, your order, apps added later at the end, Jobs only in Settings', () => {
-  assert.deepEqual(homeApps().map((a) => a.id), ['calendar', 'updates', 'notes', 'files', 'fm', 'draw', 'qr', 'rap', 'games', 'settings']);
-  assert.deepEqual(homeApps(['qr', 'calendar', 'gone']).map((a) => a.id).slice(0, 3), ['qr', 'calendar', 'updates'], 'unknown ids ignored; the rest keep their order');
+  assert.deepEqual(homeApps().map((a) => a.id), ['calendar', 'weather', 'sports', 'notes', 'files', 'fm', 'draw', 'qr', 'rap', 'games', 'settings']);
+  assert.deepEqual(homeApps(['qr', 'calendar', 'gone']).map((a) => a.id).slice(0, 3), ['qr', 'calendar', 'weather'], 'unknown ids ignored; the rest keep their order');
+  assert.deepEqual(homeApps(['qr', 'updates', 'calendar']).map((a) => a.id).slice(0, 4), ['qr', 'weather', 'sports', 'calendar'], 'Updates in a saved order: Weather and Sports in its place');
   assert.equal(homeApps(['jobs']).some((a) => a.id === 'jobs'), false);
 });

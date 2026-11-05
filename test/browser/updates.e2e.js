@@ -50,13 +50,14 @@ async function openApp(context, hash = '') {
   return { page, errors };
 }
 
-test('Updates → Weather: alerts, heads-ups (freeze, wind, air quality), hourly and 7-day; ZIP change', async () => {
+test('Weather (its own app): alerts, heads-ups (freeze, wind, air quality), hourly and 7-day; ZIP change', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
   const seen = await mockApis(context);
   const { page, errors } = await openApp(context);
-  await page.click('.app-tile >> text=Updates');
+  await page.click('.app-tile >> text=Weather');
   await page.waitForSelector('.upd-now');
-  assert.equal(await page.textContent('#title'), 'Updates');
+  assert.equal(await page.textContent('#title'), 'Weather');
+  assert.equal(await page.locator('.upd-tabs').count(), 0, 'no tabs: Sports is an app of its own');
   assert.match(await page.textContent('.upd-loc strong'), /Lakewood, CO · 80214/);
   assert.match(await page.textContent('.upd-now'), /45°[\s\S]*Mostly Cloudy[\s\S]*Air quality 62 · Moderate/);
   const text = await page.textContent('.upd-pane:not([hidden])');
@@ -83,10 +84,10 @@ test('Updates → Weather: alerts, heads-ups (freeze, wind, air quality), hourly
   await context.close();
 });
 
-test('Updates → Sports: Denver teams by default with next game, line, last result; add and remove teams', async () => {
+test('Sports (its own app): Denver teams by default with next game, line, last result; add and remove teams', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
   await mockApis(context);
-  const { page, errors } = await openApp(context, '#/updates/sports');
+  const { page, errors } = await openApp(context, '#/sports');
   await page.waitForSelector('.upd-team');
   await page.waitForFunction(() => !document.querySelector('.upd-pane:not([hidden])')?.textContent.includes('Loading…'));
   assert.equal(await page.locator('.upd-team').count(), 4);
@@ -105,14 +106,18 @@ test('Updates → Sports: Denver teams by default with next game, line, last res
   await page.getByRole('button', { name: 'Remove' }).first().click();
   assert.equal(await page.locator('.upd-team').count(), 4);
 
-  // Tabs switch by link; Weather still works from the Sports tab.
-  await page.getByRole('tab', { name: /Weather/ }).click();
+  // Weather is its own app now (and an old link to the Sports tab opens Sports).
+  assert.equal(await page.textContent('#title'), 'Sports');
+  await page.goto(`${origin}${BASE}#/updates/sports`);
+  await page.waitForFunction(() => location.hash === '#/sports');
+  await page.goto(`${origin}${BASE}#/updates`);
+  await page.waitForFunction(() => location.hash === '#/weather');
   await page.waitForSelector('.upd-now');
   assert.deepEqual(errors, []);
   await context.close();
 });
 
-test('Updates → Sports: a calendar of the games, week by default with today highlighted; day and month views; local college football from the ZIP', async () => {
+test('Sports (its own app): a calendar of the games, week by default with today highlighted; day and month views; local college football from the ZIP', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
   await mockApis(context);
   // ESPN's college football teams; each FBS team near Lakewood gets its own schedule.
@@ -127,7 +132,7 @@ test('Updates → Sports: a calendar of the games, week by default with today hi
     const events = id === '38' ? [ev('cfb1', iso(4), 'pre', CU, UTAH, null, null)] : [];
     return r.fulfill({ json: { team: { ...t, recordSummary: '6-1' }, events }, headers: { 'access-control-allow-origin': '*' } });
   });
-  const { page, errors } = await openApp(context, '#/updates/sports');
+  const { page, errors } = await openApp(context, '#/sports');
   await page.waitForSelector('.cal');
   await page.waitForFunction(() => /Utah/.test(document.querySelector('.cal-today')?.textContent ?? ''));
 
@@ -187,7 +192,7 @@ test('Updates → Sports: a calendar of the games, week by default with today hi
   await context.close();
 });
 
-test('Updates → Sports: 📊 Update stats pulls live scores and stats on request; a live game stands out and fits', async () => {
+test('Sports (its own app): 📊 Update stats pulls live scores and stats on request; a live game stands out and fits', async () => {
   const context = await browser.newContext({ viewport: { width: 360, height: 780 }, timezoneId: 'America/Denver' });
   const seen = await mockApis(context, {
     'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard': scoreboardJson,
@@ -195,7 +200,7 @@ test('Updates → Sports: 📊 Update stats pulls live scores and stats on reque
   });
   await context.route('https://site.api.espn.com/apis/site/v2/sports/*/*/scoreboard', (r) => r.fulfill({ json: { events: [] }, headers: { 'access-control-allow-origin': '*' } }));
   await context.route('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', (r) => { seen.push(r.request().url()); return r.fulfill({ json: scoreboardJson, headers: { 'access-control-allow-origin': '*' } }); });
-  const { page, errors } = await openApp(context, '#/updates/sports');
+  const { page, errors } = await openApp(context, '#/sports');
   await page.waitForFunction(() => /vs Chiefs/.test(document.querySelector('.cal-today')?.textContent ?? ''));
   // Not live yet: nothing asked of the scoreboard until the button.
   assert.ok(!seen.some((u) => u.includes('/scoreboard')));

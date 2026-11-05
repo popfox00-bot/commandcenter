@@ -4,7 +4,8 @@
 // to your own Google Drive). Games is Fox Games, a self-contained page of its own (web/apps/games/fox/).
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', load: () => import('./calendar/calendar.js') },
-  { id: 'updates', name: 'Updates', icon: '🔔', tint: 'amber', note: 'Weather · Sports', href: '#/updates', load: () => import('./updates/updates.js') },
+  { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', load: () => import('./weather/weather.js') },
+  { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', load: () => import('./sports/sports.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', load: () => import('./notes/notes.js') },
   { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · PDF · Scan · Saved Files', href: '#/files', load: () => import('../tools/studio/studio.js') },
   { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', load: () => import('./fm/fm.js') },
@@ -22,6 +23,8 @@ export const HOME_ORDER_KEY = 'cc.home.order';
 export function homeApps(order = null) {
   const list = APPS.filter((a) => a.home !== false);
   if (!Array.isArray(order)) return list;
+  // (Updates became Weather and Sports: they take its place.)
+  order = order.flatMap((id) => (id === 'updates' ? ['weather', 'sports'] : [id]));
   const pos = new Map(order.map((id, i) => [id, i]));
   return [...list].sort((a, b) => (pos.get(a.id) ?? 1e9 + list.indexOf(a)) - (pos.get(b.id) ?? 1e9 + list.indexOf(b)));
 }
@@ -33,6 +36,9 @@ export function homeApps(order = null) {
 export function redirect(hash) {
   if (hash === '#/tools' || hash === '#/tools/') return '#/';
   if (hash === '#/tools/convert') return '#/files/convert';
+  // Updates was one app with Weather and Sports tabs; they're apps of their own now.
+  if (hash === '#/updates' || hash === '#/updates/') return '#/weather';
+  if (/^#\/updates\/sports(\/.*)?$/.test(hash)) return '#/sports';
   // FaceMask was a tab of Files' photo editor; it's the FM app now.
   if (/^#\/files\/facemask(\/.*)?$/.test(hash)) return '#/fm';
   let m = /^#\/tools\/editor(\/.*)?$/.exec(hash);

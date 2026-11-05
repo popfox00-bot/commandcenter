@@ -87,8 +87,9 @@ test('offline: every app and tool works with no connection after the first visit
 
   await go('#/settings', '.st-home');
 
-  // Updates is online by nature: it opens and says it can't reach the services, without breaking.
-  await go('#/updates', '.upd-tabs');
+  // Weather and Sports are online by nature: they open and say they can't reach the services, without breaking.
+  await go('#/weather', '.upd-pane');
+  await go('#/sports', '.upd-pane');
 
   // Games: its own page, from the cache.
   await page.goto(`${origin}${BASE}apps/games/fox/index.html`);

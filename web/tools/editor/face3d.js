@@ -215,13 +215,13 @@ export function symmetrize(rgba, w, h, pts, nearLeft, amount) {
 
 /**
  * The Character (RGBA cw×ch, its face `charFace`, 0..1 points) turned to the pose of `face` (in a W×H
- * picture): left/right by most of the difference between their poses (up to 40°), up/down by a little
- * of it (up to about 9°). A Character seen turned is first turned to face straight on and made
+ * picture): left/right by most of the difference between their poses (up to about 30°), up/down by a
+ * little of it (up to about 6°). A Character seen turned is first turned to face straight on and made
  * symmetric where it was seen least (its far side from its near side, flipped: `symmetric`), then
  * turned to that pose, so a side it barely showed isn't stretched thin. { rgba, w, h, face } (its face
- * moved with it), or null when they're posed alike already (within about 6°) or the landmarks aren't there.
+ * moved with it), or null when they're posed alike already (within about 7°) or the landmarks aren't there.
  */
-export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.7, maxPitch = 0.15, yawGain = 0.85, pitchGain = 0.3, min = 0.1, symmetric = true } = {}) {
+export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.5, maxPitch = 0.1, yawGain = 0.7, pitchGain = 0.25, min = 0.12, symmetric = true } = {}) {
   if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return null;
   const cp = charFace.pts.map(([u, v]) => [u * cw, v * ch]);
   const pc = fitPose(cp); const pb = fitPose(face.pts.map(([u, v]) => [u * W, v * H]));

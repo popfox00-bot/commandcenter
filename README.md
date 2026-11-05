@@ -547,11 +547,17 @@ saves the face it used.
    that exact (`web/lib/face-parts.js`: MediaPipe's multiclass selfie segmenter, vendored in
    `web/vendor/mediapipe`, Apache 2.0, telling hair from face skin pixel by pixel): the Character keeps
    only its face skin and features, and that face's own hair (bangs, a strand across the forehead or
-   cheek) stays in front of the new face. A Character looking
+   cheek) stays in front of the new face. Where that face's own eyes, brows or mouth aren't all covered
+   by the new face (at its soft edge, on a turned head: the corner of the old mouth beside the new one),
+   they're first filled in with that face's skin around them, so nothing of the old face shows past it. A Character looking
    the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
    Any other image covers the face, turned with it.
    **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
-   (the same way all over, so its own shading and detail stay), then blended both ways at its border
+   (the same way all over, so its own shading and detail stay), **lit the way that face is lit, by its
+   shape** (`shadeByShape`: from that face's dense mesh, which way its surface faces at each pixel; its
+   skin's brightness fitted as an even light plus one from a direction, the same fitted to the Character
+   on it, and the Character shaded by the difference, so the side of its nose, its cheeks and brow catch
+   the light and the shadow where that face's do), then blended both ways at its border
    (the difference at its edge carried smoothly across all of it, as a gradient-domain blend does:
    that face's light and color, its own detail), matched to the face's own skin there (never the hair
    or background past it), and what's left
@@ -567,7 +573,8 @@ saves the face it used.
    same photos give the same result), so it isn't the one smooth or crisp thing in the picture. Its edges fade in widely,
    so it looks part of the face rather than cut out and laid on it.
    Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
-   to its own face). Fitted, **🎚 Fine-tune** it without losing the fit: **Size**, **Across**, **Up /
+   to its own face). **🔀 Compare looks** shows it four ways side by side (as it is, its mouth matched,
+   turned to the pose, both), close up on the face: tap the one that looks right. Fitted, **🎚 Fine-tune** it without losing the fit: **Size**, **Across**, **Up /
    down**, **Turn** and **Edge softness** (dragging and pinching it do the same; **↺ Reset fine-tuning**
    puts it back), and **🖌 More of it** / **🧽 Less of it** paint more of the new face in (where it was
    trimmed away) or let the photo show (with a brush size; **↶ Last stroke** takes one back). Not

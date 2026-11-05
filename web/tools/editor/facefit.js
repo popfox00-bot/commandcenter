@@ -8,7 +8,7 @@
 
 import { faceOutline, faceContour, alignOnFace, similarityFit, faceFrom } from '../../lib/face-core.js';
 import { membrane } from './cleanup.js';
-import { turnFace, closeMouth, openMouth, mouthOpen } from './face3d.js';
+import { turnFace, closeMouth, openMouth, mouthOpen, triangulate } from './face3d.js';
 import { featherAlpha } from '../cutout/cutout-core.js';
 import { rgbToLab, colorStats, matchColors } from '../../lib/color-match.js';
 
@@ -797,6 +797,102 @@ function grainOf(lum, ok, skin, pw, ph) {
   if (d.length < 200) return NaN;
   const s = Float32Array.from(d).sort(); const n = Math.floor(s.length * 0.97); let t = 0; for (let i = 0; i < n; i++) t += s[i];
   return (1.25 * t) / n;
+}
+
+/**
+ * The face's surface, which way it faces at each pixel, from its dense mesh (`mesh`: 478 points, x and y
+ * 0..1 of the W×H photo, z into the picture in units of x): its points joined into triangles, each point
+ * facing the average of its triangles (toward the camera), smoothly in between; over the box (x0, y0,
+ * pw × ph). Float32Array of [nx, ny, nz] per pixel (0,0,0 off the face), or null.
+ */
+export function faceNormals(mesh, W, H, x0, y0, pw, ph) {
+  if (mesh?.length !== 478) return null;
+  const P = mesh.map(([u, v, z]) => [u * W, v * H, z * W]);
+  const tris = triangulate(P.map((p) => [p[0], p[1]]));
+  // (No triangle across the open mouth or the eyes' long thin gaps: only ones of a sensible size.)
+  const span = Math.max(...P.map((p) => p[0])) - Math.min(...P.map((p) => p[0]));
+  const keep = tris.filter(([a, b, c]) => Math.max(Math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1]), Math.hypot(P[b][0] - P[c][0], P[b][1] - P[c][1]), Math.hypot(P[c][0] - P[a][0], P[c][1] - P[a][1])) < span * 0.12);
+  const vn = P.map(() => [0, 0, 0]);
+  for (const [a, b, c] of keep) {
+    const u = [P[b][0] - P[a][0], P[b][1] - P[a][1], P[b][2] - P[a][2]]; const v = [P[c][0] - P[a][0], P[c][1] - P[a][1], P[c][2] - P[a][2]];
+    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    if (n[2] > 0) n = n.map((t) => -t); // toward the camera (z is into the picture)
+    for (const i of [a, b, c]) for (let j = 0; j < 3; j++) vn[i][j] += n[j];
+  }
+  for (const n of vn) { const l = Math.hypot(...n) || 1; for (let j = 0; j < 3; j++) n[j] /= l; }
+  const out = new Float32Array(pw * ph * 3);
+  for (const [a, b, c] of keep) {
+    const [ax, ay] = P[a]; const [bx, by] = P[b]; const [cx, cy] = P[c];
+    const det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay); if (Math.abs(det) < 1e-6) continue;
+    const mx0 = Math.max(0, Math.floor(Math.min(ax, bx, cx) - x0)); const mx1 = Math.min(pw - 1, Math.ceil(Math.max(ax, bx, cx) - x0));
+    const my0 = Math.max(0, Math.floor(Math.min(ay, by, cy) - y0)); const my1 = Math.min(ph - 1, Math.ceil(Math.max(ay, by, cy) - y0));
+    for (let y = my0; y <= my1; y++) for (let x = mx0; x <= mx1; x++) {
+      const px = x0 + x + 0.5; const py = y0 + y + 0.5;
+      const l1 = ((bx - px) * (cy - py) - (cx - px) * (by - py)) / det; const l2 = ((cx - px) * (ay - py) - (ax - px) * (cy - py)) / det; const l3 = 1 - l1 - l2;
+      if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+      const k = (y * pw + x) * 3; let n0 = 0; let n1 = 0; let n2 = 0;
+      for (const [w, i] of [[l1, a], [l2, b], [l3, c]]) { n0 += w * vn[i][0]; n1 += w * vn[i][1]; n2 += w * vn[i][2]; }
+      const l = Math.hypot(n0, n1, n2) || 1; out[k] = n0 / l; out[k + 1] = n1 / l; out[k + 2] = n2 / l;
+    }
+  }
+  return out;
+}
+
+/**
+ * Lit as that face is lit, by its shape (`photo`, RGBA W×H; `face.mesh`, its dense mesh): how bright its
+ * skin is, fitted as an even light plus one from a direction (brightness = a + b·n, n which way the
+ * surface faces there), and the same fitted to the Character as it now is on it; then the Character
+ * shaded by the difference, so the side of its nose, its cheeks and its brow catch the light (and the
+ * shadow) where that face's do. Its overall tone left as it is (that's recolor's). `strength` 0..1.
+ * In place; returns the patch (with `light`: the two fits).
+ */
+export function shadeByShape(patch, photo, W, H, face, outline, strength = 0.8) {
+  const { x0, y0, pw, ph, rgba, charPts } = patch;
+  if (!outline || face.pts?.length !== 68 || strength <= 0) return patch;
+  const nrm = faceNormals(face.mesh, W, H, x0, y0, pw, ph); if (!nrm) return patch;
+  const N = pw * ph;
+  const skin = fillPolygon(grow(outline, 0.95), x0, y0, pw, ph);
+  for (const pts of [face.pts.map(([u, v]) => [u * W, v * H]), charPts].filter(Boolean)) {
+    for (const [a, b] of [[17, 21], [22, 26], [36, 41], [42, 47], [48, 59]]) { const m = fillPolygon(grow(hull(pts.slice(a, b + 1)), 1.6), x0, y0, pw, ph); for (let i = 0; i < N; i++) if (m[i]) skin[i] = 0; }
+  }
+  const model = face.skin ?? skinModel(photo, W, H, face);
+  const lum = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
+  /** a + b·n fitted to the brightness `at(k)` over the skin (least squares, every other pixel). */
+  const fit = (at) => {
+    const A = Array.from({ length: 4 }, () => new Float64Array(4)); const B = new Float64Array(4); let n = 0;
+    for (let k = 0; k < N; k += 2) {
+      if (!skin[k] || (!nrm[k * 3] && !nrm[k * 3 + 1] && !nrm[k * 3 + 2])) continue;
+      const L = at(k); if (L == null) continue;
+      const f = [1, nrm[k * 3], nrm[k * 3 + 1], nrm[k * 3 + 2]]; n++;
+      for (let i = 0; i < 4; i++) { B[i] += f[i] * L; for (let j = 0; j < 4; j++) A[i][j] += f[i] * f[j]; }
+    }
+    if (n < 300) return null;
+    for (let i = 0; i < 4; i++) A[i][i] += 1e-3 * n; // (a touch of steadiness)
+    // Solve (Gauss).
+    const M = A.map((r, i) => [...r, B[i]]);
+    for (let c = 0; c < 4; c++) {
+      let p = c; for (let r = c + 1; r < 4; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      [M[c], M[p]] = [M[p], M[c]]; if (Math.abs(M[c][c]) < 1e-9) return null;
+      for (let r = 0; r < 4; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let j = c; j < 5; j++) M[r][j] -= f * M[c][j]; }
+    }
+    return M.map((r, i) => r[4] / r[i]);
+  };
+  const theirs = fit((k) => { const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) return null; const o = (Y * W + X) * 4; if (model && !model.isSkin(photo[o], photo[o + 1], photo[o + 2])) return null; return lum(photo[o], photo[o + 1], photo[o + 2]); });
+  const mine = fit((k) => (rgba[k * 4 + 3] > 200 ? lum(rgba[k * 4], rgba[k * 4 + 1], rgba[k * 4 + 2]) : null));
+  if (!theirs || !mine || theirs[0] <= 1 || mine[0] <= 1) return patch;
+  patch.light = { theirs, mine };
+  // Each light relative to its own even light (the overall tone isn't this step's).
+  const shade = (c, k) => (c[0] + c[1] * nrm[k * 3] + c[2] * nrm[k * 3 + 1] + c[3] * nrm[k * 3 + 2]) / c[0];
+  // Eased in from the mesh's edge.
+  const on = Float32Array.from({ length: N }, (_, k) => (nrm[k * 3] || nrm[k * 3 + 1] || nrm[k * 3 + 2] ? 1 : 0));
+  const ease = soften(on, pw, ph, Math.max(2, Math.round(Math.hypot(...[0, 1].map((j) => (face.pts[16][j] - face.pts[0][j]) * (j ? H : W))) * 0.04)));
+  for (let k = 0; k < N; k++) {
+    if (!rgba[k * 4 + 3] || ease[k] < 0.01 || !on[k]) continue;
+    const r = Math.max(0.8, Math.min(1.25, shade(theirs, k) / Math.max(0.2, shade(mine, k))));
+    const f = 1 + strength * ease[k] * (r - 1);
+    for (let j = 0; j < 3; j++) rgba[k * 4 + j] = Math.min(255, rgba[k * 4 + j] * f);
+  }
+  return patch;
 }
 
 /**

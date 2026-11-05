@@ -1626,9 +1626,15 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         // (Off unless asked for: each can look forced. Its own mouth and its own pose, as it is.)
         canFit && p.fit ? el('button', { class: `chip${p.mouth ? ' active' : ''}`, 'aria-pressed': String(!!p.mouth), text: '👄 Match the mouth', onclick: () => { p.mouth = !p.mouth; placeNote = p.mouth ? 'Its mouth closed (or opened) to match the face it\'s on.' : 'Its own mouth, as it is.'; refreshPreview(); renderPanel(); } }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.turn3d ? ' active' : ''}`, 'aria-pressed': String(!!p.turn3d), text: '🧊 Turn to its pose', onclick: () => { p.turn3d = !p.turn3d; placeNote = p.turn3d ? 'Turned in 3D to the pose of the face it\'s on.' : 'As it faces in its own picture.'; refreshPreview(); renderPanel(); } }) : null,
+        canFit && p.fit ? el('button', { class: `chip${p.looks ? ' active' : ''}`, 'aria-pressed': String(!!p.looks), text: '🔀 Compare looks', onclick: () => { if (p.looks) { p.looks = null; renderPanel(); } else compareLooks(); } }) : null,
         !canFit ? el('button', { class: 'chip', text: '🙂 On a face', onclick: () => placeOnFace() }) : null,
         el('button', { class: `chip${p.flip ? ' active' : ''}`, 'aria-pressed': String(p.flip), text: '⇋ Flip', onclick: flipPlacing }),
         el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { unfit(); p.x = source.width / 2; p.y = source.height / 2; refreshPreview(); renderPanel(); schedule(); } })),
+      p.looks ? el('div', { class: 'fm-looks', role: 'group', 'aria-label': 'Looks to choose from' },
+        ...p.looks.map((l) => el('button', {
+          type: 'button', class: `fm-look${!!p.mouth === l.mouth && !!p.turn3d === l.turn3d ? ' active' : ''}`, 'aria-label': l.label, 'aria-pressed': String(!!p.mouth === l.mouth && !!p.turn3d === l.turn3d),
+          onclick: () => { p.mouth = l.mouth; p.turn3d = l.turn3d; placeNote = `${l.label}.`; refreshPreview(); renderPanel(); },
+        }, l.canvas ?? el('span', { class: 'fm-look-wait muted small', text: '…' }), el('span', { class: 'small', text: l.label })))) : null,
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: '🎨 Blend into the photo' }), el('span', { class: 'muted small', text: 'each side to what\'s next to it' })), blend,
       ...(p.fit ? tunePanel(p) : [el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' })), size,
         el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Turn' })), turn]),
@@ -1636,6 +1642,43 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { placing = null; placeNote = ''; fm.note = ''; renderPanel(); schedule(); } }),
         el('button', { class: 'btn primary', text: '✓ Place', onclick: () => finishPlacing() })),
     ];
+  }
+
+  /**
+   * 🔀 Compare looks: the fitted Character on the face four ways, side by side (as it is; its mouth
+   * matched to that face's; turned to that face's pose; both), each a close-up of the face, to tap the
+   * one that looks right. Worked out one after another, each shown as it's ready.
+   */
+  async function compareLooks() {
+    const p = placing; if (!p?.fit || !p.faceObj) return;
+    const looks = [
+      { label: 'As it is', mouth: false, turn3d: false },
+      { label: 'Mouth matched', mouth: true, turn3d: false },
+      { label: 'Turned to its pose', mouth: false, turn3d: true },
+      { label: 'Both', mouth: true, turn3d: true },
+    ];
+    p.looks = looks; renderPanel();
+    // The close-up: the face and a little around it, from the photo as it is now.
+    const W = source.width; const H = source.height; const fb = p.faceObj.box;
+    const cx = (fb.x + fb.w / 2) * W; const cy = (fb.y + fb.h / 2) * H; const side = Math.max(fb.w * W, fb.h * H) * 1.45;
+    const bx = Math.max(0, Math.round(cx - side / 2)); const by = Math.max(0, Math.round(cy - side / 2));
+    const bw = Math.min(W - bx, Math.round(side)); const bh = Math.min(H - by, Math.round(side));
+    const photo = applyPatches(source, state().patches ?? []);
+    for (const l of looks) {
+      let patch = null;
+      try { patch = await buildPatch({ ...p, mouth: l.mouth, turn3d: l.turn3d }, 'small'); } catch { patch = null; }
+      if (placing !== p || p.looks !== looks) return;
+      const size = 132; const k = size / Math.max(bw, bh);
+      const c = el('canvas', { class: 'fm-look-img' }); c.width = Math.round(bw * k); c.height = Math.round(bh * k);
+      const x = c.getContext('2d'); x.imageSmoothingQuality = 'high';
+      x.drawImage(photo, bx, by, bw, bh, 0, 0, c.width, c.height);
+      if (patch) {
+        const pc = document.createElement('canvas'); pc.width = patch.pw; pc.height = patch.ph;
+        pc.getContext('2d').putImageData(new ImageData(patch.rgba, patch.pw, patch.ph), 0, 0);
+        x.drawImage(pc, (patch.x0 - bx) * k, (patch.y0 - by) * k, patch.pw * k, patch.ph * k);
+      }
+      l.canvas = c; renderPanel();
+    }
   }
 
   /**

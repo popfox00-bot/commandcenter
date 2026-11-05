@@ -89,3 +89,34 @@ test('a Character seen turned, put on a face turned the other way: its barely-se
   assert.ok(pb > pr, `without it: the squeezed far side, stretched (${pr},${pb})`);
   assert.ok(sr > sb, `with it: drawn from the near side (${sr},${sb})`);
 });
+
+test('a closed mouth opened for an open one: the lips parted (each as thick as it was), see-through between them', async () => {
+  const { openMouth, mouthOpen } = await import('../web/tools/editor/face3d.js');
+  // A 200×200 picture, all solid, with a closed mouth: corners at (70,140) and (130,140), lips just touching.
+  const w = 200; const h = 200; const img = new Uint8ClampedArray(w * h * 4).fill(255);
+  const pts = Array.from({ length: 68 }, (_, i) => [40 + (i % 17) * 7, 40 + Math.floor(i / 17) * 10]);
+  pts[8] = [100, 190]; for (let i = 0; i <= 16; i++) pts[i] = [40 + i * 7.5, 120 + Math.sin((i / 16) * Math.PI) * 70];
+  const mouth = (cx, cy) => {
+    const outer = [[70, 140], [80, 134], [90, 131], [100, 132], [110, 131], [120, 134], [130, 140], [120, 147], [110, 150], [100, 151], [90, 150], [80, 147]];
+    const inner = [[74, 140], [88, 139.5], [100, 139.5], [112, 139.5], [126, 140], [112, 140.5], [100, 140.5], [88, 140.5]];
+    return [...outer, ...inner].map(([x, y]) => [x + cx, y + cy]);
+  };
+  mouth(0, 0).forEach((p, i) => { pts[48 + i] = p; });
+  assert.ok(mouthOpen(pts) < 0.03);
+  const r = openMouth(img, w, h, pts, 0.25);
+  assert.ok(r);
+  assert.ok(Math.abs(mouthOpen(r.pts) - 0.25) < 0.03, `as open as asked: ${mouthOpen(r.pts)}`);
+  // Each lip as thick as it was (outer to inner, in the middle).
+  assert.ok(Math.abs((r.pts[62][1] - r.pts[51][1]) - (pts[62][1] - pts[51][1])) < 0.5);
+  assert.ok(Math.abs((r.pts[57][1] - r.pts[66][1]) - (pts[57][1] - pts[66][1])) < 0.5);
+  // Its corners where they were; its chin a little lower.
+  assert.deepEqual(r.pts[48], pts[48]); assert.deepEqual(r.pts[54], pts[54]);
+  assert.ok(r.pts[8][1] > pts[8][1]);
+  // See-through in the middle of the opening, solid on the lips and around.
+  const a = (x, y) => r.rgba[(Math.round(y) * w + Math.round(x)) * 4 + 3];
+  const mid = [(r.pts[62][0] + r.pts[66][0]) / 2, (r.pts[62][1] + r.pts[66][1]) / 2];
+  assert.ok(a(...mid) < 40, `open: ${a(...mid)}`);
+  assert.equal(a(100, 100), 255); assert.equal(a(r.pts[51][0], r.pts[51][1] + 1), 255);
+  // Already about that open: nothing to do.
+  assert.equal(openMouth(r.rgba, w, h, r.pts, 0.26), null);
+});

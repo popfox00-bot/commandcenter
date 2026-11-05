@@ -11,11 +11,11 @@ import { ADJUSTMENTS, FILTERS, RATIOS, defaultState, normalizeState, createHisto
 import { FULL_CROP, orientedSize, outputPixelSize, outputToSource, apply, cropForRatio, dragCrop, rotateClockwise, flipHorizontal } from './geometry.js';
 import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
 import { applyPatches, makePatch } from './retouch.js';
-import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab } from './cleanup.js';
+import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab, autoTrace } from './cleanup.js';
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, relight, matchTexture, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
+import { fitPatch, blendIn, recolor, relight, keepSkinTexture, matchTexture, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -27,6 +27,8 @@ const SAVE_KEY = 'editor.session';
 const PREFS_KEY = 'cc.editor.prefs';
 // FaceMask ('face') is the FM app's (the same editor mounted with `fm`: only the face tools), not one here.
 const MODES = [['adjust', 'Adjust'], ['filters', 'Filters'], ['crop', 'Crop'], ['markup', 'Markup'], ['cleanup', 'Clean Up']];
+// The FM app's own: its face tools, and Reverse Fill (only there).
+const FM_MODES = [['face', '🎭 Faces'], ['rfill', '🎨 Reverse Fill']];
 const TOOLS = [
   ['pen', '✎', 'Pen'], ['highlighter', '▬', 'Highlighter'], ['line', '╱', 'Line'], ['arrow', '➚', 'Arrow'],
   ['rect', '▭', 'Box'], ['ellipse', '◯', 'Oval'], ['text', 'T', 'Text'], ['eraser', '⌫', 'Eraser'],
@@ -68,7 +70,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   // ➕ Character: the image being placed (see startPlacing), and the pointers moving or pinching it.
   let placing = null; const placePointers = new Map(); let placeGesture = null;
   let aimCopy = null; // Copy From Area: the spot being aimed at (overlay px), picked when the finger lifts
-  const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null });
+  // (In FM: `seeds`, the spots picked, from which the trace is found by itself; `hand`: a loop drawn instead.)
+  const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null, seeds: [], hand: false });
   const cleanups = [];
 
   const state = () => history.state;
@@ -206,11 +209,16 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   }
 
   function renderModes() {
-    // FaceMask on its own: just its tools, none of the editing ones.
-    modeBar.hidden = faceOnly; if (quick) quick.hidden = faceOnly;
-    modeBar.replaceChildren(...MODES.map(([id, label]) => el('button', {
+    // FaceMask on its own: just its tools (faces, Reverse Fill), none of the editing ones.
+    if (quick) quick.hidden = faceOnly;
+    modeBar.replaceChildren(...(faceOnly ? FM_MODES : MODES).map(([id, label]) => el('button', {
       class: `seg${mode === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(mode === id), text: label,
-      onclick: () => { mode = id; drag = null; draft = null; cleanStroke = null; renderModes(); renderPanel(); schedule(); },
+      onclick: () => {
+        if (placing && id !== 'face') return;
+        mode = id; drag = null; draft = null; cleanStroke = null;
+        rf = mode === 'rfill' ? (rf ?? newRf()) : null; copyMode = false; copyFrom = null; cleanNote = '';
+        renderModes(); renderPanel(); schedule();
+      },
     })));
   }
 
@@ -276,7 +284,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     const view = viewTransform({ crop: vs.crop, W, H, tw: overlay.width, th: overlay.height });
     if (!comparing) drawMarkup(ctx, draft ? [...vs.markup, draft] : vs.markup, view);
     if (mode === 'crop' && !comparing) drawCropUi(ctx, state().crop, overlay.width, overlay.height, dpr);
-    if (mode === 'cleanup' && !comparing) drawCleanUi(ctx, dpr);
+    if ((mode === 'cleanup' || mode === 'rfill') && !comparing) drawCleanUi(ctx, dpr);
     if (mode === 'face' && !comparing) { if (placing) drawPlacing(ctx, dpr); else drawFaceMarks(ctx, dpr); }
   }
 
@@ -286,7 +294,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     // The magnifier: what's under the finger, just above it, while a stroke or a spot is being aimed.
     const under = cleanStroke?.pts.at(-1) ?? aimCopy;
 
-    if (cleanStroke) {
+    if (cleanStroke && !cleanStroke.aim) {
       ctx.save();
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.strokeStyle = cleanStroke.thin ? '#ff2d95' : copyMode ? 'rgba(48,209,88,0.45)' : 'rgba(255,255,255,0.5)';
@@ -299,7 +307,19 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     }
     if (under) {
       const k = overlay.width / (overlay.getBoundingClientRect().width || overlay.width);
-      drawLoupe(ctx, glCanvas, under[0], under[1], { k, ring: cleanStroke && !cleanStroke.thin ? cleanStroke.r : 0, color: copyMode ? '#30d158' : '#ffd60a' });
+      const lp = drawLoupe(ctx, glCanvas, under[0], under[1], { k, ring: cleanStroke && !cleanStroke.thin ? cleanStroke.r : 0, color: copyMode ? '#30d158' : '#ffd60a', zoom: cleanStroke?.aim ? 4 : 2.6 });
+      // Picking a color: the color it'll pick (the shade right under the crosshair), shown beside it.
+      if (cleanStroke?.aim) {
+        const [sx, sy] = overlayToSource(under[0], under[1]);
+        if (sx >= 0 && sy >= 0 && sx < source.width && sy < source.height) {
+          const c = sampleShade(sourcePixels(), source.width, source.height, sx, sy, Math.max(2, Math.round(Math.max(source.width, source.height) / 500)));
+          const r = 13 * k; const px = lp.cx + lp.R * 0.72; const py = lp.cy + lp.R * 0.72;
+          ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fillStyle = `rgb(${c.join(',')})`; ctx.fill();
+          ctx.lineWidth = 2.5 * k; ctx.strokeStyle = '#fff'; ctx.stroke();
+          ctx.restore();
+        }
+      }
     }
     if (copyMode && copyFrom) {
       const p = sourceToOverlay(copyFrom.x, copyFrom.y);
@@ -375,13 +395,14 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   function bindPointer() {
     overlay.addEventListener('pointerdown', (e) => {
       if (mode === 'face') { e.preventDefault(); if (placing) placeDown(e); else pickFaceAt(e); return; }
-      if (mode === 'cleanup') {
+      if (mode === 'cleanup' || mode === 'rfill') {
         e.preventDefault();
         if (cleaning) return;
         const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
         const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
         if (copyMode && !copyFrom) { aimCopy = pt; overlay.setPointerCapture(e.pointerId); schedule(); return; }
-        cleanStroke = { pts: [pt], r: rf ? 10 * k : prefs.cleanSize * k, thin: !!rf };
+        // (Reverse Fill in FM, picking: no trail, just the magnifier showing what's under the finger.)
+        cleanStroke = { pts: [pt], r: rf ? 10 * k : prefs.cleanSize * k, thin: !!rf, aim: !!rf && !rf.hand };
         overlay.setPointerCapture(e.pointerId);
         schedule();
         return;
@@ -545,22 +566,29 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
 
   // ---------- Reverse Fill ----------
 
-  /** A Reverse Fill stroke: a tap picks a shade (to remove, or with Fill From on, to fill from); a loop is the trace. */
+  /**
+   * A Reverse Fill stroke: a tap picks a shade (to remove, or with Fill From on, to fill from); a loop is
+   * the trace. Pressing and moving (the magnifier showing what's under the finger) picks where it's let go.
+   * Each spot picked to remove is a start for the trace found by itself (autoTrace), unless a loop was drawn.
+   */
   function reverseStroke(st) {
     const w = source.width; const h = source.height;
     const pts = st.pts.map(([x, y]) => overlayToSource(x, y));
     const [ax, ay] = overlayToSource(st.pts[0][0], st.pts[0][1]); const [bx, by] = overlayToSource(st.pts[0][0] + st.r, st.pts[0][1]);
     const r = Math.max(2, Math.hypot(bx - ax, by - ay));
     const shape = strokeShape(pts, r);
-    if (shape === 'tap') {
-      const [x, y] = pts[0];
+    const at = shape === 'tap' ? pts[0] : shape !== 'lasso' || !rf.hand ? pts.at(-1) : null;
+    if (at) {
+      const [x, y] = at;
       if (x < 0 || y < 0 || x >= w || y >= h) { schedule(); return; }
       const c = sampleShade(sourcePixels(), w, h, x, y, Math.max(2, Math.round(Math.max(w, h) / 500)));
       const list = rf.fromMode ? rf.from : rf.shades;
       const lab = toLab(...c);
       // The same shade twice is one.
       if (!list.some((d) => { const e = toLab(...d); return Math.hypot(e[0] - lab[0], e[1] - lab[1], e[2] - lab[2]) < 4; })) list.push(c);
-      cleanNote = rf.fromMode ? 'Fill from that. Tap more of the surface, or turn Fill From off.' : rf.trace ? '' : 'Picked. Tap more shades of it, then draw a rough loop around it.';
+      if (rf.fromMode) cleanNote = 'Fill from that. Tap more of the surface, or turn Fill From off.';
+      else if (rf.hand) cleanNote = rf.trace ? '' : 'Picked. Tap more shades of it, then draw a rough loop around it.';
+      else { rf.seeds.push([x, y]); traceFromSeeds(); }
     } else if (shape === 'lasso') {
       const t = strokeMask(pts, 1, w, h);
       if (!t.box) { schedule(); return; }
@@ -572,13 +600,35 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     reversePreview(); renderPanel(); schedule();
   }
 
+  /** The trace found by itself from the spots picked (autoTrace), with its outline to show; a note if it's too much. */
+  function traceFromSeeds() {
+    if (rf.hand) return;
+    const w = source.width; const h = source.height;
+    const t = rf.seeds.length && rf.shades.length ? autoTrace(sourcePixels(), w, h, rf.seeds, rf.shades, rf.tol) : null;
+    if (!t) { rf.trace = null; cleanNote = rf.seeds.length ? 'Nothing of that color there: press right on it (the magnifier shows what you\'re on).' : ''; return; }
+    // Its outline, a couple of pixels wide in the photo, to draw over it.
+    const { box } = t; const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; const lw = Math.max(1, Math.round(Math.max(w, h) / 500));
+    const canvas = document.createElement('canvas'); canvas.width = bw; canvas.height = bh;
+    const c2 = canvas.getContext('2d'); const img = c2.createImageData(bw, bh);
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      const i = (box.y0 + y) * w + box.x0 + x; if (!t.mask[i]) continue;
+      let edge = false;
+      for (let d = 1; d <= lw && !edge; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) { const X = box.x0 + x + dx; const Y = box.y0 + y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h || !t.mask[Y * w + X]) { edge = true; break; } }
+      if (edge) img.data.set([255, 214, 10, 255], (y * bw + x) * 4);
+    }
+    c2.putImageData(img, 0, 0);
+    rf.trace = { mask: t.mask, box, canvas, share: t.share };
+    cleanNote = t.share > 0.35 ? 'That color covers much of the photo: lower Match, or ✏️ draw a loop around just the part to remove.' : '';
+  }
+
   /** What Reverse Fill will remove with the shades, trace and tolerance as they are (cached). */
   function reversePreview() {
     if (!rf?.trace || !rf.shades.length) { if (rf) rf.preview = null; return null; }
     const key = `${rf.shades.join('|')}#${rf.tol}`;
     if (rf.preview?.key === key && rf.preview.trace === rf.trace && rf.preview.patches === state().patches) return rf.preview;
     const w = source.width; const h = source.height;
-    const m = shadeMask(sourcePixels(), w, h, rf.trace.mask, rf.trace.box, rf.shades, rf.tol);
+    // (In FM, a few pixels of rim too: a soft-edged thing's blur into what's around it, so none of it is left as a halo.)
+    const m = shadeMask(sourcePixels(), w, h, rf.trace.mask, rf.trace.box, rf.shades, rf.tol, { edge: faceOnly ? Math.max(2, Math.round(Math.max(w, h) / 350)) : 1 });
     let inTrace = 0; const tb = rf.trace.box;
     for (let y = tb.y0; y < tb.y1; y++) for (let x = tb.x0; x < tb.x1; x++) inTrace += rf.trace.mask[y * w + x];
     let canvas = null;
@@ -599,8 +649,10 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     ctx.save();
     ctx.setTransform(...T);
     if (pv?.canvas) { ctx.imageSmoothingEnabled = false; ctx.drawImage(pv.canvas, pv.box.x0, pv.box.y0); }
+    // The trace found by itself: its outline.
+    if (rf.trace?.canvas) { ctx.imageSmoothingEnabled = false; ctx.drawImage(rf.trace.canvas, rf.trace.box.x0, rf.trace.box.y0); }
     ctx.restore();
-    if (rf.trace) {
+    if (rf.trace?.pts) {
       ctx.save();
       ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#ff2d95'; ctx.setLineDash([6 * dpr, 4 * dpr]);
       ctx.beginPath();
@@ -622,42 +674,46 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         const s = state();
         lastClean = { mask: pv.mask, box: pv.box, before: s.patches ?? [] };
         cleanNote = p.wide ? 'Removed. Little of the surface was left in the trace, so it was filled from around it: trace a bit wider for a better fill.' : `Removed and filled from the surface around it${p.wider ? ' (some from just past your loop: little of it was inside)' : ''}. Undo takes it back.`;
-        rf = { ...newRf(), tol: rf.tol };
+        rf = { ...newRf(), tol: rf.tol, hand: rf.hand };
         commit({ ...s, patches: [...(s.patches ?? []), makePatch(p, w, h)] });
       } finally { cleaning = false; renderPanel(); schedule(); }
     }, 30);
   }
 
-  function reversePanel() {
+  /** FM's Reverse Fill: pick the color with the magnifier, the area found and outlined by itself, filled from what's around it. */
+  function rfillPanel() {
+    rf ??= newRf();
     const swatch = (c, list, label) => el('button', {
       type: 'button', class: 'chip ed-shade', 'aria-label': `Remove ${label} ${c.join(', ')}`,
-      onclick: () => { list.splice(list.indexOf(c), 1); reversePreview(); renderPanel(); schedule(); },
+      onclick: () => { list.splice(list.indexOf(c), 1); if (list === rf.shades && !rf.shades.length) rf.seeds = []; traceFromSeeds(); reversePreview(); renderPanel(); schedule(); },
     }, el('span', { class: 'ed-shade-dot', style: { background: `rgb(${c.join(',')})` } }), el('span', { text: '✕' }));
     const tol = slider({
       min: 4, max: 45, value: rf.tol, label: 'Match',
       onInput: (v) => { rf.tol = v; reversePreview(); schedule(); },
-      onChange: () => { renderPanel(); },
+      onChange: () => { traceFromSeeds(); reversePreview(); renderPanel(); schedule(); },
     });
     const pv = rf.preview;
     const ready = rf.shades.length && rf.trace;
-    const status = !rf.shades.length && !rf.trace ? 'Tap the colors to remove (several shades: the white, the red…), and draw a rough loop around the area.'
-      : !rf.trace ? 'Now draw a rough loop around the area to remove them from.'
-        : !rf.shades.length ? 'Now tap the colors to remove, inside the loop.'
-          : pv?.box ? `Pink shows what goes: ${Math.round(pv.share * 100)}% of the traced area. Tap more shades, or adjust Match.` : 'Nothing in the loop matches yet: tap the colors inside it, or raise Match.';
+    const status = !rf.shades.length
+      ? (rf.hand ? 'Tap the colors to remove, and draw a rough loop around the area.' : 'Press on the color to remove: the magnifier shows just what\'s under your finger; let go to pick it. The area of that color is found and outlined (yellow) by itself.')
+      : !rf.trace ? (rf.hand ? 'Now draw a rough loop around the area to remove them from.' : 'Press right on the color (the magnifier shows what you\'re on).')
+        : pv?.box ? `Pink shows what goes: ${Math.round(pv.share * 100)}% of the outlined area. Pick more shades of it (in shadow, its edge), or adjust Match.` : 'Nothing matches yet: pick the color again, or raise Match.';
     return [
-      el('p', { class: 'small muted ed-clean-hint', text: 'Reverse Fill: removes the colors you pick from inside a rough loop (a label, a sticker, a logo) and fills in with the surface around them — not what\'s behind.' }),
+      el('p', { class: 'small muted ed-clean-hint', text: 'Reverse Fill: removes a color (a label, a sticker, a logo, a stain) and fills in with the surface around it, its color, light and texture — not what\'s behind.' }),
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Remove' }),
-        el('div', { class: 'chips ed-shades' }, ...rf.shades.map((c) => swatch(c, rf.shades, 'shade')), rf.shades.length ? null : el('span', { class: 'muted small', text: 'tap colors on the photo' }))),
+        el('div', { class: 'chips ed-shades' }, ...rf.shades.map((c) => swatch(c, rf.shades, 'shade')), rf.shades.length ? null : el('span', { class: 'muted small', text: 'press on a color in the photo' }))),
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Match' }), el('span', { class: 'muted small', text: 'How close a shade counts.' })),
       tol,
       el('div', { class: 'chips' },
-        el('button', { type: 'button', class: `chip${rf.fromMode ? ' active' : ''}`, 'aria-pressed': String(rf.fromMode), text: '🎯 Fill From', onclick: () => { rf.fromMode = !rf.fromMode; cleanNote = rf.fromMode ? 'Tap the surface to fill with (the can under the label).' : ''; renderPanel(); } }),
+        el('button', { type: 'button', class: `chip${rf.fromMode ? ' active' : ''}`, 'aria-pressed': String(rf.fromMode), text: '🎯 Fill From', onclick: () => { rf.fromMode = !rf.fromMode; cleanNote = rf.fromMode ? 'Pick the surface to fill with (the can under the label).' : ''; renderPanel(); } }),
         ...rf.from.map((c) => swatch(c, rf.from, 'fill-from shade')),
-        rf.trace ? el('button', { type: 'button', class: 'chip', text: '↺ Redraw loop', onclick: () => { rf.trace = null; reversePreview(); cleanNote = 'Draw a rough loop around the area.'; renderPanel(); schedule(); } }) : null,
+        el('button', { type: 'button', class: `chip${rf.hand ? ' active' : ''}`, 'aria-pressed': String(rf.hand), text: '✏️ Draw my own loop',
+          onclick: () => { rf.hand = !rf.hand; rf.trace = null; if (!rf.hand) traceFromSeeds(); reversePreview(); cleanNote = rf.hand ? 'Draw a rough loop around the area.' : ''; renderPanel(); schedule(); } }),
         rf.shades.length || rf.trace || rf.from.length ? el('button', { type: 'button', class: 'chip', text: 'Clear', onclick: () => { rf = { ...newRf(), tol: rf.tol }; cleanNote = ''; renderPanel(); schedule(); } }) : null),
       el('p', { class: 'small', 'aria-live': 'polite', text: status }),
+      cleanNote ? el('p', { class: `small ${cleaning ? 'muted' : 'ok-text'}`, 'aria-live': 'polite', text: cleanNote }) : null,
       el('button', { type: 'button', class: 'btn primary', text: '✨ Remove & fill', disabled: !ready || cleaning || !pv?.box, onclick: runReverseFill }),
-    ];
+    ].filter(Boolean);
   }
 
   function askText(x, y) {
@@ -699,6 +755,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     else if (mode === 'filters') panel.replaceChildren(...filtersPanel());
     else if (mode === 'crop') panel.replaceChildren(...cropPanel());
     else if (mode === 'cleanup') panel.replaceChildren(...cleanupPanel());
+    else if (mode === 'rfill') panel.replaceChildren(...rfillPanel());
     else if (mode === 'face') panel.replaceChildren(...facePanel());
     else panel.replaceChildren(...markupPanel());
     // A mouse wheel scrolls the chip rows sideways (on a phone they're swiped).
@@ -715,21 +772,13 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     });
     const copy = el('button', {
       class: `chip${copyMode ? ' active' : ''}`, 'aria-pressed': String(copyMode), text: '📋 Copy From Area',
-      onclick: () => { copyMode = !copyMode; copyFrom = null; rf = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
+      onclick: () => { copyMode = !copyMode; copyFrom = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
     });
-    const reverse = el('button', {
-      class: `chip${rf ? ' active' : ''}`, 'aria-pressed': String(!!rf), text: '🎨 Reverse Fill',
-      onclick: () => { rf = rf ? null : newRf(); copyMode = false; copyFrom = null; cleanNote = ''; renderPanel(); schedule(); },
-    });
-    if (rf) {
-      return [el('div', { class: 'chips' }, copy, reverse), ...reversePanel(),
-        cleanNote ? el('p', { class: `small ${cleaning ? 'muted' : 'ok-text'}`, 'aria-live': 'polite', text: cleanNote }) : null].filter(Boolean);
-    }
     const hint = copyMode
       ? (copyFrom ? 'Tap, brush or circle the area to cover: it gets a copy of the spot you picked, blended in.' : 'Tap the spot to copy from: a clean piece of what should be there (sand, sky, wall).')
       : 'Tap a spot, brush over something, or draw a circle around it: it\'s removed and filled in from the picture around it.';
     return [
-      el('div', { class: 'chips' }, copy, reverse,
+      el('div', { class: 'chips' }, copy,
         copyMode && copyFrom ? el('button', { class: 'chip', text: '↺ Pick another spot', onclick: () => { copyFrom = null; cleanNote = 'Tap the spot to copy from.'; renderPanel(); schedule(); } }) : null,
         copyMode && copyFrom && lastClean ? el('button', { class: 'chip', text: '↻ Use on the last clean-up', onclick: copyOverLast }) : null),
       el('p', { class: 'small muted ed-clean-hint', text: hint }),
@@ -1083,6 +1132,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       placing = { name: 'the new face', full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: cut.face, flip: false, userFlip: false, mirror: {} };
       renderShown();
       await placeOnFace(true, 0);
+      await upscaleIfSmall();
       if (!placing?.fit) { placing = null; fm.note = 'Couldn\'t line the faces up. Try 🎭 Insert Character to place it by hand.'; return; }
       const flipped = placing.flip;
       finishPlacing();
@@ -1203,8 +1253,34 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       renderShown();
       placeNote = 'Lining it up…'; renderPanel(); schedule();
       await placeOnFace(true, fm.faces?.length ? fm.sel : 'next');
+      if (await upscaleIfSmall()) { refreshPreview(); renderPanel(); }
     } catch (err) { placeNote = `Couldn't add it: ${err.message}`; placing = null; renderPanel(); }
     finally { btn.disabled = false; }
+  }
+
+  /**
+   * A Character whose face is much smaller than the one it goes on (it would be blown up half again or
+   * more): made twice as big first, its detail drawn in (lib/upscale.js: a compact super-resolution
+   * network, on the phone), so it isn't put on blurry; then lined up again. Whether it was.
+   */
+  async function upscaleIfSmall() {
+    const p = placing;
+    if (!faceApp || !p?.fit || !p.charFace?.box || !p.faceObj || p.upscaled) return false;
+    const need = (p.faceObj.box.w * source.width) / (p.charFace.box.w * p.full.w);
+    if (!(need > 1.5) || p.full.w * p.full.h > 1_200_000) return false;
+    const was = placeNote;
+    try {
+      placeNote = 'Sharpening the new face (it\'s small)…'; renderPanel();
+      // (Only its face, with room around it, by the network: the rest of it is trimmed off anyway.)
+      const { upscaleRegion } = await import('../../lib/upscale.js');
+      const fb = p.charFace.box; const m = 0.2;
+      const up = await upscaleRegion(p.full, { x: fb.x - fb.w * m, y: fb.y - fb.h * m, w: fb.w * (1 + 2 * m), h: fb.h * (1 + 2 * m) });
+      if (placing !== p || !up) return false;
+      p.full = up; p.mirror = {}; p.upscaled = true;
+      Object.assign(p, layoutOn(p.faceObj));
+      placeNote = `${was} Its face was small, so it was made twice as big first, its detail drawn in.`;
+      return true;
+    } catch { placeNote = was; return false; } // (as it was: fitted without)
   }
 
   /** 🙂 On a face: the Character over the next face found (sized and turned to it). */
@@ -1320,14 +1396,16 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       at.faceObj.skin ??= skinModel(photo, W, H, at.faceObj);
       const outline = at.faceObj.outline;
       // Placed by its features, bent only a little (the face as it is), trimmed along that outline;
-      // then recolored to that face's skin, and blended only in a band at the border.
+      // then recolored and relit to that face's skin, its texture matched, and blended in (below).
       const patch = fitPatch(img.rgba, img.w, img.h, charOf(at), at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35, photo });
       if (!patch) return null;
-      if (outline) { recolor(patch, photo, W, H, outline, at.blend / 100, at.faceObj); relight(patch, photo, W, H, at.faceObj, outline, at.blend / 100); matchTexture(patch, photo, W, H, at.faceObj, outline, at.blend / 100); }
+      if (outline) { recolor(patch, photo, W, H, outline, at.blend / 100, at.faceObj); relight(patch, photo, W, H, at.faceObj, outline, at.blend / 100); keepSkinTexture(patch, photo, W, H, at.faceObj, outline, at.blend / 100); matchTexture(patch, photo, W, H, at.faceObj, outline, at.blend / 100); }
       // Blended both ways at the border: the Character toward the photo's skin there, and what's left
-      // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway.
+      // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway; the
+      // difference at its edge carried smoothly across all of it (as a gradient-domain blend does: its
+      // own detail kept, that face's light and color taken on), not just a band at the border.
       const faceW = at.faceObj.box.w * W;
-      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: Math.max(6, Math.round(faceW * 0.16)), region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: at.faceObj.skin });
+      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: 0, region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: at.faceObj.skin });
       return patch;
     }
     const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);

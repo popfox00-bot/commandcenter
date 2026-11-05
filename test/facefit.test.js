@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, recolor, matchTexture, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, matchTexture, keepSkinTexture, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -302,4 +302,21 @@ test('texture matched: a crisp Character on a soft photo is softened, a soft one
   // Nothing to do at strength 0.
   const none = patchOf(stripes); const copy = none.rgba.slice(); matchTexture(none, picture(W, H, blurred), W, H, face, outline, 0);
   assert.deepEqual(none.rgba, copy);
+});
+
+test('that face\'s skin texture kept: a smooth Character over textured skin takes on its texture there (not on the features), partly', () => {
+  const W = 200; const H = 200; const pts = landmarks(100, 100, 1.4);
+  const face = { ...faceAt(pts, W, H), skin: { isSkin: () => true } };
+  const outline = [[30, 30], [170, 30], [170, 170], [30, 170]];
+  // The photo: skin with a fine checker texture (±12); the patch: the same skin, smooth.
+  const photo = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const t = ((x >> 1) + (y >> 1)) % 2 ? 12 : -12; photo.set([200 + t, 160 + t, 140 + t, 255], (y * W + x) * 4); }
+  const patch = { x0: 0, y0: 0, pw: W, ph: H, rgba: new Uint8ClampedArray(W * H * 4).fill(0).map((_, i) => [200, 160, 140, 255][i % 4]), charPts: pts };
+  keepSkinTexture(patch, photo, W, H, face, outline, 1);
+  // Its cheek (away from the features) now follows the photo's checker: lighter where it's lighter.
+  let agree = 0; let n = 0; let spread = 0;
+  for (let y = 120; y < 140; y++) for (let x = 45; x < 60; x++) { const d = patch.rgba[(y * W + x) * 4] - 200; const t = photo[(y * W + x) * 4] - 200; n++; if (Math.sign(d) === Math.sign(t)) agree++; spread += Math.abs(d); }
+  assert.ok(agree / n > 0.8 && spread / n > 2 && spread / n < 12, `cheek: ${agree / n}, ${spread / n}`);
+  // Not on its eyes (left as they were, but for a level or two at the soft edge).
+  const eye = pts[37]; assert.ok(Math.abs(patch.rgba[(Math.round(eye[1]) * W + Math.round(eye[0])) * 4] - 200) <= 2);
 });

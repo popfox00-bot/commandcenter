@@ -335,6 +335,46 @@ export function closeMouth(img, cw, ch, pts, to = 0) {
 }
 
 /**
+ * A Character's closed (or nearly closed) mouth opened to match a face's open one (`to`: that face's
+ * mouthOpen): its lips parted (the upper up, the lower down, each keeping its thickness, its corners
+ * where they are) and its chin dropped a little with them, and between its lips nothing: see-through (a
+ * soft edge), so the open mouth of the face it goes on (its teeth, the dark inside) shows there instead
+ * of lips stretched across it. { rgba, pts } (a copy), or null when it's already about as open.
+ */
+export function openMouth(img, cw, ch, pts, to) {
+  const wid = Math.hypot(pts[54][0] - pts[48][0], pts[54][1] - pts[48][1]); if (!wid) return null;
+  const need = (to - mouthOpen(pts)) * wid; if (need < 0.05 * wid) return null;
+  // Down the face: across the mouth, turned a quarter (toward its chin).
+  let n = [-(pts[54][1] - pts[48][1]) / wid, (pts[54][0] - pts[48][0]) / wid];
+  if ((pts[8][0] - pts[51][0]) * n[0] + (pts[8][1] - pts[51][1]) * n[1] < 0) n = [-n[0], -n[1]];
+  const P = pts.map((p) => p.slice()); const move = (i, k) => { P[i] = [pts[i][0] + n[0] * k, pts[i][1] + n[1] * k]; };
+  const half = need / 2;
+  // Upper lip up (the middle most), lower lip down; the outer line with the inner so each keeps its thickness.
+  for (const [i, k] of [[61, 0.75], [62, 1], [63, 0.75], [49, 0.55], [50, 0.8], [51, 1], [52, 0.8], [53, 0.55]]) move(i, -half * k);
+  for (const [i, k] of [[67, 0.75], [66, 1], [65, 0.75], [59, 0.55], [58, 0.8], [57, 1], [56, 0.8], [55, 0.55]]) move(i, half * k);
+  for (const [i, k] of [[6, 0.25], [7, 0.4], [8, 0.5], [9, 0.4], [10, 0.25]]) move(i, half * k);
+  const out = meshWarp(img, cw, ch, pts, P).rgba;
+  // Between its lips: see-through, with a soft edge (a pixel or so inside the inner lip line).
+  const poly = P.slice(60, 68);
+  const xs = poly.map((p) => p[0]); const ys = poly.map((p) => p[1]);
+  const bx = Math.max(0, Math.floor(Math.min(...xs)) - 1); const by = Math.max(0, Math.floor(Math.min(...ys)) - 1);
+  const ex = Math.min(cw, Math.ceil(Math.max(...xs)) + 1); const ey = Math.min(ch, Math.ceil(Math.max(...ys)) + 1);
+  const soft = Math.max(1, wid * 0.03);
+  for (let y = by; y < ey; y++) for (let x = bx; x < ex; x++) {
+    const px = x + 0.5; const py = y + 0.5; let inside = false; let d = Infinity;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i]; const [xj, yj] = poly[j];
+      if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+      const vx = xj - xi; const vy = yj - yi; const t = Math.max(0, Math.min(1, ((px - xi) * vx + (py - yi) * vy) / (vx * vx + vy * vy || 1)));
+      d = Math.min(d, Math.hypot(px - xi - t * vx, py - yi - t * vy));
+    }
+    if (!inside) continue;
+    const o = (y * cw + x) * 4; out[o + 3] = Math.round(out[o + 3] * Math.max(0, 1 - d / soft));
+  }
+  return { rgba: out, pts: P };
+}
+
+/**
  * A picture (RGBA cw×ch) bent smoothly so each landmark `src[i]` goes to `dst[i]` (pixels): every pixel
  * near the ones that move follows them by how near it is to each (inverse square distance; the landmarks
  * that stay, and a ring around them, hold the rest in place). No triangles, so no straight seams. A copy.

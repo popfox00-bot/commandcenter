@@ -49,9 +49,10 @@ const copies = [
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 
-// Vendored by hand, kept: MediaPipe's Face Landmarker (Apache-2.0; its model isn't on npm, see
-// web/vendor/mediapipe/LICENSE for where each file is from): the dense face mesh, on the phone.
-const KEEP = new Set(['mediapipe']);
+// Vendored by hand, kept (each folder's LICENSE says where its files are from): MediaPipe's Face
+// Landmarker (Apache-2.0; its model isn't on npm), the dense face mesh; ESRGAN Slim ×2 (MIT; its npm
+// package would bring all of TensorFlow.js along), upscaling a small Character's face.
+const KEEP = new Set(['mediapipe', 'esrgan']);
 mkdirSync(out, { recursive: true });
 for (const d of readdirSync(out)) if (!KEEP.has(d)) rmSync(join(out, d), { recursive: true, force: true });
 for (const [from, to] of copies) {

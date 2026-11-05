@@ -280,13 +280,13 @@ export function mouthShut(photo, W, H, face) {
 
 /** The Character made ready for `face`: its mouth closed or opened to match that face's (closeMouth, openMouth), turned in 3D to its pose (turnFace); worked out once per picture and face. */
 const turnCache = new WeakMap();
-export function turnedFor(img, cw, ch, charFace, face, W, H, photo = null) {
+export function turnedFor(img, cw, ch, charFace, face, W, H, photo = null, { turn = true, mouth = true } = {}) {
   let m = turnCache.get(img); if (!m) { m = new WeakMap(); turnCache.set(img, m); }
-  const hit = m.get(face); if (hit && hit.charFace === charFace && hit.W === W && hit.H === H) return hit.t;
+  const hit = m.get(face); if (hit && hit.charFace === charFace && hit.W === W && hit.H === H && hit.turn === turn && hit.mouth === mouth) return hit.t;
   // Its mouth closed first when that face's is closed (an open smile pasted on a closed mouth gives the
   // game away); opened when that face's is open and its own isn't.
   let src = { rgba: img, w: cw, h: ch, face: charFace }; let changed = false; let opened = false;
-  if (charFace.pts?.length === 68 && face.pts?.length === 68 && photo) {
+  if (mouth && charFace.pts?.length === 68 && face.pts?.length === 68 && photo) {
     const pts = charFace.pts.map(([u, v]) => [u * cw, v * ch]);
     // Or opened, when that face's mouth is open (its teeth showing, or open wide) and the Character's isn't:
     // that face's own open mouth shows between the Character's parted lips.
@@ -299,10 +299,10 @@ export function turnedFor(img, cw, ch, charFace, face, W, H, photo = null) {
       changed = true;
     }
   }
-  let t = turnFace(src.rgba, src.w, src.h, src.face, face, W, H) ?? (changed ? src : null);
+  let t = (turn ? turnFace(src.rgba, src.w, src.h, src.face, face, W, H) : null) ?? (changed ? src : null);
   // (Opened: its lips are to go right onto that face's, so that face's open mouth shows between them.)
   if (t && opened) t = { ...t, opened: true };
-  m.set(face, { charFace, W, H, t });
+  m.set(face, { charFace, W, H, t, turn, mouth });
   return t;
 }
 
@@ -373,10 +373,11 @@ function ownMask(img, cw, ch, charFace) {
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, photo = null, tune = null, paint = null } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, turn3d = true, mouth = true, photo = null, tune = null, paint = null } = {}) {
   // Turned in 3D first (face3d.js) to the pose of the face it goes on, when they're posed differently.
   let turned = false; let opened = false;
-  if (turn) { const t = turnedFor(img, cw, ch, charFace, face, W, H, photo); if (t) { ({ rgba: img, w: cw, h: ch, face: charFace } = t); turned = true; opened = !!t.opened; } }
+  // (`turn3d`: in 3D to its pose; `mouth`: its mouth closed or opened to match. Either can be left out.)
+  if (turn && (turn3d || mouth)) { const t = turnedFor(img, cw, ch, charFace, face, W, H, photo, { turn: turn3d, mouth }); if (t) { ({ rgba: img, w: cw, h: ch, face: charFace } = t); turned = true; opened = !!t.opened; } }
   // Realistic (the default): placed by its inner features and sized for a natural face (realPlacement),
   // and bent only along its jaw (toward that face's), its eyes, nose and mouth left as they are.
   const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;

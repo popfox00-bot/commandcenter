@@ -511,13 +511,14 @@ saves the face it used.
    Cutout if you like. Characters saved before that have their face looked for with room around it.
 3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
    Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
-   realistic result rather than pinned to every point of the face it replaces. First it's **turned in
-   3D** to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
+   realistic result rather than pinned to every point of the face it replaces. Its own mouth and its
+   own pose are kept as they are (reshaping them looked forced); two chips do it when you want:
+   **🧊 Turn to its pose** turns it in 3D to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
    gives how each is turned left/right and up/down, and the Character's own face, given that depth
    (its own, from the face mesh, when it was found by it: all 478 points of its real shape, its mouth
    aside), is turned by the difference (most of the left/right, a little of the up/down) and drawn again
    over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
-   (`web/tools/editor/face3d.js`). Its mouth is matched first: closed when that face's is shut, or,
+   (`web/tools/editor/face3d.js`). **👄 Match the mouth**: closed when that face's is shut, or,
    when that face's is open (its teeth showing) and the Character's isn't, **opened**: its lips parted
    (each as thick as it was, its chin dropping a little), put right onto that face's lips, and
    see-through between them, so that face's own teeth and open mouth show there. A Character whose face

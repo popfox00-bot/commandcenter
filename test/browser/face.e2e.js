@@ -686,8 +686,9 @@ test('faces: the upscaler (vendor/esrgan, by face-api\'s TensorFlow.js) loads on
 
 test('FM → 🎨 Reverse Fill: 🧽 brush some out of what goes, 🖌 brush more in', async () => {
   const { context, page, errors, box, at } = await canInFm();
-  const count = () => page.evaluate(() => {
-    // (Pink: what goes, drawn over the photo.)
+  const count = () => page.evaluate(async () => {
+    // (Pink: what goes, drawn over the photo; read once the overlay has been drawn again after the change.)
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const o = document.querySelector('.ed-overlay'); const d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data;
     let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 120 && d[i + 2] > 100 && d[i + 3] > 60) n++; return n;
   });

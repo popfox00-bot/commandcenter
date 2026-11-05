@@ -3,7 +3,7 @@
 // light and tone (relight), and shaded by that face's shape (faceNormals, shadeByShape). Pure; in place on a patch.
 
 import { colorStats, matchColors } from '../../lib/color-match.js';
-import { convexHull as hull, fillPolygon, scalePolygon as grow, softenMask as soften } from '../../lib/geometry.js';
+import { boxBlur, convexHull as hull, fillPolygon, scalePolygon as grow, softenMask as soften } from '../../lib/geometry.js';
 import { membrane } from './cleanup.js';
 import { skinModel } from './fit-skin.js';
 import { triangulate } from './face3d.js';
@@ -192,13 +192,20 @@ export function shadeByShape(patch, photo, W, H, face, outline, strength = 0.8) 
   patch.light = { theirs, mine };
   // Each light relative to its own even light (the overall tone isn't this step's).
   const shade = (c, k) => (c[0] + c[1] * nrm[k * 3] + c[2] * nrm[k * 3 + 1] + c[3] * nrm[k * 3 + 2]) / c[0];
-  // Eased in from the mesh's edge.
-  const on = Float32Array.from({ length: N }, (_, k) => (nrm[k * 3] || nrm[k * 3 + 1] || nrm[k * 3 + 2] ? 1 : 0));
-  const ease = soften(on, pw, ph, Math.max(2, Math.round(Math.hypot(...[0, 1].map((j) => (face.pts[16][j] - face.pts[0][j]) * (j ? H : W))) * 0.04)));
+  // How much lighter or darker each pixel is to be, within a little (a strong change looks painted on),
+  // then smoothed wide (so the mesh's triangles and its gaps never show as edges), eased in from the
+  // mesh's edge.
+  const faceW = Math.hypot(...[0, 1].map((j) => (face.pts[16][j] - face.pts[0][j]) * (j ? H : W)));
+  const on = new Uint8Array(N); const ratio = new Float32Array(N).fill(1);
   for (let k = 0; k < N; k++) {
-    if (!rgba[k * 4 + 3] || ease[k] < 0.01 || !on[k]) continue;
-    const r = Math.max(0.8, Math.min(1.25, shade(theirs, k) / Math.max(0.2, shade(mine, k))));
-    const f = 1 + strength * ease[k] * (r - 1);
+    if (!(nrm[k * 3] || nrm[k * 3 + 1] || nrm[k * 3 + 2])) continue;
+    on[k] = 1; ratio[k] = Math.max(0.88, Math.min(1.12, shade(theirs, k) / Math.max(0.2, shade(mine, k))));
+  }
+  const smooth = boxBlur(boxBlur(ratio, on, pw, ph, Math.max(2, Math.round(faceW * 0.05))), on, pw, ph, Math.max(2, Math.round(faceW * 0.05)));
+  const ease = soften(Float32Array.from(on), pw, ph, Math.max(2, Math.round(faceW * 0.06)));
+  for (let k = 0; k < N; k++) {
+    if (!rgba[k * 4 + 3] || ease[k] < 0.01) continue;
+    const f = 1 + strength * ease[k] * (smooth[k] - 1);
     for (let j = 0; j < 3; j++) rgba[k * 4 + j] = Math.min(255, rgba[k * 4 + j] * f);
   }
   return patch;

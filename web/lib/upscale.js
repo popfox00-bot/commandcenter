@@ -81,12 +81,21 @@ export async function upscaleRegion(img, box, { feather = 10 } = {}) {
     }
   }
   const UW = cw * 2; const UH = ch * 2;
+  // Only the network's detail (each pixel less the few around it) is added to the smooth enlargement: its
+  // colors and light can drift a little from the picture's, which would show as a lighter or darker box.
+  const blur = (j) => {
+    const v = Float32Array.from({ length: UW * UH }, (_, i) => up.rgba[i * 4 + j]); const t = new Float32Array(v.length); const r = 2;
+    for (let y = 0; y < UH; y++) for (let x = 0; x < UW; x++) { let s = 0; let n = 0; for (let d = -r; d <= r; d++) { const X = x + d; if (X >= 0 && X < UW) { s += v[y * UW + X]; n++; } } t[y * UW + x] = s / n; }
+    for (let x = 0; x < UW; x++) for (let y = 0; y < UH; y++) { let s = 0; let n = 0; for (let d = -r; d <= r; d++) { const Y = y + d; if (Y >= 0 && Y < UH) { s += t[Y * UW + x]; n++; } } v[y * UW + x] = s / n; }
+    return v;
+  };
+  const smooth = [0, 1, 2].map(blur);
   for (let y = 0; y < UH; y++) for (let x = 0; x < UW; x++) {
     // Eased in from its edge (not where its edge is the picture's own).
     const d = Math.min(x0 ? x : Infinity, y0 ? y : Infinity, x1 < w ? UW - 1 - x : Infinity, y1 < h ? UH - 1 - y : Infinity);
     const f = Math.min(1, d / feather); if (f <= 0) continue;
-    const o = ((y0 * 2 + y) * W + x0 * 2 + x) * 4; const k = (y * UW + x) * 4;
-    for (let c = 0; c < 3; c++) out[o + c] = out[o + c] * (1 - f) + up.rgba[k + c] * f;
+    const o = ((y0 * 2 + y) * W + x0 * 2 + x) * 4; const k = y * UW + x;
+    for (let c = 0; c < 3; c++) out[o + c] = out[o + c] + f * (up.rgba[k * 4 + c] - smooth[c][k]);
   }
   return { rgba: out, w: W, h: H };
 }

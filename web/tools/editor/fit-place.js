@@ -105,6 +105,22 @@ export function bestPlacement(charFace, cw, ch, face, W, H) {
 
 /** The inner features (nose, eyes, mouth): where a face is and which way it's turned, whatever its jaw. */
 const INNER = [27, 28, 29, 30, 31, 33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 51, 54, 57];
+
+/**
+ * Where the Character goes keeping its own shape: moved, sized and turned as one piece (a similarity:
+ * no bending, narrowing or slanting), so its eyes, nose and mouth lie as close as they can to that face's
+ * (the eyes counting most, then the mouth). { x, y, width, rot, affine } in the picture's pixels.
+ */
+export function rigidPlacement(charFace, cw, ch, face, W, H) {
+  if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return bestPlacement(charFace, cw, ch, face, W, H);
+  const from = INNER.map((i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]);
+  const to = INNER.map((i) => [face.pts[i][0] * W, face.pts[i][1] * H]);
+  const weights = INNER.map((i) => (i >= 36 && i <= 47 ? 3 : i >= 48 ? 2 : 1));
+  const m = similarityFit(from, to, weights);
+  if (!(m.s > 0) || !Number.isFinite(m.s)) return bestPlacement(charFace, cw, ch, face, W, H);
+  const c = Math.cos(m.rot) * m.s; const s = Math.sin(m.rot) * m.s;
+  return { x: c * (cw / 2) - s * (ch / 2) + m.tx, y: s * (cw / 2) + c * (ch / 2) + m.ty, width: m.s * cw, rot: m.rot, affine: [c, -s, m.tx, s, c, m.ty] };
+}
 const median = (xs) => { const a = [...xs].sort((p, q) => p - q); return a.length ? a[Math.floor(a.length / 2)] : 0; };
 /** How high a face's forehead is (its hairline above its brows, along the face) for its brow-to-chin length: [forehead, brow-to-chin]. */
 function foreheadOf(pts, w, h, outline) {

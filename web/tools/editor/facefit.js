@@ -9,7 +9,7 @@
 // The steps live in their own modules (fit-place, fit-skin, fit-light, fit-texture, fit-parts, fit-blend);
 // this one fits it (fitPatch, with the mouth and 3D turn first: turnedFor) and hands them all on.
 
-import { CONTROL, bestPlacement, mlsMap, realPlacement } from './fit-place.js';
+import { CONTROL, bestPlacement, mlsMap, realPlacement, rigidPlacement } from './fit-place.js';
 import { closeMouth, mouthOpen, openMouth, turnFace } from './face3d.js';
 import { convexHull as hull, fillPolygon, scalePolygon as grow, softenMask as soften } from '../../lib/geometry.js';
 import { faceContour, faceFrom, faceOutline } from '../../lib/face-core.js';
@@ -87,7 +87,7 @@ export function turnedFor(img, cw, ch, charFace, face, W, H, photo = null, { tur
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, turn3d = true, mouth = true, photo = null, tune = null, paint = null } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, turn3d = true, mouth = true, photo = null, tune = null, paint = null, keepShape = false } = {}) {
   // Turned in 3D first (face3d.js) to the pose of the face it goes on, when they're posed differently.
   let turned = false; let opened = false;
   // (`turn3d`: in 3D to its pose; `mouth`: its mouth closed or opened to match. Either can be left out.)
@@ -96,7 +96,11 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   // and bent only along its jaw (toward that face's), its eyes, nose and mouth left as they are.
   const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;
   const real2 = real && usePts;
-  const base = real2 ? realPlacement(charFace, cw, ch, face, W, H, { outline, own: ownOutline(img, cw, ch, charFace), turned }) : bestPlacement(charFace, cw, ch, face, W, H);
+  // (`keepShape`: its own shape kept: placed as one piece by its features (eyes, nose, mouth as they are,
+  // never bent, narrowed or stretched); still trimmed softly along that face's outline.)
+  const base = keepShape && usePts ? rigidPlacement(charFace, cw, ch, face, W, H)
+    : real2 ? realPlacement(charFace, cw, ch, face, W, H, { outline, own: ownOutline(img, cw, ch, charFace), turned }) : bestPlacement(charFace, cw, ch, face, W, H);
+  if (keepShape) bend = 0;
   // Where the Character's edges go when just placed by the eyes: anchors that keep it steady far from the face.
   const anchorsSrc = [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]];
   // (squash: narrowed across, for a face turned away.)
@@ -123,7 +127,7 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   // Its mouth opened for that face's open one: its lips right onto that face's lips (all of the way there,
   // easing back to the light bend around it), so that face's teeth show between them.
   let mouthAt = null;
-  if (opened && real2) {
+  if (opened && real2 && !keepShape) {
     const LIPS = [48, 51, 54, 57, 60, 62, 64, 66];
     CONTROL.forEach((i, j) => { if (i >= 48) tgt[j] = [face.pts[i][0] * W, face.pts[i][1] * H]; });
     for (const i of LIPS) if (!CONTROL.includes(i)) { tgt.push([face.pts[i][0] * W, face.pts[i][1] * H]); src.push([charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]); }

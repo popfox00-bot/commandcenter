@@ -15,7 +15,7 @@ import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sa
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
+import { fitPatch, blendIn, recolor, relight, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -1321,9 +1321,9 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const outline = at.faceObj.outline;
       // Placed by its features, bent only a little (the face as it is), trimmed along that outline;
       // then recolored to that face's skin, and blended only in a band at the border.
-      const patch = fitPatch(img.rgba, img.w, img.h, charOf(at), at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35 });
+      const patch = fitPatch(img.rgba, img.w, img.h, charOf(at), at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35, photo });
       if (!patch) return null;
-      if (outline) recolor(patch, photo, W, H, outline, at.blend / 100);
+      if (outline) { recolor(patch, photo, W, H, outline, at.blend / 100); relight(patch, photo, W, H, at.faceObj, outline, at.blend / 100); }
       // Blended both ways at the border: the Character toward the photo's skin there, and what's left
       // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway.
       const faceW = at.faceObj.box.w * W;

@@ -6,9 +6,9 @@
 // the photo seamlessly: at its edge it takes on what's next to it there (above, below, each side, each
 // differently), eased smoothly inward. Pure: RGBA in, patch pixels out.
 
-import { faceOutline, faceContour, alignOnFace, similarityFit } from '../../lib/face-core.js';
+import { faceOutline, faceContour, alignOnFace, similarityFit, faceFrom } from '../../lib/face-core.js';
 import { membrane } from './cleanup.js';
-import { turnFace } from './face3d.js';
+import { turnFace, closeMouth, mouthOpen } from './face3d.js';
 import { featherAlpha } from '../cutout/cutout-core.js';
 import { rgbToLab, colorStats, matchColors } from '../../lib/color-match.js';
 
@@ -232,12 +232,54 @@ export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, ow
   return { x, y, width: sy * k * cw, rot, squash, shear, affine };
 }
 
-/** The Character turned in 3D to `face`'s pose (turnFace), worked out once per picture and face. */
+/**
+ * Whether a face's mouth (in the photo, RGBA W×H) is shut: its lips' landmarks close together, and
+ * between them nothing that isn't lip (no teeth, no dark open mouth): the inside of the mouth colored like
+ * the lips around it.
+ */
+export function mouthShut(photo, W, H, face) {
+  const P = face.pts.map(([u, v]) => [u * W, v * H]);
+  if (mouthOpen(P) > 0.14) return false;
+  const lab = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= W || Y >= H) return null; const o = (Y * W + X) * 4; return rgbToLab(photo[o], photo[o + 1], photo[o + 2]); };
+  // The lips' own color: on them, just above and below where they meet.
+  const lips = [];
+  for (const [u, l, ou, ol] of [[61, 67, 50, 58], [62, 66, 51, 57], [63, 65, 52, 56]]) for (const [a, b] of [[u, ou], [l, ol]]) { const q = lab((P[a][0] + P[b][0]) / 2, (P[a][1] + P[b][1]) / 2); if (q) lips.push(q); }
+  if (lips.length < 3) return mouthOpen(P) < 0.05;
+  const L = lips.reduce((t, c) => t + c[0], 0) / lips.length; const A = lips.reduce((t, c) => t + c[1], 0) / lips.length;
+  // Between the lips (inside 60–67, a little roomier): any teeth (much lighter than the lips, and less red)?
+  const inner = grow(P.slice(60, 68), 1.3);
+  const xs = inner.map((p) => p[0]); const ys = inner.map((p) => p[1]);
+  const bx = Math.floor(Math.min(...xs)); const by = Math.floor(Math.min(...ys));
+  const bw = Math.max(1, Math.ceil(Math.max(...xs)) - bx); const bh = Math.max(1, Math.ceil(Math.max(...ys)) - by);
+  const m = fillPolygon(inner, bx, by, bw, bh);
+  let n = 0; let teeth = 0; let dark = 0;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    if (!m[y * bw + x]) continue; const c = lab(bx + x + 0.5, by + y + 0.5); if (!c) continue; n++;
+    if (c[0] > L + 12 && c[1] < A - 6) teeth++;
+    if (c[0] < L - 35) dark++;
+  }
+  if (!n) return mouthOpen(P) < 0.05;
+  return teeth / n < 0.08 && !(mouthOpen(P) > 0.09 && dark / n > 0.4);
+}
+
+/** The Character made ready for `face`: its mouth closed if that face's is (closeMouth), turned in 3D to its pose (turnFace); worked out once per picture and face. */
 const turnCache = new WeakMap();
-export function turnedFor(img, cw, ch, charFace, face, W, H) {
+export function turnedFor(img, cw, ch, charFace, face, W, H, photo = null) {
   let m = turnCache.get(img); if (!m) { m = new WeakMap(); turnCache.set(img, m); }
   const hit = m.get(face); if (hit && hit.charFace === charFace && hit.W === W && hit.H === H) return hit.t;
-  const t = turnFace(img, cw, ch, charFace, face, W, H);
+  // Its mouth closed first when that face's is closed (an open smile pasted on a closed mouth gives the
+  // game away); left as it is when that face shows its teeth or an open mouth.
+  let src = { rgba: img, w: cw, h: ch, face: charFace }; let changed = false;
+  if (charFace.pts?.length === 68 && face.pts?.length === 68 && photo && mouthShut(photo, W, H, face)) {
+    const pts = charFace.pts.map(([u, v]) => [u * cw, v * ch]);
+    const c = closeMouth(img, cw, ch, pts, 0);
+    if (c) {
+      const xs = c.pts.map((p) => p[0]); const ys = c.pts.map((p) => p[1]);
+      src = { rgba: c.rgba, w: cw, h: ch, face: faceFrom({ x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) }, c.pts, cw, ch, charFace.score ?? 1) };
+      changed = true;
+    }
+  }
+  const t = turnFace(src.rgba, src.w, src.h, src.face, face, W, H) ?? (changed ? src : null);
   m.set(face, { charFace, W, H, t });
   return t;
 }
@@ -307,10 +349,10 @@ function ownMask(img, cw, ch, charFace) {
  * `trim`) faded out softly beyond that head's outline. Returns the patch { x0, y0, pw, ph, rgba } in
  * the picture's pixels (alpha = coverage), or null when it's off the picture.
  */
-export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real } = {}) {
+export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outline = null, bend = 0.35, own = true, real = true, turn = real, photo = null } = {}) {
   // Turned in 3D first (face3d.js) to the pose of the face it goes on, when they're posed differently.
   let turned = false;
-  if (turn) { const t = turnedFor(img, cw, ch, charFace, face, W, H); if (t) { ({ rgba: img, w: cw, h: ch, face: charFace } = t); turned = true; } }
+  if (turn) { const t = turnedFor(img, cw, ch, charFace, face, W, H, photo); if (t) { ({ rgba: img, w: cw, h: ch, face: charFace } = t); turned = true; } }
   // Realistic (the default): placed by its inner features and sized for a natural face (realPlacement),
   // and bent only along its jaw (toward that face's), its eyes, nose and mouth left as they are.
   const usePts = charFace.pts?.length === 68 && face.pts?.length === 68;
@@ -402,7 +444,9 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     }
     for (let i = 0; i < pw * ph; i++) rgba[i * 4 + 3] *= Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   }
-  return { x0, y0, pw, ph, rgba };
+  // (Where its landmarks went, for relight: as placed, before the light bend.)
+  const charPts = charFace.pts?.length === 68 ? charFace.pts.map(([u, v]) => place([u * cw, v * ch])) : null;
+  return { x0, y0, pw, ph, rgba, charPts };
 }
 
 /**
@@ -544,6 +588,59 @@ export function recolor(patch, photo, W, H, outline, strength = 0.8) {
   if (!target || !own) return patch;
   const out = matchColors(rgba, pw, ph, target, strength, own);
   for (let i = 0; i < pw * ph; i++) if (rgba[i * 4 + 3]) { rgba[i * 4] = out[i * 4]; rgba[i * 4 + 1] = out[i * 4 + 1]; rgba[i * 4 + 2] = out[i * 4 + 2]; }
+  return patch;
+}
+
+/**
+ * The Character relit like the face it goes on: the smooth light and shade across that face's skin (its
+ * eyes, brows, nose and mouth left out, filled in from around them) and the same across the
+ * Character's, and the Character's shade swapped for that face's, `strength` of the way (0..1): lit
+ * from the same side, as bright where that face is bright and as shaded where it's shaded, its own
+ * detail kept. In place on the patch.
+ */
+export function relight(patch, photo, W, H, face, outline, strength = 0.8) {
+  const { x0, y0, pw, ph, rgba, charPts } = patch;
+  if (!outline || face.pts?.length !== 68 || strength <= 0) return patch;
+  const inFace = fillPolygon(outline, x0, y0, pw, ph);
+  // The features (each with room around it), its and that face's: left out of the shading.
+  const feat = new Uint8Array(pw * ph);
+  const groups = [[17, 21], [22, 26], [36, 41], [42, 47], [27, 35], [48, 59]];
+  for (const pts of [face.pts.map(([u, v]) => [u * W, v * H]), charPts].filter(Boolean)) {
+    for (const [a, b] of groups) {
+      const m = fillPolygon(grow(hull(pts.slice(a, b + 1)), a === 27 ? 1.5 : 1.7), x0, y0, pw, ph);
+      for (let i = 0; i < m.length; i++) if (m[i]) feat[i] = 1;
+    }
+  }
+  const faceW = Math.hypot((face.pts[16][0] - face.pts[0][0]) * W, (face.pts[16][1] - face.pts[0][1]) * H);
+  const R = Math.max(2, Math.round(faceW * 0.09));
+  const lum = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
+  /** The smooth shade over the face's skin (from `at(k)`, a pixel's lightness, or null where it isn't skin). */
+  const shade = (at) => {
+    const v = new Float32Array(pw * ph * 3); const free = new Uint8Array(pw * ph); const fixed = new Uint8Array(pw * ph);
+    let sum = 0; let n = 0;
+    for (let k = 0; k < pw * ph; k++) { const l = inFace[k] && !feat[k] ? at(k) : null; if (l == null) { free[k] = 1; continue; } fixed[k] = 1; v[k * 3] = l; sum += l; n++; }
+    if (n < 50) return null;
+    const mean = sum / n; for (let k = 0; k < pw * ph; k++) if (free[k]) v[k * 3] = mean;
+    smoothField(v, free, fixed, pw, ph);
+    const f = new Float32Array(pw * ph); for (let k = 0; k < pw * ph; k++) f[k] = v[k * 3];
+    return soften(f, pw, ph, R);
+  };
+  // (Their shade from their skin only: not hair or shadow at the edge of the face.)
+  const skin = skinModel(photo, W, H, face);
+  const theirs = shade((k) => { const X = x0 + (k % pw); const Y = y0 + Math.floor(k / pw); if (X >= W || Y >= H) return null; const o = (Y * W + X) * 4; if (skin && !skin.isSkin(photo[o], photo[o + 1], photo[o + 2])) return null; return lum(photo[o], photo[o + 1], photo[o + 2]); });
+  const mine = shade((k) => (rgba[k * 4 + 3] > 200 ? lum(rgba[k * 4], rgba[k * 4 + 1], rgba[k * 4 + 2]) : null));
+  if (!theirs || !mine) return patch;
+  // Their shade over its own, evened out over the face (the overall color is recolor's), within reason.
+  let sr = 0; let n = 0;
+  for (let k = 0; k < pw * ph; k++) if (inFace[k] && rgba[k * 4 + 3] > 200) { sr += theirs[k] / Math.max(1, mine[k]); n++; }
+  if (!n) return patch;
+  const avg = sr / n;
+  for (let k = 0; k < pw * ph; k++) {
+    if (!rgba[k * 4 + 3]) continue;
+    const r = Math.max(0.75, Math.min(1.3, theirs[k] / Math.max(1, mine[k]) / avg));
+    const g = 1 + strength * (r - 1);
+    for (let c = 0; c < 3; c++) rgba[k * 4 + c] = Math.min(255, rgba[k * 4 + c] * g);
+  }
   return patch;
 }
 

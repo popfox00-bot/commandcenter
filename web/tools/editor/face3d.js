@@ -6,6 +6,7 @@
 // nearest last, so its nose covers the far cheek as it would. Pure: RGBA in, RGBA out.
 
 import { faceFrom } from '../../lib/face-core.js';
+import { rgbToLab } from '../../lib/color-match.js';
 
 /** The generic face, frontal: [x, y, depth] (x right, y down, depth toward the camera; the jaw 2 wide). */
 export const TEMPLATE = (() => {
@@ -249,4 +250,108 @@ export function turnFace(img, cw, ch, charFace, face, W, H, { maxYaw = 0.5, maxP
   const box = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   const nf = faceFrom(box, pts, w, h, charFace.score ?? 1);
   return { rgba: out, w, h, face: nf, yaw: dyaw, pitch: dpitch };
+}
+
+/** How open a mouth is: the gap between its lips (inside) for its width. */
+export const mouthOpen = (pts) => Math.hypot(pts[66][0] - pts[62][0], pts[66][1] - pts[62][1]) / (Math.hypot(pts[54][0] - pts[48][0], pts[54][1] - pts[48][1]) || 1);
+
+/**
+ * A picture (RGBA cw×ch) redrawn over a mesh of its 68 landmarks `src` (pixels), each moved to `dst`,
+ * the rest of it (a ring around them and the picture's edges) staying put. { rgba } the same size.
+ */
+export function meshWarp(img, cw, ch, src, dst) {
+  const xs = src.map((p) => p[0]); const ys = src.map((p) => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2; const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const rx = (Math.max(...xs) - Math.min(...xs)) * 0.8; const ry = (Math.max(...ys) - Math.min(...ys)) * 0.8;
+  const S = src.map((p) => p.slice()); const D = dst.map((p) => p.slice());
+  for (let i = 0; i < 16; i++) { const a = (2 * Math.PI * i) / 16; const p = [cx + rx * Math.cos(a), cy + ry * Math.sin(a)]; S.push(p); D.push(p); }
+  for (const p of [[0, 0], [cw / 2, 0], [cw, 0], [cw, ch / 2], [cw, ch], [cw / 2, ch], [0, ch], [0, ch / 2]]) { S.push(p); D.push(p); }
+  const out = Uint8ClampedArray.from(img);
+  // Only where something moved: the triangles with a moved corner drawn again (the rest is as it was).
+  const moved = S.map((p, i) => Math.hypot(p[0] - D[i][0], p[1] - D[i][1]) > 0.01);
+  for (const [a, b, c] of triangulate(S)) {
+    if (!moved[a] && !moved[b] && !moved[c]) continue;
+    const [ax, ay] = D[a]; const [bx, by] = D[b]; const [qx, qy] = D[c];
+    const det = (bx - ax) * (qy - ay) - (qx - ax) * (by - ay); if (Math.abs(det) < 1e-6) continue;
+    const x0 = Math.max(0, Math.floor(Math.min(ax, bx, qx))); const x1 = Math.min(cw - 1, Math.ceil(Math.max(ax, bx, qx)));
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by, qy))); const y1 = Math.min(ch - 1, Math.ceil(Math.max(ay, by, qy)));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x + 0.5; const py = y + 0.5;
+      const l1 = ((bx - px) * (qy - py) - (qx - px) * (by - py)) / det; const l2 = ((qx - px) * (ay - py) - (ax - px) * (qy - py)) / det; const l3 = 1 - l1 - l2;
+      if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+      const u = l1 * S[a][0] + l2 * S[b][0] + l3 * S[c][0] - 0.5; const v = l1 * S[a][1] + l2 * S[b][1] + l3 * S[c][1] - 0.5;
+      const col = sample(img, cw, ch, u, v); const o = (y * cw + x) * 4;
+      out[o] = col[0]; out[o + 1] = col[1]; out[o + 2] = col[2]; out[o + 3] = col[3];
+    }
+  }
+  return { rgba: out };
+}
+
+/**
+ * A Character's mouth closed to match a face's (`to`: that face's mouthOpen; 0: shut): its lips brought
+ * together just enough, each by half of what's taken off the gap (so they keep their own fullness), the
+ * gap (teeth, tongue) narrowed with them. { rgba, pts } (its landmarks moved with it), or null when its
+ * mouth is no more open than that already.
+ */
+export function closeMouth(img, cw, ch, pts, to = 0) {
+  const open = mouthOpen(pts);
+  if (open - to < 0.05) return null;
+  const f = 1 - Math.max(0, to) / open; // how much of the gap goes
+  const P = pts.map((p) => p.slice());
+  // Inner lips, upper (61, 62, 63) and lower (67, 66, 65), to where each pair meets.
+  for (const [u, l, ou, ol] of [[61, 67, [49, 50], [59, 58]], [62, 66, [51], [57]], [63, 65, [52, 53], [56, 55]]]) {
+    const m = [(pts[u][0] + pts[l][0]) / 2, (pts[u][1] + pts[l][1]) / 2];
+    const du = [(m[0] - pts[u][0]) * f, (m[1] - pts[u][1]) * f]; const dl = [(m[0] - pts[l][0]) * f, (m[1] - pts[l][1]) * f];
+    P[u] = [pts[u][0] + du[0], pts[u][1] + du[1]]; P[l] = [pts[l][0] + dl[0], pts[l][1] + dl[1]];
+    // The outer lips with them, so each lip keeps its own thickness.
+    for (const i of ou) P[i] = [pts[i][0] + du[0], pts[i][1] + du[1]];
+    for (const i of ol) P[i] = [pts[i][0] + dl[0], pts[i][1] + dl[1]];
+  }
+  const out = meshWarp(img, cw, ch, pts, P).rgba;
+  // Shut all the way: any teeth still showing between the lips (at the corners) take the lips' color.
+  if (to <= 0) hideTeeth(out, cw, ch, P);
+  return { rgba: out, pts: P };
+}
+
+/** Teeth showing within a mouth's lips (`P`: its landmarks), colored like the lips around them, keeping their shading. In place. */
+function hideTeeth(rgba, w, h, P) {
+  const poly = P.slice(48, 60);
+  const xs = poly.map((p) => p[0]); const ys = poly.map((p) => p[1]);
+  const bx = Math.max(0, Math.floor(Math.min(...xs))); const by = Math.max(0, Math.floor(Math.min(...ys)));
+  const ex = Math.min(w, Math.ceil(Math.max(...xs))); const ey = Math.min(h, Math.ceil(Math.max(...ys)));
+  const inside = (x, y) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i]; const [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+  const px = []; for (let y = by; y < ey; y++) for (let x = bx; x < ex; x++) if (inside(x + 0.5, y + 0.5)) px.push((y * w + x) * 4);
+  if (px.length < 10) return;
+  const labs = px.map((o) => rgbToLab(rgba[o], rgba[o + 1], rgba[o + 2]));
+  // The lips: the redder half of what's inside.
+  const byRed = labs.map((c, i) => [c[1], i]).sort((a, b) => b[0] - a[0]).slice(0, Math.ceil(labs.length / 2)).map(([, i]) => i);
+  const lip = [0, 1, 2].map((k) => byRed.reduce((t, i) => t + rgba[px[i] + k], 0) / byRed.length);
+  const lipLab = rgbToLab(...lip);
+  // Teeth (clearly lighter than the lips, less red, nearly white), one pixel roomier, then toward the lips' color and smoothed.
+  const mask = new Uint8Array(w * h);
+  labs.forEach((c, i) => { if (c[0] > lipLab[0] + 10 && c[1] < lipLab[1] - 8 && Math.hypot(c[1], c[2]) < 22) mask[px[i] / 4] = 1; });
+  const grown = Uint8Array.from(mask);
+  for (let k = 0; k < w * h; k++) if (mask[k]) for (const t of [k - 1, k + 1, k - w, k + w]) if (t >= 0 && t < w * h) grown[t] = 1;
+  for (let k = 0; k < w * h; k++) if (grown[k]) for (let j = 0; j < 3; j++) rgba[k * 4 + j] = rgba[k * 4 + j] * 0.35 + lip[j] * 0.85 * 0.65;
+  for (let pass = 0; pass < 2; pass++) {
+    const copy = Uint8ClampedArray.from(rgba);
+    for (let k = 0; k < w * h; k++) {
+      if (!grown[k]) continue;
+      for (let j = 0; j < 3; j++) { let t = 0; let n = 0; for (const q of [k, k - 1, k + 1, k - w, k + w, k - w - 1, k - w + 1, k + w - 1, k + w + 1]) if (q >= 0 && q < w * h) { t += copy[q * 4 + j]; n++; } rgba[k * 4 + j] = t / n; }
+    }
+  }
+  // Where the lips meet: a soft dark crease along them (60, 61–63 to 64).
+  const line = [60, 61, 62, 63, 64].map((i) => P[i]);
+  const lipH = Math.hypot(P[57][0] - P[51][0], P[57][1] - P[51][1]); const wid = Math.max(1, lipH * 0.05);
+  for (let y = by; y < ey; y++) for (let x = bx; x < ex; x++) {
+    let d = Infinity;
+    for (let i = 0; i + 1 < line.length; i++) {
+      const [ax, ay] = line[i]; const [qx, qy] = line[i + 1]; const vx = qx - ax; const vy = qy - ay; const L2 = vx * vx + vy * vy || 1;
+      const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / L2));
+      d = Math.min(d, Math.hypot(x + 0.5 - ax - t * vx, y + 0.5 - ay - t * vy));
+    }
+    if (d > 2 * wid) continue;
+    const k = 1 - 0.3 * Math.exp(-(d * d) / (2 * wid * wid)); const o = (y * w + x) * 4;
+    for (let j = 0; j < 3; j++) rgba[o + j] *= k;
+  }
 }

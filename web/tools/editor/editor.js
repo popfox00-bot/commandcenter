@@ -11,11 +11,12 @@ import { ADJUSTMENTS, FILTERS, RATIOS, defaultState, normalizeState, createHisto
 import { FULL_CROP, orientedSize, outputPixelSize, outputToSource, apply, cropForRatio, dragCrop, rotateClockwise, flipHorizontal } from './geometry.js';
 import { COLORS, viewTransform, drawMarkup, hitTest } from './markup.js';
 import { applyPatches, makePatch } from './retouch.js';
-import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab, autoTrace } from './cleanup.js';
+import { strokeMask, strokeShape, cleanUp, cloneFrom, shadeMask, reverseFill, sampleShade, toLab, autoTrace, roomAround } from './cleanup.js';
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
-import { fitPatch, blendIn, recolor, relight, keepSkinTexture, matchTexture, targetOutline, skinModel, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
+import { buildFitted } from './fit-pipeline.js';
+import { blendIn, keepOwnFace, targetOutline, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
@@ -71,7 +72,9 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   let placing = null; const placePointers = new Map(); let placeGesture = null;
   let aimCopy = null; // Copy From Area: the spot being aimed at (overlay px), picked when the finger lifts
   // (In FM: `seeds`, the spots picked, from which the trace is found by itself; `hand`: a loop drawn instead.)
-  const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null, seeds: [], hand: false });
+  // A fitted Character's fine-tuning by hand (on top of the fit): size, turn, nudge (photo px), edge softness.
+  const newTune = () => ({ scale: 1, rot: 0, dx: 0, dy: 0, soft: 50 });
+  const newRf = () => ({ shades: [], from: [], fromMode: false, trace: null, tol: 18, preview: null, seeds: [], hand: false, edits: [], brush: null, brushSize: 18 });
   const cleanups = [];
 
   const state = () => history.state;
@@ -297,7 +300,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     if (cleanStroke && !cleanStroke.aim) {
       ctx.save();
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.strokeStyle = cleanStroke.thin ? '#ff2d95' : copyMode ? 'rgba(48,209,88,0.45)' : 'rgba(255,255,255,0.5)';
+      ctx.strokeStyle = cleanStroke.brush ? (cleanStroke.brush === 'add' ? 'rgba(255,45,149,0.5)' : 'rgba(10,132,255,0.45)') : cleanStroke.thin ? '#ff2d95' : copyMode ? 'rgba(48,209,88,0.45)' : 'rgba(255,255,255,0.5)';
       ctx.lineWidth = cleanStroke.thin ? 2.5 * dpr : cleanStroke.r * 2;
       ctx.beginPath();
       cleanStroke.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
@@ -402,7 +405,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         const pt = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
         if (copyMode && !copyFrom) { aimCopy = pt; overlay.setPointerCapture(e.pointerId); schedule(); return; }
         // (Reverse Fill in FM, picking: no trail, just the magnifier showing what's under the finger.)
-        cleanStroke = { pts: [pt], r: rf ? 10 * k : prefs.cleanSize * k, thin: !!rf, aim: !!rf && !rf.hand };
+        cleanStroke = rf?.brush ? { pts: [pt], r: rf.brushSize * k, brush: rf.brush } : { pts: [pt], r: rf ? 10 * k : prefs.cleanSize * k, thin: !!rf, aim: !!rf && !rf.hand };
         overlay.setPointerCapture(e.pointerId);
         schedule();
         return;
@@ -435,7 +438,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       schedule();
     });
     overlay.addEventListener('pointermove', (e) => {
-      if (placeGesture) { placeMove(e); return; }
+      if (placeGesture || placing?.stroke) { placeMove(e); return; }
       if (aimCopy) { const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width; aimCopy = [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; schedule(); return; }
       if (cleanStroke) {
         const r = overlay.getBoundingClientRect(); const k = overlay.width / r.width;
@@ -459,7 +462,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       }
     });
     const end = (e) => {
-      if (placePointers.size || placeGesture) { placeUp(e); return; }
+      if (placePointers.size || placeGesture || placing?.stroke) { placeUp(e); return; }
       if (aimCopy) { const pt = aimCopy; aimCopy = null; if (e?.type === 'pointerup') pickCopyFrom(pt); else schedule(); return; }
       if (cleanStroke) { const st = cleanStroke; cleanStroke = null; if (rf) reverseStroke(st); else runCleanUp(st); return; }
       if (!drag) return;
@@ -576,6 +579,16 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     const pts = st.pts.map(([x, y]) => overlayToSource(x, y));
     const [ax, ay] = overlayToSource(st.pts[0][0], st.pts[0][1]); const [bx, by] = overlayToSource(st.pts[0][0] + st.r, st.pts[0][1]);
     const r = Math.max(2, Math.hypot(bx - ax, by - ay));
+    // 🖌 / 🧽: brushed into, or out of, what goes.
+    if (st.brush) {
+      const m = strokeMask(pts, r, w, h);
+      if (m.box) {
+        rf.edits.push({ mask: m.mask, box: m.box, add: st.brush === 'add', r });
+        if (st.brush === 'add') { if (rf.hand && rf.trace) widenTrace(m, r); else traceFromSeeds(); }
+        cleanNote = st.brush === 'add' ? 'Added to what goes.' : 'Taken out of what goes: it stays.';
+      }
+      reversePreview(); renderPanel(); schedule(); return;
+    }
     const shape = strokeShape(pts, r);
     const at = shape === 'tap' ? pts[0] : shape !== 'lasso' || !rf.hand ? pts.at(-1) : null;
     if (at) {
@@ -604,7 +617,9 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   function traceFromSeeds() {
     if (rf.hand) return;
     const w = source.width; const h = source.height;
-    const t = rf.seeds.length && rf.shades.length ? autoTrace(sourcePixels(), w, h, rf.seeds, rf.shades, rf.tol) : null;
+    let t = rf.seeds.length && rf.shades.length ? autoTrace(sourcePixels(), w, h, rf.seeds, rf.shades, rf.tol) : null;
+    // (And room around what was brushed in, too.)
+    for (const e of rf.edits) if (e.add) t = unionTrace(t, roomAround(e.mask, w, h, e.box, Math.round(Math.max(8, e.r * 2))), w, h);
     if (!t) { rf.trace = null; cleanNote = rf.seeds.length ? 'Nothing of that color there: press right on it (the magnifier shows what you\'re on).' : ''; return; }
     // Its outline, a couple of pixels wide in the photo, to draw over it.
     const { box } = t; const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; const lw = Math.max(1, Math.round(Math.max(w, h) / 500));
@@ -617,18 +632,42 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       if (edge) img.data.set([255, 214, 10, 255], (y * bw + x) * 4);
     }
     c2.putImageData(img, 0, 0);
-    rf.trace = { mask: t.mask, box, canvas, share: t.share };
+    rf.trace = { mask: t.mask, box, canvas, share: t.share ?? 0 };
     cleanNote = t.share > 0.35 ? 'That color covers much of the photo: lower Match, or ✏️ draw a loop around just the part to remove.' : '';
+  }
+
+  /** Two traces ({ mask, box } over the photo, or null) as one. */
+  function unionTrace(a, b, w) {
+    if (!a) return b; if (!b) return a;
+    const mask = Uint8Array.from(a.mask); const bb = b.box;
+    for (let y = bb.y0; y < bb.y1; y++) for (let x = bb.x0; x < bb.x1; x++) if (b.mask[y * w + x]) mask[y * w + x] = 1;
+    return { ...a, mask, box: { x0: Math.min(a.box.x0, bb.x0), y0: Math.min(a.box.y0, bb.y0), x1: Math.max(a.box.x1, bb.x1), y1: Math.max(a.box.y1, bb.y1) } };
+  }
+  /** A loop drawn by hand, widened to take in a brushed-in area (with room around it). */
+  function widenTrace(m, r) {
+    const w = source.width; const h = source.height;
+    const u = unionTrace(rf.trace, roomAround(m.mask, w, h, m.box, Math.round(Math.max(8, r * 2))), w, h);
+    rf.trace = { ...rf.trace, mask: u.mask, box: u.box };
   }
 
   /** What Reverse Fill will remove with the shades, trace and tolerance as they are (cached). */
   function reversePreview() {
-    if (!rf?.trace || !rf.shades.length) { if (rf) rf.preview = null; return null; }
-    const key = `${rf.shades.join('|')}#${rf.tol}`;
+    if (!rf?.trace || !(rf.shades.length || rf.edits.some((e) => e.add))) { if (rf) rf.preview = null; return null; }
+    const key = `${rf.shades.join('|')}#${rf.tol}#${rf.edits.length}`;
     if (rf.preview?.key === key && rf.preview.trace === rf.trace && rf.preview.patches === state().patches) return rf.preview;
     const w = source.width; const h = source.height;
     // (In FM, a few pixels of rim too: a soft-edged thing's blur into what's around it, so none of it is left as a halo.)
     const m = shadeMask(sourcePixels(), w, h, rf.trace.mask, rf.trace.box, rf.shades, rf.tol, { edge: faceOnly ? Math.max(2, Math.round(Math.max(w, h) / 350)) : 1 });
+    // Then what was brushed in or out, in the order it was.
+    if (rf.edits?.length) {
+      for (const e of rf.edits) for (let y = e.box.y0; y < e.box.y1; y++) for (let x = e.box.x0; x < e.box.x1; x++) {
+        const i = y * w + x; if (!e.mask[i]) continue;
+        if (e.add) { if (rf.trace.mask[i]) m.mask[i] = 1; } else m.mask[i] = 0;
+      }
+      let x0 = w; let y0 = h; let x1 = 0; let y1 = 0; let count = 0; const tb2 = rf.trace.box;
+      for (let y = tb2.y0; y < tb2.y1; y++) for (let x = tb2.x0; x < tb2.x1; x++) if (m.mask[y * w + x]) { count++; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x >= x1) x1 = x + 1; if (y >= y1) y1 = y + 1; }
+      m.count = count; m.box = count ? { x0, y0, x1, y1 } : null;
+    }
     let inTrace = 0; const tb = rf.trace.box;
     for (let y = tb.y0; y < tb.y1; y++) for (let x = tb.x0; x < tb.x1; x++) inTrace += rf.trace.mask[y * w + x];
     let canvas = null;
@@ -693,11 +732,11 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       onChange: () => { traceFromSeeds(); reversePreview(); renderPanel(); schedule(); },
     });
     const pv = rf.preview;
-    const ready = rf.shades.length && rf.trace;
-    const status = !rf.shades.length
+    const ready = (rf.shades.length || rf.edits.some((e) => e.add)) && rf.trace;
+    const status = !rf.shades.length && !rf.edits.length
       ? (rf.hand ? 'Tap the colors to remove, and draw a rough loop around the area.' : 'Press on the color to remove: the magnifier shows just what\'s under your finger; let go to pick it. The area of that color is found and outlined (yellow) by itself.')
       : !rf.trace ? (rf.hand ? 'Now draw a rough loop around the area to remove them from.' : 'Press right on the color (the magnifier shows what you\'re on).')
-        : pv?.box ? `Pink shows what goes: ${Math.round(pv.share * 100)}% of the outlined area. Pick more shades of it (in shadow, its edge), or adjust Match.` : 'Nothing matches yet: pick the color again, or raise Match.';
+        : pv?.box ? `Pink shows what goes: ${Math.round(pv.share * 100)}% of the outlined area. Pick more shades of it (in shadow, its edge), or the same color elsewhere (each place is found and outlined too), or adjust Match; 🖌 / 🧽 brush more in or out.` : 'Nothing matches yet: pick the color again, or raise Match.';
     return [
       el('p', { class: 'small muted ed-clean-hint', text: 'Reverse Fill: removes a color (a label, a sticker, a logo, a stain) and fills in with the surface around it, its color, light and texture — not what\'s behind.' }),
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Remove' }),
@@ -707,9 +746,13 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       el('div', { class: 'chips' },
         el('button', { type: 'button', class: `chip${rf.fromMode ? ' active' : ''}`, 'aria-pressed': String(rf.fromMode), text: '🎯 Fill From', onclick: () => { rf.fromMode = !rf.fromMode; cleanNote = rf.fromMode ? 'Pick the surface to fill with (the can under the label).' : ''; renderPanel(); } }),
         ...rf.from.map((c) => swatch(c, rf.from, 'fill-from shade')),
+        el('button', { type: 'button', class: `chip${rf.brush === 'add' ? ' active' : ''}`, 'aria-pressed': String(rf.brush === 'add'), text: '🖌 Add to it', onclick: () => { rf.brush = rf.brush === 'add' ? null : 'add'; cleanNote = rf.brush ? 'Brush over more that should go.' : ''; renderPanel(); } }),
+        el('button', { type: 'button', class: `chip${rf.brush === 'del' ? ' active' : ''}`, 'aria-pressed': String(rf.brush === 'del'), text: '🧽 Take away', onclick: () => { rf.brush = rf.brush === 'del' ? null : 'del'; cleanNote = rf.brush ? 'Brush over what should stay.' : ''; renderPanel(); } }),
         el('button', { type: 'button', class: `chip${rf.hand ? ' active' : ''}`, 'aria-pressed': String(rf.hand), text: '✏️ Draw my own loop',
           onclick: () => { rf.hand = !rf.hand; rf.trace = null; if (!rf.hand) traceFromSeeds(); reversePreview(); cleanNote = rf.hand ? 'Draw a rough loop around the area.' : ''; renderPanel(); schedule(); } }),
         rf.shades.length || rf.trace || rf.from.length ? el('button', { type: 'button', class: 'chip', text: 'Clear', onclick: () => { rf = { ...newRf(), tol: rf.tol }; cleanNote = ''; renderPanel(); schedule(); } }) : null),
+      rf.brush ? el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Brush size' })) : null,
+      rf.brush ? slider({ min: 4, max: 60, value: rf.brushSize, label: 'Reverse Fill brush size', onInput: (v) => { rf.brushSize = v; }, onChange: () => {} }) : null,
       el('p', { class: 'small', 'aria-live': 'polite', text: status }),
       cleanNote ? el('p', { class: `small ${cleaning ? 'muted' : 'ok-text'}`, 'aria-live': 'polite', text: cleanNote }) : null,
       el('button', { type: 'button', class: 'btn primary', text: '✨ Remove & fill', disabled: !ready || cleaning || !pv?.box, onclick: runReverseFill }),
@@ -1129,13 +1172,14 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       fm.note = '⚡ Fitting and blending…'; renderPanel();
       const W = source.width; const H = source.height;
       const full = pixelsOf(cut, 1024); const small = pixelsOf(cut, 420);
-      placing = { name: 'the new face', full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: cut.face, flip: false, userFlip: false, mirror: {} };
+      placing = { name: 'the new face', full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: cut.face, flip: false, userFlip: false, mirror: {}, tune: newTune(), paint: [], brush: null, brushSize: 22 };
       renderShown();
+      await findFaces(); await withParts();
       await placeOnFace(true, 0);
       await upscaleIfSmall();
       if (!placing?.fit) { placing = null; fm.note = 'Couldn\'t line the faces up. Try 🎭 Insert Character to place it by hand.'; return; }
       const flipped = placing.flip;
-      finishPlacing();
+      await finishPlacing();
       fm.quickCut = cut;
       fm.note = `⚡ Swapped${flipped ? ' (flipped to look the same way)' : ''}. Tap Done to save or share it; Undo takes it back.`;
     } catch (err) { placing = null; fm.note = `Quick Swap didn't work: ${err.message}`; }
@@ -1249,13 +1293,34 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const full = pixelsOf(bitmap, 1024); const small = pixelsOf(bitmap, 420);
       bitmap.close?.();
       const W = source.width; const H = source.height;
-      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: pick.face ?? undefined, flip: false, userFlip: false, mirror: {} };
+      placing = { name: pick.name, full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: pick.face ?? undefined, flip: false, userFlip: false, mirror: {}, tune: newTune(), paint: [], brush: null, brushSize: 22 };
       renderShown();
       placeNote = 'Lining it up…'; renderPanel(); schedule();
+      await findFaces(); await withParts();
       await placeOnFace(true, fm.faces?.length ? fm.sel : 'next');
       if (await upscaleIfSmall()) { refreshPreview(); renderPanel(); }
     } catch (err) { placeNote = `Couldn't add it: ${err.message}`; placing = null; renderPanel(); }
     finally { btn.disabled = false; }
+  }
+
+  /**
+   * The face-part maps (lib/face-parts.js: what's hair, what's face skin), in FM: the Character's own,
+   * to keep only its face (not its hair, its background, a flower behind an ear); and the photo's, to
+   * keep that face's hair in front of it (hairInFront, when it's built). Without them (not available
+   * here), as before.
+   */
+  async function withParts() {
+    const p = placing; if (!faceApp || !p || p.partsDone) return;
+    p.partsDone = true;
+    try {
+      const { segmentParts } = await import('../../lib/face-parts.js');
+      const c = document.createElement('canvas'); c.width = p.full.w; c.height = p.full.h;
+      c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(p.full.rgba), c.width, c.height), 0, 0);
+      const own = await segmentParts(c);
+      if (own && placing === p) { p.full = keepOwnFace(p.full, own, p.charFace); p.small = keepOwnFace(p.small, own, p.charFace); p.mirror = {}; renderShown(); }
+      const photo = await segmentParts(applyPatches(source, state().patches ?? []), 1024);
+      if (photo && placing === p) p.parts = photo;
+    } catch { /* without them */ }
   }
 
   /**
@@ -1363,7 +1428,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const n = placing.faces.length;
       placing.face = which === 'next' ? (placing.face + 1) % n : Math.max(0, Math.min(n - 1, which));
       fm.sel = placing.face;
-      Object.assign(placing, layoutOn(placing.faces[placing.face]), { faceObj: placing.faces[placing.face], fit: !!placing.charFace });
+      Object.assign(placing, layoutOn(placing.faces[placing.face]), { faceObj: placing.faces[placing.face], fit: !!placing.charFace, tune: newTune(), paint: [] });
       const how = placing.charFace ? 'fitted to the face: eyes, jaw, brows, nose and mouth lined up' : 'sized to the face';
       const turned = placing.flip && !placing.userFlip ? ' Flipped to look the same way as the face (⇋ Flip turns it back).' : '';
       placeNote = (n > 1 ? `On face ${placing.face + 1} of ${n} (${how}). Tap a number to pick another face.` : `On the face (${how}). Drag, pinch or use the sliders to adjust.`) + turned;
@@ -1386,41 +1451,63 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
    * (bent to its landmarks and trimmed to its head) when it's fitted, else as placed; then blended into
    * the photo around it, each side to what's next to it.
    */
-  function buildPatch(at, size) {
+  async function buildPatch(at, size) {
     const W = source.width; const H = source.height;
     const photo = sourcePixels();
     const img = pixelsAt(at, size);
     if (at.fit && at.charFace && at.faceObj) {
-      // The face in the photo, where it ends: its jaw and its hairline (found once per face).
+      // (The face in the photo, where it ends: its jaw and its hairline, found once per face.)
       at.faceObj.outline ??= targetOutline(photo, W, H, at.faceObj);
-      at.faceObj.skin ??= skinModel(photo, W, H, at.faceObj);
-      const outline = at.faceObj.outline;
-      // Placed by its features, bent only a little (the face as it is), trimmed along that outline;
-      // then recolored and relit to that face's skin, its texture matched, and blended in (below).
-      const patch = fitPatch(img.rgba, img.w, img.h, charOf(at), at.faceObj, W, H, { trim: at.trim, outline: at.trim ? outline : null, bend: 0.35, photo });
-      if (!patch) return null;
-      if (outline) { recolor(patch, photo, W, H, outline, at.blend / 100, at.faceObj); relight(patch, photo, W, H, at.faceObj, outline, at.blend / 100); keepSkinTexture(patch, photo, W, H, at.faceObj, outline, at.blend / 100); matchTexture(patch, photo, W, H, at.faceObj, outline, at.blend / 100); }
-      // Blended both ways at the border: the Character toward the photo's skin there, and what's left
-      // of that face (up to its hairline, out to its jaw) toward the Character, meeting halfway; the
-      // difference at its edge carried smoothly across all of it (as a gradient-domain blend does: its
-      // own detail kept, that face's light and color taken on), not just a band at the border.
-      const faceW = at.faceObj.box.w * W;
-      blendIn(patch, photo, W, H, at.blend / 100, { soft: Math.max(2, Math.round(faceW * 0.015)), band: 0, region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: at.faceObj.skin });
-      return patch;
+      const opts = { trim: at.trim, blend: at.blend, tune: at.tune, paint: at.paint };
+      // Off the page's thread (fit-worker.js), so the screen doesn't freeze; here if that can't be.
+      try { return await fitOffThread(photo, W, H, img, charOf(at), at.faceObj, at.parts, opts); } catch { /* here */ }
+      return buildFitted(photo, W, H, img, charOf(at), at.faceObj, { ...opts, parts: at.parts });
     }
     const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);
     if (patch) blendIn(patch, photo, W, H, at.blend / 100);
     return patch;
   }
+
+  // The worker for that: what it works on sent once, kept there by key (the photo as it is now, a
+  // Character's pixels, a face, a face-part map), each build only naming them.
+  let fitWorker = null; let fitSeq = 0; const fitWaiting = new Map(); const fitKeys = new WeakMap(); const fitSent = new Set(); let fitPhotoKey = null; let fitKeyN = 0;
+  function fitOffThread(photo, W, H, img, charFace, face, parts, opts) {
+    if (fitWorker === false) return Promise.reject(new Error('no worker'));
+    if (!fitWorker) {
+      try { fitWorker = new Worker(new URL('./fit-worker.js', import.meta.url), { type: 'module' }); } catch { fitWorker = false; return Promise.reject(new Error('no worker')); }
+      fitWorker.onmessage = (e) => { const w = fitWaiting.get(e.data.seq); if (!w) return; fitWaiting.delete(e.data.seq); if (e.data.error) w.reject(new Error(e.data.error)); else w.resolve(e.data.patch); };
+      fitWorker.onerror = () => { for (const w of fitWaiting.values()) w.reject(new Error('worker')); fitWaiting.clear(); fitWorker.terminate(); fitWorker = false; };
+      cleanups.push(() => { if (fitWorker) fitWorker.terminate(); fitWorker = null; fitSent.clear(); fitPhotoKey = null; });
+    }
+    const key = (obj, value) => {
+      let k = fitKeys.get(obj); if (!k) { k = `k${++fitKeyN}`; fitKeys.set(obj, k); }
+      if (!fitSent.has(k)) {
+        // (A new photo, after an edit: the old one isn't kept there any more.)
+        const drop = obj === photo && fitPhotoKey && fitPhotoKey !== k ? [fitPhotoKey] : [];
+        for (const d of drop) fitSent.delete(d);
+        fitSent.add(k); fitWorker.postMessage({ put: k, value: value(), drop });
+      }
+      return k;
+    };
+    const pk = key(photo, () => ({ rgba: photo, w: W, h: H })); fitPhotoKey = pk;
+    // (A face: its plain parts only, its outline with it; the worker works out the rest and keeps it.)
+    const faceKey = key(face, () => ({ box: face.box, eyes: face.eyes, mouth: face.mouth, nose: face.nose, angle: face.angle, score: face.score, size: face.size, pts: face.pts, mesh: face.mesh, outline: face.outline }));
+    const msg = { build: ++fitSeq, photo: pk, img: key(img, () => img), charFace: key(charFace, () => charFace), face: faceKey, parts: parts ? key(parts, () => parts) : null, opts };
+    return new Promise((resolve, reject) => { fitWaiting.set(msg.build, { resolve, reject }); fitWorker.postMessage(msg); });
+  }
   /** The preview of that (from the smaller copy), worked out after each change, not while moving. */
-  let previewTimer = 0;
+  let previewTimer = 0; let previewSeq = 0;
   function refreshPreview() {
     if (!placing) return;
     placing.preview = null;
     clearTimeout(previewTimer);
-    previewTimer = setTimeout(() => {
+    const seq = ++previewSeq;
+    previewTimer = setTimeout(async () => {
       if (!placing) return;
-      const patch = buildPatch(placing, 'small');
+      const p = placing;
+      let patch = null; try { patch = await buildPatch(p, 'small'); } catch { patch = null; }
+      // (Only the newest: a change made while it was worked out starts another.)
+      if (seq !== previewSeq || placing !== p) return;
       if (!patch) { schedule(); return; }
       const c = document.createElement('canvas'); c.width = patch.pw; c.height = patch.ph;
       c.getContext('2d').putImageData(new ImageData(patch.rgba, patch.pw, patch.ph), 0, 0);
@@ -1445,6 +1532,14 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     ctx.strokeRect(-w / 2, -h / 2, w, h);
     ctx.restore();
     ctx.restore();
+    // The brush stroke being drawn (green: more; red: less).
+    if (placing.stroke) {
+      const st = placing.stroke;
+      ctx.save(); ctx.setTransform(...T);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = st.r * 2; ctx.strokeStyle = st.add ? 'rgba(48,209,88,0.45)' : 'rgba(255,69,58,0.45)';
+      ctx.beginPath(); st.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); if (st.pts.length === 1) ctx.lineTo(st.pts[0][0] + 0.1, st.pts[0][1]);
+      ctx.stroke(); ctx.restore();
+    }
     // With more than one face: a number on each (the one it's on highlighted), to tap to move it there.
     if ((placing.faces?.length ?? 0) > 1) drawBadges(ctx, dpr, placing.faces, placing.face);
   }
@@ -1458,17 +1553,27 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const hit = faceBadges().find((b) => Math.hypot(b.x - p[0], b.y - p[1]) * k <= 22 * r);
       if (hit) { placeOnFace(false, hit.i); return; }
     }
+    // 🖌 / 🧽 brushing: a stroke of more (or less) of the new face, not a move.
+    if (placing.brush && placing.fit) {
+      if (placing.stroke) return;
+      overlay.setPointerCapture(e.pointerId);
+      const T = sourceToOverlayMatrix(); const kT = T ? Math.hypot(T[0], T[1]) : 1;
+      const r = (placing.brushSize * (overlay.width / (overlay.getBoundingClientRect().width || overlay.width))) / kT;
+      placing.stroke = { id: e.pointerId, pts: [srcPoint(e)], r, add: placing.brush === 'add' };
+      schedule(); return;
+    }
     overlay.setPointerCapture(e.pointerId);
     placePointers.set(e.pointerId, srcPoint(e));
+    if (placing.fit && !placing.tuneFrom) placing.tuneFrom = { x: placing.x, y: placing.y, width: placing.width, rot: placing.rot };
     const pts = [...placePointers.values()];
-    // Moved by hand: placed as you put it, not bent to the face (🧬 Fit to face fits it again).
-    if (placing.fit) { placing.fit = false; placeNote = 'Placed by hand (not fitted). 🧬 Fit to face lines it up again.'; renderPanel(); }
+    // Fitted: moving or pinching it fine-tunes the fit (it stays fitted); otherwise placed as you put it.
     if (pts.length >= 2) {
       const [p, q] = pts;
       placeGesture = { kind: 'pinch', d: Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, ang: Math.atan2(q[1] - p[1], q[0] - p[0]), mid: [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], width: placing.width, rot: placing.rot, x: placing.x, y: placing.y };
     } else placeGesture = { kind: 'move', start: pts[0], x: placing.x, y: placing.y };
   }
   function placeMove(e) {
+    if (placing.stroke?.id === e.pointerId) { const p = srcPoint(e); const l = placing.stroke.pts.at(-1); if (Math.hypot(p[0] - l[0], p[1] - l[1]) > placing.stroke.r * 0.25) { placing.stroke.pts.push(p); schedule(); } return; }
     if (!placePointers.has(e.pointerId)) return;
     placePointers.set(e.pointerId, srcPoint(e));
     const pts = [...placePointers.values()]; const g = placeGesture;
@@ -1482,11 +1587,22 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     schedule();
   }
   function placeUp(e) {
+    if (placing.stroke) {
+      const st = placing.stroke; placing.stroke = null;
+      if (e?.type === 'pointerup') { placing.paint.push({ pts: st.pts, r: st.r, add: st.add }); placeNote = st.add ? 'More of the new face there.' : 'Less of the new face there: the photo shows.'; }
+      refreshPreview(); renderPanel(); schedule(); return;
+    }
     placePointers.delete(e?.pointerId);
     const g = placeGesture;
     if (placePointers.size === 1 && g?.kind === 'pinch') { const [p] = placePointers.values(); placeGesture = { kind: 'move', start: p, x: placing.x, y: placing.y }; return; }
     if (placePointers.size) return;
     placeGesture = null;
+    // (Fitted: what the gesture did, as fine-tuning on top of the fit.)
+    if (placing.fit && placing.tuneFrom) {
+      const f = placing.tuneFrom; const t = placing.tune; placing.tuneFrom = null;
+      t.dx += placing.x - f.x; t.dy += placing.y - f.y; t.scale *= placing.width / f.width; t.rot += placing.rot - f.rot;
+      placeNote = 'Fine-tuned by hand, still fitted to the face (↺ Reset fine-tuning puts it back).';
+    }
     refreshPreview(); renderPanel(); schedule();
   }
 
@@ -1511,8 +1627,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         el('button', { class: `chip${p.flip ? ' active' : ''}`, 'aria-pressed': String(p.flip), text: '⇋ Flip', onclick: flipPlacing }),
         el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { unfit(); p.x = source.width / 2; p.y = source.height / 2; refreshPreview(); renderPanel(); schedule(); } })),
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: '🎨 Blend into the photo' }), el('span', { class: 'muted small', text: 'each side to what\'s next to it' })), blend,
-      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' })), size,
-      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Turn' })), turn,
+      ...(p.fit ? tunePanel(p) : [el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Size' })), size,
+        el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: 'Turn' })), turn]),
       el('div', { class: 'row end' },
         el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { placing = null; placeNote = ''; fm.note = ''; renderPanel(); schedule(); } }),
         el('button', { class: 'btn primary', text: '✓ Place', onclick: () => finishPlacing() })),
@@ -1520,16 +1636,50 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   }
 
   /**
+   * Fine-tune (a fitted Character): small changes on top of the fit, which stays: its size, where it is
+   * across and up/down (a share of the face's width), its turn, and how soft its edge is. Dragging and
+   * pinching it do the same.
+   */
+  function tunePanel(p) {
+    const t = p.tune; const fw = (p.faceObj?.box.w ?? 0.3) * source.width;
+    // (Shown as it is, moved with the change, while the slider moves; worked out again after.)
+    const show = () => {
+      if (!p.tuneShown) p.tuneShown = { x: p.x - t.dx, y: p.y - t.dy, width: p.width / t.scale, rot: p.rot - t.rot };
+      const b = p.tuneShown; p.x = b.x + t.dx; p.y = b.y + t.dy; p.width = b.width * t.scale; p.rot = b.rot + t.rot; p.preview = null; schedule();
+    };
+    const done = () => { p.tuneShown = null; refreshPreview(); renderPanel(); };
+    const row = (label, el2) => [el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: label })), el2];
+    return [
+      el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: '🎚 Fine-tune' }), el('span', { class: 'muted small', text: 'still fitted to the face' }),
+        el('button', { class: 'linkish small', text: '↺ Reset fine-tuning', onclick: () => { const b = { x: p.x - t.dx, y: p.y - t.dy, width: p.width / t.scale, rot: p.rot - t.rot }; Object.assign(p, b); p.tune = newTune(); refreshPreview(); renderPanel(); schedule(); } })),
+      ...row('Size', slider({ min: -20, max: 20, value: Math.round((t.scale - 1) * 100), label: 'Fine-tune size', onInput: (v) => { t.scale = 1 + v / 100; show(); }, onChange: done })),
+      ...row('Across', slider({ min: -15, max: 15, value: Math.round((t.dx / fw) * 100), label: 'Fine-tune across', onInput: (v) => { t.dx = (v / 100) * fw; show(); }, onChange: done })),
+      ...row('Up / down', slider({ min: -15, max: 15, value: Math.round((t.dy / fw) * 100), label: 'Fine-tune up or down', onInput: (v) => { t.dy = (v / 100) * fw; show(); }, onChange: done })),
+      ...row('Turn', slider({ min: -20, max: 20, value: Math.round((t.rot * 180) / Math.PI), label: 'Fine-tune turn', onInput: (v) => { t.rot = (v * Math.PI) / 180; show(); }, onChange: done })),
+      ...row('Edge softness', slider({ min: 0, max: 100, value: t.soft, label: 'Edge softness', onInput: (v) => { t.soft = v; }, onChange: done })),
+      // Paint more or less of it in by hand.
+      el('div', { class: 'chips' },
+        el('button', { class: `chip${p.brush === 'add' ? ' active' : ''}`, 'aria-pressed': String(p.brush === 'add'), text: '🖌 More of it', onclick: () => { p.brush = p.brush === 'add' ? null : 'add'; placeNote = p.brush ? 'Brush over where more of the new face should show.' : ''; renderPanel(); } }),
+        el('button', { class: `chip${p.brush === 'less' ? ' active' : ''}`, 'aria-pressed': String(p.brush === 'less'), text: '🧽 Less of it', onclick: () => { p.brush = p.brush === 'less' ? null : 'less'; placeNote = p.brush ? 'Brush over where the photo should show instead.' : ''; renderPanel(); } }),
+        p.paint.length ? el('button', { class: 'chip', text: '↶ Last stroke', onclick: () => { p.paint.pop(); refreshPreview(); renderPanel(); } }) : null,
+        p.paint.length ? el('button', { class: 'chip', text: 'Clear brushing', onclick: () => { p.paint = []; refreshPreview(); renderPanel(); } }) : null),
+      p.brush ? row('Brush size', slider({ min: 6, max: 80, value: p.brushSize, label: 'Face brush size', onInput: (v) => { p.brushSize = v; }, onChange: () => {} })) : null,
+    ].flat().filter(Boolean);
+  }
+
+  /**
    * ✓ Place: the Character painted onto the photo (full detail, color matched), one undo step. `all`:
    * one on every face found, each lined up to its face (and matched to what's behind it there).
    */
-  function finishPlacing(all = false) {
-    const p = placing; if (!p) return;
+  async function finishPlacing(all = false) {
+    const p = placing; if (!p || p.placing) return;
+    p.placing = true; placeNote = 'Placing it…'; renderPanel();
     const W = source.width; const H = source.height;
     const spots = all && p.faces?.length ? p.faces.map((f) => ({ ...p, ...layoutOn(f), faceObj: f, fit: !!p.charFace })) : [p];
     const patches = [];
     for (const at of spots) {
-      const patch = buildPatch(at, 'full');
+      let patch = null; try { patch = await buildPatch(at, 'full'); } catch { patch = null; }
+      if (placing !== p) return;
       if (patch) patches.push(makePatch(patch, W, H));
     }
     placing = null;

@@ -3,7 +3,7 @@
 // blend that matches each side of the Character to what's next to it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mlsMap, fitPatch, blendIn, recolor, matchTexture, keepSkinTexture, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
+import { mlsMap, fitPatch, blendIn, recolor, matchTexture, keepSkinTexture, keepOwnFace, hairInFront, targetOutline, bestPlacement, realPlacement, CONTROL, mirrorFace, mirrorPixels, faceYaw, shouldFlip } from '../web/tools/editor/facefit.js';
 import { faceFrom, faceContour } from '../web/lib/face-core.js';
 
 /** 68 landmarks (iBUG layout) for a face centred at (cx, cy), `s` its scale, `chin` how far its jaw reaches out. */
@@ -319,4 +319,57 @@ test('that face\'s skin texture kept: a smooth Character over textured skin take
   assert.ok(agree / n > 0.8 && spread / n > 2 && spread / n < 12, `cheek: ${agree / n}, ${spread / n}`);
   // Not on its eyes (left as they were, but for a level or two at the soft edge).
   const eye = pts[37]; assert.ok(Math.abs(patch.rgba[(Math.round(eye[1]) * W + Math.round(eye[0])) * 4] - 200) <= 2);
+});
+
+test('face-part maps: a Character keeps only its face (its hair and a flower beside it go, its eyes stay); the photo\'s hair stays in front', () => {
+  // 100×100, all solid; the map (50×50): face skin in the middle (x 15–35), hair on the left (x < 12), nothing on the right.
+  const w = 100; const h = 100; const img = { rgba: new Uint8ClampedArray(w * h * 4).fill(255), w, h };
+  const pw = 50; const face = new Uint8Array(pw * pw); const hair = new Uint8Array(pw * pw);
+  for (let y = 0; y < pw; y++) for (let x = 0; x < pw; x++) { if (x >= 15 && x < 35) face[y * pw + x] = 240; if (x < 12) hair[y * pw + x] = 250; }
+  // (Its eyes, brows, nose and mouth are kept by its landmarks too, wherever the map has them.)
+  const pts = landmarks(55, 50, 0.5).map(([x, y]) => [x / w, y / h]);
+  const out = keepOwnFace(img, { w: pw, h: pw, face, hair }, { pts });
+  const a = (x, y) => out.rgba[(y * w + x) * 4 + 3];
+  assert.equal(a(50, 50), 255, 'its face');
+  assert.ok(a(10, 50) < 10, `its hair: ${a(10, 50)}`);
+  assert.ok(a(95, 90) < 10, `beside it: ${a(95, 90)}`);
+  const eye = pts[45]; assert.ok(a(Math.round(eye[0] * w), Math.round(eye[1] * h)) > 200, 'its eye, by its landmarks');
+  // The photo's hair in front: the patch see-through over it, solid elsewhere.
+  const patch = { x0: 0, y0: 0, pw: w, ph: h, rgba: new Uint8ClampedArray(w * h * 4).fill(255) };
+  hairInFront(patch, { w: pw, h: pw, face, hair }, w, h);
+  assert.ok(patch.rgba[(50 * w + 5) * 4 + 3] < 10); assert.equal(patch.rgba[(50 * w + 50) * 4 + 3], 255);
+});
+
+test('fine-tuned after the fit: moved and resized about the face\'s middle, on top of the fit', () => {
+  const cw = 120; const ch = 120;
+  const img = new Uint8ClampedArray(cw * ch * 4);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img.set([x * 2, y * 2, 0, 255], (y * cw + x) * 4);
+  const own = faceAt(landmarks(60, 55, 0.9), cw, ch);
+  const W = 400; const H = 300; const face = faceAt(landmarks(200, 150, 1.4), W, H);
+  const fit = fitPatch(img, cw, ch, own, face, W, H, { trim: false, own: false });
+  const moved = fitPatch(img, cw, ch, own, face, W, H, { trim: false, own: false, tune: { scale: 1, rot: 0, dx: 12, dy: -6, soft: 50 } });
+  const big = fitPatch(img, cw, ch, own, face, W, H, { trim: false, own: false, tune: { scale: 1.1, rot: 0, dx: 0, dy: 0, soft: 50 } });
+  // Its landmarks where the fit put them, moved by just that; or 10% farther from the face's middle.
+  const c = [(face.box.x + face.box.w / 2) * W, (face.box.y + face.box.h / 2) * H];
+  for (const i of [36, 45, 30, 48]) {
+    const a = fit.charPts[i]; const b = moved.charPts[i]; const g = big.charPts[i];
+    assert.ok(Math.abs(b[0] - a[0] - 12) < 1e-6 && Math.abs(b[1] - a[1] + 6) < 1e-6, `moved ${i}`);
+    assert.ok(Math.hypot(g[0] - (c[0] + 1.1 * (a[0] - c[0])), g[1] - (c[1] + 1.1 * (a[1] - c[1]))) < 1e-6, `resized ${i}`);
+  }
+});
+
+test('painted by hand: less of it where brushed (the photo shows), more of it back where it was trimmed away', () => {
+  const cw = 120; const ch = 120;
+  const img = new Uint8ClampedArray(cw * ch * 4);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img.set([x * 2, y * 2, 0, 255], (y * cw + x) * 4);
+  const cPts = landmarks(60, 55, 0.9); const own = faceAt(cPts, cw, ch);
+  const W = 400; const H = 300; const tPts = landmarks(200, 150, 1.4); const face = faceAt(tPts, W, H);
+  const at = (p, [x, y]) => p.rgba[((Math.round(y) - p.y0) * p.pw + Math.round(x) - p.x0) * 4 + 3];
+  const plain = fitPatch(img, cw, ch, own, face, W, H, { own: false });
+  const below = [tPts[8][0], tPts[8][1] + 16]; // past the chin: trimmed
+  assert.ok(at(plain, [200, 150]) > 240 && at(plain, below) < 10);
+  const painted = fitPatch(img, cw, ch, own, face, W, H, { own: false, paint: [{ pts: [[200, 150]], r: 8, add: false }, { pts: [below], r: 8, add: true }] });
+  assert.ok(at(painted, [200, 150]) < 10, 'less of it: the photo shows');
+  assert.ok(at(painted, below) > 240, 'more of it: back past the chin');
+  assert.ok(at(painted, [200, 120]) > 240, 'not where it wasn\'t brushed');
 });

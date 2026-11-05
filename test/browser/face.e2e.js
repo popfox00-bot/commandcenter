@@ -450,9 +450,15 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
   await page.waitForSelector('.ed-panel >> text=fitted to the face');
   await page.$eval('input[aria-label="Blend into the photo"]', (r) => { r.value = '0'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
   await page.waitForTimeout(250);
-  // Its size: about the face's own (the cut was ~150 px wide of a 400 px photo), not a much bigger one.
-  const size = Number(await page.$eval('input[aria-label="Character size"]', (r) => r.value));
-  assert.ok(size >= 35 && size <= 55, `sized to the face (with its border): ${size}% of the photo's width`);
+  // Fitted: fine-tuning on top of the fit (it stays fitted), and ↺ Reset puts it back.
+  await page.waitForSelector('.ed-panel >> text=🎚 Fine-tune');
+  const tune = (label, v) => page.$eval(`input[aria-label="${label}"]`, (r, v2) => { r.value = String(v2); r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); }, v);
+  await tune('Fine-tune size', 10); await tune('Fine-tune across', 5);
+  assert.equal(await page.getByRole('button', { name: '🧬 Fit to face' }).getAttribute('aria-pressed'), 'true');
+  await page.getByRole('button', { name: '↺ Reset fine-tuning' }).click();
+  assert.equal(await page.$eval('input[aria-label="Fine-tune size"]', (r) => r.value), '0');
+  assert.equal(await page.$eval('input[aria-label="Fine-tune across"]', (r) => r.value), '0');
+  await page.waitForTimeout(250);
   // Looking the same way as the face: not flipped. ⇋ Flip mirrors it (still fitted), and back again.
   const flip = page.getByRole('button', { name: '⇋ Flip' });
   assert.equal(await flip.getAttribute('aria-pressed'), 'false');
@@ -480,6 +486,7 @@ test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and 
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const workers = []; page.on('worker', (w) => workers.push(w.url()));
   await page.goto(`${origin}${BASE}#/fm`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // Two drawn faces in the same place (the fake finds a face there in any 4:3 picture): the base has
@@ -532,6 +539,8 @@ test('faces: ⚡ Quick Swap: two photos (the one to change, then the face), and 
   // Ready to save: Done opens the export sheet.
   await page.getByRole('button', { name: 'Done' }).click();
   await page.waitForSelector('dialog[open]');
+  // (Fitted and blended off the page's thread: the screen doesn't freeze.)
+  assert.ok(workers.some((u) => u.endsWith('/fit-worker.js')), `the fit worker: ${workers}`);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -671,6 +680,44 @@ test('faces: the upscaler (vendor/esrgan, by face-api\'s TensorFlow.js) loads on
   assert.ok(out.left[0] > 150 && out.left[2] < 90, `red stays red: ${out.left}`);
   assert.ok(out.right[2] > 150 && out.right[0] < 90, `blue stays blue: ${out.right}`);
   assert.equal(out.left[3], 255); assert.ok(Math.abs(out.low[3] - 128) < 3);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('FM → 🎨 Reverse Fill: 🧽 brush some out of what goes, 🖌 brush more in', async () => {
+  const { context, page, errors, box, at } = await canInFm();
+  const count = () => page.evaluate(() => {
+    // (Pink: what goes, drawn over the photo.)
+    const o = document.querySelector('.ed-overlay'); const d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data;
+    let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 120 && d[i + 2] > 100 && d[i + 3] > 60) n++; return n;
+  });
+  let b = await box();
+  await page.mouse.click(...at(b, 0.6, 0.47)); // the white of the label
+  await page.waitForSelector('text=/Pink shows what goes/');
+  const one = await count();
+  assert.ok(one > 50, `the label: ${one}`);
+  // 🧽 Take away: a stroke across its left part.
+  await page.getByRole('button', { name: '🧽 Take away' }).click();
+  b = await box();
+  await page.mouse.move(...at(b, 0.36, 0.4)); await page.mouse.down(); await page.mouse.move(...at(b, 0.36, 0.55), { steps: 6 }); await page.mouse.up();
+  await page.waitForSelector('text=Taken out of what goes');
+  const less = await count();
+  assert.ok(less < one * 0.92, `less goes: ${one} → ${less}`);
+  // 🖌 Add to it: a stroke on the can below the label.
+  await page.getByRole('button', { name: '🖌 Add to it' }).click();
+  b = await box();
+  await page.mouse.move(...at(b, 0.45, 0.8)); await page.mouse.down(); await page.mouse.move(...at(b, 0.55, 0.8), { steps: 6 }); await page.mouse.up();
+  await page.waitForSelector('text=Added to what goes');
+  const more = await count();
+  assert.ok(more > less, `more goes: ${less} → ${more}`);
+  // Removed and filled: where it was brushed in, the can (blue) still; where brushed out, the label stays.
+  await page.getByRole('button', { name: '✨ Remove & fill' }).click();
+  await page.waitForSelector('text=/Removed/');
+  await page.waitForTimeout(200);
+  const kept = await pixel(page, 0.36, 0.47);
+  assert.ok(kept[0] > 200 && kept[2] > 200, `brushed out: the label stays there (${kept})`);
+  const p2 = await pixel(page, 0.6, 0.47);
+  assert.ok(p2[2] > 150 && p2[0] < 90, `the rest of it gone: the can (${p2})`);
   assert.deepEqual(errors, []);
   await context.close();
 });

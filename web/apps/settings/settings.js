@@ -6,6 +6,7 @@
 import { el, store } from '../../lib/dom.js';
 import { homeApps, HOME_ORDER_KEY } from '../index.js';
 import { savedFilesSettings } from '../../lib/saved-files-setup.js';
+import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 
 export function mount(host) {
   const theme = globalThis.ccTheme;
@@ -54,6 +55,35 @@ export function mount(host) {
   }
   drawHome();
 
+  // ---------- Diagnostics ----------
+  // What's loaded on this phone (the face finders, the face-part maps, the upscaler), how long the last
+  // face swap took, step by step, and anything that went wrong where the app carried on without it.
+  const diagBody = el('div', { class: 'st-diag' });
+  function drawDiag() {
+    const d = snapshot();
+    const when = (t) => new Date(t).toLocaleString();
+    diagBody.replaceChildren(
+      el('h3', { class: 'small', text: 'Loaded' }),
+      d.models.length ? el('ul', { class: 'st-diag-list small' }, ...d.models.map((m) => el('li', { text: `${m.status === 'ready' ? '✅' : m.status === 'failed' ? '⚠️' : '⏳'} ${m.name}${m.ms != null ? `: ${m.ms} ms` : ''}${m.error ? ` (${m.error})` : ''}` })))
+        : el('p', { class: 'small muted', text: 'Nothing yet: they load the first time they\'re needed (open FM and use a face tool).' }),
+      el('h3', { class: 'small', text: 'How long it took' }),
+      d.timings.length ? el('div', {}, ...d.timings.map((t) => el('div', { class: 'st-diag-timing' },
+        el('p', { class: 'small', text: `${t.what} (${when(t.at)}): ${Object.values(t.steps).reduce((a, b) => a + b, 0)} ms` }),
+        el('ul', { class: 'st-diag-list small muted' }, ...Object.entries(t.steps).map(([k, v]) => el('li', { text: `${k}: ${v} ms` }))))))
+        : el('p', { class: 'small muted', text: 'Nothing timed yet (a face swap is).' }),
+      el('h3', { class: 'small', text: 'Problems' }),
+      d.errors.length ? el('ul', { class: 'st-diag-list small' }, ...d.errors.slice().reverse().map((e) => el('li', { text: `${when(e.at)}: ${e.where}: ${e.message}` })))
+        : el('p', { class: 'small muted', text: 'None.' }),
+      el('div', { class: 'row' },
+        el('button', { type: 'button', class: 'btn', text: 'Copy report', onclick: async (ev) => { const b = ev.currentTarget; try { await navigator.clipboard.writeText(JSON.stringify({ app: location.href.split('#')[0], ua: navigator.userAgent, ...snapshot() }, null, 2)); b.textContent = 'Copied'; } catch { b.textContent = 'Couldn\'t copy'; } } }),
+        d.errors.length ? el('button', { type: 'button', class: 'btn', text: 'Clear problems', onclick: () => clearErrors() }) : null));
+  }
+  drawDiag();
+  const stop = onDiag(drawDiag);
+  // (Stop listening once Settings is closed.)
+  const gone = new MutationObserver(() => { if (!host.isConnected || !host.contains(diagBody)) { stop(); gone.disconnect(); } });
+  gone.observe(document.body, { childList: true, subtree: true });
+
   host.append(el('div', { class: 'st' },
     el('section', { class: 'card' },
       el('h2', { text: 'Edit Home Screen' }),
@@ -68,6 +98,10 @@ export function mount(host) {
       status,
       el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default', onclick: () => { theme.save(null); render(); } }))),
     savedFilesSettings(),
+    el('section', { class: 'card' },
+      el('h2', { text: 'Diagnostics' }),
+      el('p', { class: 'small muted', text: 'What\'s loaded, how long things took, and anything that went wrong. Kept on this phone only; Copy report to share it.' }),
+      diagBody),
     el('a', { class: 'card st-link', href: '#/jobs' },
       el('span', { class: 'app-icon st-home-icon tint-slate', 'aria-hidden': 'true', text: '⏱' }),
       el('span', { class: 'st-link-text' }, el('strong', { text: 'Jobs' }), el('span', { class: 'small muted', text: 'Background runs, push notifications and their setup' })),

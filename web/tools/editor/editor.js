@@ -18,6 +18,7 @@ import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
 import { buildFitted } from './fit-pipeline.js';
 import { fitClient } from './fit-client.js';
+import { noteError, noteTimings, timed } from '../../lib/diag.js';
 import { blendIn, keepOwnFace, targetOutline, realPlacement, ownOutline, mirrorFace, mirrorPixels, shouldFlip } from './facefit.js';
 import { listCharacters, getCharacterBlob, addCharacter } from '../../lib/characters.js';
 import { maskLayer, faceContour } from '../../lib/face-core.js';
@@ -972,25 +973,25 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const bm = await decodeImage(picked.face, await sniffType(picked.face));
       const fit = fitSize(bm.width, bm.height, PREVIEW_MAX);
       const other = drawToCanvas(bm, fit.width, fit.height, null); bm.close?.();
-      const theirs = biggest(await detectFaces(other))[0];
+      const theirs = biggest(await timed('Quick Swap', 'find the new face', () => detectFaces(other)))[0];
       if (!theirs) { fm.note = 'No face found in the second photo. Try one where the face is clear and facing the camera.'; return; }
       fm.note = '⚡ Cutting out the face…'; renderPanel();
-      const cut = cutOutFace(other, theirs);
+      const cut = timed('Quick Swap', 'cut it out', () => cutOutFace(other, theirs));
       if (!cut?.face) { fm.note = 'Couldn\'t cut the face out of the second photo.'; return; }
       // The face it goes on: the biggest one here.
-      fm.faces = biggest(await detectFaces(applyPatches(source, state().patches ?? []))); fm.sel = 0;
+      fm.faces = biggest(await timed('Quick Swap', 'find the face it goes on', () => detectFaces(applyPatches(source, state().patches ?? [])))); fm.sel = 0;
       if (!fm.faces.length) { fm.note = 'No face found in the first photo.'; return; }
       fm.note = '⚡ Fitting and blending…'; renderPanel();
       const W = source.width; const H = source.height;
       const full = pixelsOf(cut, 1024); const small = pixelsOf(cut, 420);
       placing = { name: 'the new face', full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: fm.faces, face: -1, shown: null, charFace: cut.face, flip: false, userFlip: false, mirror: {}, tune: newTune(), paint: [], brush: null, brushSize: 22 };
       renderShown();
-      await findFaces(); await withParts();
-      await placeOnFace(true, 0);
-      await upscaleIfSmall();
+      await findFaces(); await timed('Quick Swap', 'face-part maps', () => withParts());
+      await timed('Quick Swap', 'line it up', () => placeOnFace(true, 0));
+      await timed('Quick Swap', 'upscale (if small)', () => upscaleIfSmall());
       if (!placing?.fit) { placing = null; fm.note = 'Couldn\'t line the faces up. Try 🎭 Insert Character to place it by hand.'; return; }
       const flipped = placing.flip;
-      await finishPlacing();
+      await timed('Quick Swap', 'fit, blend and place', () => finishPlacing());
       fm.quickCut = cut;
       fm.note = `⚡ Swapped${flipped ? ' (flipped to look the same way)' : ''}. Tap Done to save or share it; Undo takes it back.`;
     } catch (err) { placing = null; fm.note = `Quick Swap didn't work: ${err.message}`; }
@@ -1131,7 +1132,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       if (own && placing === p) { p.full = keepOwnFace(p.full, own, p.charFace); p.small = keepOwnFace(p.small, own, p.charFace); p.mirror = {}; renderShown(); }
       const photo = await segmentParts(applyPatches(source, state().patches ?? []), 1024);
       if (photo && placing === p) p.parts = photo;
-    } catch { /* without them */ }
+    } catch (err) { noteError('Face-part maps (FM went on without them)', err); }
   }
 
   /**
@@ -1156,7 +1157,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       Object.assign(p, layoutOn(p.faceObj));
       placeNote = `${was} Its face was small, so it was made twice as big first, its detail drawn in.`;
       return true;
-    } catch { placeNote = was; return false; } // (as it was: fitted without)
+    } catch (err) { noteError('Upscaling the new face (fitted without)', err); placeNote = was; return false; }
   }
 
   /** 🙂 On a face: the Character over the next face found (sized and turned to it). */
@@ -1263,20 +1264,53 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
    * the photo around it, each side to what's next to it.
    */
   async function buildPatch(at, size) {
-    const W = source.width; const H = source.height;
-    const photo = sourcePixels();
+    const W0 = source.width; const H0 = source.height;
+    const photo0 = sourcePixels();
     const img = pixelsAt(at, size);
     if (at.fit && at.charFace && at.faceObj) {
       // (The face in the photo, where it ends: its jaw and its hairline, found once per face.)
-      at.faceObj.outline ??= targetOutline(photo, W, H, at.faceObj);
-      const opts = { trim: at.trim, blend: at.blend, tune: at.tune, paint: at.paint, turn3d: !!at.turn3d, mouth: !!at.mouth };
+      at.faceObj.outline ??= targetOutline(photo0, W0, H0, at.faceObj);
+      // The preview ('small') worked out on the photo made smaller (at most PREVIEW_PX across), so it
+      // keeps up as things change; the patch then has `scale`: source pixels per its pixel.
+      const k = size === 'small' ? Math.min(1, PREVIEW_PX / Math.max(W0, H0)) : 1;
+      const { photo, W, H, face } = k < 1 ? previewOf(at.faceObj, k) : { photo: photo0, W: W0, H: H0, face: at.faceObj };
+      const tune = at.tune && k < 1 ? { ...at.tune, dx: at.tune.dx * k, dy: at.tune.dy * k } : at.tune;
+      const paint = at.paint?.length && k < 1 ? at.paint.map((st) => ({ ...st, r: st.r * k, pts: st.pts.map(([x, y]) => [x * k, y * k]) })) : at.paint;
+      const opts = { trim: at.trim, blend: at.blend, tune, paint, turn3d: !!at.turn3d, mouth: !!at.mouth };
       // Off the page's thread (fit-worker.js), so the screen doesn't freeze; here if that can't be.
-      try { return await fitOffThread(photo, W, H, img, charOf(at), at.faceObj, at.parts, opts); } catch { /* here */ }
-      return buildFitted(photo, W, H, img, charOf(at), at.faceObj, { ...opts, parts: at.parts });
+      let patch;
+      try { patch = await fitOffThread(photo, W, H, img, charOf(at), face, at.parts, opts); } catch (err) {
+        if (err?.message !== 'no worker') noteError('Fit worker (worked out on the page instead)', err);
+        patch = buildFitted(photo, W, H, img, charOf(at), face, { ...opts, parts: at.parts });
+      }
+      if (patch?.timings) noteTimings(size === 'full' ? 'Face swap: fit and blend' : 'Face swap: preview', patch.timings);
+      if (patch) patch.scale = 1 / k;
+      return patch;
     }
+    const W = W0; const H = H0; const photo = photo0;
     const patch = placedPatch(img.rgba, img.w, img.h, at, W, H);
     if (patch) blendIn(patch, photo, W, H, at.blend / 100);
     return patch;
+  }
+
+  /**
+   * The photo (as it is now) made smaller by `k`, and `face` on it (its outline scaled; its skin worked out
+   * again there), for previews: kept while the photo and face stay the same.
+   */
+  const PREVIEW_PX = 1000;
+  let previewPhoto = null;
+  function previewOf(face, k) {
+    const patches = state().patches ?? [];
+    if (previewPhoto?.patches !== patches || previewPhoto.k !== k) {
+      const W = Math.max(1, Math.round(source.width * k)); const H = Math.max(1, Math.round(source.height * k));
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high'; x.drawImage(applyPatches(source, patches), 0, 0, W, H);
+      previewPhoto = { patches, k, W, H, photo: x.getImageData(0, 0, W, H).data, faces: new WeakMap() };
+    }
+    const kx = previewPhoto.W / source.width; const ky = previewPhoto.H / source.height;
+    let f = previewPhoto.faces.get(face);
+    if (!f) { f = { ...face, outline: face.outline?.map(([x, y]) => [x * kx, y * ky]), skin: undefined }; previewPhoto.faces.set(face, f); }
+    return { photo: previewPhoto.photo, W: previewPhoto.W, H: previewPhoto.H, face: f };
   }
 
   // The worker for that (fit-client.js), one per photo opened.
@@ -1301,7 +1335,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       if (!patch) { schedule(); return; }
       const c = document.createElement('canvas'); c.width = patch.pw; c.height = patch.ph;
       c.getContext('2d').putImageData(new ImageData(patch.rgba, patch.pw, patch.ph), 0, 0);
-      placing.preview = { x0: patch.x0, y0: patch.y0, canvas: c };
+      placing.preview = { x0: patch.x0, y0: patch.y0, canvas: c, s: patch.scale ?? 1 };
       schedule();
     }, 30);
   }
@@ -1313,7 +1347,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
     ctx.setTransform(...T);
     // As it will be painted (fitted and blended), or, while it's being moved, as it is.
     const pv = !placeGesture && placing.preview;
-    if (pv) { ctx.imageSmoothingQuality = 'high'; ctx.drawImage(pv.canvas, pv.x0, pv.y0); }
+    if (pv) { ctx.imageSmoothingQuality = 'high'; ctx.drawImage(pv.canvas, pv.x0 * pv.s, pv.y0 * pv.s, pv.canvas.width * pv.s, pv.canvas.height * pv.s); }
     ctx.save();
     ctx.translate(placing.x, placing.y); ctx.rotate(placing.rot);
     const w = placing.width; const h = w / placing.aspect;
@@ -1465,7 +1499,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       if (patch) {
         const pc = document.createElement('canvas'); pc.width = patch.pw; pc.height = patch.ph;
         pc.getContext('2d').putImageData(new ImageData(patch.rgba, patch.pw, patch.ph), 0, 0);
-        x.drawImage(pc, (patch.x0 - bx) * k, (patch.y0 - by) * k, patch.pw * k, patch.ph * k);
+        const sc = patch.scale ?? 1;
+        x.drawImage(pc, (patch.x0 * sc - bx) * k, (patch.y0 * sc - by) * k, patch.pw * sc * k, patch.ph * sc * k);
       }
       l.canvas = c; renderPanel();
     }

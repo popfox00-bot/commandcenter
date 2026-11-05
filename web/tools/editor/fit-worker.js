@@ -15,7 +15,7 @@ self.onmessage = (e) => {
     if (!photo || !img || !charFace || !face) throw new Error('missing');
     const patch = buildFitted(photo.rgba, photo.w, photo.h, img, charFace, face, { ...m.opts, parts: m.parts ? kept.get(m.parts) : null });
     if (!patch) { self.postMessage({ seq: m.build, patch: null }); return; }
-    const { x0, y0, pw, ph, rgba } = patch;
-    self.postMessage({ seq: m.build, patch: { x0, y0, pw, ph, rgba } }, [rgba.buffer]);
+    const { x0, y0, pw, ph, rgba, timings } = patch;
+    self.postMessage({ seq: m.build, patch: { x0, y0, pw, ph, rgba, timings } }, [rgba.buffer]);
   } catch (err) { self.postMessage({ seq: m.build, error: err.message || String(err) }); }
 };

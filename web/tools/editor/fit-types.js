@@ -24,6 +24,7 @@
  * @property {Uint8ClampedArray} rgba
  * @property {number[][] | null} [charPts] the Character's landmarks as placed, photo pixels
  * @property {number[] | null} [open] an opened mouth's see-through pixels (indices), kept so by the blend
+ * @property {Record<string, number>} [timings] how long each step took (ms)
  */
 
 /** An RGBA picture. @typedef {{ rgba: Uint8ClampedArray, w: number, h: number }} Pixels */

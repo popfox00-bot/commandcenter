@@ -78,7 +78,17 @@ export function skinModel(photo, W, H, face) {
   if (trimmed.length >= 10) { skin = trimmed; [mean, sd] = stats(skin); }
   sd = [Math.max(7, sd[0]), Math.max(2.5, sd[1]), Math.max(3, sd[2])];
   const off = (L, A, B) => { let dl = (L - mean[0]) / sd[0]; dl *= dl > 0 ? 0.5 : 0.7; return Math.hypot(dl, (A - mean[1]) / sd[1], (B - mean[2]) / sd[2]); };
-  return { mean, sd, off, isSkin: (rr, gg, bb) => { const c = rgbToLab(rr, gg, bb); return off(c[0], c[1], c[2]) < 3; } };
+  // (Each color tested once: a face repeats the same few thousand colors over and over, and the steps
+  // after ask about each pixel; remembered by color, up to a limit.)
+  const seen = new Map();
+  const isSkin = (rr, gg, bb) => {
+    const k = ((rr & 255) << 16) | ((gg & 255) << 8) | (bb & 255);
+    if ((rr & 255) !== rr || (gg & 255) !== gg || (bb & 255) !== bb) { const c = rgbToLab(rr, gg, bb); return off(c[0], c[1], c[2]) < 3; }
+    let v = seen.get(k);
+    if (v === undefined) { const c = rgbToLab(rr, gg, bb); v = off(c[0], c[1], c[2]) < 3; if (seen.size < 400000) seen.set(k, v); }
+    return v;
+  };
+  return { mean, sd, off, isSkin };
 }
 
 /**

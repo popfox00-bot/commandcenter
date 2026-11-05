@@ -5,9 +5,11 @@
 // ear), and the hair of the face it goes on kept in front of it (bangs, a strand across the forehead).
 // Loaded the first time it's asked for.
 
+import { trackLoad } from './diag.js';
+
 let segmenter = null;
 function imageSegmenter() {
-  segmenter ??= (async () => {
+  segmenter ??= trackLoad('Face-part maps (MediaPipe)', (async () => {
     const base = new URL('../vendor/mediapipe/', import.meta.url).href;
     // (By its URL: the vendored bundle isn't ours to type-check.)
     const { ImageSegmenter } = await import(new URL('../vendor/mediapipe/vision_bundle.mjs', import.meta.url).href);
@@ -15,7 +17,7 @@ function imageSegmenter() {
       { wasmLoaderPath: `${base}wasm/vision_wasm_internal.js`, wasmBinaryPath: `${base}wasm/vision_wasm_internal.wasm` },
       { baseOptions: { modelAssetPath: `${base}selfie_multiclass_256x256.tflite`, delegate: 'CPU' }, runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true },
     );
-  })();
+  })());
   segmenter.catch(() => { segmenter = null; });
   return segmenter;
 }

@@ -73,16 +73,21 @@ export function scalePolygon(poly, k) {
  */
 export function softenMask(m, w, h, r) {
   if (r < 1) return Float32Array.from(m);
+  // One pass of a box of radius r along each line (rows: step 1; columns: step w), as running sums, the
+  // box cut off at the ends (an average of what's there).
   const pass = (src, horiz) => {
-    const out = new Float32Array(src.length); const [n, lines] = horiz ? [w, h] : [h, w];
+    const out = new Float32Array(src.length);
+    const n = horiz ? w : h; const lines = horiz ? h : w; const step = horiz ? 1 : w; const next = horiz ? w : 1;
     for (let l = 0; l < lines; l++) {
-      const at = (i) => (horiz ? l * w + i : i * w + l);
+      const base = l * next;
       let acc = 0; let cnt = 0;
-      for (let i = 0; i < Math.min(n, r + 1); i++) { acc += src[at(i)]; cnt++; }
+      const first = Math.min(n, r + 1);
+      for (let i = 0; i < first; i++) acc += src[base + i * step];
+      cnt = first;
       for (let i = 0; i < n; i++) {
-        out[at(i)] = acc / cnt;
-        if (i + r + 1 < n) { acc += src[at(i + r + 1)]; cnt++; }
-        if (i - r >= 0) { acc -= src[at(i - r)]; cnt--; }
+        out[base + i * step] = acc / cnt;
+        const add = i + r + 1; if (add < n) { acc += src[base + add * step]; cnt++; }
+        const sub = i - r; if (sub >= 0) { acc -= src[base + sub * step]; cnt--; }
       }
     }
     return out;
@@ -98,16 +103,19 @@ export function softenMask(m, w, h, r) {
  * @returns {Float32Array}
  */
 export function boxBlur(v, ok, pw, ph, r) {
+  // Sums of the values and of how many are set, along each line (as softenMask), then divided.
   const pass = (src, wt, horiz) => {
-    const out = new Float32Array(src.length); const ow = new Float32Array(src.length); const [n, lines] = horiz ? [pw, ph] : [ph, pw];
+    const out = new Float32Array(src.length); const ow = new Float32Array(src.length);
+    const n = horiz ? pw : ph; const lines = horiz ? ph : pw; const step = horiz ? 1 : pw; const next = horiz ? pw : 1;
     for (let l = 0; l < lines; l++) {
-      const at = (i) => (horiz ? l * pw + i : i * pw + l);
+      const base = l * next;
       let s = 0; let c = 0;
-      for (let i = 0; i < Math.min(n, r + 1); i++) { s += src[at(i)]; c += wt[at(i)]; }
+      const first = Math.min(n, r + 1);
+      for (let i = 0; i < first; i++) { const q = base + i * step; s += src[q]; c += wt[q]; }
       for (let i = 0; i < n; i++) {
-        out[at(i)] = s; ow[at(i)] = c;
-        if (i + r + 1 < n) { s += src[at(i + r + 1)]; c += wt[at(i + r + 1)]; }
-        if (i - r >= 0) { s -= src[at(i - r)]; c -= wt[at(i - r)]; }
+        const q = base + i * step; out[q] = s; ow[q] = c;
+        const add = i + r + 1; if (add < n) { const t = base + add * step; s += src[t]; c += wt[t]; }
+        const sub = i - r; if (sub >= 0) { const t = base + sub * step; s -= src[t]; c -= wt[t]; }
       }
     }
     return [out, ow];

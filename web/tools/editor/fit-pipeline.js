@@ -5,14 +5,51 @@
 // page's thread (fit-worker.js) as well as on it.
 
 import { fitPatch, blendIn, recolor, relight, shadeByShape, keepSkinTexture, matchTexture, hairInFront, targetOutline, skinModel } from './facefit.js';
-import { cleanUp } from './cleanup.js';
+import { membrane } from './cleanup.js';
 import { inPolygon, convexHull, scalePolygon } from '../../lib/geometry.js';
+
+/**
+ * The `hole` (a mask over W×H, within `box`, grown a pixel) filled from what's around it: its colors
+ * spread smoothly in (membrane), then a seeded grain as strong as the photo's just around it. Patch pixels.
+ */
+function smoothFill(photo, W, H, hole, box) {
+  const x0 = Math.max(0, box.x0 - 3); const y0 = Math.max(0, box.y0 - 3); const x1 = Math.min(W, box.x1 + 3); const y1 = Math.min(H, box.y1 + 3);
+  const pw = x1 - x0; const ph = y1 - y0; const N = pw * ph;
+  const free = new Uint8Array(N); const diff = new Float32Array(N * 3);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const k = y * pw + x; const i = (y0 + y) * W + x0 + x;
+    // (A pixel's ring around it too: the edge of what's filled is blurred into it in the photo.)
+    let h = hole[i]; if (!h) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x0 + x + dx; const Y = y0 + y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H && hole[Y * W + X]) { h = 1; break; } }
+    if (h && x > 0 && y > 0 && x < pw - 1 && y < ph - 1) free[k] = 1;
+    for (let c = 0; c < 3; c++) diff[k * 3 + c] = photo[i * 4 + c];
+  }
+  membrane(diff, free, pw, ph);
+  // The grain just around it: how much each pixel differs from the 3×3 around it (luminance), as a spread.
+  let s2 = 0; let n = 0;
+  for (let y = 1; y < ph - 1; y++) for (let x = 1; x < pw - 1; x++) {
+    const k = y * pw + x; if (free[k]) continue;
+    const L = (q) => { const o = ((y0 + Math.floor(q / pw)) * W + x0 + (q % pw)) * 4; return 0.299 * photo[o] + 0.587 * photo[o + 1] + 0.114 * photo[o + 2]; };
+    let m = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) m += L(k + dy * pw + dx);
+    const d = L(k) - m / 9; s2 += d * d; n++;
+  }
+  const grain = n ? Math.min(12, Math.sqrt(s2 / n)) : 0;
+  const rgba = new Uint8ClampedArray(N * 4);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const k = y * pw + x; if (!free[k]) continue;
+    let q = Math.imul(x0 + x, 0x9e3779b1) ^ Math.imul(y0 + y, 0x85ebca77); q = Math.imul(q ^ (q >>> 15), 0x2c1b3c6d);
+    const u1 = (((q >>> 0) % 65535) + 1) / 65536; q = Math.imul(q ^ (q >>> 13), 0x297a2d39); const u2 = (q >>> 0) / 4294967296;
+    const g = grain * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    for (let c = 0; c < 3; c++) rgba[k * 4 + c] = diff[k * 3 + c] + g;
+    rgba[k * 4 + 3] = 255;
+  }
+  return { x0, y0, pw, ph, rgba };
+}
 
 /**
  * Nothing of the old face left showing: where the face it goes on has its own eyes, brows and mouth (with
  * room around them) and the Character doesn't fully cover them (at its soft edge, on a turned head: the
  * corner of the old mouth beside the new one), they're filled in first with that face's skin around them
- * (as Clean Up fills, from the photo), under the Character. Not where it was brushed "less" (the photo is
+ * (smoothly, with its grain: smoothFill), under the Character. Not where it was brushed "less" (the photo is
  * to show there). In place on the patch.
  */
 function hideOldFeatures(patch, photo, W, H, face, paint) {
@@ -38,8 +75,10 @@ function hideOldFeatures(patch, photo, W, H, face, paint) {
     for (const i of px) { const x = i % W; const y = (i / W) | 0; if (brushedLess(x, y)) continue; hole[i] = 1; any = true; if (x < bx0) bx0 = x; if (y < by0) by0 = y; if (x >= bx1) bx1 = x + 1; if (y >= by1) by1 = y + 1; }
   }
   if (!any) return;
-  const fill = cleanUp(photo, W, H, hole, { x0: bx0, y0: by0, x1: bx1, y1: by1 });
-  if (!fill) return;
+  // Filled smoothly from the skin around them (a membrane: each color carried in from the edge), with
+  // that skin's grain: they end up mostly under the Character, so a smooth fill is all that's wanted,
+  // and it's quick.
+  const fill = smoothFill(photo, W, H, hole, { x0: bx0, y0: by0, x1: bx1, y1: by1 });
   // Under the Character: its own pixels over the fill, as much as it covers there.
   for (let y = 0; y < fill.ph; y++) for (let x = 0; x < fill.pw; x++) {
     const fo = (y * fill.pw + x) * 4; const fa = fill.rgba[fo + 3]; if (!fa) continue;
@@ -62,22 +101,32 @@ function hideOldFeatures(patch, photo, W, H, face, paint) {
  * @returns {import('./fit-types.js').Patch | null}
  */
 export function buildFitted(photo, W, H, img, charFace, face, { trim = true, blend = 70, tune = null, paint = null, parts = null, turn3d = false, mouth = false } = {}) {
-  face.outline ??= targetOutline(photo, W, H, face);
-  face.skin ??= skinModel(photo, W, H, face);
+  // (How long each step took, in ms: kept on the patch as `timings`, for the diagnostics.)
+  /** @type {Record<string, number>} */
+  const timings = {};
+  const step = (name, fn) => { const t0 = performance.now(); const r = fn(); timings[name] = (timings[name] ?? 0) + performance.now() - t0; return r; };
+  step('outline', () => { face.outline ??= targetOutline(photo, W, H, face); face.skin ??= skinModel(photo, W, H, face); });
   const outline = face.outline; const s = blend / 100;
-  const patch = fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint, turn3d, mouth });
+  const patch = step('fit', () => fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint, turn3d, mouth }));
   if (!patch) return null;
-  if (outline) { recolor(patch, photo, W, H, outline, s, face); relight(patch, photo, W, H, face, outline, s); shadeByShape(patch, photo, W, H, face, outline, s); keepSkinTexture(patch, photo, W, H, face, outline, s); matchTexture(patch, photo, W, H, face, outline, s); }
+  if (outline) {
+    step('recolor', () => recolor(patch, photo, W, H, outline, s, face));
+    step('relight', () => relight(patch, photo, W, H, face, outline, s));
+    step('shade', () => shadeByShape(patch, photo, W, H, face, outline, s));
+    step('skin texture', () => keepSkinTexture(patch, photo, W, H, face, outline, s));
+    step('sharpness', () => matchTexture(patch, photo, W, H, face, outline, s));
+  }
   // Nothing of the old face's eyes, brows or mouth left showing past the new one (before the blend,
   // which brings the photo's own pixels in around it).
-  hideOldFeatures(patch, photo, W, H, face, paint);
+  step('old features', () => hideOldFeatures(patch, photo, W, H, face, paint));
   // Blended both ways at the border: the Character toward the photo's skin there, and what's left of that
   // face (up to its hairline, out to its jaw) toward the Character, meeting halfway; the difference at its
   // edge carried smoothly across all of it (as a gradient-domain blend does: its own detail kept, that
   // face's light and color taken on), not just a band at the border.
   const faceW = face.box.w * W;
-  blendIn(patch, photo, W, H, s, { soft: Math.max(2, Math.round(faceW * 0.015)), band: 0, region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: face.skin });
+  step('blend', () => blendIn(patch, photo, W, H, s, { soft: Math.max(2, Math.round(faceW * 0.015)), band: 0, region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: face.skin }));
   // That face's hair (bangs, a strand across it) kept in front.
-  if (parts) hairInFront(patch, parts, W, H);
+  if (parts) step('hair', () => hairInFront(patch, parts, W, H));
+  patch.timings = timings;
   return patch;
 }

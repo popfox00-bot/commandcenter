@@ -4,6 +4,7 @@
 // steadier than the 68-point finder's on a soft or turned face. Loaded the first time it's asked for.
 
 import { faceFrom } from './face-core.js';
+import { trackLoad } from './diag.js';
 
 /** Which of the mesh's 478 points stands for each of the 68 landmarks (jaw, brows, nose, eyes, mouth). */
 export const MESH68 = [
@@ -17,7 +18,7 @@ export const MESH68 = [
 
 let landmarker = null;
 function faceLandmarker() {
-  landmarker ??= (async () => {
+  landmarker ??= trackLoad('Face mesh (MediaPipe)', (async () => {
     const base = new URL('../vendor/mediapipe/', import.meta.url).href;
     // (By its URL: the vendored bundle isn't ours to type-check.)
     const { FaceLandmarker } = await import(new URL('../vendor/mediapipe/vision_bundle.mjs', import.meta.url).href);
@@ -25,7 +26,7 @@ function faceLandmarker() {
       { wasmLoaderPath: `${base}wasm/vision_wasm_internal.js`, wasmBinaryPath: `${base}wasm/vision_wasm_internal.wasm` },
       { baseOptions: { modelAssetPath: `${base}face_landmarker.task`, delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 6, minFaceDetectionConfidence: 0.4, minFacePresenceConfidence: 0.4 },
     );
-  })();
+  })());
   landmarker.catch(() => { landmarker = null; });
   return landmarker;
 }

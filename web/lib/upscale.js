@@ -4,9 +4,11 @@
 // that comes with face-api (vendor/face). For a Character whose face is much smaller than the one it goes
 // on, so it isn't blown up blurry. Loaded the first time it's asked for.
 
+import { trackLoad } from './diag.js';
+
 let modelPromise = null;
 function model() {
-  modelPromise ??= (async () => {
+  modelPromise ??= trackLoad('Upscaler (ESRGAN Slim)', (async () => {
     // (By its URL: the vendored bundle isn't ours to type-check.)
     const api = await import(new URL('../vendor/face/face-api.esm.js', import.meta.url).href);
     const { tf } = api;
@@ -14,7 +16,7 @@ function model() {
     await tf.ready();
     const m = await tf.loadLayersModel(new URL('../vendor/esrgan/x2/model.json', import.meta.url).href);
     return { tf, m };
-  })();
+  })());
   modelPromise.catch(() => { modelPromise = null; });
   return modelPromise;
 }

@@ -131,7 +131,12 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
 - **🙂 FaceMask** (a tab of its own beside ✏️ Edit, 🧩 Collage and ✂️ Cutout: the same photo, with only
-  the face tools): everything for faces, in three steps.
+  the face tools): everything for faces, in three steps, or in one with **⚡ Quick Swap**: two photos,
+  the one to change and then the one with the new face (on the start screen, **⚡ Quick Swap faces**;
+  in FaceMask, **⚡ Quick Swap** offers the open photo as the first). The biggest face in the second is
+  cut out, fitted onto the biggest face in the first, recolored and blended (all as in step 3 below)
+  and placed as one undo step, ready to save with **Done**; **✂️ Keep that face as a Character**
+  saves the face it used.
   1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
      with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
   2. **✂️ Cut out & save as Character**: the face, cut out in one go along its own outline from its

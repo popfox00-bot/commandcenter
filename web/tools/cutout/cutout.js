@@ -8,7 +8,6 @@ import { el, store, fill } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { listCharacters, addCharacter, getCharacterBlob, renameCharacter, removeCharacter } from '../../lib/characters.js';
-import { faceOutline, mainFace } from '../../lib/face-core.js';
 import { zoomable } from '../../lib/zoom.js';
 import { drawLoupe as loupeAt } from '../../lib/loupe.js';
 import { charactersZip, saveToDirectory, saveToSavedFiles, installCharacters, installFromSavedFiles } from '../../lib/characters-io.js';
@@ -229,10 +228,6 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
         tol.addEventListener('input', () => { wandTol = Number(tol.value); store.set('cc.cutout.tol', String(wandTol)); });
         return el('label', { class: 'field' }, el('span', { text: 'Reach (how different a color it spreads to)' }), el('span', { class: 'range-row' }, tol));
       })() : null,
-      mode === 'add' ? el('div', { class: 'row wrap co-face' },
-        el('button', { class: 'btn small-btn', text: '🙂 Cut out face', onclick: (e) => cutOutFace(e.currentTarget, false) }),
-        el('button', { class: 'btn small-btn ghost', text: '🙂 All faces', onclick: (e) => cutOutFace(e.currentTarget, true) }),
-        faceNote ? el('span', { class: 'muted small', 'aria-live': 'polite', text: faceNote }) : null) : null,
       el('div', { class: 'row space co-smart' },
         el('button', { class: `chip${smart ? ' active' : ''}`, 'aria-pressed': String(smart), text: '✨ Smart edges', onclick: () => { smart = !smart; store.set(SMART_KEY, smart ? 'on' : 'off'); refresh(); } }),
         el('span', { class: 'muted small', 'aria-live': 'polite', text: smartNote() })),
@@ -370,26 +365,6 @@ export function mount(host, { onPlace, file: initialFile } = {}) {
   // ---------- fixes: patch, wand, brush ----------
 
   let patchNote = '';
-  let faceNote = '';
-  /**
-   * 🙂 Cut out face: finds the faces (on the phone) and traces around the biggest one's head (or every
-   * face's), with smart edges on so the outline comes in to the head's own edge. One undo step.
-   */
-  async function cutOutFace(btn, all) {
-    btn.disabled = true; faceNote = 'Looking for faces…'; renderPanel();
-    try {
-      const { detectFaces } = await import('../../lib/face.js');
-      const faces = await detectFaces(image);
-      const pick = all ? faces : [mainFace(faces)].filter(Boolean);
-      if (!pick.length) { faceNote = 'No face found in this photo: trace around it by hand.'; return; }
-      if (!smart) { smart = true; store.set(SMART_KEY, 'on'); }
-      const added = pick.map((f) => ({ op: 'add', points: faceOutline(f, image.width, image.height) }));
-      preview = true;
-      faceNote = pick.length > 1 ? `Traced ${pick.length} faces. Fix the edges with Patch, Wand or Brush if needed.` : `Traced the face${faces.length > 1 ? ` (the biggest of ${faces.length})` : ''}. Fix the edge with Patch, Wand or Brush if needed.`;
-      commit([...traces, ...added]);
-    } catch (err) { faceNote = `Couldn't look for faces: ${err.message}`; }
-    finally { btn.disabled = false; renderPanel(); }
-  }
   const fixRadius = () => { const { w } = workCopy(); return Math.max(2, (patchSize / canvas.getBoundingClientRect().width) * w); };
   const newId = () => `${Date.now()}${Math.random()}`;
   const plural = (n) => `${n.toLocaleString()} pixel${n === 1 ? '' : 's'}`;

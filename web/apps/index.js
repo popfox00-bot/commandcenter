@@ -1,5 +1,5 @@
 // Apps on the home screen (their order can be changed in Settings). Jobs is built into the shell and
-// opened from Settings; other apps load on first open. Files, Draw and
+// opened from Settings; other apps load on first open. Files, FM (FaceMask), Draw and
 // QR run entirely on this phone and work offline (Files' Saved Files is the one part that goes online,
 // to your own Google Drive). Games is Fox Games, a self-contained page of its own (web/apps/games/fox/).
 export const APPS = [
@@ -7,6 +7,7 @@ export const APPS = [
   { id: 'updates', name: 'Updates', icon: '🔔', tint: 'amber', note: 'Weather · Sports', href: '#/updates', load: () => import('./updates/updates.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', load: () => import('./notes/notes.js') },
   { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · PDF · Scan · Saved Files', href: '#/files', load: () => import('../tools/studio/studio.js') },
+  { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', load: () => import('./fm/fm.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', load: () => import('../tools/draw/draw.js') },
   { id: 'qr', name: 'QR', icon: '▦', tint: 'ink', note: 'Scan · Make · App codes', href: '#/qr', load: () => import('../tools/qr/qr.js') },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', load: () => import('./rap/rap.js') },
@@ -32,6 +33,8 @@ export function homeApps(order = null) {
 export function redirect(hash) {
   if (hash === '#/tools' || hash === '#/tools/') return '#/';
   if (hash === '#/tools/convert') return '#/files/convert';
+  // FaceMask was a tab of Files' photo editor; it's the FM app now.
+  if (/^#\/files\/facemask(\/.*)?$/.test(hash)) return '#/fm';
   let m = /^#\/tools\/editor(\/.*)?$/.exec(hash);
   if (m) return `#/files${m[1] ?? ''}`;
   m = /^#\/tools\/(draw|qr)(\/.*)?$/.exec(hash);

@@ -25,15 +25,19 @@ const PREVIEW_MAX = 2048;
 const THUMB_MAX = 200;
 const SAVE_KEY = 'editor.session';
 const PREFS_KEY = 'cc.editor.prefs';
-// FaceMask ('face') has a tab of its own beside Edit, Collage and Cutout (see faceOnly), not one here.
+// FaceMask ('face') is the FM app's (the same editor mounted with `fm`: only the face tools), not one here.
 const MODES = [['adjust', 'Adjust'], ['filters', 'Filters'], ['crop', 'Crop'], ['markup', 'Markup'], ['cleanup', 'Clean Up']];
 const TOOLS = [
   ['pen', '✎', 'Pen'], ['highlighter', '▬', 'Highlighter'], ['line', '╱', 'Line'], ['arrow', '➚', 'Arrow'],
   ['rect', '▭', 'Box'], ['ellipse', '◯', 'Oval'], ['text', 'T', 'Text'], ['eraser', '⌫', 'Eraser'],
 ];
 
-/** mount(host, { file }) — `file` opens that photo right away (e.g. sent from the converter). */
-export function mount(host, { file: initialFile } = {}) {
+/**
+ * mount(host, { file, fm }) — `file` opens that photo right away (e.g. sent from the converter). `fm`:
+ * the FM app (FaceMask): only the face tools, with a photo of its own (kept apart from Files').
+ */
+export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
+  const sessionKey = faceApp ? 'fm.session' : SAVE_KEY;
   const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, cleanSize: 22, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
   delete prefs.autoCropColor;
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
@@ -43,7 +47,7 @@ export function mount(host, { file: initialFile } = {}) {
   let source = null;          // preview source canvas
   let renderer = null;
   let history = null;
-  let mode = 'adjust';
+  let mode = faceApp ? 'face' : 'adjust';
   let activeAdjust = 'exposure';
   let comparing = false;
   let raf = 0;
@@ -72,7 +76,7 @@ export function mount(host, { file: initialFile } = {}) {
   // ---------- screens ----------
 
   function showStart(saved) {
-    const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', multiple: true, class: 'visually-hidden', id: 'ed-file' });
+    const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', multiple: !faceApp, class: 'visually-hidden', id: 'ed-file' });
     input.addEventListener('change', () => {
       const files = [...input.files];
       input.value = '';
@@ -84,15 +88,15 @@ export function mount(host, { file: initialFile } = {}) {
       el('span', { class: 'muted small', text: `Saved on this phone ${new Date(saved.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` }),
       el('div', { class: 'row' },
         el('button', { class: 'btn primary', text: 'Continue', onclick: () => openFile(saved.blob, saved.name, normalizeState(saved.state)) }),
-        el('button', { class: 'btn ghost', text: 'Discard', onclick: () => { idb.del(SAVE_KEY); showStart(null); } }))) : null;
+        el('button', { class: 'btn ghost', text: 'Discard', onclick: () => { idb.del(sessionKey); showStart(null); } }))) : null;
     host.replaceChildren(...[
       resume,
-      el('div', { class: 'drop' },
-        el('label', { class: 'btn primary block', for: 'ed-file', text: 'Choose photos' }),
-        el('p', { class: 'muted small center', text: 'Pick one photo to edit it, or many to edit them all at once (Auto-Crop, filters, light and color, size). Your originals are never changed, and nothing leaves this phone.' })),
-      el('div', { class: 'drop qs-start' },
-        el('button', { class: 'btn block', text: '⚡ Quick Swap faces', onclick: () => quickSwap() }),
-        el('p', { class: 'muted small center', text: 'Two photos: the one to change, then the one with the face to put on it. The face is cut out, fitted and blended for you, ready to save.' })),
+      faceApp ? el('div', { class: 'drop' },
+        el('button', { class: 'btn primary block', text: '⚡ Quick Swap faces', onclick: () => quickSwap() }),
+        el('p', { class: 'muted small center', text: 'Two photos: the one to change, then the one with the face to put on it. The face is cut out, fitted and blended for you, ready to save.' })) : null,
+      el('div', { class: `drop${faceApp ? ' qs-start' : ''}` },
+        el('label', { class: `btn ${faceApp ? '' : 'primary '}block`, for: 'ed-file', text: faceApp ? 'Choose a photo' : 'Choose photos' }),
+        el('p', { class: 'muted small center', text: faceApp ? 'Find its faces, cut one out to keep as a Character, or put a Character on a face (fitted, recolored and blended). Nothing leaves this phone.' : 'Pick one photo to edit it, or many to edit them all at once (Auto-Crop, filters, light and color, size). Your originals are never changed, and nothing leaves this phone.' })),
       input,
     ].filter(Boolean));
   }
@@ -135,8 +139,8 @@ export function mount(host, { file: initialFile } = {}) {
 
   let zoomCtl = null; // zoom within the photo (see buildEditor)
   let quick = null;   // the one-tap fixes under the photo
-  // FaceMask's own tab: the photo with only the face tools (mode 'face'); `editMode` is the mode Edit goes back to.
-  let faceOnly = false; let editMode = 'adjust';
+  // The FM app: the photo with only the face tools (mode 'face'), no editing tabs or one-tap fixes.
+  const faceOnly = faceApp;
   let glCanvas; let overlay; let stage; let panel; let undoBtn; let redoBtn; let modeBar; let thumbs = null;
 
   function buildEditor() {
@@ -225,7 +229,7 @@ export function mount(host, { file: initialFile } = {}) {
 
   function persist(now = false) {
     clearTimeout(saveTimer);
-    const write = () => idb.set(SAVE_KEY, { name: fileName, blob: file, state: state(), savedAt: Date.now() });
+    const write = () => idb.set(sessionKey, { name: fileName, blob: file, state: state(), savedAt: Date.now() });
     if (now) write(); else saveTimer = setTimeout(write, 400);
   }
 
@@ -1052,8 +1056,6 @@ export function mount(host, { file: initialFile } = {}) {
     if (!picked) return;
     if (picked.base) {
       if (history && file && !isDefault(state()) && !window.confirm('Open the new photo? Edits to the current one will be discarded.')) return;
-      if (!faceOnly && location.hash !== '#/files/facemask') location.hash = '#/files/facemask';
-      faceOnly = true; mode = 'face';
       teardown();
       await openFile(picked.base, picked.base.name || 'photo.jpg');
       if (!history || !source) return;
@@ -1464,7 +1466,7 @@ export function mount(host, { file: initialFile } = {}) {
 
   function closePhoto() {
     if (!isDefault(state()) && !window.confirm('Close this photo? Your edits will be discarded.')) return;
-    idb.del(SAVE_KEY);
+    idb.del(sessionKey);
     teardown();
     showStart(null);
   }
@@ -1539,7 +1541,7 @@ export function mount(host, { file: initialFile } = {}) {
 
   // ---------- start ----------
   if (initialFile) openFile(initialFile);
-  else idb.get(SAVE_KEY).then((saved) => showStart(saved?.blob ? saved : null));
+  else idb.get(sessionKey).then((saved) => showStart(saved?.blob ? saved : null));
 
   const unmount = () => {
     if (history && file) persist(true);
@@ -1565,12 +1567,5 @@ export function mount(host, { file: initialFile } = {}) {
   unmount.photoKey = () => (history && file && renderer ? `${fileName}#${edits}` : null);
   /** Redraw after the panel becomes visible again (sizes are 0 while hidden). */
   unmount.show = () => { if (renderer) schedule(); };
-  /** FaceMask's tab (on) or Edit's (off): the same photo, with only the face tools or with all the others. */
-  unmount.faceOnly = (on) => {
-    if (on === faceOnly) return;
-    faceOnly = on;
-    if (on) { if (mode !== 'face') editMode = mode; mode = 'face'; } else if (mode === 'face') mode = editMode;
-    if (history && modeBar) { drag = null; draft = null; cleanStroke = null; renderModes(); renderPanel(); schedule(); }
-  };
   return unmount;
 }

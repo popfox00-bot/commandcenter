@@ -51,6 +51,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
+- [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Updates](#updates): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
@@ -130,59 +131,6 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   pointer. **⤢ Fit** goes back to the whole photo (`web/lib/zoom.js`).
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
-- **🙂 FaceMask** (a tab of its own beside ✏️ Edit, 🧩 Collage and ✂️ Cutout: the same photo, with only
-  the face tools): everything for faces, in three steps, or in one with **⚡ Quick Swap**: two photos,
-  the one to change and then the one with the new face (on the start screen, **⚡ Quick Swap faces**;
-  in FaceMask, **⚡ Quick Swap** offers the open photo as the first). The biggest face in the second is
-  cut out, fitted onto the biggest face in the first, recolored and blended (all as in step 3 below)
-  and placed as one undo step, ready to save with **Done**; **✂️ Keep that face as a Character**
-  saves the face it used.
-  1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
-     with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
-  2. **✂️ Cut out & save as Character**: the face, cut out in one go along its own outline from its
-     landmarks (the jaw from ear to ear, the forehead up toward the hairline) with a generous border
-     around it, so none of its detail is lost; it's trimmed to fit when it's put on a face. Its edge is
-     softened, and it's shown, named and kept with your Characters, along
-     with where its eyes, nose, mouth and jaw are (so it's always fitted by its real features; a face
-     cropped this tight is hard to find again) (`web/tools/editor/facemask.js`). Fine-tune its edge in
-     Cutout if you like. Characters saved before that have their face looked for with room around it.
-  3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
-     Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
-     realistic result rather than pinned to every point of the face it replaces. First it's **turned in
-     3D** to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
-     gives how each is turned left/right and up/down, and the Character's own face, given that depth,
-     is turned by the difference (most of the left/right, a little of the up/down) and drawn again
-     over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
-     (`web/tools/editor/face3d.js`). Then it's turned by its eye line
-     onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
-     narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
-     them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own
-     height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
-     1.3×, and never much wider than that jaw). Only its jaw is bent a little toward that face's
-     (moving least squares, a third of the way), its eyes, nose and mouth keep their own proportions,
-     and its forehead fades gently into the one it's on. It's **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
-     hairline, found in the photo (from the brows up, where the skin gives way to hair), with the soft
-     edge inside it (`web/tools/editor/facefit.js`). The outline ends where the face's own skin does:
-     along lines out from the nose and up from the brows, each point is compared with the skin just
-     before it (so shading, a redder cheek or a paler forehead are still skin), and the edge is where
-     it changes to something else: hair over a temple or cheek, the far side of a turned face. Only
-     the Character's own face goes in (its own jaw and hairline, found the same way), never the hair,
-     background or anything else (a flower behind an ear) kept in its border. A Character looking
-     the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
-     Any other image covers the face, turned with it.
-     **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
-     (the same way all over, so its own shading and detail stay), then blended both ways at its border:
-     it's matched to the face's own skin there (never the hair or background past it), and what's left
-     of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
-     and any skin of that face past its outline, found by its skin color) takes on its colors, easing
-     back to the photo further out, so nothing of the old face stands out. Its edges fade in widely,
-     so it looks part of the face rather than cut out and laid on it.
-     Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
-     to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
-     hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
-     **✓ Place** paints it in at full detail: one undo step, part of every export.
-  **🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
-  mouth (quarter turns and straighten; undo to go back).
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
   overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
   it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
@@ -324,9 +272,6 @@ Characters open). Each photo is handed over once (again after new edits).
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
   Delete and Opacity act on the selected layer. **🎨 Match color** blends the selected layer into
   the background photo behind it (or the background color), from 0 (as it is) to 100.
-- **🎭 Face swap** (with a background photo): every face in it is covered by a Character from Cutout
-  (cut a face out and save it: it's lined up by its own eyes and mouth) or any mask image, each sized, centered and turned to its face, as
-  layers to move and adjust like any other, like a camera filter.
 - Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
   Work is autosaved.
 
@@ -335,9 +280,6 @@ Characters open). Each photo is handed over once (again after new edits).
 Cut an object out of a photo: trace around it with your finger (**Trace**), with undo/redo and an
 **Edge softness** slider. **Preview cutout** shows the result on a checkerboard.
 
-- **🙂 Cut out face** finds the faces (on the phone) and traces around the biggest one's head (an
-  oval from the eyes and mouth, with the forehead), smart edges bringing it in to the head's own
-  edge; **🙂 All faces** traces every face. Fix the edge as usual, then **Save as Character**.
 - **Your Characters as a folder**: **⬇ Save all…** saves every Character as `Characters.zip`, a
   "Characters" folder of their images with a `characters.json` of their names; on a computer it can
   also write that folder straight to disk, and with Saved Files set up, put it in a "Characters"
@@ -551,6 +493,62 @@ npm run test:web        # browser tests in Chromium: conversions, WebP encoder, 
 
 Add a tool: create `web/tools/<id>/<id>.js` exporting `mount(host)` (return an unmount function),
 add it to `web/tools/index.js`, and run `npm run precache`.
+
+## FM (FaceMask)
+
+Everything for faces, an app of its own on the home screen (`web/apps/fm/`: the photo editor with only
+its face tools, and a photo of its own, kept apart from the one open in Files), in three steps, or in one with **⚡ Quick Swap**: two photos,
+the one to change and then the one with the new face (on its start screen, **⚡ Quick Swap faces**;
+with a photo open, **⚡ Quick Swap** offers it as the first). The biggest face in the second is
+cut out, fitted onto the biggest face in the first, recolored and blended (all as in step 3 below)
+and placed as one undo step, ready to save with **Done**; **✂️ Keep that face as a Character**
+saves the face it used.
+1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
+   with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
+2. **✂️ Cut out & save as Character**: the face, cut out in one go along its own outline from its
+   landmarks (the jaw from ear to ear, the forehead up toward the hairline) with a generous border
+   around it, so none of its detail is lost; it's trimmed to fit when it's put on a face. Its edge is
+   softened, and it's shown, named and kept with your Characters, along
+   with where its eyes, nose, mouth and jaw are (so it's always fitted by its real features; a face
+   cropped this tight is hard to find again) (`web/tools/editor/facemask.js`). Fine-tune its edge in
+   Cutout if you like. Characters saved before that have their face looked for with room around it.
+3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
+   Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
+   realistic result rather than pinned to every point of the face it replaces. First it's **turned in
+   3D** to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
+   gives how each is turned left/right and up/down, and the Character's own face, given that depth,
+   is turned by the difference (most of the left/right, a little of the up/down) and drawn again
+   over a mesh of its landmarks, nearest last, so a nose covers the far cheek as it would
+   (`web/tools/editor/face3d.js`). Then it's turned by its eye line
+   onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
+   narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
+   them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own
+   height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
+   1.3×, and never much wider than that jaw). Only its jaw is bent a little toward that face's
+   (moving least squares, a third of the way), its eyes, nose and mouth keep their own proportions,
+   and its forehead fades gently into the one it's on. It's **✂️ trimmed** along that face's clean contour: the jaw from ear to ear and its
+   hairline, found in the photo (from the brows up, where the skin gives way to hair), with the soft
+   edge inside it (`web/tools/editor/facefit.js`). The outline ends where the face's own skin does:
+   along lines out from the nose and up from the brows, each point is compared with the skin just
+   before it (so shading, a redder cheek or a paler forehead are still skin), and the edge is where
+   it changes to something else: hair over a temple or cheek, the far side of a turned face. Only
+   the Character's own face goes in (its own jaw and hairline, found the same way), never the hair,
+   background or anything else (a flower behind an ear) kept in its border. A Character looking
+   the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).
+   Any other image covers the face, turned with it.
+   **🎨 Blend into the photo** (0–100, on by default): the Character is recolored to that face's skin
+   (the same way all over, so its own shading and detail stay), then blended both ways at its border:
+   it's matched to the face's own skin there (never the hair or background past it), and what's left
+   of the old face that it doesn't reach (a strip of forehead up to the hairline, the edge of a cheek,
+   and any skin of that face past its outline, found by its skin color) takes on its colors, easing
+   back to the photo further out, so nothing of the old face stands out. Its edges fade in widely,
+   so it looks part of the face rather than cut out and laid on it.
+   Tap another face's number to move it there, or **🙂 On every face** to put one on each (each fitted
+   to its own face). Drag to move, pinch (or **Size** and **Turn**) to resize and rotate: placed by
+   hand, it isn't bent (**🧬 Fit to face** fits it again). The preview shows it as it will be.
+   **✓ Place** paints it in at full detail: one undo step, part of every export.
+**🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
+mouth (quarter turns and straighten; undo to go back).
 
 ## Updates
 

@@ -4,11 +4,12 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "8b6f4d9a9e90",
+  "version": "d97eeac12288",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
     "apps/calendar/calendar.js",
+    "apps/fm/fm.js",
     "apps/games/fox/cc-frame.css",
     "apps/games/fox/fox.css",
     "apps/games/fox/fox.js",

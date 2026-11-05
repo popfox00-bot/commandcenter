@@ -55,17 +55,17 @@ async function convertTo(page, label) {
   return page.$$eval('.result strong', (els) => els.map((e) => e.textContent));
 }
 
-test('home screen of apps: Files, Draw and QR are apps of their own, Jobs is in Settings; old Tools links still work; no setup needed', async () => {
+test('home screen of apps: Files, FM, Draw and QR are apps of their own, Jobs is in Settings; old Tools links still work; no setup needed', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Updates', 'Notes', 'Files', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Updates', 'Notes', 'Files', 'FM', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   await page.click('.app-tile >> text=Files');
   await page.waitForSelector('.studio-tabs');
   assert.equal(await page.textContent('#title'), 'Files');
   assert.deepEqual(await page.$$eval('.studio-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'PDF', 'Scan', 'Convert', 'Saved Files']);
-  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout', '🙂 FaceMask']);
+  assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
   await page.click('.app-tile >> text=QR');

@@ -148,9 +148,10 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
      Cutout if you like. Characters saved before that have their face looked for with room around it.
   3. **🎭 Insert Character**: one of your Characters (or any transparent image) on the picked face. A
      Character with a face of its own (one cut out like this) is **🧬 fitted to the face** for a
-     realistic result rather than pinned to every point of the face it replaces: placed and turned by
-     its eyes, nose and mouth on that face's (so it's where that face is and looks where it looks, its
-     own face kept symmetric), then sized so the new face has a natural forehead within that face's own
+     realistic result rather than pinned to every point of the face it replaces: turned by its eye line
+     onto that face's and lined up across by the eyes and down by the chin; for a head turned away,
+     narrowed across and its nose, mouth and chin slanted along under the eyes to where that face has
+     them (its own face otherwise kept as it is), then sized so the new face has a natural forehead within that face's own
      height, hairline to chin (its forehead about its own, its chin on the chin; only ever bigger, up to
      1.3×, and never much wider than that jaw). Only its jaw is bent a little toward that face's
      (moving least squares, a third of the way), its eyes, nose and mouth keep their own proportions,

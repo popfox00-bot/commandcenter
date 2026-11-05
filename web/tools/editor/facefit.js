@@ -209,8 +209,13 @@ export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, ow
     k = Math.max(k, (tf[0] + tf[1]) / (1 + rT) / (sy * cf[1]));
   }
   const jawT = Math.hypot(T(16)[0] - T(0)[0], T(16)[1] - T(0)[1]); const jawC = Math.hypot(C(16)[0] - C(0)[0], C(16)[1] - C(0)[1]);
-  if (jawC > 0) k = Math.min(k, (1.25 * jawT) / (sx * jawC));
-  k = Math.max(1, Math.min(1.3, k));
+  if (jawC > 0) k = Math.min(k, (1.15 * jawT) / (sx * jawC));
+  // Only a little bigger than its features alone make it (a face too big for its head is the first thing
+  // anyone sees), and its eyes never much farther apart than that face's: smaller if they would be.
+  k = Math.max(1, Math.min(1.08, k));
+  const eyeT = Math.hypot(tFrame(mid(T, 42, 47))[0] - tFrame(mid(T, 36, 41))[0], tFrame(mid(T, 42, 47))[1] - tFrame(mid(T, 36, 41))[1]);
+  const eyeC = Math.hypot(frame(mid(C, 42, 47))[0] - frame(mid(C, 36, 41))[0], frame(mid(C, 42, 47))[1] - frame(mid(C, 36, 41))[1]);
+  if (eyeC > 0) k = Math.max(0.9, Math.min(k, (1.04 * eyeT) / eyeC));
   // Lined up across the face by its eyes, and down it by its chin (a turned head's chin isn't under its eyes the
   // way a face seen straight on has it: lining up by the chin across would pull the whole face sideways).
   const down = (q) => chinT[1] + k * (q[1] - chinC[1]);
@@ -312,15 +317,17 @@ const grow = (poly, k) => {
 function ownMask(img, cw, ch, charFace) {
   const poly = ownOutline(img, cw, ch, charFace);
   if (!poly) return null;
-  // Roomier along the jaw (the face it goes on trims there), not past its own hairline (no hair of its own).
-  const g = grow(poly, 1.05); const roomy = poly.map((p, i) => (i <= 16 && !poly.snapped?.[i] ? g[i] : p));
+  // Its jaw and cheeks drawn in a little (0.93), with a wide soft edge: its own jawline (its shading)
+  // never lands inside the face it goes on as a second one; that face's own jaw and cheeks show there.
+  const g = grow(poly, 0.93); const roomy = poly.map((p, i) => (i <= 16 ? g[i] : p));
   const hh = Math.max(...roomy.map((p) => p[1])) - Math.min(...roomy.map((p) => p[1]));
-  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.05)));
+  const m = soften(fillPolygon(roomy, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.08)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   // Its own features (eyes, brows, nose, mouth, with room around them) always kept, whatever its outline
   // search found (a shadow or a highlight on a cheek isn't the edge of its face).
   const feat = grow(hull(charFace.pts.slice(17).map(([u, v]) => [u * cw, v * ch])), 1.25);
-  const f = soften(fillPolygon(feat, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.03)));
+  // (Its edge as soft as the jaw's, so it never shows as a line.)
+  const f = soften(fillPolygon(feat, 0, 0, cw, ch), cw, ch, Math.max(1, Math.round(hh * 0.07)));
   for (let i = 0; i < m.length; i++) m[i] = Math.max(m[i], Math.min(1, f[i] * 1.6));
   // Its forehead fades out gently toward its own hairline (over a fifth of its brow-to-chin length), so
   // it melts into the forehead of the face it goes on rather than ending in a line across it.
@@ -397,10 +404,6 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
   // Only the Character's own face (its jaw and up to its own hairline), not the border of hair or
   // background kept around it: that never lands inside the face it goes on.
   const keep = own && charFace.pts?.length === 68 ? ownMask(img, cw, ch, charFace) : null;
-  // Over that face's own features (eyes, brows, nose, mouth, with room around them), all of it where its
-  // own outline has even a little of its face (its soft edge): on a turned head they can land there, and
-  // they mustn't show through. (Not where it's none of its face at all: its hair or background.)
-  const over = keep && face.pts?.length === 68 ? soften(fillPolygon(grow(hull(face.pts.slice(17).map(([u, v]) => [u * W, v * H])), 1.18), x0, y0, pw, ph), pw, ph, 3) : null;
   const rgba = new Uint8ClampedArray(pw * ph * 4);
   for (let y = 0; y < ph; y++) {
     const gy = y / G; const j0 = Math.min(gh - 2, Math.floor(gy)); const ty = gy - j0;
@@ -411,10 +414,10 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
       const v = (g(0, 0, 1) * (1 - tx) + g(1, 0, 1) * tx) * (1 - ty) + (g(0, 1, 1) * (1 - tx) + g(1, 1, 1) * tx) * ty - 0.5;
       if (u < -1 || v < -1 || u > cw || v > ch) continue;
       const ua = Math.floor(u); const va = Math.floor(v); const fu = u - ua; const fv = v - va;
-      let a = 0; const col = [0, 0, 0]; const ov = over ? over[y * pw + x] : 0;
+      let a = 0; const col = [0, 0, 0];
       for (const [X, Y, wt] of [[ua, va, (1 - fu) * (1 - fv)], [ua + 1, va, fu * (1 - fv)], [ua, va + 1, (1 - fu) * fv], [ua + 1, va + 1, fu * fv]]) {
         if (X < 0 || Y < 0 || X >= cw || Y >= ch || !wt) continue;
-        const o = (Y * cw + X) * 4; const kk = keep ? keep[Y * cw + X] : 1; const al = img[o + 3] * wt * (kk + (1 - kk) * ov * Math.min(1, kk / 0.25)); a += al;
+        const o = (Y * cw + X) * 4; const al = img[o + 3] * wt * (keep ? keep[Y * cw + X] : 1); a += al;
         col[0] += img[o] * al; col[1] += img[o + 1] * al; col[2] += img[o + 2] * al;
       }
       if (a < 0.5) continue;
@@ -438,9 +441,10 @@ export function fitPatch(img, cw, ch, charFace, face, W, H, { trim = true, outli
     if (face.pts?.length === 68) {
       const feat = grow(hull(face.pts.slice(17).map(([u, v]) => [u * W, v * H])), 1.18);
       // (Inside the outline, just: never out past that face's edge onto what's around it.)
-      const inside = fillPolygon(grow(roomy, 1.03), x0, y0, pw, ph);
-      const f = soften(fillPolygon(feat, x0, y0, pw, ph), pw, ph, Math.max(1, Math.round(r / 2)));
-      for (let i = 0; i < m.length; i++) if (inside[i]) m[i] = Math.max(m[i], 0.5 + f[i] / 2);
+      const inside = soften(fillPolygon(roomy, x0, y0, pw, ph), pw, ph, Math.max(2, Math.round(r * 1.5)));
+      // (Its edge as soft as the trim's own, so the Character doesn't step from thin to solid along it.)
+      const f = soften(fillPolygon(feat, x0, y0, pw, ph), pw, ph, Math.max(2, Math.round(r * 1.5)));
+      for (let i = 0; i < m.length; i++) m[i] = Math.max(m[i], f[i] * Math.min(1, inside[i] * 1.4));
     }
     for (let i = 0; i < pw * ph; i++) rgba[i * 4 + 3] *= Math.max(0, Math.min(1, (m[i] - 0.5) * 2.2));
   }

@@ -11,8 +11,9 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
   setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
   and [Cutout](#cutout-and-characters) under it), [Write on PDF](#write-on-pdf), [Scan](#scan), the
-  [File Converter](#file-converter) and [Saved Files](#saved-files) (your own Google Drive folder:
-  the one part that goes online, and only when you set it up). Converted images have an **Edit**
+  [File Converter](#file-converter), [Download](#download) (a video from a link) and
+  [Saved Files](#saved-files) (your own Google Drive folder). Download and Saved Files are the parts
+  that go online. Converted images have an **Edit**
   button (opens the photo editor) and converted PDFs a **Write on it** button. [Draw](#draw) is a
   sketching canvas that saves to Photos or to Saved Files. [QR](#qr--barcode): scan codes with a
   link safety check before anything opens, and make your own QR codes.
@@ -51,7 +52,7 @@ choices that keep usage under them.
 
 ## Contents
 
-- [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files)
+- [Files, Draw and QR](#files-draw-and-qr): [Download](#download) · [Saved Files](#saved-files)
 - [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters, Reverse Fill
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
@@ -75,7 +76,8 @@ Screen**. Files, Draw and QR work immediately; the Jobs app needs the cloud setu
 three used to be under one **Tools** icon; old links and bookmarks to them still work.)
 
 Everything they do happens in the browser on your phone. Nothing is uploaded (except what you save
-to [Saved Files](#saved-files), your own Drive), and after the first visit they work offline: the
+to [Saved Files](#saved-files), your own Drive; [Download](#download) only fetches the video link you
+paste), and after the first visit they work offline: the
 service worker precaches the whole app, including its libraries.
 
 ### File Converter
@@ -367,6 +369,27 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
   later, also offline. **Save image** saves a full-size PNG to Photos or Files through the share
   sheet. **☁️ Save to Files** puts the PNG in [Saved Files](#saved-files) (your Google Drive folder)
   when that's set up; otherwise it offers to set it up. Nothing else is uploaded.
+
+### Download
+
+**Files → Download** takes the address of a video that plays in the browser (a CDN link ending in
+.mp4, .webm, .mov…), shows a still from its start and each minute mark without playing it, and
+downloads it with a progress bar (size, speed, time left) to **💾 Save to phone** (the share sheet:
+Save Video or Save to Files). It needs a connection, and it's careful about what it fetches:
+
+- **The link is checked first**, by the same checker as QR. Refused, and nothing fetched: anything
+  not https, a name or password in the address, a device on your own network (router, 192.168…,
+  .local), a streaming playlist (.m3u8, .mpd) or a file that isn't a video (.exe, .apk, .html, .zip…),
+  and anything that looks like a scam. Cautions (an odd port, a short link, a cheap domain ending)
+  are shown and you choose whether to go on.
+- **Only that file is fetched**, straight from its site to the phone: no other server in between,
+  no cookies, sign-ins or referrer sent, nothing from the page it came from runs. If the site sends
+  it on to another address, that one must pass the check too.
+- **It must really be a video**: it stops at once if the site says it's a web page or playlist, if
+  its first bytes aren't a video (MP4/MOV, WebM/MKV, Ogg, AVI, FLV, MPEG-TS), or if it grows past
+  2 GB (it says when a file is over 500 MB, as it's kept in memory until saved).
+- **Sites that don't let apps fetch their files** (no CORS): the previews are shown as paused frames
+  instead of stills, and Download offers **↗ Open the video in the browser** to save it from there.
 
 ### Saved Files
 

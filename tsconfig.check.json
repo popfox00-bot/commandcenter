@@ -31,6 +31,7 @@
     "web/tools/editor/fit-skin.js",
     "web/tools/editor/reverse-fill-ui.js",
     "web/tools/editor/fit-types.js",
-    "web/tools/editor/swap-score.js"
+    "web/tools/editor/swap-score.js",
+    "web/tools/download/download-core.js"
   ]
 }

@@ -1,13 +1,13 @@
 // Apps on the home screen (their order can be changed in Settings). Jobs is built into the shell and
 // opened from Settings; other apps load on first open. Files, FM (FaceMask), Draw and
-// QR run entirely on this phone and work offline (Files' Saved Files is the one part that goes online,
-// to your own Google Drive). Games is Fox Games, a self-contained page of its own (web/apps/games/fox/).
+// QR run entirely on this phone and work offline (Files' Saved Files and Download are the parts that go
+// online: to your own Google Drive, and to a video link you paste). Games is Fox Games, a self-contained page of its own (web/apps/games/fox/).
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', load: () => import('./weather/weather.js') },
   { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', load: () => import('./sports/sports.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', load: () => import('./notes/notes.js') },
-  { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · PDF · Scan · Saved Files', href: '#/files', load: () => import('../tools/studio/studio.js') },
+  { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · PDF · Scan · Download · Saved Files', href: '#/files', load: () => import('../tools/studio/studio.js') },
   { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', load: () => import('./fm/fm.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', load: () => import('../tools/draw/draw.js') },
   { id: 'qr', name: 'QR', icon: '▦', tint: 'ink', note: 'Scan · Make · App codes', href: '#/qr', load: () => import('../tools/qr/qr.js') },

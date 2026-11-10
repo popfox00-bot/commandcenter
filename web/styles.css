@@ -895,3 +895,27 @@ body.has-rail { padding-right: 22px; }
 .dl-probe { position: absolute; left: -9999px; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
 .dl-file { margin: 0; overflow-wrap: anywhere; }
 .dl-help { display: grid; gap: 6px; }
+.dl-strict { display: flex; gap: 8px; align-items: center; justify-content: flex-start; color: var(--muted); text-align: left; }
+.dl-strict input { width: 18px; height: 18px; min-height: 0; flex: none; margin: 0; padding: 0; }
+.dl-notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.dl-facts { margin: 0; }
+.dl-thumb[role=button] { cursor: pointer; }
+.dl-thumb[role=button]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
+.dl-closer .sheet { max-height: 85vh; overflow: auto; }
+.dl-closer .dl-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.dl-partbox summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.dl-part { display: grid; gap: 6px; }
+.dl-part select { margin-left: 4px; }
+.dl-list-head { margin-top: 12px; }
+.dl-list { display: grid; gap: 10px; }
+.dl-card { display: grid; gap: 6px; }
+.dl-card .progress { margin: 4px 0; }
+.dl-title { display: grid; min-width: 0; }
+.dl-name { overflow-wrap: anywhere; }
+.dl-details, .dl-card p { margin: 0; }
+.dl-btns { gap: 8px; }
+.dl-fp { display: grid; gap: 4px; }
+.dl-fp .linkish { background: none; border: 0; padding: 0; color: var(--primary); text-align: left; cursor: pointer; font: inherit; }
+.dl-hash { font-size: .75rem; overflow-wrap: anywhere; user-select: all; }
+.dl-fp-in { width: 100%; font-size: .85rem; }
+.dl-fp .ok-text { color: var(--ok); font-weight: 600; }

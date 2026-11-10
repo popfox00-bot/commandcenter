@@ -9,6 +9,7 @@
     "lib": [
       "ES2023",
       "DOM",
+      "DOM.Iterable",
       "WebWorker"
     ],
     "strict": false,
@@ -32,6 +33,9 @@
     "web/tools/editor/reverse-fill-ui.js",
     "web/tools/editor/fit-types.js",
     "web/tools/editor/swap-score.js",
-    "web/tools/download/download-core.js"
+    "web/tools/download/download-core.js",
+    "web/tools/download/mp4.js",
+    "web/tools/download/media-info.js",
+    "web/lib/sha256.js"
   ]
 }

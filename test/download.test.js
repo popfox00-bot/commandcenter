@@ -102,12 +102,25 @@ test('save all: each distinct file once (by fingerprint), every name unique', ()
   assert.deepEqual(uniqueFiles([]), []);
 });
 
-test('save all in batches a phone can share at once: a few files, about 200 MB each, a bigger file alone', () => {
+test('save batches: over 200 MB alone, the rest packed by size into the fewest batches', () => {
   const MB = 1024 ** 2; const f = (n, mb) => ({ n, size: mb * MB });
-  const names = (bs) => bs.map((b) => b.map((x) => x.n));
-  assert.deepEqual(names(saveBatches([1, 2, 3, 4, 5, 6, 7, 8].map((n) => f(n, 10)))), [[1, 2, 3], [4, 5, 6], [7, 8]], '8 small: 3, 3, 2');
-  assert.deepEqual(names(saveBatches([f(1, 150), f(2, 100), f(3, 40), f(4, 900), f(5, 20)])), [[1], [2, 3], [4], [5]], 'by size too; a big one alone');
-  assert.deepEqual(names(saveBatches([f(1, 5)])), [[1]]);
+  const names = (bs) => bs.map((b) => b.map((x) => x.n).sort((x, y) => x - y));
+  const sum = (b) => b.reduce((n, x) => n + x.size, 0);
+  // Eight small ones: one batch (not 3, 3, 2 in order).
+  assert.deepEqual(names(saveBatches([1, 2, 3, 4, 5, 6, 7, 8].map((n) => f(n, 10)))), [[1, 2, 3, 4, 5, 6, 7, 8]]);
+  // A 900 MB one alone; 470 MB of the rest in 3 batches (the fewest: 470 / 200 → 3), none over 200 MB.
+  const mixed = saveBatches([f(1, 150), f(2, 100), f(3, 40), f(4, 900), f(5, 20), f(6, 60), f(7, 90), f(8, 10)]);
+  assert.equal(mixed.length, 4);
+  assert.deepEqual(names(mixed)[0], [4], 'the big one, alone, first');
+  assert.ok(mixed.slice(1).every((b) => sum(b) <= 200 * MB));
+  assert.deepEqual(names(mixed).flat().sort((x, y) => x - y), [1, 2, 3, 4, 5, 6, 7, 8], 'every file once');
+  // Pairs by size, not order: 120+80 and 110+90 (in order, it would be three).
+  assert.deepEqual(names(saveBatches([f(1, 120), f(2, 110), f(3, 90), f(4, 80)])), [[1, 4], [2, 3]]);
+  // Sixteen files of all sizes: as few batches as the total allows.
+  const many = Array.from({ length: 16 }, (_, i) => f(i, 7 + ((i * 37) % 113)));
+  assert.equal(saveBatches(many).length, Math.ceil(many.reduce((n, x) => n + x.size, 0) / (200 * MB)));
+  // At most 10 files in one share sheet, however small.
+  assert.deepEqual(saveBatches(Array.from({ length: 12 }, (_, i) => f(i, 1))).map((b) => b.length).sort(), [10, 2].sort());
   assert.deepEqual(saveBatches([]), []);
 });
 

@@ -76,7 +76,9 @@ export async function saveAll(list, jobs, { onSaved = () => {} } = {}) {
       for (const p of picked) { const [f] = await filesOf([p]); downloadBlob(f, f.name); await done([p]); await new Promise((r) => setTimeout(r, 400)); }
       return picked.length;
     }
-    const batches = saveBatches(picked);
+    // (Tests set a smaller limit, to see batches without 200 MB files.)
+    let limit; try { limit = Number(sessionStorage.getItem('cc.download.batchBytes')) || undefined; } catch { /* none */ }
+    const batches = saveBatches(picked, limit ? { maxBytes: limit } : {});
     if (batches.length === 1) {
       const files = await filesOf(batches[0]);
       if (!await shareFiles(files, `${files.length} video${files.length === 1 ? '' : 's'}`)) return 0;

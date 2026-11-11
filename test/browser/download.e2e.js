@@ -220,6 +220,9 @@ test('downloads: the queue — add links while one checks, each with its view an
   await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /53 KB · 2:30/.test(r.textContent)));
   assert.deepEqual(await page.$$eval('.dl-qrow .dl-name', (els) => els.map((e) => e.textContent)), ['a.webm', 'b.webm', 'c.webm']);
   assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => `${e.textContent}${e.className.replace('dl-num', '').trim()}`)), ['1', '2', '3'], 'numbered in order');
+  // Six small stills under each, side by side.
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => r.querySelectorAll('.dl-strip img').length === 6), null, { timeout: 30000 });
+  assert.equal(await page.$eval('.dl-strip', (s) => getComputedStyle(s).gridTemplateColumns.split(' ').length), 6);
   // One opened: the same view as a single link (check, Download, stills).
   await page.click('.dl-qrow >> nth=0');
   await page.waitForSelector('.dl-qitem .dl-ok');
@@ -396,7 +399,7 @@ test('downloads: 💾 Save all saves every downloaded file in the queue in one g
   await context.close();
 });
 
-test('downloads: 💾 Save all on a phone shares a few files at a time (a tap per batch), so the phone never runs out of memory', async () => {
+test('downloads: 💾 Save all on a phone shares batches packed by size (a tap per batch), so the phone never runs out of memory', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
   // Five different files (the same video with a different tail each).
   await context.route('https://cdn.example.com/v/*.webm', async (route) => {
@@ -405,6 +408,7 @@ test('downloads: 💾 Save all on a phone shares a few files at a time (a tap pe
   });
   // A phone's share sheet: takes files, and records what it was given each time.
   await context.addInitScript(() => {
+    sessionStorage.setItem('cc.download.batchBytes', String(120 * 1024)); // (two of these files fit in one)
     window.__shared = [];
     navigator.canShare = (d) => !!d?.files?.length;
     navigator.share = async (d) => { window.__shared.push(d.files.map((f) => `${f.name}:${f.size}`)); };
@@ -421,19 +425,49 @@ test('downloads: 💾 Save all on a phone shares a few files at a time (a tap pe
   await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /Downloaded/.test(r.textContent)), null, { timeout: 30000 });
   await page.click('text=💾 Save all (5)');
   await page.waitForSelector('.dl-batches');
-  assert.deepEqual(await page.$$eval('.dl-batch strong', (els) => els.map((e) => e.textContent)), ['Batch 1 of 2', 'Batch 2 of 2']);
+  assert.deepEqual(await page.$$eval('.dl-batch strong', (els) => els.map((e) => e.textContent)), ['Batch 1 of 3', 'Batch 2 of 3', 'Batch 3 of 3'], 'packed by size: 2 + 2 + 1');
   assert.deepEqual(await page.evaluate(() => window.__shared), [], 'nothing shared until a batch is tapped');
-  await page.click('.dl-batch >> nth=0 >> text=💾 Save');
-  await page.waitForSelector('.dl-batch >> nth=0 >> text=✓ Saved');
-  await page.click('.dl-batch >> nth=1 >> text=💾 Save');
-  await page.waitForSelector('.dl-batch >> nth=1 >> text=✓ Saved');
+  for (let i = 0; i < 3; i++) {
+    await page.click(`.dl-batch >> nth=${i} >> text=💾 Save`);
+    await page.waitForSelector(`.dl-batch >> nth=${i} >> text=✓ Saved`);
+  }
   assert.match(await page.textContent('.dl-batches .sheet > p'), /5 of 5 saved\. All saved\./);
   const shared = await page.evaluate(() => window.__shared);
-  assert.deepEqual(shared.map((b) => b.map((x) => x.split(':')[0])), [['clip1.webm', 'clip2.webm', 'clip3.webm'], ['clip4.webm', 'clip5.webm']]);
-  assert.deepEqual(shared.flat().map((x) => Number(x.split(':')[1])), [1, 2, 3, 4, 5].map((n) => webm.length + n * 7), 'each the whole file');
+  assert.deepEqual(shared.map((b) => b.length), [2, 2, 1]);
+  assert.ok(shared.every((b) => b.reduce((n, x) => n + Number(x.split(':')[1]), 0) <= 120 * 1024), 'each batch within the limit');
+  assert.deepEqual(shared.flat().map((x) => x.split(':')[0]).sort(), ['clip1.webm', 'clip2.webm', 'clip3.webm', 'clip4.webm', 'clip5.webm']);
+  assert.deepEqual(shared.flat().map((x) => Number(x.split(':')[1])).sort((a, b) => a - b), [1, 2, 3, 4, 5].map((n) => webm.length + n * 7), 'each the whole file');
   await page.click('.dl-batches >> text=Done');
   await page.waitForSelector('.dl-flash >> text=✓ Saved 5 files to the phone.');
   assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.className)), Array(5).fill('dl-num saved'));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('downloads: ⬇️ Download all goes smallest first, several at once', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const seen = [];
+  // Three files of different sizes (the same video with a longer tail each), each taking a while.
+  const sizes = { big: 90_000, mid: 40_000, small: 2_000 };
+  await context.route('https://cdn.example.com/v/*.webm', async (route) => {
+    const name = /v\/(\w+)\.webm/.exec(route.request().url())[1];
+    return cdn(Buffer.concat([webm, Buffer.alloc(sizes[name], 1)]), { seen, slow: 1500 })(route);
+  });
+  const { page, errors } = await openApp(context);
+  for (const n of ['big', 'mid', 'small']) {
+    await enter(page, `https://cdn.example.com/v/${n}.webm`);
+    await page.waitForFunction(() => /KB/.test(document.querySelector('.dl-summary')?.textContent ?? ''));
+    await page.click('.dl-queue-row >> text=+ Queue');
+  }
+  await page.click('text=Queue (3) ›');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /KB/.test(r.textContent)));
+  await page.click('text=⬇️ Download all (3)');
+  // Several at once (small files: each one's start-up wait overlaps).
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].filter((r) => /Downloading/.test(r.textContent)).length >= 2, null, { timeout: 10000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /Downloaded/.test(r.textContent)), null, { timeout: 30000 });
+  // Started smallest first.
+  const order = seen.filter((s) => s.method === 'GET' && !s.headers.range).map((s) => /v\/(\w+)\.webm/.exec(s.url)[1]);
+  assert.deepEqual(order, ['small', 'mid', 'big']);
   assert.deepEqual(errors, []);
   await context.close();
 });

@@ -13,12 +13,13 @@
 
 import { el, fill, store as ls } from '../../lib/dom.js';
 import { formatBytes } from '../../lib/files.js';
-import { linkFromText, formatTime, uniqueFiles } from '../../tools/download/download-core.js';
+import { linkFromText, formatTime, uniqueFiles, spreadMarks } from '../../tools/download/download-core.js';
 import { getJobs } from '../../tools/download/download-jobs.js';
 import { links, sizeAndLength } from './links.js';
 import { linkView } from './link-view.js';
 import { historyView } from './history.js';
 import { progressBar, saveAll } from './job-ui.js';
+import { drawStills } from './stills.js';
 
 const STRICT_KEY = 'cc.download.strict';
 const TABS = [['download', 'Download'], ['queue', 'Queue'], ['history', 'History']];
@@ -133,12 +134,27 @@ export function mount(host) {
    */
   function row(l, now = false) {
     const num = el('span', { class: 'dl-num', 'aria-hidden': 'true' });
+    // Six small stills under it, side by side (drawn in the background, one link at a time; shared
+    // with its view). Not for a site that doesn't let them be drawn (paused frames would be heavy).
+    const strip = el('div', { class: 'dl-strip', hidden: true, 'aria-hidden': 'true' });
+    let stripFor = '';
+    const fillStrip = () => {
+      const key = l.mode === 'drawn' && l.meta ? String(l.meta.duration) : '';
+      if (key === stripFor) return; stripFor = key;
+      strip.hidden = !key; if (!key) { fill(strip); return; }
+      if (l.meta.width && l.meta.height) strip.style.setProperty('--dl-ar', `${l.meta.width} / ${l.meta.height}`);
+      const marks = spreadMarks(l.meta.duration, 6);
+      const pics = new Map(marks.map((m) => [m.mark, el('div', { class: 'dl-pic loading' })]));
+      fill(strip, [...pics.values()]);
+      drawStills(l, marks, { signal: l.abort.signal, prio: 0, onStill: (m, u) => { const p = pics.get(m.mark); if (p) { p.classList.remove('loading'); fill(p, el('img', { src: u, alt: '' })); } } })
+        .catch(() => { strip.hidden = true; });
+    };
     const title = el('strong', { class: 'dl-name' });
     const sub = el('span', { class: 'small muted' });
     const pb = progressBar(jobs);
     const x = el('button', { class: 'icon-btn dl-x', 'aria-label': 'Remove from the queue', title: 'Remove from the queue (a download already started stays in History)', text: '✕' });
     x.addEventListener('click', (e) => { e.stopPropagation(); if (now) clearCurrent(); else links.remove(l); });
-    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : num, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
+    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : num, el('div', { class: 'dl-title' }, title, sub), x), pb.node, strip);
     const open = () => { location.hash = now ? '#/downloads' : `#/downloads/queue/${l.id}`; };
     node.addEventListener('click', open); node.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
     const update = () => {
@@ -147,6 +163,7 @@ export function mount(host) {
       sub.textContent = job ? (job.status === 'done' ? `${job.saved ? '✓ Saved' : 'Downloaded'} · ${[formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ')}` : job.error || { running: 'Downloading', waiting: 'Waiting for the others', paused: 'Paused' }[job.status] || '') : stateText(l);
       sub.className = `small ${!l.check.ok || l.state === 'refused' || job?.error ? 'warn-text' : 'muted'}`;
       pb.node.hidden = !job || job.status === 'done';
+      fillStrip();
       const done = job?.status === 'done';
       num.classList.toggle('done', done && !job.saved); num.classList.toggle('saved', done && !!job.saved);
       num.title = done ? (job.saved ? 'Saved to the phone' : 'Downloaded (not saved to the phone yet)') : '';
@@ -167,8 +184,9 @@ export function mount(host) {
     const saveable = uniqueFiles(doneJobs);
     const unsaved = saveable.some(({ item }) => !item.saved);
     fill(queueHead,
-      ready.length ? el('button', { class: 'btn primary', text: `⬇️ Download all (${ready.length})`, title: 'One after another', onclick: async () => {
-        for (const l of ready) {
+      ready.length ? el('button', { class: 'btn primary', text: `⬇️ Download all (${ready.length})`, title: 'Smallest first, a few at once while that\'s quicker', onclick: async () => {
+        // Smallest first: the quickest are done first (the size not known: last).
+        for (const l of [...ready].sort((a, b) => (a.pre?.total || Infinity) - (b.pre?.total || Infinity))) {
           const pre = l.pre;
           const j = await jobs.start({ url: l.check.url, host: l.check.host, kind: pre?.kind ?? null, total: pre?.total ?? 0, ranges: !!pre?.ranges, lastModified: pre?.lastModified ?? '', strict: l.strict, wait: true });
           links.setJob(l, j.id);
@@ -212,14 +230,22 @@ export function mount(host) {
   }
   const onHash = () => { if (/^#\/downloads(\/|$)/.test(location.hash)) route(); };
   window.addEventListener('hashchange', onHash);
+  // The queue's header (Download all / Save all counts, how many at once) kept current, at most
+  // twice a second; rows update on every change.
+  let headT = 0;
+  const queueSoon = () => { if (headT || panes.queue.hidden) return; headT = setTimeout(() => { headT = 0; if (!panes.queue.hidden) renderQueue(); }, 500); };
   offs.push(links.subscribe((l) => {
     renderCurrent();
     if (!l) { route(); return; }
     rows.get(l.id)?.update(); rows.get(`now:${l.id}`)?.update();
+    queueSoon();
   }));
+  let lastStates = '';
   offs.push(jobs.subscribe((j) => {
     if (!j || j.status === 'done') { renderQueue(); return; }
     for (const [, r] of rows) r.update();
+    const states = jobs.list().map((x) => x.status).join();
+    if (states !== lastStates) { lastStates = states; queueSoon(); }
   }));
   // Coming back to the app: the link being looked at is still here (this visit only).
   const cur = links.current(); if (cur) { input.value = cur.check.ok ? cur.check.url : cur.input; lastChecked = input.value; }
@@ -230,6 +256,6 @@ export function mount(host) {
     window.removeEventListener('hashchange', onHash);
     closeView?.(); closeItem?.();
     for (const f of offs) f();
-    clearTimeout(typing); clearTimeout(flashT);
+    clearTimeout(typing); clearTimeout(flashT); clearTimeout(headT);
   };
 }

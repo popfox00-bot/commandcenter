@@ -987,3 +987,7 @@ body.has-rail { padding-right: 22px; }
 .dl-batch .dl-title { flex: 1; min-width: 0; display: grid; }
 .dl-batch .dl-title .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dl-batch.saved strong { color: var(--ok); }
+/* Queue: six small stills under each link, side by side. */
+.dl-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin-top: 2px; }
+.dl-strip[hidden] { display: none; }
+.dl-strip .dl-pic { border-radius: 4px; }

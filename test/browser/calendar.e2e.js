@@ -352,7 +352,7 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   assert.ok(!stored.name.includes('bank') && !Buffer.from(stored.data, 'base64').toString('latin1').includes('12345'), 'Drive sees neither the name nor the content');
   assert.match(await page.textContent('ul.sv-list:last-of-type'), /bank notes\.txt[\s\S]*🔒 encrypted/);
   assert.equal(await page.isVisible('.sv-list >> text=command-center-vault.json'), false, 'the vault file isn\'t listed');
-  assert.ok(await page.isVisible('text=Folder names are kept as they are in Drive'), 'says folder names aren\'t encrypted');
+  assert.equal(await page.locator('details.about >> text=Folder names are kept as they are in Drive').count(), 1, 'says (under ⓘ About) folder names aren\'t encrypted');
   // The kit's folder: its files are plain on purpose (no Encrypt button there).
   await page.getByRole('button', { name: 'Open folder Decryption' }).click();
   await page.waitForSelector('[aria-current="page"]:has-text("Decryption")');

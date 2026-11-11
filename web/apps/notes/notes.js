@@ -3,7 +3,7 @@
 // exact brand, so whoever shops gets the right one. Everything stays on the phone (IndexedDB).
 // Routes: #/notes (notes), #/notes/grocery.
 
-import { el } from '../../lib/dom.js';
+import { el, about } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles } from '../../lib/files.js';
@@ -301,7 +301,7 @@ export function mount(host) {
         el('div', { class: 'row space nt-head' },
           el('button', { class: 'btn small-btn ghost', text: '‹ List', onclick: () => { view = 'list'; render(); } }),
           el('button', { class: 'btn small-btn primary', text: '+ New', onclick: addNew })),
-        el('p', { class: 'muted small', text: 'Things you buy, with the brand and a photo of the exact product. Items you check off and clear land here automatically. Tap + to add one to the list.' }),
+        about('Things you buy, with the brand and a photo of the exact product. Items you check off and clear land here automatically. Tap + to add one to the list.'),
         list.length ? el('ul', { class: 'nt-items nt-catalog' }, ...list.map((c) => el('li', { class: 'nt-item' },
           c.photoId ? el('button', { class: 'nt-thumb-btn', onclick: () => viewPhoto(c.photoId, c.brand || c.name) }, photoImg(c.photoId, 'nt-thumb')) : el('span', { class: 'nt-item-icon nt-big-icon', 'aria-hidden': 'true', text: itemIcon(c.name, c.category) }),
           el('button', { class: 'nt-item-body', onclick: () => editItem(c, { catalogOnly: true }) },

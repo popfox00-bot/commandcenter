@@ -55,7 +55,14 @@ async function openPdfTab(context) {
 
 async function pageBox(page, n) {
   // Center the page: the sticky toolbar covers the top of the screen.
-  return page.$eval(`.pw-page[data-page="${n}"] .pw-overlay`, (o) => { o.scrollIntoView({ block: 'center' }); const r = o.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  return page.$eval(`.pw-page[data-page="${n}"] .pw-overlay`, (o) => {
+    o.scrollIntoView({ block: 'center' });
+    // (Then just below whatever stays stuck at the top, as someone would scroll it.)
+    const stuck = Math.max(0, ...[...document.querySelectorAll('#app-host *')].filter((e) => getComputedStyle(e).position === 'sticky').map((e) => e.getBoundingClientRect().bottom));
+    const top = o.getBoundingClientRect().top;
+    if (top < stuck + 8) window.scrollBy(0, top - stuck - 8);
+    const r = o.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height };
+  });
 }
 
 test('type, sign and check on a PDF, then save a real PDF with the original text intact', async () => {

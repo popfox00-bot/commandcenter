@@ -6,7 +6,7 @@
 // Folders (with a version 3 script): open them, make, rename and delete them, move files between them
 // (and, version 4, folders into folders). File icons are colour-coded by kind.
 
-import { el, fill } from '../../lib/dom.js';
+import { el, fill, about } from '../../lib/dom.js';
 import { getConfig, savedFiles, secureFiles, knownHeader, isKitFile, KIT_FOLDER, fileKind, size } from '../../lib/saved-files.js';
 import { unlocked, lock } from '../../lib/vault.js';
 import { unlockForm } from '../../lib/vault-ui.js';
@@ -215,8 +215,8 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
       error ? el('p', { class: 'small bad-text', role: 'alert', text: error }) : null,
       folderList,
       list,
-      el('p', { class: 'muted small', text: 'In your Google Drive, in the folder of your Saved Files spreadsheet. Each save is logged in the spreadsheet.' }),
-      vault && folders ? el('p', { class: 'muted small', text: 'Folder names are kept as they are in Drive (not encrypted), so Drive can sort them; the files in them stay encrypted, names and all.' }) : null,
+      about('In your Google Drive, in the folder of your Saved Files spreadsheet. Each save is logged in the spreadsheet.'),
+      vault && folders ? about('Folder names are kept as they are in Drive (not encrypted), so Drive can sort them; the files in them stay encrypted, names and all.') : null,
       folders ? null : el('p', { class: 'muted small', text: 'Folders: update the Saved Files script to version 3 (see Settings → Saved Files).' }));
   }
 

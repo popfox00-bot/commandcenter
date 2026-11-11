@@ -37,3 +37,11 @@ export function safeLink(url, text) {
   } catch { /* fall through */ }
   return el('span', { text });
 }
+
+/**
+ * Details that aren't needed to use something (how it works, privacy, sources), folded away behind
+ * a small "ⓘ About" so the screen shows only what's used. @param {string} text @param {string} [label]
+ */
+export function about(text, label = 'ⓘ About') {
+  return el('details', { class: 'about' }, el('summary', { text: label }), el('p', { text }));
+}

@@ -1,5 +1,5 @@
 // File Converter UI. Pick files -> choose a format -> Convert -> Share/Save each result or all.
-import { el, store } from '../../lib/dom.js';
+import { el, store, about } from '../../lib/dom.js';
 import { inspect, convert, TARGETS, DEFAULT_OPTIONS } from './convert-core.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { createZip } from '../../lib/zip.js';
@@ -33,7 +33,7 @@ export function mount(host, { onEdit, onWrite } = {}) {
     drop, inputList,
     el('h3', { text: 'Convert to' }), formatBar, optionsBox,
     convertBtn, progress, resultsBox,
-    el('p', { class: 'muted small privacy', text: 'Converted on this phone; nothing is uploaded. Location and camera details are removed from converted files.' }),
+    about('Converted on this phone; nothing is uploaded. Location and camera details are removed from converted files.'),
   );
   host.append(fileInput);
 

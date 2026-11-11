@@ -1,7 +1,7 @@
 // Jobs dashboard: job cards from the Worker API, Run now, run history and logs.
 // All server data is rendered with textContent (never innerHTML) and links are limited to http(s).
 
-import { $, el, safeLink, store } from './lib/dom.js';
+import { $, el, safeLink, store, about } from './lib/dom.js';
 
 const LS = { url: 'cc.workerUrl', token: 'cc.apiToken', cache: 'cc.lastJobs', tabs: 'cc.tabs' };
 const POLL_MS = 10_000;
@@ -94,7 +94,7 @@ function tabsFor(job) {
 function renderSetup() {
   $('#jobs').replaceChildren(el('section', { class: 'card setup' },
     el('h2', { text: 'Connect your jobs' }),
-    el('p', { class: 'muted small', text: 'Scheduled jobs run in the cloud (GitHub Actions + a Cloudflare Worker). After the one-time setup in the README, enter the Worker URL and token here. Tools and Updates work without this; push alerts need it.' }),
+    about('Scheduled jobs run in the cloud (GitHub Actions + a Cloudflare Worker). After the one-time setup in the README, enter the Worker URL and token here. Tools and Updates work without this; push alerts need it.'),
     el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Open settings', onclick: openSettings }))));
 }
 

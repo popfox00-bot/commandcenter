@@ -375,23 +375,21 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
 **Downloads** (its own app on the home screen) takes the address of a video that plays in the browser
 (a CDN link ending in .mp4, .webm, .mov…). It has three tabs:
 
-- **Download:** paste a link with **📋 Paste** (it picks the link out of what you copied, even a
-  message with a link in it; an iPhone first shows a small "Paste" bubble by the button to tap; if
-  the browser won't hand the clipboard over, press and hold in the box and tap Paste) or type it.
-  It's **checked as soon as it's in**: no button to press. **✕** in the box clears it. Before
-  downloading anything it asks the site the file's **type and size** and whether it can be resumed
-  ("MP4 · 340 MB · from cdn.example.com · can be resumed"; for an MP4, also its details from its
-  index). Then **⬇️ Download**, its progress, and **💾 Save to phone** once it's done, above a still
-  from its start and each minute mark (never played; **tap one** for every 10 seconds of that
-  minute). **✂️ Download just a part** of an MP4 (from one minute to another: only that part and the
-  file's index are fetched, saved as an MP4 of its own, no re-encoding).
-- **Queue:** **+ Add to Queue** puts the link being looked at in the queue (it keeps checking there)
-  and clears the box for the next. The Queue lists every link with its state (checked, its size;
-  refused and why) and, while downloading, its own progress bar; tap one for its view (the same as
-  above: check, Download, Save to phone, stills). Starting one while another is downloading says
-  they'll **share the connection, so each goes slower**, and offers **⏳ When the others finish**
-  instead; **⬇️ Download all** queues the rest one after another.
-- **History:** every download kept on the phone, stored **piece by piece** as it arrives (so a big
+- **Download:** paste a link with **📋 Paste** (it picks the link out of what you copied; an iPhone
+  first shows a small "Paste" bubble by the button to tap; or press and hold in the box and tap
+  Paste) or type it. It's **checked as soon as it's in**. Kept simple: one line saying it's safe (and
+  when a signed link expires), its **size · length**, **⬇️ Download** (then its progress, then
+  **💾 Save to phone**), and **four stills** spread through it (never played; tap one for every 10
+  seconds around it). **▸ More** has the rest: every minute's still, all it knows (type, picture,
+  codecs, site, resumable; a token in the link, tracking removed) and **✂️ Just a part** of an MP4
+  (only that part and the file's index are fetched). **✕** clears the link; **+ Queue** queues it and
+  clears the box for the next. *Options & privacy* holds "only accept files labelled as video".
+- **Queue:** the link on the Download tab (marked **Now**) and every queued one, each with its size ·
+  length (or why it was refused) and, while downloading, its own progress bar; tap one for its view.
+  Starting one while another downloads offers **⬇️ Download now** (shares the connection: each
+  slower) or **⏳ After the others**; **⬇️ Download all** queues the rest one after another.
+- **History:** every download (name, size · length, Save or its progress, ✕; the rest under **▸ More**),
+  kept on the phone, stored **piece by piece** as it arrives (so a big
   file never has to fit in memory): **⏸ Pause / ▶ Continue**, and a dropped connection or a closed
   app picks up where it stopped (where the site sends byte ranges and the file hasn't changed;
   otherwise it starts over). Each has its **fingerprint** (SHA-256, worked out as it downloads: tap

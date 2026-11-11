@@ -944,3 +944,34 @@ body.has-rail { padding-right: 22px; }
 .dl-qitem { display: grid; gap: 8px; }
 .dl-back { justify-self: start; }
 .dl-qurl { margin: 0; overflow-wrap: anywhere; }
+/* Downloads: simpler */
+.dl-ok { margin: 0; color: var(--ok); font-weight: 600; }
+.dl-ok-mark { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ok-bg); }
+.dl-expiry { color: var(--warn); font-weight: 500; }
+.dl-summary { margin: 0; font-size: 1.15rem; font-weight: 700; }
+.dl-summary[hidden] { display: none; }
+.dl-four { grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 640px) { .dl-four { grid-template-columns: repeat(4, 1fr); } }
+.dl-two { gap: 8px; }
+.dl-two .btn { flex: 1; }
+.dl-more { border-top: 1px solid var(--border); padding-top: 6px; }
+.dl-more[hidden] { display: none; }
+.dl-more > summary { cursor: pointer; font-weight: 600; color: var(--primary); padding: 6px 0; list-style: none; }
+.dl-more > summary::-webkit-details-marker { display: none; }
+.dl-more > summary::before { content: '▸ '; }
+.dl-more[open] > summary::before { content: '▾ '; }
+.dl-more-body { display: grid; gap: 10px; padding-top: 4px; }
+.dl-kvs { display: grid; gap: 4px; font-size: .88rem; }
+.dl-kv { display: grid; grid-template-columns: 7.5em 1fr; gap: 8px; }
+.dl-kv span:last-child { overflow-wrap: anywhere; }
+.dl-sub { margin: 4px 0 0; font-weight: 600; font-size: .9rem; }
+.dl-qline { display: flex; align-items: center; gap: 10px; }
+.dl-qline .dl-title { flex: 1; }
+.dl-badge { flex: none; font-size: .72rem; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--run-bg); color: var(--run); }
+.dl-now { border-color: var(--run); }
+.dl-qitem-head { gap: 10px; align-items: center; }
+.dl-qitem-head .dl-qurl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-options { color: var(--muted); }
+.dl-options summary { cursor: pointer; padding: 4px 0; }
+.dl-options p { margin: 6px 0 0; }
+.dl-card .dl-more, .dl-qrow .progress { margin-top: 2px; }

@@ -18,7 +18,7 @@ export function historyView(host, { jobs, onAgain }) {
   const list = el('div', { class: 'dl-list' });
   const note = el('p', { class: 'muted small', hidden: true, text: 'Storage isn\'t available here (a private window?): downloads only last until the app is closed.' });
   fill(host, head, note, list,
-    el('p', { class: 'muted small privacy', text: 'Downloads stay on this phone, in this app, until you remove them (✕ or Clear all): that deletes the file and its link. Nothing is sent anywhere.' }));
+    el('p', { class: 'muted small privacy', text: 'Kept on this phone until you remove them (✕ or Clear all), which deletes the file and its link.' }));
   jobs.memoryOnly().then((m) => { note.hidden = !m; });
   const cards = new Map();
 
@@ -37,33 +37,40 @@ export function historyView(host, { jobs, onAgain }) {
 
   function card(job) {
     const name = el('strong', { class: 'dl-name' });
-    const sub = el('span', { class: 'muted small' });
+    const sub = el('span', { class: 'small muted' });
     const bar = progressBar(jobs);
     const msg = el('p', { class: 'small warn-text' });
-    const details = el('p', { class: 'small dl-details' });
-    const fp = el('div', { class: 'dl-fp' });
     const btns = el('div', { class: 'row wrap dl-btns' });
+    const moreBody = el('div', { class: 'dl-more-body' });
     const extra = el('div', { class: 'dl-extra' });
+    const more = el('details', { class: 'dl-more' }, el('summary', { text: 'More' }), moreBody, extra);
     const remove = el('button', { class: 'icon-btn dl-x', 'aria-label': `Remove ${job.name}`, title: 'Remove', text: '✕' });
     remove.addEventListener('click', async () => {
       if (job.status === 'done' || confirm(`Remove "${job.name}"? What's downloaded so far is deleted.`)) await jobs.remove(job);
     });
-    const node = el('article', { class: 'card dl-card' }, el('div', { class: 'card-head' }, el('div', { class: 'dl-title' }, name, sub), remove), bar.node, msg, details, fp, btns, extra);
+    const node = el('article', { class: 'card dl-card' }, el('div', { class: 'dl-qline' }, el('div', { class: 'dl-title' }, name, sub), remove), bar.node, msg, btns, more);
     let shown = '';
     const update = () => {
       name.textContent = job.name;
-      sub.textContent = `${job.host} · ${new Date(job.created).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${job.part ? ' · a part' : ''}`;
+      const done = job.status === 'done';
+      sub.textContent = done ? [formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ') : '';
+      sub.hidden = !done;
       bar.update(job);
       const m = jobMessage(job); msg.hidden = !m; msg.textContent = m;
-      const done = job.status === 'done';
-      details.hidden = !done; details.textContent = done ? `${formatBytes(job.loaded)}${job.details ? ` · ${job.details}` : ''}` : '';
       const state = jobState(job, jobs);
       if (state === shown) return; shown = state;
-      const more = [];
-      if (done && (job.kind === 'mp4' || job.kind === 'mov') && !job.part) more.push(el('button', { class: 'btn', text: '✂️ Save a part', onclick: () => partFromFile(job, extra) }));
-      if (done || job.status === 'failed') more.push(el('button', { class: 'btn ghost', text: '⟳ Download again', onclick: () => onAgain(job.url) }));
-      fill(btns, jobButtons(job, jobs, { extra: more }));
-      fill(fp, done && job.hash ? fingerprint(job.hash) : null);
+      fill(btns, jobButtons(job, jobs));
+      // More: where it's from and when, its details, its fingerprint, a part, again.
+      const kv = (k, v) => (v ? el('div', { class: 'dl-kv' }, el('span', { class: 'muted', text: k }), el('span', { text: v })) : null);
+      const again = [];
+      if (done && (job.kind === 'mp4' || job.kind === 'mov') && !job.part) again.push(el('button', { class: 'btn', text: '✂️ Save a part', onclick: () => partFromFile(job, extra) }));
+      if (done || job.status === 'failed') again.push(el('button', { class: 'btn ghost', text: '⟳ Download again', onclick: () => onAgain(job.url) }));
+      fill(moreBody,
+        el('div', { class: 'dl-kvs' },
+          kv('From', job.host), kv('Added', new Date(job.created).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })),
+          kv('Details', job.details), kv('Part', job.part ? `${formatTime(job.part.from)}–${formatTime(job.part.to)}` : '')),
+        done && job.hash ? el('div', { class: 'dl-fp' }, fingerprint(job.hash)) : null,
+        again.length ? el('div', { class: 'row wrap dl-btns' }, again) : null);
     };
     const c = { node, update }; cards.set(job.id, c);
     return c;

@@ -1,17 +1,26 @@
-// Downloads: one link's view (the Download tab's, and each queued link's): its check (and what to
-// know: expiry, a token, tracking removed), what the site says about the file, Download (or its
-// progress, or 💾 Save to phone once it's done) above its previews (a still at its start and each
-// minute, never played; tap one for every 10 seconds of that minute), and just a part of an MP4.
+// Downloads: one link's view (the Download tab's, and each queued link's), kept simple:
+//   ✓ its check (one line; a warning or a refusal in full)
+//   53 KB · 2:30 (its size and length)
+//   ⬇️ Download (or its progress, or 💾 Save to phone once it's done)
+//   four stills spread through it (never played; tap one for every 10 seconds around it)
+//   ▸ More: every minute's still, all it knows (type, site, resumable, picture, codecs; a token in
+//     the link, tracking removed), and ✂️ just a part of an MP4.
 
 import { el, fill } from '../../lib/dom.js';
 import { formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
-import { minuteMarks, closerMarks, formatTime, ago, KIND_NAME, fileNameFor } from '../../tools/download/download-core.js';
+import { minuteMarks, closerMarks, formatTime, ago, KIND_NAME } from '../../tools/download/download-core.js';
 import { describe } from '../../tools/download/media-info.js';
-import { links } from './links.js';
+import { links, sizeAndLength } from './links.js';
 import { progressBar, jobButtons, jobState, jobMessage, partPicker, verdict } from './job-ui.js';
 
 const THUMB_W = 320;
+
+/** Four marks spread through all of them (the first, the last, two between); all when 4 or fewer. */
+export function pickFour(marks) {
+  if (marks.length <= 4) return marks;
+  return [0, 1, 2, 3].map((i) => marks[Math.round((i * (marks.length - 1)) / 3)]);
+}
 
 /**
  * Shows `link` in `host`; returns a function that takes it away (what it was loading stopped; the
@@ -20,143 +29,138 @@ const THUMB_W = 320;
  */
 export function linkView(host, link, { jobs }) {
   const status = el('div', { class: 'dl-status' });
-  const info = el('div', { class: 'dl-info' });
+  const summary = el('p', { class: 'dl-summary' });
   const actions = el('div', { class: 'dl-actions' });
-  const part = el('div', { class: 'dl-partwrap' });
-  const grid = el('div', { class: 'dl-grid' });
-  const root = el('div', { class: 'dl-view' }, status, info, actions, part, grid);
+  const grid = el('div', { class: 'dl-grid dl-four' });
+  const moreBody = el('div', { class: 'dl-more-body' });
+  const more = el('details', { class: 'dl-more', hidden: true }, el('summary', { text: 'More' }), moreBody);
+  const root = el('div', { class: 'dl-view' }, status, summary, actions, grid, more);
   fill(host, root);
   const view = new AbortController();
-  let probe = null; let previewsStarted = false; let timer = 0;
+  let drawer = null; let timer = 0;
 
-  // ---------- its check ----------
+  // ---------- its check: one line when fine ----------
   function renderStatus() {
     const c = link.check;
+    clearInterval(timer);
     if (c.ok === false) { fill(status, verdict('danger', 'Not downloaded', c.reasons)); return; }
-    if (link.state === 'refused') { fill(status, verdict('danger', 'Not downloaded', [{ title: link.error, detail: '' }]), notes(c)); return; }
+    if (link.state === 'refused') { fill(status, verdict('danger', 'Not downloaded', [{ title: link.error, detail: '' }])); return; }
     if (link.state === 'caution') {
-      fill(status, verdict('caution', `Be careful with ${c.host}`, c.warnings), notes(c),
+      fill(status, verdict('caution', `Be careful with ${c.host}`, c.warnings),
         el('div', { class: 'row' },
           el('button', { class: 'btn', text: 'I trust it: continue', onclick: () => links.trust(link) }),
           el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => links.remove(link) })));
       return;
     }
-    fill(status, verdict('ok', `No warning signs: ${c.host}`, []), notes(c));
-  }
-  /** What else to know about the link: when it expires (kept up to date), a token in it, tracking removed. */
-  function notes(c) {
-    if (!c.notes?.length) return null;
-    clearInterval(timer);
-    if (c.expires) timer = setInterval(() => { const n = status.querySelector('.dl-expiry b'); if (n) n.textContent = c.expires > Date.now() ? `Stops working in ${ago(c.expires - Date.now())}` : 'This link has expired'; }, 30000);
-    return el('ul', { class: 'dl-notes small' }, ...c.notes.map((n) => el('li', { class: n.title.startsWith('Stops') ? 'dl-expiry' : '' }, el('b', { text: n.title }), ` — ${n.detail}`)));
+    const expiry = el('span', { class: 'dl-expiry' });
+    const tick = () => { expiry.textContent = c.expires ? (c.expires > Date.now() ? ` · ⏱ expires in ${ago(c.expires - Date.now())}` : ' · ⏱ expired') : ''; };
+    tick(); if (c.expires) timer = setInterval(tick, 30000);
+    fill(status, el('p', { class: 'dl-ok' }, el('span', { class: 'dl-ok-mark', text: '✓' }), ` Safe link · ${c.host}`, expiry));
   }
 
-  // ---------- what the site says ----------
-  function renderInfo() {
-    if (!link.check.ok || link.state === 'caution' || link.state === 'refused') { fill(info); return; }
-    if (link.state === 'asking') { fill(info, el('p', { class: 'muted small', text: 'Asking the site about the file…' })); return; }
-    const pre = link.pre; const d = link.details;
-    const facts = pre ? el('p', { class: 'dl-facts' }, el('strong', { text: `${KIND_NAME[pre.kind] ?? (pre.type || 'Video')} · ${pre.total ? formatBytes(pre.total) : 'size not given'}` }), ` · from ${link.check.host}${pre.ranges ? ' · can be resumed' : ' · can\'t be resumed (starts over if stopped)'}`, d ? el('br') : null, d ? el('span', { class: 'small', text: describe(d) }) : null)
-      : el('p', { class: 'muted small', text: 'The site doesn\'t answer questions about the file (it may only let its own pages use it).' });
-    const meta = link.meta;
-    const len = meta ? el('p', { class: 'dl-meta' }, el('strong', { text: formatTime(meta.duration) }), ` long${meta.width ? ` · ${meta.width}×${meta.height}` : ''}`) : null;
-    const tip = link.mode === 'none' ? el('p', { class: 'muted small', text: meta ? 'This browser can\'t show stills of this video (its format), but it can download it.' : 'This phone can\'t show previews of it (the site may not allow it, or it isn\'t a video this browser plays). You can still try downloading it.' })
-      : link.mode ? el('p', { class: 'muted small', text: 'Tap a still for every 10 seconds of that minute.' }) : el('p', { class: 'muted small', text: 'Reading the video…' });
-    fill(info, facts, len, tip);
+  // ---------- size · length ----------
+  function renderSummary() {
+    const usable = link.check.ok && !['caution', 'refused'].includes(link.state);
+    summary.hidden = !usable;
+    if (!usable) return;
+    const sl = sizeAndLength(link);
+    summary.textContent = link.state === 'asking' ? 'Checking the file…' : (sl || (link.mode ? 'Size and length not given' : 'Reading the video…'));
   }
 
   // ---------- Download / its progress / Save ----------
   let shown = ''; let bar = null;
   function renderActions() {
-    if (!link.check.ok || ['caution', 'refused', 'asking'].includes(link.state)) { fill(actions); fill(part); shown = ''; return; }
+    if (!link.check.ok || ['caution', 'refused', 'asking'].includes(link.state)) { fill(actions); shown = ''; return; }
     const job = link.jobId ? jobs.get(link.jobId) : null;
     if (!job) {
-      const key = `none|${jobs.running()}`;
+      const others = jobs.running();
+      const key = `none|${others}`;
       if (key === shown) return; shown = key;
-      const pre = link.pre; const size = pre?.total ? ` (${formatBytes(pre.total)})` : '';
+      const pre = link.pre;
       const go = (wait) => async () => {
         const j = await jobs.start({ url: link.check.url, host: link.check.host, kind: pre?.kind ?? null, total: pre?.total ?? 0, ranges: !!pre?.ranges, lastModified: pre?.lastModified ?? '', strict: link.strict, wait });
         links.setJob(link, j.id);
       };
-      const others = jobs.running();
       fill(actions, others
-        ? [el('p', { class: 'small dl-share-note', text: `${others === 1 ? 'Another download is' : `${others} other downloads are`} going: downloading this now shares the connection, so each goes slower.` }),
-          el('div', { class: 'row wrap' }, el('button', { class: 'btn primary', text: `⬇️ Download now${size}`, onclick: go(false) }), el('button', { class: 'btn', text: '⏳ When the others finish', onclick: go(true) }))]
-        : el('button', { class: 'btn primary block', text: `⬇️ Download${size}`, onclick: go(false) }));
-      renderPart();
+        ? [el('div', { class: 'row dl-two' }, el('button', { class: 'btn primary', text: '⬇️ Download now', onclick: go(false) }), el('button', { class: 'btn', text: '⏳ After the others', onclick: go(true) })),
+          el('p', { class: 'small muted dl-share-note', text: `${others === 1 ? 'Another download is' : `${others} downloads are`} going: now shares the connection (each slower).` })]
+        : el('button', { class: 'btn primary block', text: '⬇️ Download', onclick: go(false) }));
       return;
     }
     const key = `job|${job.id}|${jobState(job, jobs)}`;
     if (key !== shown) {
       shown = key; bar = progressBar(jobs);
-      fill(actions,
-        job.status === 'done' ? el('p', { class: 'dl-file' }, el('strong', { text: job.name }), ` · ${formatBytes(job.loaded)}${job.details ? ` · ${job.details}` : ''}`) : null,
-        bar.node,
+      fill(actions, bar.node,
         job.error ? el('p', { class: 'small warn-text', text: jobMessage(job) }) : null,
-        el('div', { class: 'row wrap dl-btns' }, jobButtons(job, jobs)),
-        job.status === 'done' ? el('p', { class: 'muted small', text: 'On iPhone, pick "Save Video" for Photos or "Save to Files". It\'s also in History.' }) : null);
-      renderPart();
+        el('div', { class: 'row wrap dl-btns' }, jobButtons(job, jobs)));
     }
     bar.update(job);
   }
-  function renderPart() {
-    const pre = link.pre; const dur = link.meta?.duration ?? link.details?.duration;
-    const mp4 = pre?.kind === 'mp4' || pre?.kind === 'mov';
-    if (!mp4 || part.childElementCount) { if (!mp4) fill(part); return; }
-    if (pre.ranges && pre.total && dur) {
-      fill(part, el('details', { class: 'dl-partbox' }, el('summary', { text: '✂️ Download just a part' }),
-        el('p', { class: 'muted small', text: 'Only that part is downloaded (and the file\'s index), saved as an MP4 of its own.' }),
-        partPicker(dur, async (from, to) => {
-          const j = await jobs.start({ url: link.check.url, host: link.check.host, kind: pre.kind, total: pre.total, ranges: true, lastModified: pre.lastModified, strict: link.strict, part: { from, to }, wait: jobs.running() > 0 && !confirm('Another download is going: downloading this part now shares the connection, so each goes slower. OK = now, Cancel = when the others finish.') });
-          links.setJob(link, j.id);
-        }, '⬇️ Download part')));
-    } else fill(part, el('p', { class: 'muted small', text: 'This site doesn\'t send parts of the file, so to keep just a part, download it all and use ✂️ Save a part in History.' }));
-  }
 
-  // ---------- previews ----------
-  async function startPreviews() {
-    if (previewsStarted || !link.check.ok || !['ready', 'blocked'].includes(link.state)) return;
-    previewsStarted = true;
-    if (!link.mode) {
-      const meta = await probeIt();
-      if (view.signal.aborted) return;
-      link.meta = meta ?? (link.details?.duration ? { duration: link.details.duration, width: link.details.width, height: link.details.height } : null);
-      if (!meta) link.mode = 'none';
-      renderInfo(); renderActions();
-    }
-    if (link.mode === 'none' || !link.meta) return;
+  // ---------- stills: four, the rest under More ----------
+  let tilesFor = '';
+  function renderStills() {
+    const usable = link.check.ok && ['ready', 'blocked'].includes(link.state) && link.meta && link.mode && link.mode !== 'none';
+    const key = usable ? `${link.mode}|${link.meta.duration}` : '';
+    if (key === tilesFor) return; tilesFor = key;
+    if (!usable) { fill(grid); return; }
     const marks = minuteMarks(link.meta.duration);
     const step = marks.length > 1 ? marks[1].mark : link.meta.duration;
-    const tiles = marks.map((m) => tile(m, () => closer(m.mark, Math.min(link.meta.duration, m.mark + step))));
-    fill(grid, tiles.map((t) => t.node));
+    const four = pickFour(marks);
+    const closerAt = (m) => () => closer(m.mark, Math.min(link.meta.duration, m.mark + step));
+    const main = four.map((m) => tile(m, closerAt(m)));
+    fill(grid, main.map((t) => t.node));
+    load(main);
+    allTiles = marks.length > 4 ? marks.map((m) => tile(m, closerAt(m))) : [];
+    renderMore();
+  }
+  let allTiles = []; let allLoaded = false;
+  /** Stills shown: drawn here (kept with the link) or paused frames. */
+  function load(tiles) {
     if (link.mode === 'drawn') {
-      const todo = tiles.filter((t) => !link.stills.has(t.m.mark));
-      for (const t of tiles) if (link.stills.has(t.m.mark)) fill(t.pic, el('img', { src: link.stills.get(t.m.mark), alt: `At ${t.m.label}`, loading: 'lazy' }));
-      if (!todo.length) return;
-      if (!probe) { probe = video(link.check.url, true); if (!await loaded(probe, view.signal)) return; }
-      drawStills(probe, todo, view.signal, (m, u) => link.stills.set(m.mark, u)).catch((e) => { if (!view.signal.aborted) { noteError('Downloads: previews', e); link.mode = 'frames'; framesInstead(tiles, view.signal); } });
+      const todo = [];
+      for (const t of tiles) { const u = link.stills.get(t.m.mark); if (u) fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}`, loading: 'lazy' })); else todo.push(t); }
+      if (todo.length) draw(todo);
     } else framesInstead(tiles, view.signal);
   }
-
-  /**
-   * Its length and size, from a video element that loads only what it needs (not played, muted).
-   * First as an app may draw it (the site allows that: previews are stills drawn here); else as the
-   * browser shows it (previews are paused frames instead).
-   */
-  async function probeIt() {
-    for (const drawable of [true, false]) {
-      const v = video(link.check.url, drawable);
-      const ok = await loaded(v, view.signal);
-      if (view.signal.aborted) { v.remove(); return null; }
-      if (ok && Number.isFinite(v.duration) && v.duration > 0) {
-        link.mode = drawable ? 'drawn' : 'frames';
-        if (drawable) probe = v; else v.remove();
-        return { duration: v.duration, width: v.videoWidth, height: v.videoHeight };
-      }
-      v.remove();
-    }
-    return null;
+  let drawing = Promise.resolve();
+  function draw(tiles) {
+    drawing = drawing.then(async () => {
+      if (view.signal.aborted) return;
+      if (!drawer) { drawer = video(link.check.url, true); if (!await loaded(drawer, view.signal)) { drawer = null; return; } }
+      await drawStills(drawer, tiles.filter((t) => !link.stills.has(t.m.mark)), view.signal, (m, u) => link.stills.set(m.mark, u));
+    }).catch((e) => { if (!view.signal.aborted) { noteError('Downloads: previews', e); link.mode = 'frames'; framesInstead(tiles, view.signal); } });
   }
+
+  // ---------- More ----------
+  function renderMore() {
+    const c = link.check;
+    if (!c.ok || ['caution', 'refused'].includes(link.state)) { more.hidden = true; return; }
+    more.hidden = false;
+    const pre = link.pre; const d = link.details; const meta = link.meta;
+    const rows = [];
+    const add = (k, v) => { if (v) rows.push(el('div', { class: 'dl-kv' }, el('span', { class: 'muted', text: k }), el('span', { text: v }))); };
+    add('Type', pre ? (KIND_NAME[pre.kind] ?? pre.type ?? '') : '');
+    add('Size', pre?.total ? formatBytes(pre.total) : 'not given');
+    add('Length', meta?.duration ? formatTime(meta.duration) : '');
+    add('Picture', d ? describe(d) : meta?.width ? `${meta.width}×${meta.height}` : '');
+    add('From', c.host);
+    add('Resumable', pre ? (pre.ranges ? 'yes' : 'no: starts over if stopped') : 'the site doesn\'t say');
+    if (link.mode === 'none') add('Stills', 'this browser can\'t show stills of it (it can still download it)');
+    for (const n of c.notes ?? []) if (!n.title.startsWith('Stops')) add(n.title, n.detail);
+    const partBox = el('div', { class: 'dl-partwrap' });
+    const mp4 = pre?.kind === 'mp4' || pre?.kind === 'mov'; const dur = meta?.duration ?? d?.duration;
+    if (mp4 && pre.ranges && pre.total && dur) {
+      fill(partBox, el('p', { class: 'dl-sub', text: '✂️ Just a part' }), el('p', { class: 'muted small', text: 'Only that part (and the file\'s index) is downloaded, as an MP4 of its own.' }),
+        partPicker(dur, async (from, to) => {
+          const j = await jobs.start({ url: c.url, host: c.host, kind: pre.kind, total: pre.total, ranges: true, lastModified: pre.lastModified, strict: link.strict, part: { from, to }, wait: jobs.running() > 0 });
+          links.setJob(link, j.id);
+        }, '⬇️ Download part'));
+    }
+    const allGrid = allTiles.length ? el('div', { class: 'dl-grid dl-all' }, allTiles.map((t) => t.node)) : null;
+    fill(moreBody, el('div', { class: 'dl-kvs' }, rows), allGrid ? el('p', { class: 'dl-sub', text: `Every minute (${allTiles.length})` }) : null, allGrid, partBox);
+  }
+  more.addEventListener('toggle', () => { if (more.open && !allLoaded && allTiles.length) { allLoaded = true; load(allTiles); } });
 
   function video(src, drawable) {
     const v = /** @type {HTMLVideoElement} */ (el('video', { class: 'dl-probe', muted: true, playsinline: true, preload: 'metadata', 'aria-hidden': 'true' }));
@@ -188,7 +192,7 @@ export function linkView(host, link, { jobs }) {
     document.body.append(dlg); dlg.showModal();
     if (link.mode === 'drawn') {
       const v = video(link.check.url, true);
-      try { if (await loaded(v, ctrl.signal)) await drawStills(v, tiles, ctrl.signal, (m, u) => urls.push(u)); } catch { if (!ctrl.signal.aborted) framesInstead(tiles, ctrl.signal); } finally { v.remove(); }
+      try { if (await loaded(v, ctrl.signal)) await drawStills(v, tiles, ctrl.signal, (m, u) => urls.push(u)); } catch { if (!ctrl.signal.aborted) framesInstead(tiles, ctrl.signal); } finally { v.removeAttribute('src'); v.remove(); }
     } else framesInstead(tiles, ctrl.signal);
   }
 
@@ -236,14 +240,14 @@ export function linkView(host, link, { jobs }) {
     signal.addEventListener('abort', () => { io.disconnect(); for (const t of tiles) t.pic.querySelector('video')?.removeAttribute('src'); }, { once: true });
   }
 
-  const render = () => { renderStatus(); renderInfo(); renderActions(); startPreviews(); };
+  const render = () => { renderStatus(); renderSummary(); renderActions(); renderStills(); renderMore(); };
   const offLinks = links.subscribe((l) => { if (!l || l === link) render(); });
   const offJobs = jobs.subscribe((j) => { if (!j || j.id === link.jobId || !link.jobId) renderActions(); });
   render();
 
   return () => {
     view.abort(); clearInterval(timer); offLinks(); offJobs();
-    probe?.removeAttribute('src'); probe?.remove();
+    drawer?.removeAttribute('src'); drawer?.remove();
   };
 }
 
@@ -269,5 +273,3 @@ function seek(v, t, signal) {
     v.currentTime = Math.min(t, Math.max(0, (v.duration || t) - 0.1));
   });
 }
-
-export { fileNameFor };

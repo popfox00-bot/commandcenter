@@ -153,7 +153,8 @@ function createJobs() {
     },
     /** All of them removed. */
     async clearAll() { for (const j of [...jobs]) await this.remove(j); },
-    file: (job) => store.file(job, job.name, MIME[job.kind] ?? 'video/mp4'),
+    /** Its file (named `name`, or its own name), joined from its stored pieces: no copy made. */
+    file: (job, name = job.name) => store.file(job, name, MIME[job.kind] ?? 'video/mp4'),
     /** All they take on the phone. */
     used: () => jobs.reduce((s, j) => s + j.loaded, 0),
     memoryOnly: () => store.memoryOnly(),

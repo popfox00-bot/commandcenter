@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   checkVideoLink, linkFromText, minuteMarks, closerMarks, formatTime, sniffVideo, fileNameFor, downloadVideo, DownloadError,
-  linkExpiry, signedParams, preflight, remoteSource, streamPart, typeProblem, spreadMarks, uniqueFiles,
+  linkExpiry, signedParams, preflight, remoteSource, streamPart, typeProblem, spreadMarks, uniqueFiles, saveBatches,
 } from '../web/tools/download/download-core.js';
 import { planPart, readMovie, mp4Details } from '../web/tools/download/mp4.js';
 import { videoDetails, webmDetails, describe } from '../web/tools/download/media-info.js';
@@ -100,6 +100,15 @@ test('save all: each distinct file once (by fingerprint), every name unique', ()
   ]).map((x) => x.name);
   assert.deepEqual(got, ['clip.mp4', 'clip (2).mp4', 'Clip (3).mp4', 'video', 'video (2)']);
   assert.deepEqual(uniqueFiles([]), []);
+});
+
+test('save all in batches a phone can share at once: a few files, about 200 MB each, a bigger file alone', () => {
+  const MB = 1024 ** 2; const f = (n, mb) => ({ n, size: mb * MB });
+  const names = (bs) => bs.map((b) => b.map((x) => x.n));
+  assert.deepEqual(names(saveBatches([1, 2, 3, 4, 5, 6, 7, 8].map((n) => f(n, 10)))), [[1, 2, 3], [4, 5, 6], [7, 8]], '8 small: 3, 3, 2');
+  assert.deepEqual(names(saveBatches([f(1, 150), f(2, 100), f(3, 40), f(4, 900), f(5, 20)])), [[1], [2, 3], [4], [5]], 'by size too; a big one alone');
+  assert.deepEqual(names(saveBatches([f(1, 5)])), [[1]]);
+  assert.deepEqual(saveBatches([]), []);
 });
 
 test('sniff: video kinds from their first bytes; a web page is not one', () => {

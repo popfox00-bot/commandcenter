@@ -919,3 +919,8 @@ body.has-rail { padding-right: 22px; }
 .dl-hash { font-size: .75rem; overflow-wrap: anywhere; user-select: all; }
 .dl-fp-in { width: 100%; font-size: .85rem; }
 .dl-fp .ok-text { color: var(--ok); font-weight: 600; }
+.dl-field { position: relative; flex: 1; min-width: 0; }
+.dl-field .dl-url { margin-top: 0; padding-right: 40px; }
+.dl-clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--idle-bg); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+.dl-clear[hidden] { display: none; }
+.dl-paste-hint { margin: -4px 0 0; }

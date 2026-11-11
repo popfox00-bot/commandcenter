@@ -373,7 +373,10 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
 ### Download
 
 **Files → Download** takes the address of a video that plays in the browser (a CDN link ending in
-.mp4, .webm, .mov…). Before downloading anything it asks the site the file's **type and size** and
+.mp4, .webm, .mov…). **Paste** picks the link out of what you copied (even a message with a link in
+it); a link pasted into the box by hand is checked at once (some browsers, like an iPhone home-screen
+app, don't let Paste read what you copied: it then says to press and hold in the box and tap Paste).
+**✕** in the box clears the link and everything shown for it, to start again. Before downloading anything it asks the site the file's **type and size** and
 whether it can be resumed ("MP4 · 340 MB · from cdn.example.com · can be resumed"; for an MP4, also
 its details from its index: picture size, frame rate, codecs, sound). It shows a still from its start
 and each minute mark without playing it; **tap one** for every 10 seconds of that minute. Then

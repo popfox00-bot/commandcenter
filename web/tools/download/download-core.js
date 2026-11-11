@@ -65,6 +65,17 @@ export function checkVideoLink(input, { now = Date.now() } = {}) {
   return { ok: true, url, host: a.unicodeHost || u.hostname, warnings, notes, expires, signed, removed };
 }
 
+/**
+ * The link in pasted text: the first web address in it (a share sheet often adds a title or a
+ * message around it), its trailing punctuation off; else the text as it is.
+ * @param {string} text
+ */
+export function linkFromText(text) {
+  const t = String(text ?? '').trim();
+  const m = /https?:\/\/[^\s<>"'`]+/i.exec(t);
+  return m ? m[0].replace(/[).,;:!?\]}'"]+$/, '') : t;
+}
+
 /** @param {string} title @param {string} detail @returns {LinkCheck} */
 const refuse = (title, detail) => ({ ok: false, reasons: [{ title, detail }] });
 

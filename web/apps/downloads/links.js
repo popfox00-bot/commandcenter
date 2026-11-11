@@ -4,7 +4,8 @@
 // "+ Add to Queue". Kept in memory only, for this visit: never written to the phone, and a link
 // cleared or removed is gone (a download started from one is in History until removed there).
 
-import { checkVideoLink, preflight, remoteSource, DownloadError, fileNameFor } from '../../tools/download/download-core.js';
+import { checkVideoLink, preflight, remoteSource, DownloadError, fileNameFor, formatTime } from '../../tools/download/download-core.js';
+import { formatBytes as fmtBytes } from '../../lib/files.js';
 import { mp4Details } from '../../tools/download/mp4.js';
 
 /**
@@ -81,12 +82,51 @@ async function inspect(link) {
     }
     if (signal.aborted) return;
     link.state = link.pre ? 'ready' : 'blocked';
+    tell(link);
+    // Its length (and whether its stills can be drawn here), from the video's own header only.
+    if (!link.mode) await probe(link);
+    if (signal.aborted) return;
   } catch (e) {
     if (signal.aborted) return;
     link.state = 'refused';
     link.error = e instanceof DownloadError ? e.message : 'The site couldn\'t be asked about it.';
   }
   tell(link);
+}
+
+/**
+ * Its length and picture size, from a video element that loads only the header (never played):
+ * first as the app may draw it (stills drawn here: mode 'drawn'), else as the browser shows it
+ * (paused frames instead: 'frames'); 'none' when neither works (an MP4's index may still say).
+ */
+async function probe(link) {
+  for (const drawable of [true, false]) {
+    const v = document.createElement('video');
+    v.muted = true; v.preload = 'metadata'; v.playsInline = true; v.disablePictureInPicture = true;
+    if (drawable) v.crossOrigin = 'anonymous';
+    v.src = link.check.url;
+    const ok = await new Promise((resolve) => {
+      const done = (r) => { clearTimeout(t); resolve(r); };
+      const t = setTimeout(() => done(false), 20000);
+      v.addEventListener('loadedmetadata', () => done(true), { once: true });
+      v.addEventListener('error', () => done(false), { once: true });
+      link.abort.signal.addEventListener('abort', () => done(false), { once: true });
+    });
+    const meta = ok && Number.isFinite(v.duration) && v.duration > 0 ? { duration: v.duration, width: v.videoWidth, height: v.videoHeight } : null;
+    v.removeAttribute('src'); v.load();
+    if (link.abort.signal.aborted) return;
+    if (meta) { link.meta = meta; link.mode = drawable ? 'drawn' : 'frames'; return; }
+  }
+  link.mode = 'none';
+  if (link.details?.duration) link.meta = { duration: link.details.duration, width: link.details.width, height: link.details.height };
+}
+
+/** "53 KB · 2:30" (what's known of its size and length). */
+export function sizeAndLength(link) {
+  const parts = [];
+  if (link.pre?.total) parts.push(fmtBytes(link.pre.total));
+  if (link.meta?.duration) parts.push(formatTime(link.meta.duration));
+  return parts.join(' · ');
 }
 
 /** Nothing of it kept: what it was fetching stopped, its stills let go. */

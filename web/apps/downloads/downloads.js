@@ -13,9 +13,9 @@
 
 import { el, fill, store as ls } from '../../lib/dom.js';
 import { formatBytes } from '../../lib/files.js';
-import { linkFromText, KIND_NAME } from '../../tools/download/download-core.js';
+import { linkFromText, formatTime } from '../../tools/download/download-core.js';
 import { getJobs } from '../../tools/download/download-jobs.js';
-import { links } from './links.js';
+import { links, sizeAndLength } from './links.js';
 import { linkView } from './link-view.js';
 import { historyView } from './history.js';
 import { progressBar } from './job-ui.js';
@@ -40,12 +40,12 @@ export function mount(host) {
   const queueRow = el('div', { class: 'row wrap dl-queue-row' });
   const viewHost = el('div', { class: 'dl-current' });
   fill(panes.download,
-    el('p', { class: 'muted small', text: 'Paste the address of a video that plays in the browser (ending in .mp4, .webm, .mov…). It\'s checked as soon as it\'s in. It isn\'t played: you see a still from each minute, then download all of it or a part.' }),
     el('div', { class: 'row dl-row' }, el('div', { class: 'dl-field' }, input, clearBtn), pasteBtn),
     pasteHint,
-    el('label', { class: 'dl-strict small' }, strict, ' Only accept files the site labels as video'),
     queueRow, viewHost,
-    el('p', { class: 'muted small privacy', text: 'Needs a connection. Only the video at the link is downloaded, straight from its site to this phone: no other server, no cookies or sign-ins sent, nothing from its web page runs. Links that aren\'t https, point inside your own network, have expired or look like a scam aren\'t opened. Links you paste (and the queue) aren\'t saved: clearing one forgets it.' }));
+    el('details', { class: 'dl-options small' }, el('summary', { text: 'Options & privacy' }),
+      el('label', { class: 'dl-strict' }, strict, ' Only accept files the site labels as video'),
+      el('p', { class: 'muted', text: 'Only the video at the link is downloaded, straight from its site: no other server, no cookies or sign-ins sent. Unsafe, local, expired or scam-looking links aren\'t opened. Links you paste and the queue aren\'t saved; clearing one forgets it. Downloads stay in History until you remove them.' })));
 
   let closeView = null; let shownId = '';
   function renderCurrent() {
@@ -53,8 +53,8 @@ export function mount(host) {
     clearBtn.hidden = !input.value && !cur;
     const q = links.queue().length;
     fill(queueRow,
-      cur && cur.check.ok && cur.state !== 'refused' ? el('button', { class: 'btn', text: '+ Add to Queue', title: 'Keep this one checking in the queue, and paste another', onclick: () => { links.enqueue(); input.value = ''; lastChecked = ''; renderCurrent(); flash(`Added to the queue (${links.queue().length}). Paste the next link.`); input.focus(); } }) : null,
-      q ? el('a', { class: 'btn ghost', href: '#/downloads/queue', text: `View Queue (${q})` }) : null);
+      cur && cur.check.ok && cur.state !== 'refused' ? el('button', { class: 'btn', text: '+ Queue', title: 'Keep this one checking in the queue, and paste another', onclick: () => { links.enqueue(); input.value = ''; lastChecked = ''; renderCurrent(); flash(`Queued (${links.queue().length}). Paste the next link.`); input.focus(); } }) : null,
+      q ? el('a', { class: 'btn ghost', href: '#/downloads/queue', text: `Queue (${q}) ›` }) : null);
     if ((cur?.id ?? '') === shownId) return;
     closeView?.(); closeView = null; shownId = cur?.id ?? '';
     if (cur) closeView = linkView(viewHost, cur, { jobs }); else fill(viewHost);
@@ -87,7 +87,8 @@ export function mount(host) {
   input.addEventListener('paste', () => setTimeout(check, 0));
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(typing); check(); } });
   // ✕: the link and all that was shown for it gone (and forgotten), ready for another.
-  clearBtn.addEventListener('click', () => { input.value = ''; lastChecked = ''; links.close(); pasteHint.hidden = true; renderCurrent(); input.focus(); });
+  function clearCurrent() { input.value = ''; lastChecked = ''; links.close(); pasteHint.hidden = true; renderCurrent(); }
+  clearBtn.addEventListener('click', () => { clearCurrent(); input.focus(); });
   // 📋 Paste: what was copied, its link picked out of any text around it, then checked. An iPhone asks
   // first with a small "Paste" bubble by the button; some browsers won't hand it over at all.
   pasteBtn.addEventListener('click', async () => {
@@ -118,21 +119,25 @@ export function mount(host) {
 
   const stateText = (l) => {
     if (!l.check.ok) return l.check.reasons[0].title;
-    return { refused: `Not downloaded: ${l.error}`, caution: 'Has warnings: tap to read them', asking: 'Checking…', blocked: 'Checked · the site doesn\'t say its size', ready: `Checked · ${KIND_NAME[l.pre?.kind] ?? 'Video'}${l.pre?.total ? ` · ${formatBytes(l.pre.total)}` : ''}` }[l.state];
+    if (l.state === 'refused') return l.error;
+    if (l.state === 'caution') return 'Has warnings: tap to read';
+    if (l.state === 'asking') return 'Checking…';
+    return sizeAndLength(l) || 'Checked';
   };
-  function row(l) {
+  /** A row: the queued link (or, marked Now, the one on the Download tab). */
+  function row(l, now = false) {
     const title = el('strong', { class: 'dl-name' });
     const sub = el('span', { class: 'small muted' });
     const pb = progressBar(jobs);
     const x = el('button', { class: 'icon-btn dl-x', 'aria-label': 'Remove from the queue', title: 'Remove from the queue (a download already started stays in History)', text: '✕' });
-    x.addEventListener('click', (e) => { e.stopPropagation(); links.remove(l); });
-    const node = el('article', { class: `card dl-qrow`, role: 'button', tabIndex: 0 }, el('div', { class: 'card-head' }, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
-    const open = () => { location.hash = `#/downloads/queue/${l.id}`; };
+    x.addEventListener('click', (e) => { e.stopPropagation(); if (now) clearCurrent(); else links.remove(l); });
+    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : null, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
+    const open = () => { location.hash = now ? '#/downloads' : `#/downloads/queue/${l.id}`; };
     node.addEventListener('click', open); node.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
     const update = () => {
       const job = l.jobId ? jobs.get(l.jobId) : null;
       title.textContent = job?.name ?? links.name(l);
-      sub.textContent = job ? (job.status === 'done' ? `Downloaded · ${formatBytes(job.loaded)} · tap to save` : job.error || { running: 'Downloading', waiting: 'Waiting for the others to finish', paused: 'Paused' }[job.status] || '') : stateText(l);
+      sub.textContent = job ? (job.status === 'done' ? `✓ Downloaded · ${[formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ')}` : job.error || { running: 'Downloading', waiting: 'Waiting for the others', paused: 'Paused' }[job.status] || '') : stateText(l);
       sub.className = `small ${!l.check.ok || l.state === 'refused' || job?.error ? 'warn-text' : 'muted'}`;
       pb.node.hidden = !job || job.status === 'done';
       if (job) pb.update(job);
@@ -141,23 +146,24 @@ export function mount(host) {
     return { node, update };
   }
   function renderQueue() {
-    const q = links.queue();
-    for (const id of [...rows.keys()]) if (!q.some((l) => l.id === id)) rows.delete(id);
+    const q = links.queue(); const cur = links.current();
+    const shown = cur ? [cur, ...q] : q;
+    for (const id of [...rows.keys()]) if (!shown.some((l) => l.id === id)) rows.delete(id);
     const ready = q.filter((l) => !l.jobId && (l.state === 'ready' || l.state === 'blocked'));
-    const going = q.filter((l) => l.jobId && jobs.get(l.jobId)?.status === 'running').length;
+    const going = jobs.running();
     fill(queueHead,
-      el('h3', { class: 'dl-list-head', text: q.length ? `${q.length} link${q.length === 1 ? '' : 's'} queued${going ? ` · ${going} downloading` : ''}` : 'Queue' }),
-      ready.length ? el('button', { class: 'btn primary small-btn', text: `⬇️ Download all ${ready.length} (one after another)`, onclick: async () => {
+      ready.length ? el('button', { class: 'btn primary', text: `⬇️ Download all (${ready.length})`, title: 'One after another', onclick: async () => {
         for (const l of ready) {
           const pre = l.pre;
           const j = await jobs.start({ url: l.check.url, host: l.check.host, kind: pre?.kind ?? null, total: pre?.total ?? 0, ranges: !!pre?.ranges, lastModified: pre?.lastModified ?? '', strict: l.strict, wait: true });
           links.setJob(l, j.id);
         }
       } }) : null,
-      el('a', { class: 'btn ghost small-btn', href: '#/downloads', text: '+ Add links' }));
-    fill(queueList, q.length ? q.map((l) => (rows.get(l.id) ?? rows.set(l.id, row(l)).get(l.id)).node) : el('p', { class: 'muted small', text: 'Nothing queued. On Download, paste a link and tap + Add to Queue, then paste the next.' }));
-    for (const l of q) rows.get(l.id).update();
-    if (going > 1) queueList.prepend(el('p', { class: 'small muted', text: `${going} downloads share the connection, so each goes slower than one alone would.` }));
+      el('a', { class: 'btn ghost', href: '#/downloads', text: '+ Add link' }));
+    const key = (l) => `${l === cur ? 'now:' : ''}${l.id}`;
+    fill(queueList, shown.length ? shown.map((l) => (rows.get(key(l)) ?? rows.set(key(l), row(l, l === cur)).get(key(l))).node) : el('p', { class: 'muted small', text: 'Nothing here yet. Paste a link on Download, then tap + Queue to add the next.' }),
+      going > 1 ? el('p', { class: 'small muted', text: `${going} downloading at once: they share the connection.` }) : null);
+    for (const l of shown) rows.get(key(l)).update();
   }
   function showQueueItem(id) {
     const l = id ? links.get(id) : null;
@@ -166,7 +172,7 @@ export function mount(host) {
     queueItem.hidden = !l; queueHead.hidden = !!l; queueList.hidden = !!l;
     if (!l) { fill(queueItem); return; }
     const inner = el('div');
-    fill(queueItem, el('a', { class: 'btn ghost small-btn dl-back', href: '#/downloads/queue', text: '‹ Queue' }), el('p', { class: 'dl-qurl small muted', text: l.check.ok ? l.check.url : l.input }), inner);
+    fill(queueItem, el('div', { class: 'row dl-qitem-head' }, el('a', { class: 'btn ghost small-btn dl-back', href: '#/downloads/queue', text: '‹ Queue' }), el('span', { class: 'dl-qurl small muted', text: links.name(l) })), inner);
     closeItem = linkView(inner, l, { jobs });
   }
 
@@ -187,11 +193,11 @@ export function mount(host) {
   offs.push(links.subscribe((l) => {
     renderCurrent();
     if (!l) { route(); return; }
-    rows.get(l.id)?.update();
+    rows.get(l.id)?.update(); rows.get(`now:${l.id}`)?.update();
   }));
   offs.push(jobs.subscribe((j) => {
     if (!j) { renderQueue(); return; }
-    for (const l of links.queue()) if (l.jobId === j.id) rows.get(l.id)?.update();
+    for (const [, r] of rows) r.update();
   }));
   // Coming back to the app: the link being looked at is still here (this visit only).
   const cur = links.current(); if (cur) { input.value = cur.check.ok ? cur.check.url : cur.input; lastChecked = input.value; }

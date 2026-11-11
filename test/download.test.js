@@ -15,6 +15,7 @@ import {
 import { planPart, readMovie, mp4Details } from '../web/tools/download/mp4.js';
 import { videoDetails, webmDetails, describe } from '../web/tools/download/media-info.js';
 import { Sha256, sameFingerprint } from '../web/lib/sha256.js';
+import { pickFour } from '../web/apps/downloads/link-view.js';
 
 const FIX = resolve(import.meta.dirname, 'fixtures/web');
 const mp4Head = () => { const b = new Uint8Array(4096); b.set([0, 0, 0, 0x20], 0); b.set([...'ftypisom'].map((c) => c.charCodeAt(0)), 4); return b; };
@@ -81,6 +82,14 @@ test('minute marks: the start (a second in) and each minute; fewer for long vide
   assert.equal(formatTime(3723), '1:02:03'); assert.equal(formatTime(75), '1:15');
   assert.deepEqual(closerMarks(60, 120).map((m) => m.label), ['1:00', '1:10', '1:20', '1:30', '1:40', '1:50']);
   assert.deepEqual(closerMarks(0, 25).map((m) => m.at), [1, 10, 20]);
+});
+
+test('four stills spread through it: the first, the last and two between (all when 4 or fewer)', () => {
+  const at = (d) => pickFour(minuteMarks(d)).map((m) => m.label);
+  assert.deepEqual(at(150), ['0:00', '1:00', '2:00']);
+  assert.deepEqual(at(600), ['0:00', '3:00', '6:00', '9:00']);
+  assert.deepEqual(at(3600), ['0:00', '20:00', '39:00', '59:00']);
+  assert.deepEqual(at(300.5), ['0:00', '1:00', '3:00', '4:00'], 'four of five');
 });
 
 test('sniff: video kinds from their first bytes; a web page is not one', () => {

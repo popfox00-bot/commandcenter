@@ -1,4 +1,5 @@
-// Files → Download: the downloads themselves, apart from the screen. Each one is stored on the phone
+// Downloads: the downloads themselves, apart from the screen (one manager for the whole visit, so
+// leaving the app and coming back never starts a download twice). Each one is stored on the phone
 // a piece at a time as it arrives (download-store), so it can be paused and continued, picks up
 // again after the app was closed (where the site allows: otherwise it starts over), and is never
 // held in memory whole. Its fingerprint (SHA-256) is worked out on the way, and its details (codecs,
@@ -15,36 +16,46 @@ import { formatBytes } from '../../lib/files.js';
 /** Stored in pieces of this size (what's in memory at most while downloading). */
 const PIECE = 4 * 1024 ** 2;
 
-/**
- * The downloads, their changes told to `onChange(job)` (null: the list changed).
- * @param {{ onChange: (job: any) => void }} o
- */
-export function createJobs({ onChange }) {
+let manager = null;
+/** The downloads manager (made once). Its changes go to `subscribe` listeners: (job) or (null: the list). */
+export function getJobs() { manager ??= createJobs(); return manager; }
+
+function createJobs() {
   /** @type {any[]} */
   let jobs = [];
   /** Downloads running now: id -> { ctrl, buffered, rate } */
   const live = new Map();
+  const listeners = new Set();
+  const onChange = (job) => { for (const f of listeners) { try { f(job); } catch { /* a screen gone */ } } };
 
   const save = (job) => { job.updated = Date.now(); return store.putJob(job); };
   const changed = (job) => onChange(job);
 
-  async function restore() {
+  const ready = (async () => {
     jobs = await store.jobs();
     onChange(null);
-    // Ones that were going when the app closed carry on.
+    // Ones that were going when the app closed carry on; ones waiting their turn wait.
     for (const j of jobs) if (j.status === 'running') run(j);
+    pump();
+  })();
+
+  /** The next one waiting starts when none is running. */
+  function pump() {
+    if (live.size) return;
+    const next = [...jobs].reverse().find((j) => j.status === 'waiting');
+    if (next) run(next);
   }
 
   /** A new download (or a part: `part` { from, to } seconds). */
-  async function start({ url, host, kind = null, total = 0, ranges = false, lastModified = '', strict = false, part = null }) {
-    await keepStorage();
+  async function start({ url, host, kind = null, total = 0, ranges = false, lastModified = '', strict = false, part = null, wait = false }) {
+    await ready; await keepStorage();
     const job = {
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, url, host, kind, total, ranges, lastModified, strict, part,
       name: part ? fileNameFor(url, 'mp4', ` (${formatTime(part.from).replace(/:/g, '.')}–${formatTime(part.to).replace(/:/g, '.')})`) : fileNameFor(url, kind ?? 'mp4'),
-      loaded: 0, pieces: 0, sha: null, hash: '', status: 'running', error: '', details: '', created: Date.now(), updated: Date.now(),
+      loaded: 0, pieces: 0, sha: null, hash: '', status: wait ? 'waiting' : 'running', error: '', details: '', created: Date.now(), updated: Date.now(),
     };
     jobs.unshift(job); await save(job); onChange(null);
-    run(job);
+    if (wait) pump(); else run(job);
     return job;
   }
 
@@ -101,7 +112,7 @@ export function createJobs({ onChange }) {
       }
       await flush();
       job.hash = sha.hex(); job.sha = null; job.total = job.loaded; job.status = 'done';
-      await save(job); live.delete(job.id); changed(job);
+      await save(job); live.delete(job.id); changed(job); pump();
       // Its details, from the file.
       try {
         const f = await store.file(job, job.name, MIME[job.kind] ?? 'video/mp4');
@@ -114,24 +125,32 @@ export function createJobs({ onChange }) {
       if (['not-video', 'redirect', 'too-big'].includes(err.code)) { await restart().catch(() => {}); } else { await flush().catch(() => {}); }
       job.status = err.code === 'aborted' ? 'paused' : 'failed';
       job.error = err.code === 'aborted' ? '' : err.message; job.code = err.code;
-      await save(job).catch(() => {}); live.delete(job.id); changed(job);
+      await save(job).catch(() => {}); live.delete(job.id); changed(job); pump();
     }
   }
 
   return {
-    restore,
+    ready,
+    subscribe(f) { listeners.add(f); return () => listeners.delete(f); },
     start,
     list: () => jobs,
+    get: (id) => jobs.find((j) => j.id === id) ?? null,
     loadedOf,
     rateOf: (job) => live.get(job.id)?.rate ?? 0,
     isLive: (job) => live.has(job.id),
-    pause(job) { live.get(job.id)?.ctrl.abort(); },
+    /** How many are downloading now. */
+    running: () => live.size,
+    pause(job) { if (job.status === 'waiting') { job.status = 'paused'; save(job); changed(job); } else live.get(job.id)?.ctrl.abort(); },
     resume(job) { run(job); },
+    /** Removed, with what it stored: nothing of it is kept anywhere. */
     async remove(job) {
       const l = live.get(job.id); if (l) { l.ctrl.abort(); while (live.has(job.id)) await new Promise((r) => setTimeout(r, 30)); }
+      job.status = 'removed';
       await store.clear(job.id, { record: true });
       jobs = jobs.filter((j) => j !== job); onChange(null);
     },
+    /** All of them removed. */
+    async clearAll() { for (const j of [...jobs]) await this.remove(j); },
     file: (job) => store.file(job, job.name, MIME[job.kind] ?? 'video/mp4'),
     /** All they take on the phone. */
     used: () => jobs.reduce((s, j) => s + j.loaded, 0),

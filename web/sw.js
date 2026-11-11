@@ -4,11 +4,16 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "e6a3b584fe34",
+  "version": "0b1b1e13d873",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
     "apps/calendar/calendar.js",
+    "apps/downloads/downloads.js",
+    "apps/downloads/history.js",
+    "apps/downloads/job-ui.js",
+    "apps/downloads/link-view.js",
+    "apps/downloads/links.js",
     "apps/fm/fm.js",
     "apps/games/fox/cc-frame.css",
     "apps/games/fox/fox.css",
@@ -80,7 +85,6 @@ const PRECACHE = {
     "tools/download/download-core.js",
     "tools/download/download-jobs.js",
     "tools/download/download-store.js",
-    "tools/download/download.js",
     "tools/download/media-info.js",
     "tools/download/mp4.js",
     "tools/draw/draw-core.js",

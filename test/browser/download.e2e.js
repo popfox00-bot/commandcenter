@@ -41,7 +41,8 @@ after(async () => { await browser?.close(); server?.close(); });
 function cdn(file, { cors = true, type = 'video/webm', seen = [], cutFirst = 0 } = {}) {
   let cut = cutFirst;
   return async (route) => {
-    const req = route.request(); const headers = await req.allHeaders(); seen.push({ url: req.url(), method: req.method(), headers });
+    const req = route.request(); const entry = { url: req.url(), method: req.method(), headers: req.headers() }; seen.push(entry);
+    const headers = await req.allHeaders(); entry.headers = headers;
     // (Routed responses skip the browser's cross-site check, so a site that doesn't allow apps is
     // played out here: the requests an app could read are refused.)
     if (!cors && headers.origin) return route.abort('accessdenied');
@@ -150,6 +151,8 @@ test('download: an MP4\'s details before downloading, and just a part of it fetc
   await page.click('text=✂️ Download just a part');
   await page.selectOption('.dl-partbox select[aria-label=From]', '60');
   await page.selectOption('.dl-partbox select[aria-label=To]', '120');
+  // (The previews' own requests settle first, so only the part's are counted.)
+  for (let n = -1; n !== seen.length;) { n = seen.length; await page.waitForTimeout(700); }
   const before = seen.length;
   await page.click('text=⬇️ Download part');
   await page.waitForSelector('.dl-card >> text=💾 Save to phone');

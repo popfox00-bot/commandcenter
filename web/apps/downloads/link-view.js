@@ -14,9 +14,9 @@ import { minuteMarks, closerMarks, spreadMarks, formatTime, ago, KIND_NAME } fro
 import { describe } from '../../tools/download/media-info.js';
 import { links, sizeAndLength } from './links.js';
 import { progressBar, jobButtons, jobState, jobMessage, partPicker, verdict } from './job-ui.js';
+import { drawStills } from './stills.js';
 
-/** Stills are quick previews: small, and drawn this many at a time. */
-const THUMB_W = 240;
+/** Paused frames (when a site doesn't let stills be drawn) load this many at a time. */
 const DRAWERS = 3;
 
 /**
@@ -74,8 +74,8 @@ export function linkView(host, link, { jobs }) {
       const key = `none|${others}`;
       if (key === shown) return; shown = key;
       const pre = link.pre;
-      const go = (wait) => async () => {
-        const j = await jobs.start({ url: link.check.url, host: link.check.host, kind: pre?.kind ?? null, total: pre?.total ?? 0, ranges: !!pre?.ranges, lastModified: pre?.lastModified ?? '', strict: link.strict, wait });
+      const go = (after) => async () => {
+        const j = await jobs.start({ url: link.check.url, host: link.check.host, kind: pre?.kind ?? null, total: pre?.total ?? 0, ranges: !!pre?.ranges, lastModified: pre?.lastModified ?? '', strict: link.strict, after });
         links.setJob(link, j.id);
       };
       fill(actions, others
@@ -117,18 +117,14 @@ export function linkView(host, link, { jobs }) {
     renderMore();
   }
   let allTiles = []; let allLoaded = false;
-  /** Stills shown: drawn here (kept with the link) or paused frames. */
-  function load(tiles) {
+  /** Stills shown: drawn (shared, kept with the link) or paused frames. */
+  function load(tiles, prio = 1, signal = view.signal) {
     if (link.mode === 'drawn') {
-      const todo = [];
-      for (const t of tiles) { const u = link.stills.get(t.m.mark); if (u) fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}` })); else todo.push(t); }
-      if (todo.length) draw(todo);
-    } else framesInstead(tiles, view.signal);
-  }
-  let drawing = Promise.resolve();
-  function draw(tiles) {
-    drawing = drawing.then(() => drawStills(tiles.filter((t) => !link.stills.has(t.m.mark)), view.signal, (m, u) => link.stills.set(m.mark, u)))
-      .catch((e) => { if (!view.signal.aborted) { noteError('Downloads: previews', e); link.mode = 'frames'; framesInstead(tiles, view.signal); } });
+      for (const t of tiles) if (!link.stills.has(t.m.mark)) t.pic.classList.add('loading');
+      const byMark = new Map(tiles.map((t) => [t.m.mark, t]));
+      drawStills(link, tiles.map((t) => t.m), { signal, prio, onStill: (m, u) => { const t = byMark.get(m.mark); if (!t) return; t.pic.classList.remove('loading'); fill(t.pic, el('img', { src: u, alt: `At ${m.label}` })); } })
+        .catch((e) => { if (!signal.aborted) { noteError('Downloads: previews', e); link.mode = 'frames'; framesInstead(tiles, signal); } });
+    } else framesInstead(tiles, signal);
   }
 
   // ---------- More ----------
@@ -152,7 +148,7 @@ export function linkView(host, link, { jobs }) {
     if (mp4 && pre.ranges && pre.total && dur) {
       fill(partBox, el('p', { class: 'dl-sub', text: '✂️ Just a part' }), el('p', { class: 'muted small', text: 'Only that part (and the file\'s index) is downloaded, as an MP4 of its own.' }),
         partPicker(dur, async (from, to) => {
-          const j = await jobs.start({ url: c.url, host: c.host, kind: pre.kind, total: pre.total, ranges: true, lastModified: pre.lastModified, strict: link.strict, part: { from, to }, wait: jobs.running() > 0 });
+          const j = await jobs.start({ url: c.url, host: c.host, kind: pre.kind, total: pre.total, ranges: true, lastModified: pre.lastModified, strict: link.strict, part: { from, to }, after: jobs.running() > 0 });
           links.setJob(link, j.id);
         }, '⬇️ Download part'));
     }
@@ -160,15 +156,6 @@ export function linkView(host, link, { jobs }) {
     fill(moreBody, el('div', { class: 'dl-kvs' }, rows), allGrid ? el('p', { class: 'dl-sub', text: `Every minute (${allTiles.length})` }) : null, allGrid, partBox);
   }
   more.addEventListener('toggle', () => { if (more.open && !allLoaded && allTiles.length) { allLoaded = true; load(allTiles); } });
-
-  function video(src, drawable) {
-    const v = /** @type {HTMLVideoElement} */ (el('video', { class: 'dl-probe', muted: true, playsinline: true, preload: 'metadata', 'aria-hidden': 'true' }));
-    v.muted = true; v.disablePictureInPicture = true;
-    if (drawable) v.crossOrigin = 'anonymous';
-    v.src = src;
-    root.append(v);
-    return v;
-  }
 
   const tile = (m, onTap) => {
     const pic = el('div', { class: 'dl-pic' });
@@ -187,49 +174,9 @@ export function linkView(host, link, { jobs }) {
     if (link.meta?.width) dlg.style.setProperty('--dl-ar', `${link.meta.width} / ${link.meta.height}`);
     const ctrl = new AbortController();
     view.signal.addEventListener('abort', () => ctrl.abort(), { once: true });
-    const urls = [];
-    dlg.addEventListener('close', () => { ctrl.abort(); dlg.remove(); for (const u of urls) URL.revokeObjectURL(u); });
+    dlg.addEventListener('close', () => { ctrl.abort(); dlg.remove(); });
     document.body.append(dlg); dlg.showModal();
-    if (link.mode === 'drawn') {
-      try { await drawStills(tiles, ctrl.signal, (m, u) => urls.push(u)); } catch { if (!ctrl.signal.aborted) framesInstead(tiles, ctrl.signal); }
-    } else framesInstead(tiles, ctrl.signal);
-  }
-
-  /**
-   * The stills drawn, a few at a time: each of up to DRAWERS video elements (the first, the one the
-   * link's check already loaded) takes the next still that's left, jumps to it (to the nearest key
-   * frame where the browser can, which is quickest) and draws it small.
-   */
-  async function drawStills(tiles, signal, keep) {
-    if (!tiles.length) return;
-    const todo = [...tiles];
-    for (const t of todo) t.pic.classList.add('loading');
-    const n = Math.min(DRAWERS, todo.length);
-    const vids = [];
-    const shared = link.video && !link.videoBusy ? link.video : null;
-    if (shared) link.videoBusy = true;
-    try {
-      await Promise.all(Array.from({ length: n }, async (_, i) => {
-        let v = i === 0 && shared ? shared : null;
-        if (!v) { v = video(link.check.url, true); vids.push(v); if (!await loaded(v, signal)) return; }
-        const c = document.createElement('canvas');
-        const k = Math.min(1, THUMB_W / (v.videoWidth || THUMB_W));
-        c.width = Math.max(1, Math.round((v.videoWidth || THUMB_W) * k)); c.height = Math.max(1, Math.round((v.videoHeight || THUMB_W * 0.5625) * k));
-        const g = c.getContext('2d');
-        for (let t = todo.shift(); t && !signal.aborted; t = todo.shift()) {
-          await seek(v, t.m.at, signal);
-          g.drawImage(v, 0, 0, c.width, c.height);
-          const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.6)); // throws if the site didn't allow drawing
-          if (signal.aborted || !blob) return;
-          const u = URL.createObjectURL(blob); keep(t.m, u);
-          t.pic.classList.remove('loading');
-          fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}` }));
-        }
-      }));
-    } finally {
-      if (shared) link.videoBusy = false;
-      for (const v of vids) { v.removeAttribute('src'); v.load(); v.remove(); }
-    }
+    load(tiles, 2, ctrl.signal);
   }
 
   /** When it can't be drawn: each preview a paused video at its mark, loaded as it scrolls into view, a few at a time. */
@@ -265,29 +212,4 @@ export function linkView(host, link, { jobs }) {
   return () => {
     view.abort(); clearInterval(timer); offLinks(); offJobs();
   };
-}
-
-/** Whether the video's details load (or it fails, or it's stopped). */
-function loaded(v, signal) {
-  return new Promise((resolve) => {
-    const done = (r) => { clearTimeout(t); resolve(r); };
-    const t = setTimeout(() => done(false), 20000);
-    v.addEventListener('loadedmetadata', () => done(true), { once: true });
-    v.addEventListener('error', () => done(false), { once: true });
-    signal.addEventListener('abort', () => done(false), { once: true });
-  });
-}
-
-/** Seeks the (paused) video to `t` and waits for that frame. */
-function seek(v, t, signal) {
-  return new Promise((resolve, reject) => {
-    const done = (ok) => { clearTimeout(timer); v.removeEventListener('seeked', onSeeked); ok ? resolve() : reject(new Error('seek timed out')); };
-    const onSeeked = () => done(true);
-    const timer = setTimeout(() => done(false), 20000);
-    v.addEventListener('seeked', onSeeked);
-    signal.addEventListener('abort', () => done(false), { once: true });
-    const to = Math.min(t, Math.max(0, (v.duration || t) - 0.1));
-    // (The nearest key frame is quickest to show, and close enough for a preview.)
-    if (typeof v.fastSeek === 'function') v.fastSeek(to); else v.currentTime = to;
-  });
 }

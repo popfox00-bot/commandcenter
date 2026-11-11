@@ -219,19 +219,46 @@ export function uniqueFiles(items) {
 }
 
 /**
- * Files to save, split into batches small enough for a phone to hand to its share sheet at once
- * (every file is copied for it: too many big videos together and iOS closes the app): at most
- * `maxFiles` and about `maxBytes` each (a bigger file goes alone), in order.
+ * Files to save, packed into as few batches as possible that a phone can hand to its share sheet at
+ * once (it copies every file: too much together and iOS closes the app). A file over `maxBytes` goes
+ * alone; the rest are packed by size into batches of at most `maxBytes` (and `maxFiles`): exactly
+ * (fewest batches) for up to `exactUpTo` files, else largest-first into the first batch it fits.
+ * Batches are given largest first.
  * @template {{ size: number }} T @param {T[]} files @returns {T[][]}
  */
-export function saveBatches(files, { maxFiles = 3, maxBytes = 200 * 1024 ** 2 } = {}) {
-  const out = []; let cur = []; let bytes = 0;
-  for (const f of files) {
-    if (cur.length && (cur.length >= maxFiles || bytes + f.size > maxBytes)) { out.push(cur); cur = []; bytes = 0; }
-    cur.push(f); bytes += f.size;
+export function saveBatches(files, { maxFiles = 10, maxBytes = 200 * 1024 ** 2, exactUpTo = 16 } = {}) {
+  const big = files.filter((f) => f.size > maxBytes).map((f) => [f]);
+  const rest = files.filter((f) => f.size <= maxBytes).sort((x, y) => y.size - x.size);
+  /** Largest first, each into the first batch with room (first-fit decreasing). @returns {T[][]} */
+  const firstFit = () => {
+    const bins = []; const sums = [];
+    for (const f of rest) {
+      const i = bins.findIndex((bin, k) => sums[k] + f.size <= maxBytes && bin.length < maxFiles);
+      if (i < 0) { bins.push([f]); sums.push(f.size); } else { bins[i].push(f); sums[i] += f.size; }
+    }
+    return bins;
+  };
+  let packed = firstFit();
+  if (rest.length <= exactUpTo && packed.length > 1) {
+    // The fewest batches there can be: search, never doing worse than first-fit.
+    const total = rest.reduce((n, f) => n + f.size, 0);
+    const lower = Math.max(Math.ceil(total / maxBytes), Math.ceil(rest.length / maxFiles));
+    let best = packed; const bins = []; const sums = []; let steps = 0;
+    const place = (i) => {
+      if (best.length === lower || ++steps > 200000) return;
+      if (i === rest.length) { if (bins.length < best.length) best = bins.map((b) => [...b]); return; }
+      const f = rest[i]; const tried = new Set();
+      for (let k = 0; k < bins.length; k++) {
+        if (sums[k] + f.size > maxBytes || bins[k].length >= maxFiles || tried.has(sums[k])) continue;
+        tried.add(sums[k]); bins[k].push(f); sums[k] += f.size; place(i + 1); bins[k].pop(); sums[k] -= f.size;
+      }
+      if (bins.length + 1 < best.length) { bins.push([f]); sums.push(f.size); place(i + 1); bins.pop(); sums.pop(); }
+    };
+    place(0);
+    packed = best;
   }
-  if (cur.length) out.push(cur);
-  return out;
+  const size = (b) => b.reduce((n, f) => n + f.size, 0);
+  return [...big, ...packed].sort((x, y) => size(y) - size(x));
 }
 
 export class DownloadError extends Error {

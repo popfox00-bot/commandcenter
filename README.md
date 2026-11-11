@@ -391,12 +391,18 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
   once it's saved to the phone (💾 Save to phone went through; cancelling the share sheet doesn't count).
   **💾 Save all** saves every downloaded file in the queue (the Now one too) to the phone: a few at a
   time, since a phone's share sheet copies every file it's given and too many big videos at once made
-  iOS close the app. Up to 3 files and about 200 MB go in one share sheet (an iPhone: "Save N
-  Videos"); more are listed as batches, each saved with its own tap. Where there's no share sheet for
+  iOS close the app. A file over 200 MB goes alone; the rest are packed by size into the fewest
+  batches of up to 200 MB (not in order: two 100 MB files share one) for one share sheet each (an
+  iPhone: "Save N Videos"); several batches are listed, each saved with its own tap. Where there's no share sheet for
   files, each is downloaded in turn. The same file downloaded twice (same fingerprint) is saved once, and
   files with the same name get distinct names ("clip (2).mp4"). Every saved number fills in green.
-  Starting one while another downloads offers **⬇️ Download now** (shares the connection: each
-  slower) or **⏳ After the others**; **⬇️ Download all** queues the rest one after another.
+  Each shows **six small stills** side by side under it (drawn in the background, one link at a time,
+  and shared with its view). Starting one while another downloads offers **⬇️ Download now** (shares
+  the connection: each slower) or **⏳ After the others**. **⬇️ Download all** goes **smallest first**
+  (the quickest done first), **several at once** while that's actually quicker: up to three small
+  files (under 50 MB) or two medium ones at a time, a file over 200 MB alone; it measures the speed,
+  and if downloading together isn't faster on this connection, it goes one at a time. Each download
+  holds at most 4 MB in memory, the rest is stored as it arrives.
 - **History:** every download (name, size · length, Save or its progress, ✕; the rest under **▸ More**),
   kept on the phone, stored **piece by piece** as it arrives (so a big
   file never has to fit in memory): **⏸ Pause / ▶ Continue**, and a dropped connection or a closed

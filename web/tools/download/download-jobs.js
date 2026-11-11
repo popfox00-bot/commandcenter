@@ -39,23 +39,54 @@ function createJobs() {
     pump();
   })();
 
-  /** The next one waiting starts when none is running. */
+  // How fast it goes on this connection, one download alone and several together (bytes/s,
+  // smoothed, sampled every 2 s): several at once only while that's actually quicker.
+  const speed = { solo: 0, together: 0 };
+  let sampler = 0;
+  function sample() {
+    if (!live.size) { clearInterval(sampler); sampler = 0; return; }
+    let bytes = 0;
+    for (const m of live.values()) { const now = loadedOf(m.job); bytes += Math.max(0, now - (m.sampled ?? now)); m.sampled = now; }
+    const rate = bytes / 2; if (!rate) return;
+    const k = live.size === 1 ? 'solo' : 'together';
+    speed[k] = speed[k] ? speed[k] * 0.6 + rate * 0.4 : rate;
+    pump();
+  }
+  /**
+   * How many may download at once when `next` is the next to start: small files three at a time
+   * (each has its own start-up wait, which overlaps), medium two, a big one (over 200 MB) alone. And
+   * one at a time when together hasn't been quicker than alone (the connection is the limit, so
+   * sharing it saves nothing). Each holds at most one 4 MB piece in memory.
+   */
+  function limitFor(next) {
+    const size = next.total || Infinity;
+    const cap = size <= 50 * 1024 ** 2 ? 3 : size <= 200 * 1024 ** 2 ? 2 : 1;
+    if (speed.solo && speed.together && speed.together < speed.solo * 1.15) return 1;
+    return cap;
+  }
+  /**
+   * The ones waiting start, smallest first (quickest done first), as many at once as limitFor
+   * allows; one asked to go "after the others" only once nothing else is downloading.
+   */
   function pump() {
-    if (live.size) return;
-    const next = [...jobs].reverse().find((j) => j.status === 'waiting');
-    if (next) run(next);
+    for (;;) {
+      const waiting = jobs.filter((j) => j.status === 'waiting').sort((a, b) => (a.total || Infinity) - (b.total || Infinity) || a.created - b.created);
+      const next = waiting.find((j) => !j.after || !live.size);
+      if (!next || live.size >= limitFor(next)) return;
+      run(next);
+    }
   }
 
   /** A new download (or a part: `part` { from, to } seconds). */
-  async function start({ url, host, kind = null, total = 0, ranges = false, lastModified = '', strict = false, part = null, wait = false }) {
+  async function start({ url, host, kind = null, total = 0, ranges = false, lastModified = '', strict = false, part = null, wait = false, after = false }) {
     await ready; await keepStorage();
     const job = {
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, url, host, kind, total, ranges, lastModified, strict, part,
       name: part ? fileNameFor(url, 'mp4', ` (${formatTime(part.from).replace(/:/g, '.')}–${formatTime(part.to).replace(/:/g, '.')})`) : fileNameFor(url, kind ?? 'mp4'),
-      loaded: 0, pieces: 0, sha: null, hash: '', status: wait ? 'waiting' : 'running', error: '', details: '', created: Date.now(), updated: Date.now(),
+      loaded: 0, pieces: 0, sha: null, hash: '', status: wait || after ? 'waiting' : 'running', after, error: '', details: '', created: Date.now(), updated: Date.now(),
     };
     jobs.unshift(job); await save(job); onChange(null);
-    if (wait) pump(); else run(job);
+    if (wait || after) pump(); else run(job);
     return job;
   }
 
@@ -65,7 +96,8 @@ function createJobs() {
   async function run(job) {
     if (live.has(job.id)) return;
     const me = { ctrl: new AbortController(), buffered: 0, rate: 0, t0: performance.now(), l0: job.loaded };
-    live.set(job.id, me);
+    live.set(job.id, me); me.job = job;
+    sampler ||= setInterval(sample, 2000);
     job.status = 'running'; job.error = ''; changed(job);
     let sha = new Sha256(job.sha ?? undefined); let buf = [];
     const flush = async () => {
@@ -140,6 +172,8 @@ function createJobs() {
     isLive: (job) => live.has(job.id),
     /** How many are downloading now. */
     running: () => live.size,
+    /** (For tests: what it's measured.) */
+    speeds: () => ({ ...speed }),
     pause(job) { if (job.status === 'waiting') { job.status = 'paused'; save(job); changed(job); } else live.get(job.id)?.ctrl.abort(); },
     resume(job) { run(job); },
     /** Saved to the phone (Save to phone went through): shown filled in green in the queue. */

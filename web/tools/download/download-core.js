@@ -145,6 +145,23 @@ export function minuteMarks(duration, { max = 120 } = {}) {
   return out;
 }
 
+/**
+ * `n` moments spread evenly through a video `duration` seconds long, from just after its start to
+ * just before its end (past a black first frame and a fade at the end): the stills shown up front.
+ * @param {number} duration @returns {{ mark: number, at: number, label: string }[]}
+ */
+export function spreadMarks(duration, n = 6) {
+  if (!Number.isFinite(duration) || duration <= 0) return [];
+  const edge = Math.min(1, duration / 20);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const even = n === 1 ? duration / 2 : (i * duration) / (n - 1);
+    const t = Math.round(Math.min(duration - edge, Math.max(edge, even)) * 10) / 10;
+    out.push({ mark: t, at: t, label: formatTime(t) });
+  }
+  return out;
+}
+
 /** Closer looks inside one span (a minute): every `every` s from `from` until `to`. */
 export function closerMarks(from, to, every = 10) {
   const out = [];

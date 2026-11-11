@@ -124,26 +124,34 @@ export function mount(host) {
     if (l.state === 'asking') return 'Checking…';
     return sizeAndLength(l) || 'Checked';
   };
-  /** A row: the queued link (or, marked Now, the one on the Download tab). */
+  /**
+   * A row: the queued link, numbered in order (its number ringed green once downloaded, filled green
+   * once saved to the phone), or, marked Now, the one on the Download tab.
+   */
   function row(l, now = false) {
+    const num = el('span', { class: 'dl-num', 'aria-hidden': 'true' });
     const title = el('strong', { class: 'dl-name' });
     const sub = el('span', { class: 'small muted' });
     const pb = progressBar(jobs);
     const x = el('button', { class: 'icon-btn dl-x', 'aria-label': 'Remove from the queue', title: 'Remove from the queue (a download already started stays in History)', text: '✕' });
     x.addEventListener('click', (e) => { e.stopPropagation(); if (now) clearCurrent(); else links.remove(l); });
-    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : null, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
+    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : num, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
     const open = () => { location.hash = now ? '#/downloads' : `#/downloads/queue/${l.id}`; };
     node.addEventListener('click', open); node.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
     const update = () => {
       const job = l.jobId ? jobs.get(l.jobId) : null;
       title.textContent = job?.name ?? links.name(l);
-      sub.textContent = job ? (job.status === 'done' ? `✓ Downloaded · ${[formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ')}` : job.error || { running: 'Downloading', waiting: 'Waiting for the others', paused: 'Paused' }[job.status] || '') : stateText(l);
+      sub.textContent = job ? (job.status === 'done' ? `${job.saved ? '✓ Saved' : 'Downloaded'} · ${[formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ')}` : job.error || { running: 'Downloading', waiting: 'Waiting for the others', paused: 'Paused' }[job.status] || '') : stateText(l);
       sub.className = `small ${!l.check.ok || l.state === 'refused' || job?.error ? 'warn-text' : 'muted'}`;
       pb.node.hidden = !job || job.status === 'done';
+      const done = job?.status === 'done';
+      num.classList.toggle('done', done && !job.saved); num.classList.toggle('saved', done && !!job.saved);
+      num.title = done ? (job.saved ? 'Saved to the phone' : 'Downloaded (not saved to the phone yet)') : '';
       if (job) pb.update(job);
       node.classList.toggle('dl-bad', !l.check.ok || l.state === 'refused');
     };
-    return { node, update };
+    const setNum = (n) => { num.textContent = String(n); node.setAttribute('aria-label', `${n}. ${title.textContent}`); };
+    return { node, update, setNum };
   }
   function renderQueue() {
     const q = links.queue(); const cur = links.current();
@@ -164,6 +172,7 @@ export function mount(host) {
     fill(queueList, shown.length ? shown.map((l) => (rows.get(key(l)) ?? rows.set(key(l), row(l, l === cur)).get(key(l))).node) : el('p', { class: 'muted small', text: 'Nothing here yet. Paste a link on Download, then tap + Queue to add the next.' }),
       going > 1 ? el('p', { class: 'small muted', text: `${going} downloading at once: they share the connection.` }) : null);
     for (const l of shown) rows.get(key(l)).update();
+    q.forEach((l, i) => rows.get(key(l)).setNum(i + 1));
   }
   function showQueueItem(id) {
     const l = id ? links.get(id) : null;

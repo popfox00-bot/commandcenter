@@ -888,8 +888,9 @@ body.has-rail { padding-right: 22px; }
 .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
 .dl-thumb { margin: 0; display: grid; gap: 2px; }
 .dl-thumb figcaption { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.dl-pic { aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--idle-bg); display: grid; }
-.dl-pic img, .dl-pic video { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.dl-pic { aspect-ratio: var(--dl-ar, 16 / 9); border-radius: 8px; overflow: hidden; background: #111; display: grid; }
+/* The whole picture in each, all the same size (the video's own shape). */
+.dl-pic img, .dl-pic video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .dl-pic.loading { animation: dl-pulse 1.2s ease-in-out infinite; }
 @keyframes dl-pulse { 50% { opacity: .55; } }
 .dl-probe { position: absolute; left: -9999px; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
@@ -950,8 +951,8 @@ body.has-rail { padding-right: 22px; }
 .dl-expiry { color: var(--warn); font-weight: 500; }
 .dl-summary { margin: 0; font-size: 1.15rem; font-weight: 700; }
 .dl-summary[hidden] { display: none; }
-.dl-four { grid-template-columns: repeat(2, 1fr); }
-@media (min-width: 640px) { .dl-four { grid-template-columns: repeat(4, 1fr); } }
+.dl-six { grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 640px) { .dl-six { grid-template-columns: repeat(3, 1fr); } }
 .dl-two { gap: 8px; }
 .dl-two .btn { flex: 1; }
 .dl-more { border-top: 1px solid var(--border); padding-top: 6px; }
@@ -975,3 +976,9 @@ body.has-rail { padding-right: 22px; }
 .dl-options summary { cursor: pointer; padding: 4px 0; }
 .dl-options p { margin: 6px 0 0; }
 .dl-card .dl-more, .dl-qrow .progress { margin-top: 2px; }
+/* Queue: each link's number; a green ring once downloaded, filled once saved to the phone. */
+.dl-num { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border); font-weight: 700; font-size: .9rem; color: var(--muted); font-variant-numeric: tabular-nums; transition: background .2s, border-color .2s, color .2s; }
+.dl-num.done { border-color: var(--ok); color: var(--ok); }
+.dl-num.saved { border-color: var(--ok); background: var(--ok); color: #fff; }
+.dl-six.dl-tall { grid-template-columns: repeat(3, 1fr); }
+@media (min-width: 640px) { .dl-six.dl-tall { grid-template-columns: repeat(6, 1fr); } }

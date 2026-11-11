@@ -34,10 +34,10 @@ export function jobButtons(job, jobs, { extra = [] } = {}) {
     if (!['not-video', 'redirect'].includes(job.code)) b.push(el('button', { class: 'btn primary', text: job.status === 'paused' || (job.loaded && job.ranges) ? '▶ Continue' : '⟳ Try again', onclick: () => jobs.resume(job) }));
     if (job.code === 'blocked' && navigator.onLine) b.push(openInBrowser(job.url));
   }
-  if (job.status === 'done') b.push(el('button', { class: 'btn primary', text: '💾 Save to phone', onclick: () => saveJob(job, jobs) }));
+  if (job.status === 'done') b.push(el('button', { class: `btn ${job.saved ? '' : 'primary'}`, text: job.saved ? '✓ Saved · save again' : '💾 Save to phone', onclick: () => saveJob(job, jobs) }));
   return [...b, ...extra];
 }
-export const jobState = (job, jobs) => `${job.status}|${jobs.isLive(job)}|${job.hash}|${job.code ?? ''}|${job.details ? 1 : 0}`;
+export const jobState = (job, jobs) => `${job.status}|${jobs.isLive(job)}|${job.hash}|${job.code ?? ''}|${job.details ? 1 : 0}|${job.saved ? 1 : 0}`;
 /** What went wrong, said plainly. */
 export const jobMessage = (job) => (job.error ? job.error + (job.code === 'blocked' && job.status === 'failed' ? ' Some sites only let their own pages fetch their videos: open it in the browser and save it from there (Share → Save to Files, or ⋮ → Download).' : '') : '');
 
@@ -45,8 +45,10 @@ export const jobMessage = (job) => (job.error ? job.error + (job.code === 'block
 export async function saveJob(job, jobs) {
   try {
     const f = await jobs.file(job);
-    if (canShareFiles([f]) && await shareFiles([f], f.name)) return;
+    // The share sheet where there is one (cancelled: nothing saved, nothing else done); else a download.
+    if (canShareFiles([f])) { if (await shareFiles([f], f.name)) await jobs.markSaved(job); return; }
     downloadBlob(f, f.name);
+    await jobs.markSaved(job);
   } catch (e) { noteError('Downloads: save', e); alert(`Couldn't save it: ${e.message}`); }
 }
 

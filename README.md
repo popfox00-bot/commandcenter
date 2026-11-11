@@ -379,13 +379,16 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
   first shows a small "Paste" bubble by the button to tap; or press and hold in the box and tap
   Paste) or type it. It's **checked as soon as it's in**. Kept simple: one line saying it's safe (and
   when a signed link expires), its **size · length**, **⬇️ Download** (then its progress, then
-  **💾 Save to phone**), and **four stills** spread through it (never played; tap one for every 10
-  seconds around it). **▸ More** has the rest: every minute's still, all it knows (type, picture,
+  **💾 Save to phone**), and **six stills** spread evenly through it, each the whole picture at the
+  video's own shape, all the same size (quick, small previews, drawn three at a time; never played;
+  tap one for a closer look up to the next). **▸ More** has the rest: every minute's still, all it knows (type, picture,
   codecs, site, resumable; a token in the link, tracking removed) and **✂️ Just a part** of an MP4
   (only that part and the file's index are fetched). **✕** clears the link; **+ Queue** queues it and
   clears the box for the next. *Options & privacy* holds "only accept files labelled as video".
-- **Queue:** the link on the Download tab (marked **Now**) and every queued one, each with its size ·
-  length (or why it was refused) and, while downloading, its own progress bar; tap one for its view.
+- **Queue:** the link on the Download tab (marked **Now**) and every queued one, **numbered in order**,
+  each with its size · length (or why it was refused) and, while downloading, its own progress bar;
+  tap one for its view. A number gets a **green ring** once it's downloaded, and **fills in green**
+  once it's saved to the phone (💾 Save to phone went through; cancelling the share sheet doesn't count).
   Starting one while another downloads offers **⬇️ Download now** (shares the connection: each
   slower) or **⏳ After the others**; **⬇️ Download all** queues the rest one after another.
 - **History:** every download (name, size · length, Save or its progress, ✕; the rest under **▸ More**),

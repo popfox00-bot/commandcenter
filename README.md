@@ -11,9 +11,9 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
 - **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
   setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
   and [Cutout](#cutout-and-characters) under it), [Write on PDF](#write-on-pdf), [Scan](#scan), the
-  [File Converter](#file-converter), [Download](#download) (a video from a link) and
-  [Saved Files](#saved-files) (your own Google Drive folder). Download and Saved Files are the parts
-  that go online. Converted images have an **Edit**
+  [File Converter](#file-converter) and [Saved Files](#saved-files) (your own Google Drive folder:
+  the one part that goes online). **[Downloads](#downloads)** is an app of its own: a video from a
+  link, with a queue and a history (it needs a connection). Converted images have an **Edit**
   button (opens the photo editor) and converted PDFs a **Write on it** button. [Draw](#draw) is a
   sketching canvas that saves to Photos or to Saved Files. [QR](#qr--barcode): scan codes with a
   link safety check before anything opens, and make your own QR codes.
@@ -52,7 +52,7 @@ choices that keep usage under them.
 
 ## Contents
 
-- [Files, Draw and QR](#files-draw-and-qr): [Download](#download) · [Saved Files](#saved-files)
+- [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files) · [Downloads](#downloads)
 - [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters, Reverse Fill
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
@@ -76,8 +76,8 @@ Screen**. Files, Draw and QR work immediately; the Jobs app needs the cloud setu
 three used to be under one **Tools** icon; old links and bookmarks to them still work.)
 
 Everything they do happens in the browser on your phone. Nothing is uploaded (except what you save
-to [Saved Files](#saved-files), your own Drive; [Download](#download) only fetches the video link you
-paste), and after the first visit they work offline: the
+to [Saved Files](#saved-files), your own Drive; [Downloads](#downloads) only fetches the video link
+you paste), and after the first visit they work offline: the
 service worker precaches the whole app, including its libraries.
 
 ### File Converter
@@ -370,32 +370,42 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
   sheet. **☁️ Save to Files** puts the PNG in [Saved Files](#saved-files) (your Google Drive folder)
   when that's set up; otherwise it offers to set it up. Nothing else is uploaded.
 
-### Download
+### Downloads
 
-**Files → Download** takes the address of a video that plays in the browser (a CDN link ending in
-.mp4, .webm, .mov…). **Paste** picks the link out of what you copied (even a message with a link in
-it); a link pasted into the box by hand is checked at once (some browsers, like an iPhone home-screen
-app, don't let Paste read what you copied: it then says to press and hold in the box and tap Paste).
-**✕** in the box clears the link and everything shown for it, to start again. Before downloading anything it asks the site the file's **type and size** and
-whether it can be resumed ("MP4 · 340 MB · from cdn.example.com · can be resumed"; for an MP4, also
-its details from its index: picture size, frame rate, codecs, sound). It shows a still from its start
-and each minute mark without playing it; **tap one** for every 10 seconds of that minute. Then
-**⬇️ Download** all of it, or **✂️ Download just a part** of an MP4 (from one minute to another: only
-that part and the file's index are fetched, saved as an MP4 of its own, no re-encoding).
+**Downloads** (its own app on the home screen) takes the address of a video that plays in the browser
+(a CDN link ending in .mp4, .webm, .mov…). It has three tabs:
 
-Downloads go in the list below it:
+- **Download:** paste a link with **📋 Paste** (it picks the link out of what you copied, even a
+  message with a link in it; an iPhone first shows a small "Paste" bubble by the button to tap; if
+  the browser won't hand the clipboard over, press and hold in the box and tap Paste) or type it.
+  It's **checked as soon as it's in**: no button to press. **✕** in the box clears it. Before
+  downloading anything it asks the site the file's **type and size** and whether it can be resumed
+  ("MP4 · 340 MB · from cdn.example.com · can be resumed"; for an MP4, also its details from its
+  index). Then **⬇️ Download**, its progress, and **💾 Save to phone** once it's done, above a still
+  from its start and each minute mark (never played; **tap one** for every 10 seconds of that
+  minute). **✂️ Download just a part** of an MP4 (from one minute to another: only that part and the
+  file's index are fetched, saved as an MP4 of its own, no re-encoding).
+- **Queue:** **+ Add to Queue** puts the link being looked at in the queue (it keeps checking there)
+  and clears the box for the next. The Queue lists every link with its state (checked, its size;
+  refused and why) and, while downloading, its own progress bar; tap one for its view (the same as
+  above: check, Download, Save to phone, stills). Starting one while another is downloading says
+  they'll **share the connection, so each goes slower**, and offers **⏳ When the others finish**
+  instead; **⬇️ Download all** queues the rest one after another.
+- **History:** every download kept on the phone, stored **piece by piece** as it arrives (so a big
+  file never has to fit in memory): **⏸ Pause / ▶ Continue**, and a dropped connection or a closed
+  app picks up where it stopped (where the site sends byte ranges and the file hasn't changed;
+  otherwise it starts over). Each has its **fingerprint** (SHA-256, worked out as it downloads: tap
+  it to see it all; paste one from the site to check ✓ / ✗), its **details** read from the file
+  (picture size, frame rate, codecs, sound, bitrate), **💾 Save to phone**, **✂️ Save a part** of a
+  downloaded MP4 (cut on the phone), **⟳ Download again**, **✕** to remove it, and **🗑 Clear all**.
 
-- **Stored on the phone piece by piece** as they arrive (a few MB at a time), so a big file never has
-  to fit in memory. **⏸ Pause / ▶ Continue**, and a dropped connection or a closed app picks up where
-  it stopped (where the site sends byte ranges and the file hasn't changed since; otherwise it starts
-  over). One that was going when the app closed carries on when it opens again.
-- **Fingerprint:** each file's SHA-256, worked out as it downloads (tap it to see it all and copy it).
-  Paste one from the site into the box to check: ✓ matches, or ✗ not the file it should be.
-- **Details** read from the file itself: picture size, frame rate, video and sound codecs, channels,
-  sample rate, bitrate (MP4 / MOV and WebM / MKV).
-- **💾 Save to phone** (the share sheet: Save Video or Save to Files), **✂️ Save a part** of a
-  downloaded MP4 (cut on the phone, nothing downloaded again: for sites that don't send ranges),
-  **⟳ Download again**, and **✕** to remove it and free its space. The list shows how much they take.
+**Privacy:** only the video at the link is fetched, straight from its site to the phone: no other
+server in between, no cookies, sign-ins or referrer sent, nothing from the page it came from runs.
+The links you paste and the queue are kept in memory only, for this visit: they're never written to
+the phone, and a link cleared (✕) or removed from the queue is forgotten. A download is kept (its
+file and its link, in the app's own storage, to resume and save it) until you remove it in History,
+which deletes both. Downloads go on while you use other apps in Command Center (not twice when you
+come back to it); on an iPhone they pause while the app is in the background and continue after.
 
 It needs a connection, and it's careful about what it fetches:
 

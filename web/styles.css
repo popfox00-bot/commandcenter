@@ -924,3 +924,23 @@ body.has-rail { padding-right: 22px; }
 .dl-clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--idle-bg); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
 .dl-clear[hidden] { display: none; }
 .dl-paste-hint { margin: -4px 0 0; }
+.dl-tabs { margin-bottom: 10px; }
+.dl-pane { display: grid; gap: 10px; }
+.dl-pane[hidden] { display: none; }
+.dl-paste { flex: none; }
+.dl-flash { margin: 0; }
+.dl-flash[hidden], .dl-paste-hint[hidden] { display: none; }
+.dl-queue-row { gap: 8px; }
+.dl-queue-row:empty { display: none; }
+.dl-view { display: grid; gap: 10px; }
+.dl-share-note { margin: 0; color: var(--warn); }
+.dl-hist-head { justify-content: space-between; align-items: center; gap: 8px; }
+.dl-qhead { justify-content: space-between; align-items: center; gap: 8px; }
+.dl-qhead[hidden], .dl-qlist[hidden], .dl-qitem[hidden] { display: none; }
+.dl-qlist { display: grid; gap: 8px; }
+.dl-qrow { cursor: pointer; display: grid; gap: 4px; }
+.dl-qrow.dl-bad { opacity: .8; }
+.dl-qrow .progress { margin: 2px 0 0; }
+.dl-qitem { display: grid; gap: 8px; }
+.dl-back { justify-self: start; }
+.dl-qurl { margin: 0; overflow-wrap: anywhere; }

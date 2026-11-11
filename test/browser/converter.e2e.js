@@ -59,12 +59,12 @@ test('home screen of apps: Files, FM, Draw and QR are apps of their own, Jobs is
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'FM', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Downloads', 'FM', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   await page.click('.app-tile >> text=Files');
   await page.waitForSelector('.studio-tabs');
   assert.equal(await page.textContent('#title'), 'Files');
-  assert.deepEqual(await page.$$eval('.studio-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'PDF', 'Scan', 'Convert', 'Download', 'Saved Files']);
+  assert.deepEqual(await page.$$eval('.studio-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'PDF', 'Scan', 'Convert', 'Saved Files']);
   assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
@@ -86,7 +86,7 @@ test('home screen of apps: Files, FM, Draw and QR are apps of their own, Jobs is
   assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden in apps');
   assert.equal(await page.isVisible('#update'), false, 'no update prompt on a first visit');
   // Bookmarks from before: Tools goes home, its tools to their own apps.
-  for (const [from, to] of [['#/tools', '#/'], ['#/tools/editor/pdf', '#/files/pdf'], ['#/tools/draw', '#/draw'], ['#/tools/qr', '#/qr']]) {
+  for (const [from, to] of [['#/files/download', '#/downloads'], ['#/tools', '#/'], ['#/tools/editor/pdf', '#/files/pdf'], ['#/tools/draw', '#/draw'], ['#/tools/qr', '#/qr']]) {
     await page.goto(`${origin}${BASE_PATH}${from}`);
     await page.waitForFunction((t) => location.hash === t, to);
   }

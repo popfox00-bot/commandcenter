@@ -1,7 +1,7 @@
 // "Files" app: one app, several tools as tabs: Photo Editor (with Collage and Cutout under it), PDF,
-// Scan, Convert, Download (a video from a link) and Saved Files (the files you keep in your own Google
-// Drive). Routes: #/files (the photo editor, default) and #/files/<tab> (collage, cutout, pdf, scan,
-// convert, download, saved). (FaceMask is
+// Scan, Convert, and Saved Files (the files you keep in your own Google Drive). Routes: #/files (the
+// photo editor, default) and #/files/<tab> (collage, cutout, pdf, scan, convert, saved). (Downloads,
+// a video from a link, is an app of its own: web/apps/downloads.) (FaceMask is
 // the FM app of its own: web/apps/fm.)
 // Going from a photo being edited to Collage puts it in a frame; to Cutout asks what to do with it.
 // Each tab is mounted the first time it is opened and then kept alive while hidden, so switching
@@ -16,12 +16,11 @@ const TABS = [
   { id: 'pdf', label: 'PDF', load: () => import('../pdfwrite/pdfwrite.js') },
   { id: 'scan', label: 'Scan', load: () => import('../scan/scan.js') },
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
-  { id: 'download', label: 'Download', load: () => import('../download/download.js') },
   { id: 'saved', label: 'Saved Files', load: () => import('../saved/saved.js') },
 ];
 const hashFor = (id) => (id === 'photo' ? '#/files' : `#/files/${id}`);
 // The tab bar: Photo Editor stands for its three sub-tabs.
-const TOP = [['photo', 'Photo Editor'], ['pdf', 'PDF'], ['scan', 'Scan'], ['convert', 'Convert'], ['download', 'Download'], ['saved', 'Saved Files']];
+const TOP = [['photo', 'Photo Editor'], ['pdf', 'PDF'], ['scan', 'Scan'], ['convert', 'Convert'], ['saved', 'Saved Files']];
 const PHOTO = [['photo', '✏️ Edit'], ['collage', '🧩 Collage'], ['cutout', '✂️ Cutout']];
 /** The pane a tab shows (its own). */
 const paneOf = (id) => TABS.find((t) => t.id === id)?.pane ?? id;

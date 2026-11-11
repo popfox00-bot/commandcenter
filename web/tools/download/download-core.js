@@ -218,6 +218,22 @@ export function uniqueFiles(items) {
   return out;
 }
 
+/**
+ * Files to save, split into batches small enough for a phone to hand to its share sheet at once
+ * (every file is copied for it: too many big videos together and iOS closes the app): at most
+ * `maxFiles` and about `maxBytes` each (a bigger file goes alone), in order.
+ * @template {{ size: number }} T @param {T[]} files @returns {T[][]}
+ */
+export function saveBatches(files, { maxFiles = 3, maxBytes = 200 * 1024 ** 2 } = {}) {
+  const out = []; let cur = []; let bytes = 0;
+  for (const f of files) {
+    if (cur.length && (cur.length >= maxFiles || bytes + f.size > maxBytes)) { out.push(cur); cur = []; bytes = 0; }
+    cur.push(f); bytes += f.size;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 export class DownloadError extends Error {
   /** @param {string} code @param {string} message */
   constructor(code, message) { super(message); this.code = code; this.name = 'DownloadError'; }

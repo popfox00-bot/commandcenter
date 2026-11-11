@@ -5,7 +5,7 @@ import { el, fill } from '../../lib/dom.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
 import { sameFingerprint } from '../../lib/sha256.js';
-import { formatTime, minuteMarks, uniqueFiles } from '../../tools/download/download-core.js';
+import { formatTime, minuteMarks, uniqueFiles, saveBatches } from '../../tools/download/download-core.js';
 
 /** A download's progress bar and its line ("45% · 120 MB of 340 MB · 3.1 MB/s · 1:10 left"). */
 export function progressBar(jobs) {
@@ -53,26 +53,72 @@ export async function saveJob(job, jobs) {
 }
 
 /**
- * Save all: the downloads given, each distinct file once (uniqueFiles), to the phone in one go: one
- * share sheet with all of them (an iPhone: "Save N Videos"; cancelled: nothing saved), or where a
- * sheet can't take several files, each downloaded in turn. Resolves how many were saved.
+ * Save all: the downloads given, each distinct file once (uniqueFiles), to the phone. A phone's share
+ * sheet copies every file it's given, and too many big videos at once make iOS close the app, so
+ * they go in small batches (saveBatches): one batch is shared at once; several are listed in a sheet,
+ * each saved with its own tap (a share sheet needs a tap of its own), only that batch's files made
+ * (straight from storage, no copies). Where there's no share sheet for files, each is downloaded in
+ * turn. Resolves how many were saved (counting on, while the batch sheet is open, via `onSaved`).
  */
-export async function saveAll(list, jobs) {
-  const picked = uniqueFiles(list.filter((j) => j.status === 'done'));
+export async function saveAll(list, jobs, { onSaved = () => {} } = {}) {
+  const picked = uniqueFiles(list.filter((j) => j.status === 'done')).map((p) => ({ ...p, size: p.item.loaded || p.item.total || 0 }));
   if (!picked.length) return 0;
-  try {
-    const files = await Promise.all(picked.map(async ({ item, name }) => { const f = await jobs.file(item); return new File([f], name, { type: f.type }); }));
-    if (navigator.share && canShareFiles(files)) {
-      if (!await shareFiles(files, `${files.length} videos`)) return 0;
-    } else {
-      for (const f of files) { downloadBlob(f, f.name); await new Promise((r) => setTimeout(r, 400)); }
-    }
-    for (const { item } of picked) await jobs.markSaved(item);
+  const done = async (batch) => {
+    for (const { item } of batch) await jobs.markSaved(item);
     // (The same file downloaded twice counts as saved too.)
-    const hashes = new Set(picked.map((p) => p.item.hash).filter(Boolean));
+    const hashes = new Set(batch.map((p) => p.item.hash).filter(Boolean));
     for (const j of list) if (j.status === 'done' && !j.saved && hashes.has(j.hash)) await jobs.markSaved(j);
-    return picked.length;
+  };
+  const filesOf = (batch) => Promise.all(batch.map(({ item, name }) => jobs.file(item, name)));
+  try {
+    // No share sheet for files (a computer): each downloaded in turn, one file made at a time.
+    if (!navigator.share || !canShareFiles([new File([new Blob()], 'x.mp4', { type: 'video/mp4' })])) {
+      for (const p of picked) { const [f] = await filesOf([p]); downloadBlob(f, f.name); await done([p]); await new Promise((r) => setTimeout(r, 400)); }
+      return picked.length;
+    }
+    const batches = saveBatches(picked);
+    if (batches.length === 1) {
+      const files = await filesOf(batches[0]);
+      if (!await shareFiles(files, `${files.length} video${files.length === 1 ? '' : 's'}`)) return 0;
+      await done(batches[0]);
+      return files.length;
+    }
+    return await batchSheet(batches, filesOf, done, onSaved);
   } catch (e) { noteError('Downloads: save all', e); alert(`Couldn't save them: ${e.message}`); return 0; }
+}
+
+/** The batches listed, each with its own Save (a tap per share sheet); resolves how many were saved when closed. */
+function batchSheet(batches, filesOf, done, onSaved) {
+  return new Promise((resolve) => {
+    let saved = 0; const total = batches.reduce((n, b) => n + b.length, 0);
+    const head = el('p', { class: 'small muted' });
+    const tellHead = () => { head.textContent = `${saved} of ${total} saved. ${saved < total ? 'Save each batch in turn (a few at a time, so the phone doesn\'t run out of memory).' : 'All saved.'}`; };
+    const rows = batches.map((b, i) => {
+      const btn = el('button', { class: 'btn primary', type: 'button', text: '💾 Save' });
+      const row = el('div', { class: 'dl-batch' },
+        el('div', { class: 'dl-title' }, el('strong', { text: `Batch ${i + 1} of ${batches.length}` }), el('span', { class: 'small muted', text: `${b.length} file${b.length === 1 ? '' : 's'} · ${formatBytes(b.reduce((n, p) => n + p.size, 0))} · ${b.map((p) => p.name).join(', ')}` })),
+        btn);
+      btn.addEventListener('click', async () => {
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          const files = await filesOf(b);
+          if (await shareFiles(files, `${files.length} video${files.length === 1 ? '' : 's'}`)) {
+            await done(b); saved += b.length; onSaved(saved);
+            btn.textContent = '✓ Saved'; btn.className = 'btn'; row.classList.add('saved');
+            const next = rows[i + 1]?.querySelector('button'); next?.focus();
+          } else { btn.disabled = false; btn.textContent = '💾 Save'; }
+        } catch (e) { noteError('Downloads: save batch', e); btn.disabled = false; btn.textContent = '💾 Try again'; alert(`Couldn't save them: ${e.message}`); }
+        tellHead();
+      });
+      return row;
+    });
+    const dlg = el('dialog', { class: 'ed-dialog dl-batches' }, el('form', { method: 'dialog', class: 'sheet' },
+      el('div', { class: 'card-head' }, el('h2', { text: `Save ${total} files` }), el('button', { class: 'icon-btn', 'aria-label': 'Close', text: '✕' })),
+      head, ...rows, el('button', { class: 'btn ghost block', text: 'Done' })));
+    tellHead();
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(saved); });
+    document.body.append(dlg); dlg.showModal();
+  });
 }
 
 /** When the site won't let apps fetch it: open it in the browser (its own tab, nothing of this app sent). */

@@ -395,3 +395,45 @@ test('downloads: 💾 Save all saves every downloaded file in the queue in one g
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('downloads: 💾 Save all on a phone shares a few files at a time (a tap per batch), so the phone never runs out of memory', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
+  // Five different files (the same video with a different tail each).
+  await context.route('https://cdn.example.com/v/*.webm', async (route) => {
+    const n = Number(/(\d)\.webm/.exec(route.request().url())[1]);
+    return cdn(Buffer.concat([webm, Buffer.alloc(n * 7, n)]))(route);
+  });
+  // A phone's share sheet: takes files, and records what it was given each time.
+  await context.addInitScript(() => {
+    window.__shared = [];
+    navigator.canShare = (d) => !!d?.files?.length;
+    navigator.share = async (d) => { window.__shared.push(d.files.map((f) => `${f.name}:${f.size}`)); };
+  });
+  const { page, errors } = await openApp(context);
+  for (let i = 1; i <= 5; i++) {
+    await enter(page, `https://cdn.example.com/v/clip${i}.webm`);
+    await page.waitForFunction(() => /KB/.test(document.querySelector('.dl-summary')?.textContent ?? ''));
+    await page.click('.dl-queue-row >> text=+ Queue');
+  }
+  await page.click('text=Queue (5) ›');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /KB/.test(r.textContent)));
+  await page.click('text=⬇️ Download all (5)');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /Downloaded/.test(r.textContent)), null, { timeout: 30000 });
+  await page.click('text=💾 Save all (5)');
+  await page.waitForSelector('.dl-batches');
+  assert.deepEqual(await page.$$eval('.dl-batch strong', (els) => els.map((e) => e.textContent)), ['Batch 1 of 2', 'Batch 2 of 2']);
+  assert.deepEqual(await page.evaluate(() => window.__shared), [], 'nothing shared until a batch is tapped');
+  await page.click('.dl-batch >> nth=0 >> text=💾 Save');
+  await page.waitForSelector('.dl-batch >> nth=0 >> text=✓ Saved');
+  await page.click('.dl-batch >> nth=1 >> text=💾 Save');
+  await page.waitForSelector('.dl-batch >> nth=1 >> text=✓ Saved');
+  assert.match(await page.textContent('.dl-batches .sheet > p'), /5 of 5 saved\. All saved\./);
+  const shared = await page.evaluate(() => window.__shared);
+  assert.deepEqual(shared.map((b) => b.map((x) => x.split(':')[0])), [['clip1.webm', 'clip2.webm', 'clip3.webm'], ['clip4.webm', 'clip5.webm']]);
+  assert.deepEqual(shared.flat().map((x) => Number(x.split(':')[1])), [1, 2, 3, 4, 5].map((n) => webm.length + n * 7), 'each the whole file');
+  await page.click('.dl-batches >> text=Done');
+  await page.waitForSelector('.dl-flash >> text=✓ Saved 5 files to the phone.');
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.className)), Array(5).fill('dl-num saved'));
+  assert.deepEqual(errors, []);
+  await context.close();
+});

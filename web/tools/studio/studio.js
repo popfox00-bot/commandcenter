@@ -1,13 +1,15 @@
-// "Files" app: one app, several tools as tabs: Photo Editor (with Collage and Cutout under it), PDF,
-// Scan, Convert, and Saved Files (the files you keep in your own Google Drive). Routes: #/files (the
-// photo editor, default) and #/files/<tab> (collage, cutout, pdf, scan, convert, saved). (Downloads,
-// a video from a link, is an app of its own: web/apps/downloads.) (FaceMask is
-// the FM app of its own: web/apps/fm.)
+// "Files" app: a page of its own apps (Photo Editor, Convert, PDF, Scan), each opened from it. Photo
+// Editor has Edit, Collage and Cutout; Scan has Documents and QR codes (scan, make, app codes).
+// Routes: #/files (its page of apps) and #/files/<tab> (photo, collage, cutout, convert, pdf, scan,
+// qr). A file handed over from Saved Files (in Magic) opens in the Photo Editor or PDF.
 // Going from a photo being edited to Collage puts it in a frame; to Cutout asks what to do with it.
 // Each tab is mounted the first time it is opened and then kept alive while hidden, so switching
 // tabs never loses a conversion in progress or an open photo.
 
 import { el } from '../../lib/dom.js';
+import { handoff } from '../../lib/handoff.js';
+import { FILES_APPS } from '../../apps/index.js';
+import { renderHub } from '../../apps/hub.js';
 
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
@@ -15,29 +17,31 @@ const TABS = [
   { id: 'cutout', label: 'Cutout', load: () => import('../cutout/cutout.js') },
   { id: 'pdf', label: 'PDF', load: () => import('../pdfwrite/pdfwrite.js') },
   { id: 'scan', label: 'Scan', load: () => import('../scan/scan.js') },
+  { id: 'qr', label: 'QR codes', load: () => import('../qr/qr.js') },
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
-  { id: 'saved', label: 'Saved Files', load: () => import('../saved/saved.js') },
 ];
-const hashFor = (id) => (id === 'photo' ? '#/files' : `#/files/${id}`);
-// The tab bar: Photo Editor stands for its three sub-tabs.
-const TOP = [['photo', 'Photo Editor'], ['pdf', 'PDF'], ['scan', 'Scan'], ['convert', 'Convert'], ['saved', 'Saved Files']];
+const hashFor = (id) => `#/files/${id}`;
+// The switches inside an app of Files: Photo Editor's three, Scan's two.
 const PHOTO = [['photo', '✏️ Edit'], ['collage', '🧩 Collage'], ['cutout', '✂️ Cutout']];
+const SCAN = [['scan', '📄 Documents'], ['qr', '▦ QR codes']];
 /** The pane a tab shows (its own). */
 const paneOf = (id) => TABS.find((t) => t.id === id)?.pane ?? id;
 const inPhoto = (id) => PHOTO.some(([p]) => p === id);
+const switchesOf = (id) => (inPhoto(id) ? PHOTO : SCAN.some(([p]) => p === id) ? SCAN : null);
 
 export function mount(host) {
   const panes = new Map(); // id -> { node, api }
-  const bar = el('div', { class: 'chips studio-tabs', role: 'tablist', 'aria-label': 'Files' });
-  const sub = el('div', { class: 'segmented studio-sub', role: 'tablist', 'aria-label': 'Photo Editor' });
+  const hub = el('div', { class: 'studio-hub' });
+  renderHub(hub, FILES_APPS.map((a) => ({ ...a, href: hashFor(a.id) })));
+  const sub = el('div', { class: 'segmented studio-sub', role: 'tablist' });
   const body = el('div', { class: 'studio-body' });
-  host.append(bar, sub, body);
+  host.append(hub, sub, body);
   let shown = null;    // the tab on screen
   const handed = {};   // the editor photo (its key) last handed to Collage / Cutout
 
   const current = () => {
     const sub = location.hash.split('/')[2];
-    return TABS.some((t) => t.id === sub) ? sub : 'photo';
+    return TABS.some((t) => t.id === sub) ? sub : 'hub';
   };
 
   async function ensure(id, opts) {
@@ -51,17 +55,20 @@ export function mount(host) {
   }
 
   async function show(id) {
+    // Its page of apps.
+    hub.hidden = id !== 'hub'; body.hidden = id === 'hub';
+    if (id === 'hub') { sub.hidden = true; return; }
     const from = shown; shown = id;
-    const topId = inPhoto(id) ? 'photo' : id;
-    bar.replaceChildren(...TOP.map(([t, label]) => el('a', {
-      class: `chip${t === topId ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t === topId), text: label,
-      href: hashFor(inPhoto(t) && inPhoto(id) ? id : t),
-    })));
-    sub.hidden = !inPhoto(id);
-    sub.replaceChildren(...PHOTO.map(([t, label]) => el('a', {
+    const sw = switchesOf(id);
+    sub.hidden = !sw;
+    sub.setAttribute('aria-label', inPhoto(id) ? 'Photo Editor' : 'Scan');
+    sub.replaceChildren(...(sw ?? []).map(([t, label]) => el('a', {
       class: `seg${t === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t === id), text: label, href: hashFor(t),
     })));
     const pid = paneOf(id);
+    // A file handed over from Saved Files opens here.
+    const given = handoff.take(pid);
+    if (given && !panes.has(pid)) { await ensure(pid, { ...optsFor(pid), file: given }); } else if (given) { const p = await panes.get(pid).ready; p.api?.openFile?.(given, given.name); }
     const pane = await ensure(pid, optsFor(pid));
     await pane.ready;
     for (const [k, p] of panes) p.node.hidden = k !== pid;
@@ -74,7 +81,6 @@ export function mount(host) {
     scan: { onWrite: sendToPdf },
     cutout: { onPlace: (f) => sendTo('collage', f) },
     collage: { onEdit: sendToPhoto },
-    saved: { onEdit: sendToPhoto, onWrite: sendToPdf },
   }[id] ?? {});
 
   /**

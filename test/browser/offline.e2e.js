@@ -51,7 +51,7 @@ test('offline: every app and tool works with no connection after the first visit
   await go('#/notes/grocery', '.nt-pane');
 
   // Files: the photo editor with a photo, and Clean Up.
-  await go('#/files', '#ed-file');
+  await go('#/files/photo', '#ed-file');
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(200, 100); const x = c.getContext('2d');
     x.fillStyle = 'rgb(200,40,40)'; x.fillRect(0, 0, 200, 100); x.fillStyle = '#fff'; x.fillRect(95, 45, 8, 8);

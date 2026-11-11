@@ -1,6 +1,6 @@
 // Calendar app, in the browser: home → Calendar, week view with today highlighted, add an event and
 // a weekly one, month and day views, edit and delete; events stay after a reload and never leave
-// the phone. Files → Saved Files against a stand-in for the Apps Script web app: connect, save,
+// the phone. Magic → Saved Files against a stand-in for the Apps Script web app: connect, save,
 // list, open, delete; and Draw's "Save to Files".
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -143,10 +143,10 @@ async function fakeScript(context, key = 'k3y', { version = 4 } = {}) {
   return { files, kit, folders, calls };
 }
 
-test('Files → Saved Files: connect in Settings with the URL and key, save, list, open, delete; Draw saves to it', async () => {
+test('Magic → Saved Files: connect in Settings with the URL and key, save, list, open, delete; Draw saves to it', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const script = await fakeScript(context);
-  // Not connected yet: Files → Saved Files points to Settings, where the URL and key go.
+  // Not connected yet: Magic → Saved Files points to Settings, where the URL and key go.
   const { page, errors } = await open(context, '#/files/saved');
   await page.waitForSelector('text=Connect it once in Settings');
   await page.getByRole('link', { name: 'Open Settings' }).click();
@@ -182,11 +182,11 @@ test('Files → Saved Files: connect in Settings with the URL and key, save, lis
   await page.waitForSelector('.sv-viewer iframe');
   await page.getByRole('button', { name: 'Close' }).click();
   await page.locator('.sv-item:has-text("pixel.png")').getByRole('button', { name: 'Edit' }).click();
-  await page.waitForFunction(() => location.hash === '#/files');
+  await page.waitForFunction(() => location.hash === '#/files/photo');
   await page.waitForSelector('.ed-canvas');
 
-  // Delete.
-  await page.getByRole('tab', { name: 'Saved Files' }).click();
+  // Delete (back in Magic → Saved Files).
+  await page.goto(`${origin}${BASE}#/saved`);
   await page.waitForSelector('.sv-item:has-text("notes.txt")');
   await page.getByRole('button', { name: 'Delete notes.txt' }).click();
   await page.waitForSelector('text=Deleted "notes.txt".');
@@ -342,7 +342,7 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   const vault = script.files.find((f) => f.name === 'command-center-vault.json');
   assert.ok(vault && !Buffer.from(vault.data, 'base64').toString().includes('maple'), 'the vault file holds no password');
 
-  // Files → Saved Files: a new file is encrypted before it leaves the phone.
+  // Magic → Saved Files: a new file is encrypted before it leaves the phone.
   await page.goto(`${origin}${BASE}#/files/saved`);
   await page.waitForSelector('.sv-item');
   await page.setInputFiles('#sv-file', { name: 'bank notes.txt', mimeType: 'text/plain', buffer: Buffer.from('account 12345') });

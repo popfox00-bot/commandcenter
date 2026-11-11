@@ -30,7 +30,7 @@ async function openEditor() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(200, 100);
@@ -164,7 +164,7 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // A red half and a blue half, with a white speck on the red.
   const png = await page.evaluate(async () => {
@@ -230,7 +230,7 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
 test('clean up: Reverse Fill isn\'t in the Photo Editor (it\'s in FM)', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const png = await page.evaluate(async () => { const c = new OffscreenCanvas(60, 40); const x = c.getContext('2d'); x.fillStyle = '#4a6'; x.fillRect(0, 0, 60, 40); return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer())); });
   await page.setInputFiles('#ed-file', { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from(png) });
@@ -248,7 +248,7 @@ test('crop → 🪄 Generative Expand: a new shape, the photo to one side, the b
   page.on('pageerror', (e) => errors.push(e.message));
   const workers = [];
   page.on('worker', (w) => workers.push(w.url()));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // A 240×160 landscape: sky on top, grass below the middle.
   const png = await page.evaluate(async () => {
@@ -314,7 +314,7 @@ test('zoom within the photo: two fingers zoom (no stroke drawn), one finger then
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // Red with a small white speck at (70, 30) of 200×100.
   const png = await page.evaluate(async () => {
@@ -377,7 +377,7 @@ test('phones: a thin scroll bar on the right scrolls the page past the photo (wh
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(300, 400); const x = c.getContext('2d');
@@ -419,7 +419,7 @@ test('phones: a thin scroll bar on the right scrolls the page past the photo (wh
   // A computer (a mouse, its own scroll bar): no rail.
   const desk = await browser.newContext({ viewport: { width: 1000, height: 600 } });
   const p2 = await desk.newPage();
-  await p2.goto(`${origin}${BASE}#/files`);
+  await p2.goto(`${origin}${BASE}#/files/photo`);
   await p2.waitForSelector('#ed-file', { state: 'attached' });
   await p2.setInputFiles('#ed-file', { name: 'tall.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await p2.waitForSelector('.ed-canvas');

@@ -86,10 +86,12 @@ test('local college football: FBS teams near a ZIP\'s place, nearest first; the 
 
 test('old Tools links go to the new apps', () => {
   assert.equal(redirect('#/tools'), '#/');
-  assert.equal(redirect('#/tools/editor'), '#/files');
+  assert.equal(redirect('#/tools/editor'), '#/files/photo');
   assert.equal(redirect('#/tools/editor/pdf'), '#/files/pdf');
   assert.equal(redirect('#/tools/convert'), '#/files/convert');
   assert.equal(redirect('#/tools/draw'), '#/draw');
-  assert.equal(redirect('#/tools/qr'), '#/qr');
+  assert.equal(redirect('#/tools/qr'), '#/files/qr');
+  assert.equal(redirect('#/qr'), '#/files/qr', 'QR is part of Files → Scan');
+  assert.equal(redirect('#/files/saved'), '#/saved', 'Saved Files is in Magic');
   assert.equal(redirect('#/files'), null);
 });

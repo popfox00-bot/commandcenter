@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "96e100398a31",
+  "version": "bd22f674e21e",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -20,7 +20,9 @@ const PRECACHE = {
     "apps/games/fox/fox.css",
     "apps/games/fox/fox.js",
     "apps/games/fox/index.html",
+    "apps/hub.js",
     "apps/index.js",
+    "apps/magic/magic.js",
     "apps/notes/notes-core.js",
     "apps/notes/notes.js",
     "apps/rap/DATA-LICENSES.md",
@@ -30,6 +32,7 @@ const PRECACHE = {
     "apps/rap/rap-themes.js",
     "apps/rap/rap-words.txt",
     "apps/rap/rap.js",
+    "apps/saved/saved-app.js",
     "apps/settings/settings.js",
     "apps/sports/sports.js",
     "apps/updates/college-sites.js",
@@ -60,6 +63,7 @@ const PRECACHE = {
     "lib/face.js",
     "lib/files.js",
     "lib/geometry.js",
+    "lib/handoff.js",
     "lib/idb.js",
     "lib/image.js",
     "lib/loupe.js",

@@ -82,7 +82,8 @@ test('downloads: its own app; checked as soon as it\'s in; stills and a closer l
   const seen = [];
   await context.route('https://cdn.example.com/**', cdn(webm, { seen }));
   const { page, errors } = await openApp(context, '');
-  await page.click('.app-tile >> text=Downloads');
+  await page.click('.app-tile >> text=Magic');
+  await page.click('#app-host .app-tile >> text=Downloads');
   await page.waitForSelector('.dl-url');
   assert.deepEqual(await page.$$eval('.dl-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Download', 'Queue', 'History']);
   assert.equal(await page.locator('text=Check link').count(), 0, 'no button to press: it checks by itself');
@@ -241,8 +242,8 @@ test('downloads: the queue — add links while one checks, each with its view an
   assert.equal(await page.$$eval('.dl-qrow .progress:not([hidden])', (els) => els.length), 2);
   // Leaving the app and coming back while it downloads: it carries on, not started again.
   await page.click('#view-app .back');
-  await page.waitForSelector('#view-home:not([hidden])');
-  await page.click('.app-tile >> text=Downloads');
+  await page.waitForFunction(() => location.hash === '#/magic');
+  await page.click('#app-host .app-tile >> text=Downloads');
   await tab(page, 'Queue');
   // The rest one after another.
   await page.click('text=⬇️ Download all (1)');

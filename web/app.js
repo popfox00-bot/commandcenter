@@ -2,7 +2,7 @@
 // No build step; every module is plain ES modules served from this folder.
 
 import { $, el, store } from './lib/dom.js';
-import { APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
+import { APPS, FILES_APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
@@ -23,7 +23,14 @@ async function route() {
   const view = section === 'jobs' ? 'jobs' : app ? 'app' : 'home';
   if (view === 'home') renderHome(); // the order may have changed in Settings
   for (const [name, node] of Object.entries(views)) node.hidden = name !== view;
-  $('#title').textContent = { home: 'Command Center', jobs: 'Jobs', app: app?.name }[view];
+  // An app inside another (Files' Photo Editor…, Magic's Downloads…): its own name, and back to
+  // the one it's in.
+  const tab = (location.hash || '').split('/')[2] ?? '';
+  const inFiles = app?.id === 'files' ? FILES_APPS.find((f) => f.tabs.includes(tab)) : null;
+  const parent = app?.parent ? APPS.find((a) => a.id === app.parent) : null;
+  const back = $('#view-app .back');
+  if (inFiles) { back.href = '#/files'; back.textContent = '‹ Files'; } else if (parent) { back.href = parent.href; back.textContent = `‹ ${parent.name}`; } else { back.href = '#/'; back.textContent = '‹ Home'; }
+  $('#title').textContent = { home: 'Command Center', jobs: 'Jobs', app: inFiles?.name ?? app?.name }[view];
   $('#jobs-actions').hidden = view !== 'jobs';
   setJobsActive(view === 'jobs');
 

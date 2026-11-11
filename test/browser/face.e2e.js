@@ -53,8 +53,8 @@ test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  // FM on the home screen.
-  await page.goto(`${origin}${BASE}#/`);
+  // FM in Magic.
+  await page.goto(`${origin}${BASE}#/magic`);
   await page.waitForSelector('.app-tile[href="#/fm"]');
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
@@ -62,7 +62,7 @@ test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 
     return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
   });
   // The Photo Editor in Files: its own tabs and the standard editing tools, nothing for faces.
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   assert.equal(await page.getByRole('button', { name: '⚡ Quick Swap faces' }).count(), 0);
   await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
@@ -264,7 +264,7 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('#ed-file', { state: 'attached' });
   // The Character: a face cut out, tan, with red eyes where its own face's eyes are.
   await page.evaluate(async (base) => {
@@ -336,7 +336,7 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   for (const [u, v] of [[0.25, 0.45], [0.35, 0.45], [0.65, 0.42], [0.75, 0.38]]) assert.ok(red(await pixel('.ed-canvas', u, v)), `an eye on an eye at ${u},${v}: ${await pixel('.ed-canvas', u, v)}`);
 
   // Cutout (in Files): a patch is aimed with the magnifier and applied when the finger lifts.
-  await page.goto(`${origin}${BASE}#/files`);
+  await page.goto(`${origin}${BASE}#/files/photo`);
   await page.getByRole('button', { name: 'Continue' }).click(); // (Files' own photo, kept)
   await page.waitForSelector('.ed-canvas');
   await page.getByRole('tab', { name: '✂️ Cutout' }).click();

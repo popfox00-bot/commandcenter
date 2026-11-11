@@ -12,7 +12,7 @@ import { el, fill, store as ls } from '../../lib/dom.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
 import { sameFingerprint } from '../../lib/sha256.js';
-import { checkVideoLink, minuteMarks, closerMarks, formatTime, preflight, ago, DownloadError, KIND_NAME, fileNameFor, remoteSource } from './download-core.js';
+import { checkVideoLink, linkFromText, minuteMarks, closerMarks, formatTime, preflight, ago, DownloadError, KIND_NAME, fileNameFor, remoteSource } from './download-core.js';
 import { createJobs } from './download-jobs.js';
 import { planPart, mp4Details } from './mp4.js';
 import { blobSource, describe } from './media-info.js';
@@ -26,7 +26,10 @@ export function mount(host) {
 
   const input = el('input', { type: 'url', class: 'dl-url', placeholder: 'https://…/video.mp4', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', 'aria-label': 'Video link' });
   const checkBtn = el('button', { class: 'btn primary', text: 'Check link' });
-  const pasteBtn = navigator.clipboard?.readText ? el('button', { class: 'btn', text: 'Paste' }) : null;
+  const pasteBtn = el('button', { class: 'btn', text: 'Paste' });
+  const clearBtn = el('button', { class: 'dl-clear', type: 'button', 'aria-label': 'Clear the link', title: 'Clear the link and start again', text: '✕', hidden: true });
+  const field = el('div', { class: 'dl-field' }, input, clearBtn);
+  const pasteHint = el('p', { class: 'small muted dl-paste-hint', hidden: true, text: 'This browser didn\'t hand over what you copied. Press and hold in the box and tap Paste: it\'s checked as soon as it\'s in.' });
   const strict = el('input', { type: 'checkbox', checked: ls.get(STRICT_KEY) === '1' });
   strict.addEventListener('change', () => ls.set(STRICT_KEY, strict.checked ? '1' : '0'));
   const status = el('div', { class: 'dl-status' });
@@ -38,7 +41,8 @@ export function mount(host) {
   root.append(
     el('h3', { text: 'Download a video' }),
     el('p', { class: 'muted small', text: 'Paste the address of a video that plays in the browser (ending in .mp4, .webm, .mov…). It isn\'t played: you see a still from each minute, then download all of it or a part.' }),
-    el('div', { class: 'row dl-row' }, input, pasteBtn, checkBtn),
+    el('div', { class: 'row dl-row' }, field, pasteBtn, checkBtn),
+    pasteHint,
     el('label', { class: 'dl-strict small' }, strict, ' Only accept files the site labels as video'),
     status, info, grid, actions, listHead, list,
     el('p', { class: 'muted small privacy', text: 'Needs a connection. Only the video at the link is downloaded, straight from its site to this phone: no other server, no cookies or sign-ins sent, nothing from its web page runs. Links that aren\'t https, point inside your own network, have expired or look like a scam aren\'t opened. Downloads stay on this phone until you remove them (×).' }),
@@ -108,7 +112,7 @@ export function mount(host) {
         b.push(el('button', { class: 'btn primary', text: '💾 Save to phone', onclick: () => saveJob(job) }));
         if ((job.kind === 'mp4' || job.kind === 'mov') && !job.part) b.push(el('button', { class: 'btn', text: '✂️ Save a part', onclick: () => partFromFile(job, extra) }));
       }
-      if (done || job.status === 'failed') b.push(el('button', { class: 'btn ghost', text: '⟳ Download again', onclick: () => { input.value = job.url; check(); root.scrollIntoView({ behavior: 'smooth' }); } }));
+      if (done || job.status === 'failed') b.push(el('button', { class: 'btn ghost', text: '⟳ Download again', onclick: () => { input.value = job.url; showClear(); check(); root.scrollIntoView({ behavior: 'smooth' }); } }));
       fill(btns, b);
       fill(fp, done && job.hash ? fingerprint(job.hash) : null);
     };
@@ -181,8 +185,23 @@ export function mount(host) {
     return job;
   };
 
-  pasteBtn?.addEventListener('click', async () => {
-    try { input.value = (await navigator.clipboard.readText()).trim(); check(); } catch { input.focus(); }
+  // Paste: what was copied, its link picked out of any text around it, then checked. Some browsers
+  // (iPhone, in a home-screen app) won't hand the clipboard over: then say how to paste by hand.
+  pasteBtn.addEventListener('click', async () => {
+    let text = '';
+    try { text = (await navigator.clipboard?.readText?.()) ?? ''; } catch { /* not allowed */ }
+    if (linkFromText(text)) { pasteHint.hidden = true; input.value = linkFromText(text); showClear(); check(); return; }
+    pasteHint.hidden = false; input.focus(); input.select();
+  });
+  // Pasted into the box by hand: the link picked out and checked straight away.
+  input.addEventListener('paste', () => setTimeout(() => { input.value = linkFromText(input.value); pasteHint.hidden = true; showClear(); if (input.value) check(); }, 0));
+  const showClear = () => { clearBtn.hidden = !input.value; };
+  input.addEventListener('input', showClear);
+  // Clear: the link and all that was shown for it gone, ready for another (downloads stay).
+  clearBtn.addEventListener('click', () => {
+    newLook(); input.value = ''; showClear(); pasteHint.hidden = true;
+    fill(status); fill(info); fill(grid); fill(actions);
+    input.focus();
   });
   checkBtn.addEventListener('click', () => check());
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') check(); });
@@ -192,7 +211,7 @@ export function mount(host) {
     fill(info); fill(grid); fill(actions);
     const c = checkVideoLink(input.value);
     if (c.ok === false) { fill(status, verdict('danger', 'Not downloaded', c.reasons)); return; }
-    input.value = c.url; j.link = c;
+    input.value = c.url; showClear(); j.link = c;
     const showOk = () => {
       fill(status, verdict('ok', `No warning signs: ${c.host}`, []), notes(c));
       // A signed link's time left, kept up to date.

@@ -206,3 +206,37 @@ test('download: a site that blocks apps shows frames and offers to open it; unsa
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('download: Paste picks the link out of what was copied; pasting by hand checks it at once; refused clipboard says how; Clear starts again', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await context.route('https://cdn.example.com/**', cdn(webm));
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  const { page, errors } = await openDownload(context);
+  assert.equal(await page.isVisible('.dl-clear'), false, 'nothing to clear yet');
+  await page.evaluate(() => navigator.clipboard.writeText('Watch this: https://cdn.example.com/v/clock.webm. So good'));
+  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  await page.waitForSelector('.qr-verdict.ok');
+  assert.equal(await page.inputValue('.dl-url'), 'https://cdn.example.com/v/clock.webm');
+  await page.waitForFunction(() => document.querySelectorAll('.dl-grid .dl-thumb img').length === 3, null, { timeout: 30000 });
+  // Clear: the link and everything shown for it gone, ready for another.
+  await page.click('.dl-clear');
+  assert.equal(await page.inputValue('.dl-url'), '');
+  assert.equal(await page.$$eval('.dl-grid .dl-thumb, .qr-verdict, .dl-facts, .dl-actions button', (els) => els.length), 0);
+  assert.equal(await page.isVisible('.dl-clear'), false);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('dl-url')), true, 'ready to type or paste');
+  // Pasted into the box by hand: checked straight away.
+  await page.evaluate(() => navigator.clipboard.writeText('https://cdn.example.com/v/clock.webm'));
+  await page.focus('.dl-url');
+  await page.keyboard.press('ControlOrMeta+V');
+  await page.waitForSelector('.qr-verdict.ok');
+  assert.equal(await page.isVisible('.dl-clear'), true);
+  // A browser that won't hand over the clipboard: how to paste instead.
+  await page.click('.dl-clear');
+  await page.evaluate(() => { Object.defineProperty(navigator.clipboard, 'readText', { value: () => Promise.reject(new DOMException('no', 'NotAllowedError')) }); });
+  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  await page.waitForSelector('.dl-paste-hint:not([hidden])');
+  assert.match(await page.textContent('.dl-paste-hint'), /Press and hold in the box and tap Paste/);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('dl-url')), true);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

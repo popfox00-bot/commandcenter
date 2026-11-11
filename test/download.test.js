@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  checkVideoLink, minuteMarks, closerMarks, formatTime, sniffVideo, fileNameFor, downloadVideo, DownloadError,
+  checkVideoLink, linkFromText, minuteMarks, closerMarks, formatTime, sniffVideo, fileNameFor, downloadVideo, DownloadError,
   linkExpiry, signedParams, preflight, remoteSource, streamPart, typeProblem,
 } from '../web/tools/download/download-core.js';
 import { planPart, readMovie, mp4Details } from '../web/tools/download/mp4.js';
@@ -34,6 +34,14 @@ test('links: https video files pass; http, private, playlists, programs, scams a
   assert.equal(odd.ok, true); assert.ok(odd.warnings.some((w) => /port/i.test(w.title)));
   const old = checkVideoLink(`https://d1.cloudfront.net/a.mp4?Expires=${NOW / 1000 - 600}&Signature=abcDEF123456789xyz&Key-Pair-Id=K2ABC`, { now: NOW });
   assert.equal(old.ok, false); assert.match(old.reasons[0].title, /expired/); assert.match(old.reasons[0].detail, /10 min ago/);
+});
+
+test('pasted text: the link picked out of a message around it', () => {
+  assert.equal(linkFromText('  https://cdn.example.com/a.mp4\n'), 'https://cdn.example.com/a.mp4');
+  assert.equal(linkFromText('Watch this: https://cdn.example.com/a.mp4?x=1. So good!'), 'https://cdn.example.com/a.mp4?x=1');
+  assert.equal(linkFromText('(https://cdn.example.com/a.mp4)'), 'https://cdn.example.com/a.mp4');
+  assert.equal(linkFromText('cdn.example.com/a.mp4'), 'cdn.example.com/a.mp4', 'no scheme: as it is');
+  assert.equal(linkFromText(''), '');
 });
 
 test('signed links: when they expire, their tokens pointed out, tracking kept on them', () => {

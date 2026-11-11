@@ -21,6 +21,17 @@ export function alignment(base, result) {
   return t / 68 / s;
 }
 
+/**
+ * Lined up where it shows: the same, for its inner features only (brows, eyes, nose, mouth: 17–67),
+ * leaving out the jaw, which is the new face's own when its shape is kept.
+ * @param {Pts} base @param {Pts} result
+ */
+export function innerAlignment(base, result) {
+  const s = eyeSpan(base) || 1; let t = 0;
+  for (let i = 17; i < 68; i++) t += dist(base[i], result[i]);
+  return t / 51 / s;
+}
+
 /** A face's proportions, each a length over its eye span: what makes it look like itself. @param {Pts} P */
 export function proportions(P) {
   const s = eyeSpan(P) || 1; const eyes = [mid(P, 36, 41), mid(P, 42, 47)]; const eyeMid = [(eyes[0][0] + eyes[1][0]) / 2, (eyes[0][1] + eyes[1][1]) / 2];
@@ -87,5 +98,5 @@ function softenBox(m, w, h, r) {
  */
 export function scoreSwap({ base, character, result, rgba, before, W, H }) {
   const d = distortion(character, result);
-  return { alignment: alignment(base, result), distortion: d.mean, seam: seam(rgba, before, W, H), each: d.each };
+  return { alignment: alignment(base, result), inner: innerAlignment(base, result), distortion: d.mean, seam: seam(rgba, before, W, H), each: d.each };
 }

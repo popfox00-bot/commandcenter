@@ -5,7 +5,7 @@
 // shape it kept, and how visible the seam is (0 is perfect for each). Your photos stay where they are:
 // nothing is copied into the repository or sent anywhere.
 //
-//   node scripts/score-swaps.mjs <folder> [--json out.json]
+//   node scripts/score-swaps.mjs <folder> [--json out.json] [--save <folder for the results>]
 //
 // <folder> holds one folder per pair, each with base.jpg (the photo to change) and char.jpg (the new face).
 // Any result*.jpg there (a swap saved earlier, or made another way) is scored too, as it is, to compare.
@@ -19,8 +19,9 @@ const WEB = resolve(import.meta.dirname, '../web');
 const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm' };
 
 const args = process.argv.slice(2);
-const dir = args.find((a) => !a.startsWith('--'));
+const dir = args.find((a, i) => !a.startsWith('--') && !['--json', '--save'].includes(args[i - 1]));
 const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null;
+const saveDir = args.includes('--save') ? args[args.indexOf('--save') + 1] : null;
 if (!dir) { console.error('usage: node scripts/score-swaps.mjs <folder of pairs> [--json out.json]'); process.exit(2); }
 
 const pairs = [];
@@ -97,6 +98,11 @@ for (const pair of pairs) {
       const data = (c) => c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
       return scoreSwap({ base: px(fb, base), character: px(fc, char), result: px(fr, result), rgba: data(result), before: data(base), W: base.width, H: base.height });
     }, [baseB.toString('base64'), charB.toString('base64')]);
+    // (--save <folder>: each swap's result, as the editor shows it, to look at.)
+    if (saveDir) {
+      const b64 = await page.evaluate(() => document.querySelector('.ed-canvas').toDataURL('image/jpeg', 0.9).split(',')[1]);
+      await writeFile(join(saveDir, `${pair.name}.jpg`), Buffer.from(b64, 'base64'));
+    }
     results.push({ pair: pair.name, seconds: Math.round((Date.now() - t0) / 100) / 10, ...score });
   } catch (err) {
     results.push({ pair: pair.name, error: String(err.message ?? err).split('\n')[0] });
@@ -105,9 +111,10 @@ for (const pair of pairs) {
 await browser.close(); server.close();
 
 const f = (v) => (typeof v === 'number' ? v.toFixed(3) : '—');
-console.log('pair'.padEnd(24), 'aligned', 'shape', ' seam', ' secs');
-for (const r of results) console.log(String(r.pair).padEnd(24), r.error ? `  error: ${r.error}` : `${f(r.alignment)}   ${f(r.distortion)} ${f(r.seam)} ${String(r.seconds ?? '').padStart(5)}`);
+console.log('pair'.padEnd(24), 'aligned', 'inner', 'shape', ' seam', ' secs');
+for (const r of results) console.log(String(r.pair).padEnd(24), r.error ? `  error: ${r.error}` : `${f(r.alignment)}   ${f(r.inner)} ${f(r.distortion)} ${f(r.seam)} ${String(r.seconds ?? '').padStart(5)}`);
 const ok = results.filter((r) => !r.error);
-if (ok.length > 1) console.log('mean'.padEnd(24), `${f(ok.reduce((t, r) => t + r.alignment, 0) / ok.length)}   ${f(ok.reduce((t, r) => t + r.distortion, 0) / ok.length)} ${f(ok.reduce((t, r) => t + r.seam, 0) / ok.length)}`);
-console.log('(0 is perfect for each: aligned ~0.05 is close, shape ~0.05 is itself, seam ~0 can\'t be seen.)');
+const avg = (k) => f(ok.reduce((t, r) => t + r[k], 0) / ok.length);
+if (ok.length > 1) console.log('mean'.padEnd(24), `${avg('alignment')}   ${avg('inner')} ${avg('distortion')} ${avg('seam')}`);
+console.log('(0 is perfect for each: aligned ~0.05 is close (inner: eyes, brows, nose, mouth only), shape ~0.05 is itself, seam ~0 can\'t be seen.)');
 if (jsonOut) await writeFile(jsonOut, JSON.stringify(results, null, 2));

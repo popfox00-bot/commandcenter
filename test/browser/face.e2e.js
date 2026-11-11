@@ -459,11 +459,14 @@ test('faces: ✂️ Cut out & save keeps the face with a generous border (its de
   // 🔀 Compare looks: four close-ups side by side; tapping one takes it (here, its mouth matched), then back.
   await page.getByRole('button', { name: '🔀 Compare looks' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.fm-look canvas').length === 4, null, { timeout: 60000 });
-  assert.equal(await page.getByRole('button', { name: 'As it is' }).getAttribute('aria-pressed'), 'true');
+  // (Turned to its pose is on unless turned off: it only turns a face posed differently.)
+  assert.equal(await page.getByRole('button', { name: 'Turned to its pose' }).getAttribute('aria-pressed'), 'true');
   await page.getByRole('button', { name: 'Mouth matched' }).click();
   assert.equal(await page.getByRole('button', { name: '👄 Match the mouth' }).getAttribute('aria-pressed'), 'true');
-  await page.getByRole('button', { name: 'As it is' }).click();
+  assert.equal(await page.getByRole('button', { name: '🧊 Turn to its pose' }).getAttribute('aria-pressed'), 'false');
+  await page.getByRole('button', { name: 'Turned to its pose' }).click();
   assert.equal(await page.getByRole('button', { name: '👄 Match the mouth' }).getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.getByRole('button', { name: '🧊 Turn to its pose' }).getAttribute('aria-pressed'), 'true');
   await page.getByRole('button', { name: '🔀 Compare looks' }).click();
   assert.equal(await page.$eval('input[aria-label="Fine-tune size"]', (r) => r.value), '0');
   assert.equal(await page.$eval('input[aria-label="Fine-tune across"]', (r) => r.value), '0');

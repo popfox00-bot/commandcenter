@@ -472,3 +472,45 @@ test('downloads: ⬇️ Download all goes smallest first, several at once', asyn
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('downloads: 🔎 Find videos on a page (a switch): your Worker lists a page\'s videos; open one, or queue them all; off, it works as before', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await context.route('https://cdn.example.com/**', cdn(webm));
+  const asked = [];
+  // A stand-in for your Worker's /api/findvideos.
+  await context.route('https://worker.example.com/api/findvideos', async (route) => {
+    const req = route.request(); asked.push({ auth: req.headers().authorization, body: req.postDataJSON() });
+    return route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type' }, body: JSON.stringify({
+      page: 'https://news.example.com/story', direct: false, title: 'A story', streams: 1,
+      videos: [{ url: 'https://cdn.example.com/v/first.webm', from: 'video', title: 'First clip', type: '', poster: '' }, { url: 'https://cdn.example.com/v/second.webm', from: 'meta', title: '', type: '', poster: '' }],
+    }) });
+  });
+  await context.addInitScript(() => { localStorage.setItem('cc.workerUrl', 'https://worker.example.com'); localStorage.setItem('cc.apiToken', 't'.repeat(32)); });
+  const { page, errors } = await openApp(context);
+  assert.equal(await page.isChecked('.dl-switch-input'), false, 'off by default');
+  // Off: a page's link is checked as a video link, as before (and refused: it's a web page).
+  await enter(page, 'https://news.example.com/story.html');
+  await page.waitForSelector('.qr-verdict.danger');
+  assert.equal(asked.length, 0);
+  // On: the page's videos, from your Worker.
+  await page.click('.dl-switch');
+  await page.waitForSelector('.dl-found');
+  assert.match(await page.textContent('.dl-finder'), /2 videos on “A story”.*1 more stream only/s);
+  assert.deepEqual(await page.$$eval('.dl-found .dl-name', (els) => els.map((e) => e.textContent)), ['First clip', 'second.webm']);
+  assert.equal(asked[0].auth, `Bearer ${'t'.repeat(32)}`);
+  assert.equal(asked[0].body.url, 'https://news.example.com/story.html', 'only the page\'s link goes to the Worker');
+  // Open one: the usual view (checked, stills, Download).
+  await page.click('.dl-found >> nth=0 >> text=Open');
+  await page.waitForSelector('.dl-ok >> text=Safe link');
+  assert.equal(await page.inputValue('.dl-url'), 'https://cdn.example.com/v/first.webm');
+  await page.waitForFunction(() => document.querySelector('.dl-summary')?.textContent === '53 KB · 2:30');
+  // Another page: queue them all.
+  await enter(page, 'https://news.example.com/other');
+  await page.waitForSelector('.dl-found');
+  await page.click('text=+ Queue all 2');
+  await page.waitForSelector('.dl-flash >> text=Queued 2');
+  await page.click('.dl-tabs >> text=Queue');
+  await page.waitForFunction(() => document.querySelectorAll('.dl-qrow:not(.dl-now)').length === 2);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

@@ -991,3 +991,15 @@ body.has-rail { padding-right: 22px; }
 .dl-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin-top: 2px; }
 .dl-strip[hidden] { display: none; }
 .dl-strip .dl-pic { border-radius: 4px; }
+/* A switch (Downloads: Find videos on a page). */
+.dl-switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; font-size: .92rem; justify-self: start; }
+.dl-switch-input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.dl-switch-track { position: relative; width: 46px; height: 28px; border-radius: 999px; background: var(--idle-bg); border: 1px solid var(--border); transition: background .15s; flex: none; }
+.dl-switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s; }
+.dl-switch-input:checked + .dl-switch-track { background: var(--ok); border-color: var(--ok); }
+.dl-switch-input:checked + .dl-switch-track::after { transform: translateX(18px); }
+.dl-switch-input:focus-visible + .dl-switch-track { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dl-finder { display: grid; gap: 8px; }
+.dl-finder[hidden] { display: none; }
+.dl-found { display: flex; align-items: center; gap: 10px; }
+.dl-found .dl-title { flex: 1; min-width: 0; display: grid; }

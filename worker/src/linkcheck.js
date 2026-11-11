@@ -6,6 +6,7 @@
 // returned, nothing logged (links can carry tokens).
 
 import { isPrivateHost, splitHost, parseRdap } from '../../web/tools/qr/link-check.js';
+import { findVideos } from '../../web/tools/download/find-videos.js';
 
 const MAX_HOPS = 8;
 const HOP_TIMEOUT_MS = 6000;
@@ -161,4 +162,28 @@ async function checkSafeBrowsing(urls, env, fetchImpl) {
   } catch {
     return { checked: false, matches: [], error: 'Safe Browsing lookup failed' };
   }
+}
+
+/**
+ * POST /api/findvideos {"url": "..."}: the video files on a web page (Downloads' "Find videos").
+ * The page is fetched from here (a phone's app can't read another site's page), read for video
+ * addresses (find-videos.js), and only those are returned: the page itself never is, nothing is
+ * logged, no cookies are sent. A link that's a video itself says so ({ direct: true }).
+ */
+export async function findVideosAt(href, { fetchImpl = fetch } = {}) {
+  const start = assertFetchable(href).href;
+  const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 8000);
+  let res;
+  try {
+    res = await fetchImpl(start, { headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,*/*;q=0.5' }, redirect: 'follow', signal: ctrl.signal });
+  } catch { throw new LinkError('the page couldn\'t be reached'); } finally { clearTimeout(timer); }
+  const final = res.url || start;
+  assertFetchable(final);
+  const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  if (type.startsWith('video/')) { res.body?.cancel().catch(() => {}); return { page: final, direct: true, title: '', videos: [], streams: 0 }; }
+  if (!res.ok) { res.body?.cancel().catch(() => {}); throw new LinkError(`the page answered ${res.status}`); }
+  if (type && !/html|xml/.test(type)) { res.body?.cancel().catch(() => {}); throw new LinkError(`it's not a web page (${type})`); }
+  const html = await readCapped(res, 3 * 1024 * 1024);
+  const { title, videos, streams } = findVideos(html, final);
+  return { page: final, direct: false, title, videos, streams };
 }

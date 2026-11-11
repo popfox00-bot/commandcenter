@@ -4,12 +4,13 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "bd22f674e21e",
+  "version": "8de7ea82c103",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
     "apps/calendar/calendar.js",
     "apps/downloads/downloads.js",
+    "apps/downloads/finder.js",
     "apps/downloads/history.js",
     "apps/downloads/job-ui.js",
     "apps/downloads/link-view.js",
@@ -76,6 +77,7 @@ const PRECACHE = {
     "lib/vault-ui.js",
     "lib/vault.js",
     "lib/webp.js",
+    "lib/worker-api.js",
     "lib/zip.js",
     "lib/zoom.js",
     "manifest.webmanifest",
@@ -90,6 +92,7 @@ const PRECACHE = {
     "tools/download/download-core.js",
     "tools/download/download-jobs.js",
     "tools/download/download-store.js",
+    "tools/download/find-videos.js",
     "tools/download/media-info.js",
     "tools/download/mp4.js",
     "tools/draw/draw-core.js",

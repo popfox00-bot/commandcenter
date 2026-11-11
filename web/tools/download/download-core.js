@@ -145,6 +145,23 @@ export function minuteMarks(duration, { max = 120 } = {}) {
   return out;
 }
 
+/**
+ * `n` moments spread evenly through a video `duration` seconds long, from just after its start to
+ * just before its end (past a black first frame and a fade at the end): the stills shown up front.
+ * @param {number} duration @returns {{ mark: number, at: number, label: string }[]}
+ */
+export function spreadMarks(duration, n = 6) {
+  if (!Number.isFinite(duration) || duration <= 0) return [];
+  const edge = Math.min(1, duration / 20);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const even = n === 1 ? duration / 2 : (i * duration) / (n - 1);
+    const t = Math.round(Math.min(duration - edge, Math.max(edge, even)) * 10) / 10;
+    out.push({ mark: t, at: t, label: formatTime(t) });
+  }
+  return out;
+}
+
 /** Closer looks inside one span (a minute): every `every` s from `from` until `to`. */
 export function closerMarks(from, to, every = 10) {
   const out = [];
@@ -182,6 +199,23 @@ export function fileNameFor(url, kind, suffix = '') {
   let stem = last.replace(/\.[^.]*$/, '').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, ' ').replace(/^[.\s]+|[.\s]+$/g, '').replace(/\s+/g, ' ').slice(0, 80).trim();
   if (!stem) stem = 'video';
   return `${stem}${suffix}.${kind}`;
+}
+
+/**
+ * The files to save together: one per distinct file (the same file downloaded twice, by its
+ * fingerprint, once), each name unique ("clip.mp4", "clip (2).mp4"), in the order given.
+ * @template {{ hash?: string, name: string }} T @param {T[]} items @returns {{ item: T, name: string }[]}
+ */
+export function uniqueFiles(items) {
+  const seen = new Set(); const names = new Set(); const out = [];
+  for (const item of items) {
+    if (item.hash) { if (seen.has(item.hash)) continue; seen.add(item.hash); }
+    let name = item.name; const dot = name.lastIndexOf('.'); const stem = dot > 0 ? name.slice(0, dot) : name; const ext = dot > 0 ? name.slice(dot) : '';
+    for (let n = 2; names.has(name.toLowerCase()); n++) name = `${stem} (${n})${ext}`;
+    names.add(name.toLowerCase());
+    out.push({ item, name });
+  }
+  return out;
 }
 
 export class DownloadError extends Error {

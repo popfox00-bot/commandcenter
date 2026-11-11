@@ -11,7 +11,7 @@ import { mp4Details } from '../../tools/download/mp4.js';
 /**
  * @typedef {{ id: string, input: string, check: import('../../tools/download/download-core.js').LinkCheck,
  *   state: 'refused'|'caution'|'asking'|'ready'|'blocked', pre: any, details: any, error: string, jobId: string,
- *   queued: boolean, strict: boolean, created: number, abort: AbortController, stills: Map<number, string>, meta: any, mode: string }} Link
+ *   queued: boolean, strict: boolean, created: number, abort: AbortController, stills: Map<number, string>, meta: any, mode: string, video?: HTMLVideoElement|null, videoBusy?: boolean }} Link
  */
 
 const listeners = new Set();
@@ -113,9 +113,10 @@ async function probe(link) {
       link.abort.signal.addEventListener('abort', () => done(false), { once: true });
     });
     const meta = ok && Number.isFinite(v.duration) && v.duration > 0 ? { duration: v.duration, width: v.videoWidth, height: v.videoHeight } : null;
-    v.removeAttribute('src'); v.load();
+    // A drawable one is kept, header loaded, to draw the first stills from (no second fetch).
+    if (!(meta && drawable) || link.abort.signal.aborted) { v.removeAttribute('src'); v.load(); }
     if (link.abort.signal.aborted) return;
-    if (meta) { link.meta = meta; link.mode = drawable ? 'drawn' : 'frames'; return; }
+    if (meta) { link.meta = meta; link.mode = drawable ? 'drawn' : 'frames'; if (drawable) link.video = v; return; }
   }
   link.mode = 'none';
   if (link.details?.duration) link.meta = { duration: link.details.duration, width: link.details.width, height: link.details.height };
@@ -132,6 +133,7 @@ export function sizeAndLength(link) {
 /** Nothing of it kept: what it was fetching stopped, its stills let go. */
 function forget(link) {
   link.abort.abort();
+  if (link.video) { link.video.removeAttribute('src'); link.video.load(); link.video = null; }
   for (const u of link.stills.values()) URL.revokeObjectURL(u);
   link.stills.clear();
 }

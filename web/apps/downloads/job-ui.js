@@ -5,7 +5,7 @@ import { el, fill } from '../../lib/dom.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
 import { sameFingerprint } from '../../lib/sha256.js';
-import { formatTime, minuteMarks } from '../../tools/download/download-core.js';
+import { formatTime, minuteMarks, uniqueFiles } from '../../tools/download/download-core.js';
 
 /** A download's progress bar and its line ("45% · 120 MB of 340 MB · 3.1 MB/s · 1:10 left"). */
 export function progressBar(jobs) {
@@ -34,10 +34,10 @@ export function jobButtons(job, jobs, { extra = [] } = {}) {
     if (!['not-video', 'redirect'].includes(job.code)) b.push(el('button', { class: 'btn primary', text: job.status === 'paused' || (job.loaded && job.ranges) ? '▶ Continue' : '⟳ Try again', onclick: () => jobs.resume(job) }));
     if (job.code === 'blocked' && navigator.onLine) b.push(openInBrowser(job.url));
   }
-  if (job.status === 'done') b.push(el('button', { class: 'btn primary', text: '💾 Save to phone', onclick: () => saveJob(job, jobs) }));
+  if (job.status === 'done') b.push(el('button', { class: `btn ${job.saved ? '' : 'primary'}`, text: job.saved ? '✓ Saved · save again' : '💾 Save to phone', onclick: () => saveJob(job, jobs) }));
   return [...b, ...extra];
 }
-export const jobState = (job, jobs) => `${job.status}|${jobs.isLive(job)}|${job.hash}|${job.code ?? ''}|${job.details ? 1 : 0}`;
+export const jobState = (job, jobs) => `${job.status}|${jobs.isLive(job)}|${job.hash}|${job.code ?? ''}|${job.details ? 1 : 0}|${job.saved ? 1 : 0}`;
 /** What went wrong, said plainly. */
 export const jobMessage = (job) => (job.error ? job.error + (job.code === 'blocked' && job.status === 'failed' ? ' Some sites only let their own pages fetch their videos: open it in the browser and save it from there (Share → Save to Files, or ⋮ → Download).' : '') : '');
 
@@ -45,9 +45,34 @@ export const jobMessage = (job) => (job.error ? job.error + (job.code === 'block
 export async function saveJob(job, jobs) {
   try {
     const f = await jobs.file(job);
-    if (canShareFiles([f]) && await shareFiles([f], f.name)) return;
+    // The share sheet where there is one (cancelled: nothing saved, nothing else done); else a download.
+    if (canShareFiles([f])) { if (await shareFiles([f], f.name)) await jobs.markSaved(job); return; }
     downloadBlob(f, f.name);
+    await jobs.markSaved(job);
   } catch (e) { noteError('Downloads: save', e); alert(`Couldn't save it: ${e.message}`); }
+}
+
+/**
+ * Save all: the downloads given, each distinct file once (uniqueFiles), to the phone in one go: one
+ * share sheet with all of them (an iPhone: "Save N Videos"; cancelled: nothing saved), or where a
+ * sheet can't take several files, each downloaded in turn. Resolves how many were saved.
+ */
+export async function saveAll(list, jobs) {
+  const picked = uniqueFiles(list.filter((j) => j.status === 'done'));
+  if (!picked.length) return 0;
+  try {
+    const files = await Promise.all(picked.map(async ({ item, name }) => { const f = await jobs.file(item); return new File([f], name, { type: f.type }); }));
+    if (navigator.share && canShareFiles(files)) {
+      if (!await shareFiles(files, `${files.length} videos`)) return 0;
+    } else {
+      for (const f of files) { downloadBlob(f, f.name); await new Promise((r) => setTimeout(r, 400)); }
+    }
+    for (const { item } of picked) await jobs.markSaved(item);
+    // (The same file downloaded twice counts as saved too.)
+    const hashes = new Set(picked.map((p) => p.item.hash).filter(Boolean));
+    for (const j of list) if (j.status === 'done' && !j.saved && hashes.has(j.hash)) await jobs.markSaved(j);
+    return picked.length;
+  } catch (e) { noteError('Downloads: save all', e); alert(`Couldn't save them: ${e.message}`); return 0; }
 }
 
 /** When the site won't let apps fetch it: open it in the browser (its own tab, nothing of this app sent). */

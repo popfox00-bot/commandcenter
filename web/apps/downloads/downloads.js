@@ -13,12 +13,12 @@
 
 import { el, fill, store as ls } from '../../lib/dom.js';
 import { formatBytes } from '../../lib/files.js';
-import { linkFromText, formatTime } from '../../tools/download/download-core.js';
+import { linkFromText, formatTime, uniqueFiles } from '../../tools/download/download-core.js';
 import { getJobs } from '../../tools/download/download-jobs.js';
 import { links, sizeAndLength } from './links.js';
 import { linkView } from './link-view.js';
 import { historyView } from './history.js';
-import { progressBar } from './job-ui.js';
+import { progressBar, saveAll } from './job-ui.js';
 
 const STRICT_KEY = 'cc.download.strict';
 const TABS = [['download', 'Download'], ['queue', 'Queue'], ['history', 'History']];
@@ -113,7 +113,10 @@ export function mount(host) {
   const queueList = el('div', { class: 'dl-qlist' });
   const queueHead = el('div', { class: 'row wrap dl-qhead' });
   const queueItem = el('div', { class: 'dl-qitem', hidden: true });
-  fill(panes.queue, queueHead, queueList, queueItem);
+  const queueFlash = el('p', { class: 'small ok-text dl-flash', hidden: true });
+  fill(panes.queue, queueHead, queueFlash, queueList, queueItem);
+  let qFlashT = 0;
+  const flashQueue = (t) => { queueFlash.textContent = t; queueFlash.hidden = false; clearTimeout(qFlashT); qFlashT = setTimeout(() => { queueFlash.hidden = true; }, 5000); };
   let closeItem = null; let itemId = '';
   const rows = new Map(); // link id -> { node, update }
 
@@ -124,26 +127,34 @@ export function mount(host) {
     if (l.state === 'asking') return 'Checking…';
     return sizeAndLength(l) || 'Checked';
   };
-  /** A row: the queued link (or, marked Now, the one on the Download tab). */
+  /**
+   * A row: the queued link, numbered in order (its number ringed green once downloaded, filled green
+   * once saved to the phone), or, marked Now, the one on the Download tab.
+   */
   function row(l, now = false) {
+    const num = el('span', { class: 'dl-num', 'aria-hidden': 'true' });
     const title = el('strong', { class: 'dl-name' });
     const sub = el('span', { class: 'small muted' });
     const pb = progressBar(jobs);
     const x = el('button', { class: 'icon-btn dl-x', 'aria-label': 'Remove from the queue', title: 'Remove from the queue (a download already started stays in History)', text: '✕' });
     x.addEventListener('click', (e) => { e.stopPropagation(); if (now) clearCurrent(); else links.remove(l); });
-    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : null, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
+    const node = el('article', { class: `card dl-qrow${now ? ' dl-now' : ''}`, role: 'button', tabIndex: 0 }, el('div', { class: 'dl-qline' }, now ? el('span', { class: 'dl-badge', text: 'Now' }) : num, el('div', { class: 'dl-title' }, title, sub), x), pb.node);
     const open = () => { location.hash = now ? '#/downloads' : `#/downloads/queue/${l.id}`; };
     node.addEventListener('click', open); node.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
     const update = () => {
       const job = l.jobId ? jobs.get(l.jobId) : null;
       title.textContent = job?.name ?? links.name(l);
-      sub.textContent = job ? (job.status === 'done' ? `✓ Downloaded · ${[formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ')}` : job.error || { running: 'Downloading', waiting: 'Waiting for the others', paused: 'Paused' }[job.status] || '') : stateText(l);
+      sub.textContent = job ? (job.status === 'done' ? `${job.saved ? '✓ Saved' : 'Downloaded'} · ${[formatBytes(job.loaded), job.duration ? formatTime(job.duration) : ''].filter(Boolean).join(' · ')}` : job.error || { running: 'Downloading', waiting: 'Waiting for the others', paused: 'Paused' }[job.status] || '') : stateText(l);
       sub.className = `small ${!l.check.ok || l.state === 'refused' || job?.error ? 'warn-text' : 'muted'}`;
       pb.node.hidden = !job || job.status === 'done';
+      const done = job?.status === 'done';
+      num.classList.toggle('done', done && !job.saved); num.classList.toggle('saved', done && !!job.saved);
+      num.title = done ? (job.saved ? 'Saved to the phone' : 'Downloaded (not saved to the phone yet)') : '';
       if (job) pb.update(job);
       node.classList.toggle('dl-bad', !l.check.ok || l.state === 'refused');
     };
-    return { node, update };
+    const setNum = (n) => { num.textContent = String(n); node.setAttribute('aria-label', `${n}. ${title.textContent}`); };
+    return { node, update, setNum };
   }
   function renderQueue() {
     const q = links.queue(); const cur = links.current();
@@ -151,6 +162,10 @@ export function mount(host) {
     for (const id of [...rows.keys()]) if (!shown.some((l) => l.id === id)) rows.delete(id);
     const ready = q.filter((l) => !l.jobId && (l.state === 'ready' || l.state === 'blocked'));
     const going = jobs.running();
+    // Downloaded in the queue (the Now one too), each distinct file once.
+    const doneJobs = shown.map((l) => (l.jobId ? jobs.get(l.jobId) : null)).filter((j) => j?.status === 'done');
+    const saveable = uniqueFiles(doneJobs);
+    const unsaved = saveable.some(({ item }) => !item.saved);
     fill(queueHead,
       ready.length ? el('button', { class: 'btn primary', text: `⬇️ Download all (${ready.length})`, title: 'One after another', onclick: async () => {
         for (const l of ready) {
@@ -159,11 +174,18 @@ export function mount(host) {
           links.setJob(l, j.id);
         }
       } }) : null,
+      saveable.length ? el('button', { class: `btn ${unsaved ? 'primary' : ''}`, text: `💾 Save all (${saveable.length})`, title: 'Every downloaded file in the queue to the phone in one go (each file once)', onclick: async (e) => {
+        const b = e.currentTarget; b.disabled = true;
+        const n = await saveAll(shown.map((l) => (l.jobId ? jobs.get(l.jobId) : null)).filter(Boolean), jobs);
+        b.disabled = false;
+        if (n) flashQueue(`✓ Saved ${n} file${n === 1 ? '' : 's'} to the phone.`);
+      } }) : null,
       el('a', { class: 'btn ghost', href: '#/downloads', text: '+ Add link' }));
     const key = (l) => `${l === cur ? 'now:' : ''}${l.id}`;
     fill(queueList, shown.length ? shown.map((l) => (rows.get(key(l)) ?? rows.set(key(l), row(l, l === cur)).get(key(l))).node) : el('p', { class: 'muted small', text: 'Nothing here yet. Paste a link on Download, then tap + Queue to add the next.' }),
       going > 1 ? el('p', { class: 'small muted', text: `${going} downloading at once: they share the connection.` }) : null);
     for (const l of shown) rows.get(key(l)).update();
+    q.forEach((l, i) => rows.get(key(l)).setNum(i + 1));
   }
   function showQueueItem(id) {
     const l = id ? links.get(id) : null;
@@ -196,7 +218,7 @@ export function mount(host) {
     rows.get(l.id)?.update(); rows.get(`now:${l.id}`)?.update();
   }));
   offs.push(jobs.subscribe((j) => {
-    if (!j) { renderQueue(); return; }
+    if (!j || j.status === 'done') { renderQueue(); return; }
     for (const [, r] of rows) r.update();
   }));
   // Coming back to the app: the link being looked at is still here (this visit only).

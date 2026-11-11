@@ -2,25 +2,22 @@
 //   ✓ its check (one line; a warning or a refusal in full)
 //   53 KB · 2:30 (its size and length)
 //   ⬇️ Download (or its progress, or 💾 Save to phone once it's done)
-//   four stills spread through it (never played; tap one for every 10 seconds around it)
+//   six stills spread through it, each the whole picture (never played; quick, small; tap one for
+//   a closer look around it)
 //   ▸ More: every minute's still, all it knows (type, site, resumable, picture, codecs; a token in
 //     the link, tracking removed), and ✂️ just a part of an MP4.
 
 import { el, fill } from '../../lib/dom.js';
 import { formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
-import { minuteMarks, closerMarks, formatTime, ago, KIND_NAME } from '../../tools/download/download-core.js';
+import { minuteMarks, closerMarks, spreadMarks, formatTime, ago, KIND_NAME } from '../../tools/download/download-core.js';
 import { describe } from '../../tools/download/media-info.js';
 import { links, sizeAndLength } from './links.js';
 import { progressBar, jobButtons, jobState, jobMessage, partPicker, verdict } from './job-ui.js';
 
-const THUMB_W = 320;
-
-/** Four marks spread through all of them (the first, the last, two between); all when 4 or fewer. */
-export function pickFour(marks) {
-  if (marks.length <= 4) return marks;
-  return [0, 1, 2, 3].map((i) => marks[Math.round((i * (marks.length - 1)) / 3)]);
-}
+/** Stills are quick previews: small, and drawn this many at a time. */
+const THUMB_W = 240;
+const DRAWERS = 3;
 
 /**
  * Shows `link` in `host`; returns a function that takes it away (what it was loading stopped; the
@@ -31,13 +28,13 @@ export function linkView(host, link, { jobs }) {
   const status = el('div', { class: 'dl-status' });
   const summary = el('p', { class: 'dl-summary' });
   const actions = el('div', { class: 'dl-actions' });
-  const grid = el('div', { class: 'dl-grid dl-four' });
+  const grid = el('div', { class: 'dl-grid dl-six' });
   const moreBody = el('div', { class: 'dl-more-body' });
   const more = el('details', { class: 'dl-more', hidden: true }, el('summary', { text: 'More' }), moreBody);
   const root = el('div', { class: 'dl-view' }, status, summary, actions, grid, more);
   fill(host, root);
   const view = new AbortController();
-  let drawer = null; let timer = 0;
+  let timer = 0;
 
   // ---------- its check: one line when fine ----------
   function renderStatus() {
@@ -97,21 +94,26 @@ export function linkView(host, link, { jobs }) {
     bar.update(job);
   }
 
-  // ---------- stills: four, the rest under More ----------
+  // ---------- stills: six spread through it, every minute under More ----------
   let tilesFor = '';
   function renderStills() {
     const usable = link.check.ok && ['ready', 'blocked'].includes(link.state) && link.meta && link.mode && link.mode !== 'none';
     const key = usable ? `${link.mode}|${link.meta.duration}` : '';
     if (key === tilesFor) return; tilesFor = key;
     if (!usable) { fill(grid); return; }
-    const marks = minuteMarks(link.meta.duration);
-    const step = marks.length > 1 ? marks[1].mark : link.meta.duration;
-    const four = pickFour(marks);
-    const closerAt = (m) => () => closer(m.mark, Math.min(link.meta.duration, m.mark + step));
-    const main = four.map((m) => tile(m, closerAt(m)));
+    const d = link.meta.duration;
+    // Every still the whole picture, all the same size: the video's own shape.
+    if (link.meta.width && link.meta.height) root.style.setProperty('--dl-ar', `${link.meta.width} / ${link.meta.height}`);
+    // (A tall video's stills go three across, so the six still fit on a phone's screen.)
+    grid.classList.toggle('dl-tall', link.meta.height > link.meta.width);
+    const six = spreadMarks(d, 6);
+    const main = six.map((m, i) => tile(m, () => closer(m.mark, i + 1 < six.length ? six[i + 1].mark : d)));
     fill(grid, main.map((t) => t.node));
     load(main);
-    allTiles = marks.length > 4 ? marks.map((m) => tile(m, closerAt(m))) : [];
+    const marks = minuteMarks(d);
+    const step = marks.length > 1 ? marks[1].mark : d;
+    allTiles = marks.length > 1 ? marks.map((m) => tile(m, () => closer(m.mark, Math.min(d, m.mark + step)))) : [];
+    allLoaded = false;
     renderMore();
   }
   let allTiles = []; let allLoaded = false;
@@ -119,17 +121,14 @@ export function linkView(host, link, { jobs }) {
   function load(tiles) {
     if (link.mode === 'drawn') {
       const todo = [];
-      for (const t of tiles) { const u = link.stills.get(t.m.mark); if (u) fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}`, loading: 'lazy' })); else todo.push(t); }
+      for (const t of tiles) { const u = link.stills.get(t.m.mark); if (u) fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}` })); else todo.push(t); }
       if (todo.length) draw(todo);
     } else framesInstead(tiles, view.signal);
   }
   let drawing = Promise.resolve();
   function draw(tiles) {
-    drawing = drawing.then(async () => {
-      if (view.signal.aborted) return;
-      if (!drawer) { drawer = video(link.check.url, true); if (!await loaded(drawer, view.signal)) { drawer = null; return; } }
-      await drawStills(drawer, tiles.filter((t) => !link.stills.has(t.m.mark)), view.signal, (m, u) => link.stills.set(m.mark, u));
-    }).catch((e) => { if (!view.signal.aborted) { noteError('Downloads: previews', e); link.mode = 'frames'; framesInstead(tiles, view.signal); } });
+    drawing = drawing.then(() => drawStills(tiles.filter((t) => !link.stills.has(t.m.mark)), view.signal, (m, u) => link.stills.set(m.mark, u)))
+      .catch((e) => { if (!view.signal.aborted) { noteError('Downloads: previews', e); link.mode = 'frames'; framesInstead(tiles, view.signal); } });
   }
 
   // ---------- More ----------
@@ -178,40 +177,58 @@ export function linkView(host, link, { jobs }) {
     return { m, pic, node };
   };
 
-  /** A closer look: every 10 seconds from one mark to the next, in a sheet. */
+  /** A closer look: six stills from one still to the next, in a sheet. */
   async function closer(from, to) {
-    const marks = closerMarks(from, to, to - from > 60 ? Math.ceil((to - from) / 6) : 10);
+    const marks = closerMarks(from, to, Math.max(2, Math.ceil((to - from) / 6)));
     const tiles = marks.map((m) => tile(m, null));
     const dlg = el('dialog', { class: 'ed-dialog dl-closer' }, el('form', { method: 'dialog', class: 'sheet' },
       el('div', { class: 'card-head' }, el('h2', { text: `${formatTime(from)} – ${formatTime(to)}` }), el('button', { class: 'icon-btn', 'aria-label': 'Close', text: '✕' })),
       el('div', { class: 'dl-grid' }, tiles.map((t) => t.node))));
+    if (link.meta?.width) dlg.style.setProperty('--dl-ar', `${link.meta.width} / ${link.meta.height}`);
     const ctrl = new AbortController();
     view.signal.addEventListener('abort', () => ctrl.abort(), { once: true });
     const urls = [];
     dlg.addEventListener('close', () => { ctrl.abort(); dlg.remove(); for (const u of urls) URL.revokeObjectURL(u); });
     document.body.append(dlg); dlg.showModal();
     if (link.mode === 'drawn') {
-      const v = video(link.check.url, true);
-      try { if (await loaded(v, ctrl.signal)) await drawStills(v, tiles, ctrl.signal, (m, u) => urls.push(u)); } catch { if (!ctrl.signal.aborted) framesInstead(tiles, ctrl.signal); } finally { v.removeAttribute('src'); v.remove(); }
+      try { await drawStills(tiles, ctrl.signal, (m, u) => urls.push(u)); } catch { if (!ctrl.signal.aborted) framesInstead(tiles, ctrl.signal); }
     } else framesInstead(tiles, ctrl.signal);
   }
 
-  /** Each preview drawn from one video element, a mark at a time. */
-  async function drawStills(v, tiles, signal, keep) {
-    const k = Math.min(1, THUMB_W / (v.videoWidth || THUMB_W));
-    const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round((v.videoWidth || THUMB_W) * k)); c.height = Math.max(1, Math.round((v.videoHeight || THUMB_W * 0.5625) * k));
-    const g = c.getContext('2d');
-    for (const t of tiles) {
-      if (signal.aborted) return;
-      t.pic.classList.add('loading');
-      await seek(v, t.m.at, signal);
-      g.drawImage(v, 0, 0, c.width, c.height);
-      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.8)); // throws if the site didn't allow drawing
-      if (signal.aborted || !blob) return;
-      const u = URL.createObjectURL(blob); keep(t.m, u);
-      t.pic.classList.remove('loading');
-      fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}`, loading: 'lazy' }));
+  /**
+   * The stills drawn, a few at a time: each of up to DRAWERS video elements (the first, the one the
+   * link's check already loaded) takes the next still that's left, jumps to it (to the nearest key
+   * frame where the browser can, which is quickest) and draws it small.
+   */
+  async function drawStills(tiles, signal, keep) {
+    if (!tiles.length) return;
+    const todo = [...tiles];
+    for (const t of todo) t.pic.classList.add('loading');
+    const n = Math.min(DRAWERS, todo.length);
+    const vids = [];
+    const shared = link.video && !link.videoBusy ? link.video : null;
+    if (shared) link.videoBusy = true;
+    try {
+      await Promise.all(Array.from({ length: n }, async (_, i) => {
+        let v = i === 0 && shared ? shared : null;
+        if (!v) { v = video(link.check.url, true); vids.push(v); if (!await loaded(v, signal)) return; }
+        const c = document.createElement('canvas');
+        const k = Math.min(1, THUMB_W / (v.videoWidth || THUMB_W));
+        c.width = Math.max(1, Math.round((v.videoWidth || THUMB_W) * k)); c.height = Math.max(1, Math.round((v.videoHeight || THUMB_W * 0.5625) * k));
+        const g = c.getContext('2d');
+        for (let t = todo.shift(); t && !signal.aborted; t = todo.shift()) {
+          await seek(v, t.m.at, signal);
+          g.drawImage(v, 0, 0, c.width, c.height);
+          const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.6)); // throws if the site didn't allow drawing
+          if (signal.aborted || !blob) return;
+          const u = URL.createObjectURL(blob); keep(t.m, u);
+          t.pic.classList.remove('loading');
+          fill(t.pic, el('img', { src: u, alt: `At ${t.m.label}` }));
+        }
+      }));
+    } finally {
+      if (shared) link.videoBusy = false;
+      for (const v of vids) { v.removeAttribute('src'); v.load(); v.remove(); }
     }
   }
 
@@ -219,7 +236,7 @@ export function linkView(host, link, { jobs }) {
   function framesInstead(tiles, signal) {
     let running = 0; const queue = [];
     const next = () => {
-      while (running < 2 && queue.length && !signal.aborted) {
+      while (running < DRAWERS && queue.length && !signal.aborted) {
         const t = queue.shift(); running++;
         const v = /** @type {HTMLVideoElement} */ (el('video', { muted: true, playsinline: true, preload: 'metadata', 'aria-label': `At ${t.m.label}` }));
         v.muted = true; v.disablePictureInPicture = true;
@@ -247,7 +264,6 @@ export function linkView(host, link, { jobs }) {
 
   return () => {
     view.abort(); clearInterval(timer); offLinks(); offJobs();
-    drawer?.removeAttribute('src'); drawer?.remove();
   };
 }
 
@@ -270,6 +286,8 @@ function seek(v, t, signal) {
     const timer = setTimeout(() => done(false), 20000);
     v.addEventListener('seeked', onSeeked);
     signal.addEventListener('abort', () => done(false), { once: true });
-    v.currentTime = Math.min(t, Math.max(0, (v.duration || t) - 0.1));
+    const to = Math.min(t, Math.max(0, (v.duration || t) - 0.1));
+    // (The nearest key frame is quickest to show, and close enough for a preview.)
+    if (typeof v.fastSeek === 'function') v.fastSeek(to); else v.currentTime = to;
   });
 }

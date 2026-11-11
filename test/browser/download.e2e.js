@@ -93,30 +93,33 @@ test('downloads: its own app; checked as soon as it\'s in; stills and a closer l
   assert.match(await page.textContent('.dl-ok'), /Safe link · cdn\.example\.com/);
   // Just its size and length up front; the rest under More.
   await page.waitForFunction(() => document.querySelector('.dl-summary')?.textContent === '53 KB · 2:30');
-  await page.waitForFunction(() => document.querySelectorAll('.dl-current .dl-four .dl-thumb img').length === 3, null, { timeout: 30000 });
-  assert.deepEqual(await page.$$eval('.dl-current .dl-four figcaption', (els) => els.map((e) => e.textContent)), ['0:00', '1:00', '2:00']);
+  await page.waitForFunction(() => document.querySelectorAll('.dl-current .dl-six .dl-thumb img').length === 6, null, { timeout: 30000 });
+  assert.deepEqual(await page.$$eval('.dl-current .dl-six figcaption', (els) => els.map((e) => e.textContent)), ['0:01', '0:30', '1:00', '1:30', '2:00', '2:29']);
   assert.equal(await page.isVisible('.dl-current .dl-more-body'), false, 'details folded away');
   await page.click('.dl-current .dl-more > summary');
   const more = await page.textContent('.dl-current .dl-more-body');
   for (const want of [/TypeWebM/, /Picture96×54/, /Fromcdn\.example\.com/, /Resumableyes/, /Tracking removedutm_source/]) assert.match(more, want);
-  assert.equal(await page.$eval('video.dl-probe', (v) => v.paused), true, 'never played');
-  // A closer look at 1:00: every 10 seconds of that minute.
-  await page.click('.dl-current .dl-four .dl-thumb >> nth=1');
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('video')].every((v) => v.paused)), true, 'never played');
+  // Each still the whole picture, all the video's own shape (96×54).
+  assert.equal(await page.$eval('.dl-current .dl-pic', (p) => getComputedStyle(p).aspectRatio.replace(/\s/g, '')), '96/54');
+  assert.equal(await page.$eval('.dl-current .dl-pic img', (i) => getComputedStyle(i).objectFit), 'contain');
+  // A closer look at 0:30: six stills up to the next one.
+  await page.click('.dl-current .dl-six .dl-thumb >> nth=1');
   await page.waitForFunction(() => document.querySelectorAll('.dl-closer .dl-thumb img').length === 6, null, { timeout: 30000 });
-  assert.deepEqual(await page.$$eval('.dl-closer figcaption', (els) => els.map((e) => e.textContent)), ['1:00', '1:10', '1:20', '1:30', '1:40', '1:50']);
+  assert.deepEqual(await page.$$eval('.dl-closer figcaption', (els) => els.map((e) => e.textContent)), ['0:30', '0:35', '0:40', '0:45', '0:50', '0:55']);
   await page.click('.dl-closer [aria-label=Close]');
   await page.waitForSelector('.dl-closer', { state: 'detached' });
 
   await page.click('.dl-actions >> text=⬇️ Download');
   await page.waitForSelector('.dl-actions >> text=💾 Save to phone');
   // Save to phone sits above the stills.
-  assert.equal(await page.evaluate(() => !!(document.querySelector('.dl-actions').compareDocumentPosition(document.querySelector('.dl-current .dl-four')) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
+  assert.equal(await page.evaluate(() => !!(document.querySelector('.dl-actions').compareDocumentPosition(document.querySelector('.dl-current .dl-six')) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
   const [dl1] = await Promise.all([page.waitForEvent('download'), page.click('.dl-actions >> text=💾 Save to phone')]);
   assert.equal(Buffer.compare(await readFile(await dl1.path()), webm), 0, 'the same bytes as the link');
 
   // History: its details and fingerprint.
   await tab(page, 'History');
-  await page.waitForSelector('.dl-card >> text=💾 Save to phone');
+  await page.waitForSelector('.dl-card >> text=✓ Saved · save again');
   assert.equal(await page.textContent('.dl-card .dl-title .small'), '53 KB · 2:30');
   assert.match(await page.textContent('.dl-hist-head'), /1 download · 53 KB on this phone/);
   await page.click('.dl-card .dl-more > summary');
@@ -126,8 +129,10 @@ test('downloads: its own app; checked as soon as it\'s in; stills and a closer l
   assert.match(await page.textContent('.dl-fp .ok-text'), /Matches/);
   // Kept on the phone: still there after a reload, and saves the same bytes.
   await page.reload();
-  await page.waitForSelector('.dl-card >> text=💾 Save to phone');
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('.dl-card >> text=💾 Save to phone')]);
+  await page.waitForSelector('.dl-card >> text=✓ Saved · save again');
+  // Saved once already: it says so, and saves again.
+  assert.equal(await page.textContent('.dl-card .dl-btns button'), '✓ Saved · save again');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('.dl-card .dl-btns button')]);
   assert.equal(dl.suggestedFilename(), 'clock.webm');
   assert.equal(Buffer.compare(await readFile(await dl.path()), webm), 0);
   // Nothing but the link was fetched, and no cookies or referrer went with it.
@@ -214,10 +219,11 @@ test('downloads: the queue — add links while one checks, each with its view an
   assert.equal(await page.textContent('.dl-tabs .active'), 'Queue (3)');
   await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /53 KB · 2:30/.test(r.textContent)));
   assert.deepEqual(await page.$$eval('.dl-qrow .dl-name', (els) => els.map((e) => e.textContent)), ['a.webm', 'b.webm', 'c.webm']);
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => `${e.textContent}${e.className.replace('dl-num', '').trim()}`)), ['1', '2', '3'], 'numbered in order');
   // One opened: the same view as a single link (check, Download, stills).
   await page.click('.dl-qrow >> nth=0');
   await page.waitForSelector('.dl-qitem .dl-ok');
-  await page.waitForFunction(() => document.querySelectorAll('.dl-qitem .dl-four .dl-thumb img').length === 3, null, { timeout: 30000 });
+  await page.waitForFunction(() => document.querySelectorAll('.dl-qitem .dl-six .dl-thumb img').length === 6, null, { timeout: 30000 });
   await page.click('.dl-qitem .dl-actions >> text=⬇️ Download');
   await page.waitForSelector('.dl-qitem .progress-label');
   // Another while that one is going: it says they'd share the connection, and offers to wait.
@@ -239,14 +245,20 @@ test('downloads: the queue — add links while one checks, each with its view an
   await page.click('text=⬇️ Download all (1)');
   await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /Downloaded · 53 KB/.test(r.textContent)), null, { timeout: 30000 });
   for (const u of [A, B, C]) assert.equal(downloads(seen, u), 1, `${u} downloaded once`);
-  // Tap one that's done: Save to phone.
+  // Downloaded: each number ringed green.
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.className)), ['dl-num done', 'dl-num done', 'dl-num done']);
+  // Tap one that's done: Save to phone; back in the queue its number is filled green.
   await page.click('.dl-qrow >> nth=2');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('.dl-qitem >> text=💾 Save to phone')]);
   assert.equal(dl.suggestedFilename(), 'c.webm');
-  // Removing from the queue: the link's gone (its download stays in History).
+  await page.waitForSelector('.dl-qitem >> text=✓ Saved · save again');
   await page.click('text=‹ Queue');
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.className)), ['dl-num done', 'dl-num done', 'dl-num saved']);
+  assert.match(await page.textContent('.dl-qrow >> nth=2'), /✓ Saved · 53 KB/);
+  // Removing from the queue: the link's gone (its download stays in History); the rest renumbered.
   await page.click('.dl-qrow >> nth=0 >> .dl-x');
   assert.equal(await page.$$eval('.dl-qrow', (els) => els.length), 2);
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.textContent)), ['1', '2']);
   await tab(page, 'History');
   assert.equal(await page.$$eval('.dl-card', (els) => els.length), 3);
   // The link on the Download tab shows at the top of the queue, marked Now.
@@ -273,7 +285,7 @@ test('downloads: links pasted and cleared leave nothing stored; Paste picks the 
   await paste();
   await page.waitForSelector('.dl-ok');
   assert.equal(await page.inputValue('.dl-url'), 'https://cdn.example.com/v/secret-clip.webm?token=abc');
-  await page.waitForFunction(() => document.querySelectorAll('.dl-current .dl-four .dl-thumb img').length === 3, null, { timeout: 30000 });
+  await page.waitForFunction(() => document.querySelectorAll('.dl-current .dl-six .dl-thumb img').length === 6, null, { timeout: 30000 });
   await page.click('.dl-queue-row >> text=+ Queue');
   // Pasted into the box by hand: checked straight away.
   await page.evaluate(() => navigator.clipboard.writeText('https://cdn.example.com/v/other.webm'));
@@ -320,9 +332,9 @@ test('downloads: a site that blocks apps shows frames and offers to open it; uns
   await context.route('http://**', (r) => { seen.push({ url: r.request().url() }); return r.continue(); });
   const { page, errors } = await openApp(context);
   await enter(page, 'https://nocors.example.com/v/clock.webm');
-  await page.waitForSelector('.dl-current .dl-four .dl-thumb video');
+  await page.waitForSelector('.dl-current .dl-six .dl-thumb video');
   assert.equal(await page.textContent('.dl-summary'), '2:30');
-  assert.deepEqual(await page.$$eval('.dl-current .dl-four figcaption', (els) => els.map((e) => e.textContent)), ['0:00', '1:00', '2:00']);
+  assert.deepEqual(await page.$$eval('.dl-current .dl-six figcaption', (els) => els.map((e) => e.textContent)), ['0:01', '0:30', '1:00', '1:30', '2:00', '2:29']);
   assert.match(await page.textContent('.dl-current .dl-more-body'), /Resumablethe site doesn't say/);
   await page.click('text=⬇️ Download');
   await page.waitForSelector('.dl-actions >> text=↗ Open in the browser');
@@ -335,7 +347,7 @@ test('downloads: a site that blocks apps shows frames and offers to open it; uns
     `https://cdn.example.com/a.webm?Expires=${exp - 300}&Signature=abcDEF123456789xyz&Key-Pair-Id=K2`]) {
     await enter(page, bad);
     await page.waitForSelector('.qr-verdict.danger');
-    assert.equal(await page.$$eval('.dl-current .dl-four .dl-thumb', (els) => els.length), 0, bad);
+    assert.equal(await page.$$eval('.dl-current .dl-six .dl-thumb', (els) => els.length), 0, bad);
     assert.equal(await page.locator('.dl-queue-row button', { hasText: '+ Queue' }).count(), 0, `a refused link can't be queued (${bad})`);
   }
   assert.match(await page.textContent('.qr-verdict.danger'), /expired/);
@@ -352,6 +364,34 @@ test('downloads: a site that blocks apps shows frames and offers to open it; uns
   assert.match(await page.textContent('.dl-expiry'), /expires in (59|60) min/);
   assert.match(await page.textContent('.dl-current .dl-more-body'), /Has an access token in it/);
   assert.equal(await page.inputValue('.dl-url'), signed);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('downloads: 💾 Save all saves every downloaded file in the queue in one go, each file once, and fills every number green', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
+  await context.route('https://cdn.example.com/v/*.webm', cdn(webm));
+  await context.route('https://cdn.example.com/v/*.mp4', cdn(mp4, { type: 'video/mp4' }));
+  const { page, errors } = await openApp(context);
+  // Two links to the same file (same bytes) and one other.
+  for (const u of ['https://cdn.example.com/v/clip.webm', 'https://cdn.example.com/v/clip-copy.webm', 'https://cdn.example.com/v/talk.mp4']) {
+    await enter(page, u);
+    await page.waitForFunction(() => /KB/.test(document.querySelector('.dl-summary')?.textContent ?? ''));
+    await page.click('.dl-queue-row >> text=+ Queue');
+  }
+  await page.click('text=Queue (3) ›');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /KB/.test(r.textContent)));
+  assert.equal(await page.locator('text=💾 Save all').count(), 0, 'nothing downloaded yet');
+  await page.click('text=⬇️ Download all (3)');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /Downloaded/.test(r.textContent)), null, { timeout: 30000 });
+  assert.equal(await page.textContent('.dl-qhead button >> text=💾 Save all'), '💾 Save all (2)', 'the copy counts once');
+  const saved = [];
+  page.on('download', (d) => saved.push(d));
+  await page.click('text=💾 Save all (2)');
+  await page.waitForSelector('.dl-flash >> text=✓ Saved 2 files to the phone.');
+  assert.deepEqual(saved.map((d) => d.suggestedFilename()).sort(), ['clip.webm', 'talk.mp4']);
+  assert.equal(Buffer.compare(await readFile(await saved.find((d) => d.suggestedFilename() === 'talk.mp4').path()), mp4), 0);
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.className)), ['dl-num saved', 'dl-num saved', 'dl-num saved']);
   assert.deepEqual(errors, []);
   await context.close();
 });

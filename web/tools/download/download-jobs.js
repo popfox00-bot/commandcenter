@@ -142,6 +142,8 @@ function createJobs() {
     running: () => live.size,
     pause(job) { if (job.status === 'waiting') { job.status = 'paused'; save(job); changed(job); } else live.get(job.id)?.ctrl.abort(); },
     resume(job) { run(job); },
+    /** Saved to the phone (Save to phone went through): shown filled in green in the queue. */
+    async markSaved(job) { job.saved = true; await save(job); changed(job); },
     /** Removed, with what it stored: nothing of it is kept anywhere. */
     async remove(job) {
       const l = live.get(job.id); if (l) { l.ctrl.abort(); while (live.has(job.id)) await new Promise((r) => setTimeout(r, 30)); }

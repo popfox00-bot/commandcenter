@@ -367,3 +367,31 @@ test('downloads: a site that blocks apps shows frames and offers to open it; uns
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('downloads: 💾 Save all saves every downloaded file in the queue in one go, each file once, and fills every number green', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
+  await context.route('https://cdn.example.com/v/*.webm', cdn(webm));
+  await context.route('https://cdn.example.com/v/*.mp4', cdn(mp4, { type: 'video/mp4' }));
+  const { page, errors } = await openApp(context);
+  // Two links to the same file (same bytes) and one other.
+  for (const u of ['https://cdn.example.com/v/clip.webm', 'https://cdn.example.com/v/clip-copy.webm', 'https://cdn.example.com/v/talk.mp4']) {
+    await enter(page, u);
+    await page.waitForFunction(() => /KB/.test(document.querySelector('.dl-summary')?.textContent ?? ''));
+    await page.click('.dl-queue-row >> text=+ Queue');
+  }
+  await page.click('text=Queue (3) ›');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /KB/.test(r.textContent)));
+  assert.equal(await page.locator('text=💾 Save all').count(), 0, 'nothing downloaded yet');
+  await page.click('text=⬇️ Download all (3)');
+  await page.waitForFunction(() => [...document.querySelectorAll('.dl-qrow')].every((r) => /Downloaded/.test(r.textContent)), null, { timeout: 30000 });
+  assert.equal(await page.textContent('.dl-qhead button >> text=💾 Save all'), '💾 Save all (2)', 'the copy counts once');
+  const saved = [];
+  page.on('download', (d) => saved.push(d));
+  await page.click('text=💾 Save all (2)');
+  await page.waitForSelector('.dl-flash >> text=✓ Saved 2 files to the phone.');
+  assert.deepEqual(saved.map((d) => d.suggestedFilename()).sort(), ['clip.webm', 'talk.mp4']);
+  assert.equal(Buffer.compare(await readFile(await saved.find((d) => d.suggestedFilename() === 'talk.mp4').path()), mp4), 0);
+  assert.deepEqual(await page.$$eval('.dl-qrow .dl-num', (els) => els.map((e) => e.className)), ['dl-num saved', 'dl-num saved', 'dl-num saved']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

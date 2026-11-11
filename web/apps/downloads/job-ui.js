@@ -5,7 +5,7 @@ import { el, fill } from '../../lib/dom.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
 import { sameFingerprint } from '../../lib/sha256.js';
-import { formatTime, minuteMarks } from '../../tools/download/download-core.js';
+import { formatTime, minuteMarks, uniqueFiles } from '../../tools/download/download-core.js';
 
 /** A download's progress bar and its line ("45% · 120 MB of 340 MB · 3.1 MB/s · 1:10 left"). */
 export function progressBar(jobs) {
@@ -50,6 +50,29 @@ export async function saveJob(job, jobs) {
     downloadBlob(f, f.name);
     await jobs.markSaved(job);
   } catch (e) { noteError('Downloads: save', e); alert(`Couldn't save it: ${e.message}`); }
+}
+
+/**
+ * Save all: the downloads given, each distinct file once (uniqueFiles), to the phone in one go: one
+ * share sheet with all of them (an iPhone: "Save N Videos"; cancelled: nothing saved), or where a
+ * sheet can't take several files, each downloaded in turn. Resolves how many were saved.
+ */
+export async function saveAll(list, jobs) {
+  const picked = uniqueFiles(list.filter((j) => j.status === 'done'));
+  if (!picked.length) return 0;
+  try {
+    const files = await Promise.all(picked.map(async ({ item, name }) => { const f = await jobs.file(item); return new File([f], name, { type: f.type }); }));
+    if (navigator.share && canShareFiles(files)) {
+      if (!await shareFiles(files, `${files.length} videos`)) return 0;
+    } else {
+      for (const f of files) { downloadBlob(f, f.name); await new Promise((r) => setTimeout(r, 400)); }
+    }
+    for (const { item } of picked) await jobs.markSaved(item);
+    // (The same file downloaded twice counts as saved too.)
+    const hashes = new Set(picked.map((p) => p.item.hash).filter(Boolean));
+    for (const j of list) if (j.status === 'done' && !j.saved && hashes.has(j.hash)) await jobs.markSaved(j);
+    return picked.length;
+  } catch (e) { noteError('Downloads: save all', e); alert(`Couldn't save them: ${e.message}`); return 0; }
 }
 
 /** When the site won't let apps fetch it: open it in the browser (its own tab, nothing of this app sent). */

@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   checkVideoLink, linkFromText, minuteMarks, closerMarks, formatTime, sniffVideo, fileNameFor, downloadVideo, DownloadError,
-  linkExpiry, signedParams, preflight, remoteSource, streamPart, typeProblem, spreadMarks,
+  linkExpiry, signedParams, preflight, remoteSource, streamPart, typeProblem, spreadMarks, uniqueFiles,
 } from '../web/tools/download/download-core.js';
 import { planPart, readMovie, mp4Details } from '../web/tools/download/mp4.js';
 import { videoDetails, webmDetails, describe } from '../web/tools/download/media-info.js';
@@ -91,6 +91,15 @@ test('six stills spread evenly through it, just inside its start and end', () =>
   assert.equal(spreadMarks(8).length, 6);
   assert.ok(spreadMarks(8).every((m, i, a) => m.at > 0 && m.at < 8 && (!i || m.at > a[i - 1].at)), 'a short one: still six, in order, inside it');
   assert.deepEqual(spreadMarks(0), []);
+});
+
+test('save all: each distinct file once (by fingerprint), every name unique', () => {
+  const got = uniqueFiles([
+    { hash: 'aa', name: 'clip.mp4' }, { hash: 'bb', name: 'clip.mp4' }, { hash: 'aa', name: 'copy.mp4' },
+    { hash: 'cc', name: 'Clip.mp4' }, { hash: 'dd', name: 'video' }, { hash: 'ee', name: 'video' },
+  ]).map((x) => x.name);
+  assert.deepEqual(got, ['clip.mp4', 'clip (2).mp4', 'Clip (3).mp4', 'video', 'video (2)']);
+  assert.deepEqual(uniqueFiles([]), []);
 });
 
 test('sniff: video kinds from their first bytes; a web page is not one', () => {

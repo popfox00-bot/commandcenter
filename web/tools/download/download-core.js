@@ -201,6 +201,23 @@ export function fileNameFor(url, kind, suffix = '') {
   return `${stem}${suffix}.${kind}`;
 }
 
+/**
+ * The files to save together: one per distinct file (the same file downloaded twice, by its
+ * fingerprint, once), each name unique ("clip.mp4", "clip (2).mp4"), in the order given.
+ * @template {{ hash?: string, name: string }} T @param {T[]} items @returns {{ item: T, name: string }[]}
+ */
+export function uniqueFiles(items) {
+  const seen = new Set(); const names = new Set(); const out = [];
+  for (const item of items) {
+    if (item.hash) { if (seen.has(item.hash)) continue; seen.add(item.hash); }
+    let name = item.name; const dot = name.lastIndexOf('.'); const stem = dot > 0 ? name.slice(0, dot) : name; const ext = dot > 0 ? name.slice(dot) : '';
+    for (let n = 2; names.has(name.toLowerCase()); n++) name = `${stem} (${n})${ext}`;
+    names.add(name.toLowerCase());
+    out.push({ item, name });
+  }
+  return out;
+}
+
 export class DownloadError extends Error {
   /** @param {string} code @param {string} message */
   constructor(code, message) { super(message); this.code = code; this.name = 'DownloadError'; }

@@ -389,6 +389,10 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
   each with its size · length (or why it was refused) and, while downloading, its own progress bar;
   tap one for its view. A number gets a **green ring** once it's downloaded, and **fills in green**
   once it's saved to the phone (💾 Save to phone went through; cancelling the share sheet doesn't count).
+  **💾 Save all** saves every downloaded file in the queue (the Now one too) to the phone in one go:
+  one share sheet with all of them (an iPhone: "Save N Videos"), or each downloaded in turn where the
+  sheet can't take several. The same file downloaded twice (same fingerprint) is saved once, and
+  files with the same name get distinct names ("clip (2).mp4"). Every saved number fills in green.
   Starting one while another downloads offers **⬇️ Download now** (shares the connection: each
   slower) or **⏳ After the others**; **⬇️ Download all** queues the rest one after another.
 - **History:** every download (name, size · length, Save or its progress, ✕; the rest under **▸ More**),

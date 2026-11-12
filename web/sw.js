@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "8bcf9f2e24be",
+  "version": "98e66f139e1d",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -16,6 +16,7 @@ const PRECACHE = {
     "apps/downloads/link-view.js",
     "apps/downloads/links.js",
     "apps/downloads/stills.js",
+    "apps/fashion/fashion.js",
     "apps/fm/fm.js",
     "apps/games/fox/cc-frame.css",
     "apps/games/fox/fox.css",
@@ -33,6 +34,7 @@ const PRECACHE = {
     "apps/rap/rap-themes.js",
     "apps/rap/rap-words.txt",
     "apps/rap/rap.js",
+    "apps/refill/refill.js",
     "apps/saved/saved-app.js",
     "apps/settings/settings.js",
     "apps/sports/sports.js",
@@ -128,6 +130,7 @@ const PRECACHE = {
     "tools/editor/reverse-fill-ui.js",
     "tools/editor/state.js",
     "tools/editor/swap-score.js",
+    "tools/fashion/fashion-core.js",
     "tools/pdfwrite/annotate.js",
     "tools/pdfwrite/pdfwrite.js",
     "tools/pdfwrite/signature.js",

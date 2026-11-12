@@ -147,29 +147,53 @@ export function membrane(diff, free, bw, bh) {
 }
 
 /**
+ * The mean color of the pixels at offsets `idx` (into RGBA `px`), less those far from the rest: a mean,
+ * then again over the pixels within two spreads (and 6 levels) of it.
+ */
+export function robustMean(px, idx) {
+  const n = idx.length; const m = [0, 0, 0];
+  for (const o of idx) { m[0] += px[o]; m[1] += px[o + 1]; m[2] += px[o + 2]; }
+  m[0] /= n; m[1] /= n; m[2] /= n;
+  if (n < 5) return m;
+  let v = 0;
+  for (const o of idx) v += (px[o] - m[0]) ** 2 + (px[o + 1] - m[1]) ** 2 + (px[o + 2] - m[2]) ** 2;
+  const lim = (2 * Math.sqrt(v / n) + 6) ** 2;
+  const r = [0, 0, 0]; let k = 0;
+  for (const o of idx) {
+    if ((px[o] - m[0]) ** 2 + (px[o + 1] - m[1]) ** 2 + (px[o + 2] - m[2]) ** 2 > lim) continue;
+    r[0] += px[o]; r[1] += px[o + 1]; r[2] += px[o + 2]; k++;
+  }
+  return k ? [r[0] / k, r[1] / k, r[2] / k] : m;
+}
+
+/**
  * Evens out the light and color where a fill meets the picture: along the area's edge, how the
  * surroundings differ from the fill on average (over a few pixels, so texture doesn't count), spread
  * smoothly across the fill. In place, on `img` (the picture with the fill in it). With `allow`, only
  * those pixels count as the surroundings (where the area meets something else, it isn't matched to it).
  */
-function evenEdges(orig, img, w, h, mask, box, allow = null) {
+function evenEdges(orig, img, w, h, mask, box, allow = null, k3 = 3) {
   const b = { x0: Math.max(0, box.x0 - 1), y0: Math.max(0, box.y0 - 1), x1: Math.min(w, box.x1 + 1), y1: Math.min(h, box.y1 + 1) };
-  const bw = b.x1 - b.x0; const bh = b.y1 - b.y0; const k3 = 3;
+  const bw = b.x1 - b.x0; const bh = b.y1 - b.y0;
   const free = new Uint8Array(bw * bh); const diff = new Float32Array(bw * bh * 3);
+  const so = []; const si = [];
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
     const x = b.x0 + i; const y = b.y0 + j; const k = j * bw + i;
     if (!mask[y * w + x]) continue;
     const edge = (x > 0 && !mask[y * w + x - 1]) || (x < w - 1 && !mask[y * w + x + 1]) || (y > 0 && !mask[(y - 1) * w + x]) || (y < h - 1 && !mask[(y + 1) * w + x]);
     if (!edge) { free[k] = 1; continue; }
-    // Mean of the picture just outside, and of the fill just inside, within a few pixels.
-    const so = [0, 0, 0]; const si = [0, 0, 0]; let no = 0; let ni = 0;
+    // The picture just outside, and the fill just inside, within k3 pixels: each a robust mean (what's far
+    // off the rest, a stray dark speck or a bright edge of something else, left out).
+    so.length = 0; si.length = 0;
     for (let dy = -k3; dy <= k3; dy++) for (let dx = -k3; dx <= k3; dx++) {
       const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
       const o = (Y * w + X) * 4;
-      if (mask[Y * w + X]) { si[0] += img[o]; si[1] += img[o + 1]; si[2] += img[o + 2]; ni++; } else if (!allow || allow[Y * w + X]) { so[0] += orig[o]; so[1] += orig[o + 1]; so[2] += orig[o + 2]; no++; }
+      if (mask[Y * w + X]) si.push(o); else if (!allow || allow[Y * w + X]) so.push(o);
     }
-    if (no && ni) for (let c = 0; c < 3; c++) diff[k * 3 + c] = so[c] / no - si[c] / ni;
-    else free[k] = 1; // nothing to match here: it follows its neighbours
+    if (so.length && si.length) {
+      const mo = robustMean(orig, so); const mi = robustMean(img, si);
+      for (let c = 0; c < 3; c++) diff[k * 3 + c] = mo[c] - mi[c];
+    } else free[k] = 1; // nothing to match here: it follows its neighbours
   }
   membrane(diff, free, bw, bh);
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
@@ -382,9 +406,20 @@ export function shadeMask(rgba, w, h, region, box, shades, tol = 18, { edge = 0,
 export function roomAround(sel, w, h, b, pad) {
   const box = { x0: Math.max(0, b.x0 - pad), y0: Math.max(0, b.y0 - pad), x1: Math.min(w, b.x1 + pad), y1: Math.min(h, b.y1 + pad) };
   const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
+  const dist = distanceFrom(sel, w, box);
+  const mask = new Uint8Array(w * h);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (dist[y * bw + x] <= pad) mask[(box.y0 + y) * w + box.x0 + x] = 1;
+  return { mask, box };
+}
+
+/**
+ * How far each pixel of `box` is from `sel` (a mask over a picture w wide), in pixels (two passes of a
+ * chamfer distance: close to round). A box-sized Float32Array (Infinity where nothing of it is in the box).
+ */
+export function distanceFrom(sel, w, box) {
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
   const dist = new Float32Array(bw * bh).fill(Infinity);
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (sel[(box.y0 + y) * w + box.x0 + x]) dist[y * bw + x] = 0;
-  // Two passes of a chamfer distance (3-4: close to round).
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const k = y * bw + x; let d = dist[k];
     if (x > 0) d = Math.min(d, dist[k - 1] + 1); if (y > 0) d = Math.min(d, dist[k - bw] + 1);
@@ -397,20 +432,16 @@ export function roomAround(sel, w, h, b, pad) {
     if (x < bw - 1 && y < bh - 1) d = Math.min(d, dist[k + bw + 1] + 1.4142); if (x > 0 && y < bh - 1) d = Math.min(d, dist[k + bw - 1] + 1.4142);
     dist[k] = d;
   }
-  const mask = new Uint8Array(w * h);
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (dist[y * bw + x] <= pad) mask[(box.y0 + y) * w + box.x0 + x] = 1;
-  return { mask, box };
+  return dist;
 }
 
 /**
- * Reverse Fill's automatic trace, from colors picked on the photo: what's joined to the picked spots
- * (`seeds`, [x, y] pixels) and near the picked `shades` ([r, g, b]s; within `tol`, ΔE, or half as much
- * again, or of the same hue however light or dark where it shades smoothly on from them: in shadow, in the light), the whole of it as one area however it winds (a label, a logo, a stain), then a loop around it
- * with room for the surface it's on (a sixth of its size, at least 8 px, at most 60): the trace Reverse
- * Fill takes the shades out of and fills from. { mask, box, sel, share } (`sel`: how many pixels were
- * selected; `share`: of the whole photo), or null when nothing at the spots matches.
+ * The area of the picked colors joined to the picked spots: what autoTrace outlines, and Fashion selects
+ * a piece of clothing by (a tap on it). `seeds`: [x, y] pixels; `shades`: [r, g, b]s; `tol`: ΔE. Near a
+ * picked shade, or of its hue however light or dark where it shades smoothly on (in shadow, in the light).
+ * { sel (a mask over w×h), box, count }, or null when nothing at the spots matches.
  */
-export function autoTrace(rgba, w, h, seeds, shades, tol = 18) {
+export function colorRegion(rgba, w, h, seeds, shades, tol = 18) {
   if (!seeds.length || !shades.length) return null;
   const labs = shades.map(([r, g, b]) => toLab(r, g, b));
   const near = (i) => { const [L, A, B] = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); let d = Infinity; for (const c of labs) { const e = (L - c[0]) ** 2 * 0.6 + (A - c[1]) ** 2 + (B - c[2]) ** 2; if (e < d) d = e; } return Math.sqrt(d); };
@@ -438,11 +469,27 @@ export function autoTrace(rgba, w, h, seeds, shades, tol = 18) {
       sel[t] = 1; q.push(t);
     }
   }
+  return { sel, box: { x0, y0, x1, y1 }, count: q.length };
+}
+
+/**
+ * Reverse Fill's automatic trace, from colors picked on the photo: what's joined to the picked spots
+ * (`seeds`, [x, y] pixels) and near the picked `shades` ([r, g, b]s; within `tol`, ΔE, or half as much
+ * again, or of the same hue however light or dark where it shades smoothly on from them: in shadow, in the light), the whole of it as one area however it winds (a label, a logo, a stain), then a loop around it
+ * with room for the surface it's on (a quarter of its size, at least 12 px, at most 90): the trace Reverse
+ * Fill takes the shades out of and fills from. { mask, box, sel, share } (`sel`: how many pixels were
+ * selected; `share`: of the whole photo), or null when nothing at the spots matches.
+ */
+export function autoTrace(rgba, w, h, seeds, shades, tol = 18) {
+  const r = colorRegion(rgba, w, h, seeds, shades, tol);
+  if (!r) return null;
+  const { sel, box: { x0, y0, x1, y1 }, count } = r;
   // The loop around it: everything within `pad` of what was selected.
   const size = Math.max(x1 - x0, y1 - y0);
-  const pad = Math.round(Math.max(8, Math.min(60, size / 6)));
+  // (A quarter of its size, 12 to 90 px: room enough of the surface all around it to fill from.)
+  const pad = Math.round(Math.max(12, Math.min(90, size / 4)));
   const { mask, box } = roomAround(sel, w, h, { x0, y0, x1, y1 }, pad);
-  return { mask, box, sel: q.length, share: q.length / (w * h), pad };
+  return { mask, box, sel: count, share: count / (w * h), pad };
 }
 
 /** Whether `allow` has room for a few whole 7×7 patches (and a couple of hundred pixels) near the box. */
@@ -556,27 +603,6 @@ function matchGrain(img, w, h, mask, box, allow) {
 }
 
 /**
- * The fill's edge softened into what's around it: within a few pixels inside its edge, each pixel eased
- * toward the average of the pixels around it (on both sides of the edge), most at the edge itself, so no
- * step is left where the fill meets the photo. In place on `img` (the picture with the fill in it).
- */
-function softenSeam(img, w, h, mask, box, r = 3) {
-  const x0 = Math.max(1, box.x0); const y0 = Math.max(1, box.y0); const x1 = Math.min(w - 1, box.x1); const y1 = Math.min(h - 1, box.y1);
-  const src = img.slice((Math.max(0, y0 - r - 1) * w) * 4, (Math.min(h, y1 + r + 1) * w) * 4); const sy = Math.max(0, y0 - r - 1);
-  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-    const i = y * w + x; if (!mask[i]) continue;
-    // How far in from its edge (up to r).
-    let d = r + 1;
-    for (let dy = -r; dy <= r && d > 1; dy++) for (let dx = -r; dx <= r; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; if (!mask[Y * w + X]) d = Math.min(d, Math.max(Math.abs(dx), Math.abs(dy))); }
-    if (d > r) continue;
-    const t = (r + 1 - d) / (r + 1); // 1 at the edge, fading inward
-    const m = [0, 0, 0]; let n = 0;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const o = ((Y - sy) * w + X) * 4; m[0] += src[o]; m[1] += src[o + 1]; m[2] += src[o + 2]; n++; }
-    for (let c = 0; c < 3; c++) img[i * 4 + c] = img[i * 4 + c] * (1 - 0.7 * t) + (m[c] / n) * 0.7 * t;
-  }
-}
-
-/**
  * Reverse Fill: the matched area (`mask`, `box`) removed and filled from what's left of the traced
  * `region` around it (the surface the label was on: the can, not what's behind the can), coarse to
  * fine, its light and color evened out with that surface. When too little of the surface is left to
@@ -610,10 +636,13 @@ export function reverseFill(rgba, w, h, mask, box, region, { from = null } = {})
       if (Math.sqrt((c[0] - o[0]) ** 2 * 0.6 + (c[1] - o[1]) ** 2 + (c[2] - o[2]) ** 2) < 20) { g.mask[i] = 0; dy = 3; break; }
     }
   }
-  const R = Math.max(4, Math.ceil(Math.max(g.box.x1 - g.box.x0, g.box.y1 - g.box.y0) / 2));
+  const size = Math.max(g.box.x1 - g.box.x0, g.box.y1 - g.box.y0);
+  const R = Math.max(4, Math.ceil(size / 2));
   const done = complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, { maxLevels: 6, minHole: 3, minSize: 24, forbid: (x, y) => !allow[y * w + x] });
-  evenEdges(rgba, done, w, h, g.mask, g.box, allow);
-  softenSeam(done, w, h, g.mask, g.box, Math.max(2, Math.round(Math.max(w, h) / 400)));
+  // Its light and color evened out with the surface all around it, each edge pixel matched to a robust
+  // mean of the surface within k3 px (wider for a bigger area: past its own tinted fringe, and not thrown
+  // by a speck), spread smoothly across the fill; then the surface's grain.
+  evenEdges(rgba, done, w, h, g.mask, g.box, allow, Math.max(3, Math.min(8, Math.round(size / 40))));
   matchGrain(done, w, h, g.mask, g.box, allow);
   const p = patchOf(done, g.mask, w, h, g.box);
   return wide ? { ...p, wider: true } : p;

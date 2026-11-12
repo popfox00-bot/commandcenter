@@ -727,7 +727,13 @@ pixel to a robust average of the surface just past it (wider for a bigger area, 
 surface rather than the removed thing's tinted fringe, and a stray speck doesn't throw it), spread
 smoothly across the fill, so a gradient of light carries through it; then the surface's grain is
 added where the fill is smoother. (On a lit, grainy test surface this cut the fill's tone error by
-about two thirds compared with before.) With
+about two thirds compared with before.) A surface with a **pattern that repeats** (tiles, bricks,
+stripes, checks, a weave) is found by itself (the shift at which it matches itself, and a brick
+offset) and filled by copying it a whole repeat away, so its lines run on through; its light is matched
+where it meets the photo (`findRepeat` / `repeatFill`). The filling runs in a worker
+(`cleanup-worker.js`), so the screen keeps going on a big area. After a fill, **◑ Hold for before**
+shows the photo as it was, and **👕 Use as a Fashion piece** / **🧍 Dress it in Fashion** open the
+result in [Fashion](#fashion) (a logo taken off a shirt, then put on someone). With
 **🎯 Fill From**, pick the surface to fill with yourself; **✏️ Draw my own loop** traces it by hand
 instead (tap the shades, then draw a rough loop around it). Pick the same color in other places to take
 them all at once (each is found and outlined), and touch up what goes with **🖌 Add to it** and **🧽 Take
@@ -751,10 +757,22 @@ the clothes in it: worn by someone, or on its own).
   goes on is found by itself, or **👆 tapped** / **✏️ traced** on the base (outlined in yellow). It's
   placed by the body: as big as the person (by their faces) and where that kind is worn (a top from the
   chin to the waist, found where the clothes' color changes; a hat on the head; shoes at the feet).
-- **Fine-tune**: drag it (✋ Move), **Size**, **Width**, **Length**, **Turn**, **Fit to body** (how far
-  each row is bent onto the shape of what it goes on), **Form** (the photo's folds and shadows carried
-  onto it), **Light** (its light matched to the photo's, by the two people's faces), **Edge** (softness),
-  and **Keep hair and face in front**. **💾 Save** shares or downloads the picture.
+- **Fitted part by part**: a top's body goes onto the body and each sleeve onto that side's sleeve
+  (a long sleeve over a short one, or a bare arm, keeps its length); shoes go one on each foot (one shoe
+  photographed is mirrored for the other). In Replace, only what the piece doesn't cover of what was
+  worn is taken off, filled from what's beside it (the background, the skin), never from the old
+  garment.
+- **📏 Guides** show where the chin, waist and ankles were found (and where the piece goes): drag a line
+  to correct it, and what's found and where it goes follow.
+- **Fine-tune**: drag it (✋ Move) or pinch it (size and turn), **Size**, **Width**, **Length**, **Turn**,
+  **Fit to body** (how far each row is bent onto the shape of what it goes on), **Form** (the photo's
+  folds and shadows carried onto it), **Light** (its light matched to the photo's, by the two people's
+  faces), **Edge** (softness), **Keep hair and face in front** and **Keep hands and arms in front of
+  the body**. 🖌 **Brush in** / 🩹 **Brush out** touch up the piece and what it goes on. **↶ / ↷** undo
+  and redo; **◑ Hold for before** shows the photo as it was. Your work is kept on the phone: come back
+  and **Continue** where you left off.
+- **💾 Save** works it out again from the photos as opened, at full size (up to 2560 px, about 6 MP),
+  and shares or downloads it.
 
 The workings are in `web/tools/fashion/fashion-core.js` (tested in `test/fashion.test.js`); the app
 is `web/apps/fashion/fashion.js`.

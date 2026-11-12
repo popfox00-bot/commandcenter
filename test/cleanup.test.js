@@ -231,3 +231,29 @@ test('Reverse Fill takes a soft-edged thing\'s halo too (its blur into what\'s a
   assert.ok(reach(withHalo) >= reach(plain) + 2 && reach(withHalo) <= 30, `with: farther out through the blur, to the background (${reach(plain)} → ${reach(withHalo)})`);
   assert.equal(withHalo.mask[60 * w + 100], 0, 'not the background beyond');
 });
+
+test('Reverse Fill on a pattern (bricks, stripes): its repeat is found and copied, so its lines run on; plain grain isn\'t taken for one', async () => {
+  const { findRepeat } = await import('../web/tools/editor/cleanup.js');
+  const w = 240; const h = 200;
+  const scene = (f) => { const px = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) px.set([...f(x, y), 255], (y * w + x) * 4); return px; };
+  const brick = (x, y) => { const off = Math.floor(y / 16) % 2 ? 12 : 0; return ((x + off) % 24 < 2 || y % 16 < 2) ? [200, 200, 195] : [160, 70, 50]; };
+  const hole = new Uint8Array(w * h); const allow = new Uint8Array(w * h); const box = { x0: 95, y0: 80, x1: 145, y1: 120 };
+  for (let y = 60; y < 140; y++) for (let x = 70; x < 170; x++) allow[y * w + x] = 1;
+  for (let y = 80; y < 120; y++) for (let x = 95; x < 145; x++) hole[y * w + x] = 1;
+  assert.deepEqual(findRepeat(scene(brick), w, h, allow, hole, box), { v1: [24, 0], v2: [12, 16], score: 1 });
+  let s = 5; const rnd = () => (s = (s * 1103515245 + 12345) >>> 0, s / 4294967296);
+  assert.equal(findRepeat(scene((x, y) => [120 + x * 0.2 + rnd() * 10, 130, 140 - y * 0.1]), w, h, allow, hole, box), null);
+  // Filled: a green sticker on the bricks taken off, the bricks run on through (pixel for pixel, but for the edge).
+  const truth = scene(brick); const px = Uint8ClampedArray.from(truth);
+  for (let y = 80; y < 120; y++) for (let x = 95; x < 145; x++) px.set([20, 200, 90, 255], (y * w + x) * 4);
+  const t = autoTrace(px, w, h, [[120, 100]], [[20, 200, 90]], 18);
+  const m = shadeMask(px, w, h, t.mask, t.box, [[20, 200, 90]], 18);
+  const p = reverseFill(px, w, h, m.mask, m.box, t.mask);
+  assert.equal(p.pattern, true);
+  let same = 0; let n = 0;
+  for (let y = 84; y < 116; y++) for (let x = 99; x < 141; x++) {
+    const o = ((y - p.y0) * p.pw + x - p.x0) * 4; const i = (y * w + x) * 4; n++;
+    if (Math.abs(p.rgba[o] - truth[i]) + Math.abs(p.rgba[o + 1] - truth[i + 1]) < 30) same++;
+  }
+  assert.ok(same / n > 0.9, `bricks run on: ${Math.round((100 * same) / n)}%`);
+});

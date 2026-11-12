@@ -210,12 +210,16 @@ function evenEdges(orig, img, w, h, mask, box, allow = null, k3 = 3) {
  * grown by a couple of pixels first, so the soft rim of what's removed (its shadow, its anti-aliased
  * edge) goes too. Returns patch pixels, or null for an empty mask.
  */
-export function cleanUp(rgba, w, h, mask, box) {
+export function cleanUp(rgba, w, h, mask, box, { avoid = null } = {}) {
   if (!box) return null;
   const g = grow(mask, w, h, box, 2);
   const R = Math.max(4, Math.ceil(Math.max(g.box.x1 - g.box.x0, g.box.y1 - g.box.y0) / 2));
-  const done = complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, { maxLevels: 6, minHole: 3, minSize: 24 });
-  evenEdges(rgba, done, w, h, g.mask, g.box);
+  // (`avoid`: a mask over w×h not to copy from, nor match the edge to: what's being taken off, say.)
+  const opts = { maxLevels: 6, minHole: 3, minSize: 24, ...(avoid ? { forbid: (x, y) => avoid[y * w + x] === 1 } : {}) };
+  const done = complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, opts);
+  let allow = null;
+  if (avoid) { allow = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) allow[i] = avoid[i] ? 0 : 1; }
+  evenEdges(rgba, done, w, h, g.mask, g.box, allow);
   return patchOf(done, g.mask, w, h, g.box);
 }
 
@@ -638,12 +642,144 @@ export function reverseFill(rgba, w, h, mask, box, region, { from = null } = {})
   }
   const size = Math.max(g.box.x1 - g.box.x0, g.box.y1 - g.box.y0);
   const R = Math.max(4, Math.ceil(size / 2));
-  const done = complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, { maxLevels: 6, minHole: 3, minSize: 24, forbid: (x, y) => !allow[y * w + x] });
+  // A surface with a pattern that repeats (tiles, bricks, stripes, a weave): filled by copying it from a
+  // repeat away, so its lines run on through; otherwise rebuilt coarse to fine.
+  // (Over the whole surface traced, every color of the pattern, not only the patches like the one it borders.)
+  // A repeat needs room to be seen (a few of it), so it's looked for a little past the trace too (up to
+  // 40 px): only a surface that keeps repeating there counts.
+  const wide2 = grow(region, w, h, rbox, 40);
+  const surf = wide2.mask; for (let i = 0; i < w * h; i++) if (g.mask[i]) surf[i] = 0;
+  const rep = findRepeat(rgba, w, h, surf, g.mask, g.box);
+  const copied = rep && repeatFill(rgba, w, h, g.mask, g.box, surf, rep);
+  const done = copied
+    ?? complete(rgba, w, h, (x, y) => g.mask[y * w + x] === 1, g.box.x0, g.box.y0, g.box.x1, g.box.y1, R, null, { maxLevels: 6, minHole: 3, minSize: 24, forbid: (x, y) => !allow[y * w + x] });
   // Its light and color evened out with the surface all around it, each edge pixel matched to a robust
   // mean of the surface within k3 px (wider for a bigger area: past its own tinted fringe, and not thrown
   // by a speck), spread smoothly across the fill; then the surface's grain.
-  evenEdges(rgba, done, w, h, g.mask, g.box, allow, Math.max(3, Math.min(8, Math.round(size / 40))));
-  matchGrain(done, w, h, g.mask, g.box, allow);
+  // (A pattern copied already has its light matched to where it's copied from, and its own grain.)
+  if (!copied) {
+    evenEdges(rgba, done, w, h, g.mask, g.box, allow, Math.max(3, Math.min(8, Math.round(size / 40))));
+    matchGrain(done, w, h, g.mask, g.box, allow);
+  }
   const p = patchOf(done, g.mask, w, h, g.box);
+  if (copied) p.pattern = true;
   return wide ? { ...p, wider: true } : p;
+}
+
+/**
+ * Whether the surface around a hole (`allow`, near `box`; not `hole`) repeats: the shift along x and
+ * along y (and, for rows that are offset like bricks, the x offset of the next row) at which it matches
+ * itself best (normalized correlation of its lightness). A direction it doesn't change along (stripes
+ * across it) counts as a shift of 1. { v1: [dx, 0], v2: [ox, dy], score } or null when it doesn't repeat.
+ */
+export function findRepeat(rgba, w, h, allow, hole, box, maxP = 64) {
+  const pad = Math.min(maxP * 2, Math.max(24, Math.round(Math.max(box.x1 - box.x0, box.y1 - box.y0))));
+  const x0 = Math.max(0, box.x0 - pad); const y0 = Math.max(0, box.y0 - pad); const x1 = Math.min(w, box.x1 + pad); const y1 = Math.min(h, box.y1 + pad);
+  const ok = (x, y) => x >= x0 && y >= y0 && x < x1 && y < y1 && allow[y * w + x] && !hole[y * w + x];
+  const L = (x, y) => { const i = (y * w + x) * 4; return 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]; };
+  // Sample points (every other pixel) on the surface.
+  const pts = [];
+  // (Staggered, so a shift by an odd number of pixels doesn't land on the same grid as the one before.)
+  for (let y = y0; y < y1; y += 2) for (let x = x0 + ((y >> 1) & 1); x < x1; x += 2) if (ok(x, y)) pts.push(x, y);
+  if (pts.length < 400) return null;
+  const ncc = (dx, dy) => {
+    let n = 0; let sa = 0; let sb = 0; let saa = 0; let sbb = 0; let sab = 0;
+    for (let k = 0; k < pts.length; k += 2) {
+      const x = pts[k]; const y = pts[k + 1]; if (!ok(x + dx, y + dy)) continue;
+      const a = L(x, y); const b = L(x + dx, y + dy);
+      n++; sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b;
+    }
+    if (n < 150) return -1;
+    const va = saa - (sa * sa) / n; const vb = sbb - (sb * sb) / n;
+    if (va < n * 9 || vb < n * 9) return 1; // flat: no pattern to speak of
+    return (sab - (sa * sb) / n) / Math.sqrt(va * vb);
+  };
+  // A flat surface has nothing to repeat: leave it to the usual fill.
+  if (ncc(1, 0) === 1 && ncc(0, 1) === 1) return null;
+  const period = (axis) => {
+    const at = (d) => (axis ? ncc(0, d) : ncc(d, 0));
+    const c = []; for (let d = 1; d <= maxP; d++) c.push(at(d));
+    if (Math.min(...c.slice(0, Math.min(c.length, 24))) > 0.8) return { p: 1, score: 1 }; // doesn't change along it
+    // The best match past the first few pixels (which match anything smooth); the shortest that's nearly as good.
+    let best = -1; for (let d = 3; d <= maxP; d++) if (c[d - 1] > best && c[d - 1] > c[d - 2] && (d === maxP || c[d - 1] >= c[d])) best = c[d - 1];
+    if (best < 0.6) return null;
+    // (A real repeat dips well below it in between: a smooth gradient or grain matches itself at every shift.)
+    for (let d = 3; d <= maxP; d++) if (c[d - 1] >= best * 0.92 && c[d - 1] > c[d - 2] && (d === maxP || c[d - 1] >= c[d])) return Math.min(...c.slice(0, d - 1)) < c[d - 1] - 0.35 ? { p: d, score: c[d - 1] } : null;
+    return null;
+  };
+  const px = period(0); const py = period(1);
+  if (!px || !py || (px.p === 1 && py.p === 1)) return null;
+  // Rows offset from each other (bricks): the shift into the next row that matches best.
+  // (Then the row repeat may be a fraction of what was found straight down: half of it, offset across.)
+  let ox = 0; let dy = py.p;
+  if (px.p > 1 && py.p > 1) {
+    for (const k of [3, 2]) {
+      if (py.p % k || py.p / k < 3) continue;
+      let b = -1; let bo = 0; for (let o = 1; o < px.p; o++) { const c = ncc(o, py.p / k); if (c > b) { b = c; bo = o; } }
+      if (b >= py.score * 0.92) { dy = py.p / k; ox = bo; break; }
+    }
+  }
+  return { v1: [px.p, 0], v2: [ox, dy], score: Math.min(px.score, py.score) };
+}
+
+/**
+ * The hole filled by copying the surface a whole number of repeats away (`rep`, from findRepeat): each
+ * pixel from the nearest place on the surface that lines up with it, then its light and color evened out
+ * with what's around it. The picture with the fill in it, or null when much of it couldn't be reached.
+ */
+export function repeatFill(rgba, w, h, hole, box, allow, rep) {
+  const ext = Math.max(box.x1 - box.x0, box.y1 - box.y0) + 4;
+  const ki = Math.min(400, Math.ceil(ext / rep.v1[0]) + 2); const kj = Math.min(400, Math.ceil(ext / rep.v2[1]) + 2);
+  const vecs = [];
+  for (let j = -kj; j <= kj; j++) for (let i = -ki; i <= ki; i++) {
+    if (!i && !j) continue;
+    const dx = i * rep.v1[0] + j * rep.v2[0]; const dy = j * rep.v2[1];
+    if (Math.abs(dx) > ext + rep.v1[0] || Math.abs(dy) > ext + rep.v2[1]) continue;
+    vecs.push([dx, dy, dx * dx + dy * dy]);
+  }
+  vecs.sort((a, b) => a[2] - b[2]);
+  // Each pixel of the hole, and of a ring 3 px around it, from the nearest place a whole number of repeats
+  // away that's on the surface (the ring's own copy: how the light differs between a place and its repeat).
+  const R = 3;
+  const bx = { x0: Math.max(0, box.x0 - R), y0: Math.max(0, box.y0 - R), x1: Math.min(w, box.x1 + R), y1: Math.min(h, box.y1 + R) };
+  const bw = bx.x1 - bx.x0; const bh = bx.y1 - bx.y0;
+  const near = distanceFrom(hole, w, bx);
+  const copy = new Float32Array(bw * bh * 3); const has = new Uint8Array(bw * bh);
+  let n = 0; let miss = 0;
+  for (let y = bx.y0; y < bx.y1; y++) for (let x = bx.x0; x < bx.x1; x++) {
+    const k = (y - bx.y0) * bw + x - bx.x0; const i = y * w + x;
+    const inHole = hole[i] === 1;
+    if (!inHole && (near[k] > R || !allow[i])) continue;
+    if (inHole) n++;
+    for (const [dx, dy] of vecs) {
+      const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+      const j = Y * w + X; if (hole[j] || !allow[j]) continue;
+      copy[k * 3] = rgba[j * 4]; copy[k * 3 + 1] = rgba[j * 4 + 1]; copy[k * 3 + 2] = rgba[j * 4 + 2]; has[k] = 1; break;
+    }
+    if (inHole && !has[k]) miss++;
+  }
+  if (!n || miss > n * 0.05) return null;
+  // The light: on the ring, the photo less its copy (averaged over its ring neighbours: grain isn't light),
+  // spread smoothly over the hole.
+  const diff = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh).fill(1);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; const i = (bx.y0 + y) * w + bx.x0 + x;
+    if (hole[i] || !has[k]) continue;
+    const m = [0, 0, 0]; let c = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= bw || Y >= bh) continue;
+      const t = Y * bw + X; const ti = (bx.y0 + Y) * w + bx.x0 + X; if (hole[ti] || !has[t]) continue;
+      for (let ch = 0; ch < 3; ch++) m[ch] += rgba[ti * 4 + ch] - copy[t * 3 + ch]; c++;
+    }
+    for (let ch = 0; ch < 3; ch++) diff[k * 3 + ch] = m[ch] / c;
+    free[k] = 0;
+  }
+  membrane(diff, free, bw, bh);
+  const out = Uint8ClampedArray.from(rgba);
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
+    const i = y * w + x; if (!hole[i]) continue;
+    const k = (y - bx.y0) * bw + x - bx.x0; if (!has[k]) continue;
+    for (let ch = 0; ch < 3; ch++) out[i * 4 + ch] = copy[k * 3 + ch] + diff[k * 3 + ch];
+  }
+  return out;
 }

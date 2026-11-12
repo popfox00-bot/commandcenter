@@ -129,9 +129,10 @@ test('fashion: a top\'s body and sleeves are told apart (arms hanging beside it,
   for (let y = 70; y < 160; y++) for (let x = 140; x < 160; x++) m[y * w + x] = 1;
   for (let y = 40; y < 180; y++) for (let x = 96; x < 104; x++) m[y * w + x] = 0; // a zip down the middle, not part of it
   const s = splitSleeves(m, w, h, boxOf(m, w, h));
-  assert.ok(Math.abs(s.torso.box.x0 - 69) <= 2 && Math.abs(s.torso.box.x1 - 131) <= 2, JSON.stringify(s.torso.box));
-  assert.ok(s.left.box.x1 <= 70 && s.left.box.x0 === 30, JSON.stringify(s.left.box));
-  assert.ok(s.right.box.x0 >= 130 && s.right.box.y1 === 160, JSON.stringify(s.right.box));
+  // (The body with a few pixels of slack at its edges: a hem that flares a little isn't a sleeve.)
+  assert.ok(Math.abs(s.torso.box.x0 - 66) <= 2 && Math.abs(s.torso.box.x1 - 134) <= 2, JSON.stringify(s.torso.box));
+  assert.ok(s.left.box.x1 <= 68 && s.left.box.x0 === 30 && s.left.box.y1 === 70, JSON.stringify(s.left.box));
+  assert.ok(s.right.box.x0 >= 132 && s.right.box.y1 === 160, JSON.stringify(s.right.box));
   // A plain body (no sleeves): no sleeves.
   const t = new Uint8Array(w * h); for (let y = 40; y < 180; y++) for (let x = 70; x < 130; x++) t[y * w + x] = 1;
   const s2 = splitSleeves(t, w, h, boxOf(t, w, h)); assert.equal(s2.left, null); assert.equal(s2.right, null);

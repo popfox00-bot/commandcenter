@@ -131,6 +131,8 @@ export function kindRegion(kind, p, L) {
           : p.clothes[i] >= 128;
     if (worn) m[i] = 1;
   }
+  // (Thin slivers taken off first: the soft edge of an arm or the background read as clothes.)
+  openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 60)));
   // (Shoes not told apart from the rest: what's at the very bottom of the person.)
   if (kind === 'shoes' && !m.some(Boolean)) for (let y = Math.max(z.y0, Math.floor(L.ankle)); y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (Math.max(p.clothes[i], p.body[i]) >= 128) m[i] = 1; }
   const kept = mainParts(m, w, h, z, 0.15);
@@ -393,11 +395,15 @@ export function splitSleeves(m, w, h, box) {
   const order = ls.map((l, i) => i).sort((a, b) => (rs[a] - ls[a]) - (rs[b] - ls[b]));
   const pick = order.slice(0, Math.max(1, Math.ceil(order.length * 0.2)));
   const med = (a) => [...a].sort((p, q) => p - q)[a.length >> 1];
-  const t0 = med(pick.map((i) => ls[i])) - 1; const t1 = med(pick.map((i) => rs[i])) + 1;
-  const left = partOf(m, w, h, box, (x) => x < t0); const right = partOf(m, w, h, box, (x) => x >= t1);
+  // (With a little slack: a body that flares toward its hem isn't a sleeve.)
+  const slack = Math.max(2, Math.round((box.x1 - box.x0) * 0.03));
+  const t0 = med(pick.map((i) => ls[i])) - slack; const t1 = med(pick.map((i) => rs[i])) + slack;
+  // Each side's sleeve: its biggest joined part (not a sliver of the body's edge lower down).
+  const side = (keep) => { const p = partOf(m, w, h, box, keep); if (!p) return null; const k = mainParts(p.mask, w, h, p.box, 1); return k && { mask: k.mask, box: k.box, count: k.count }; };
+  const left = side((x) => x < t0); const right = side((x) => x >= t1);
   const big = (p) => p && p.count >= all.count * 0.03 && p.box.y1 - p.box.y0 >= bh * 0.15;
   const L = big(left) ? left : null; const R = big(right) ? right : null;
-  const torso = partOf(m, w, h, box, (x) => (L ? x >= t0 : true) && (R ? x < t1 : true));
+  const torso = partOf(m, w, h, box, (x, y) => !(L && L.mask[y * w + x]) && !(R && R.mask[y * w + x]));
   return { torso: torso ?? all, left: L, right: R };
 }
 
@@ -451,4 +457,31 @@ export function mergeLayers(layers) {
     rgba[t + 3] = Math.round(ao * 255);
   }
   return { x0, y0, pw, ph, rgba };
+}
+
+/**
+ * A mask (within `box`) with what's thinner than 2r + 1 px taken off (an opening: shrunk by r, then grown
+ * back by r, square). In place.
+ */
+export function openMask(m, w, h, box, r) {
+  if (r < 1) return;
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; if (bw <= 0 || bh <= 0) return;
+  const pass = (src, op, horiz) => {
+    const out = new Uint8Array(bw * bh);
+    for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
+      let v = op === 'min' ? 1 : 0;
+      for (let d = -r; d <= r; d++) {
+        const ii = horiz ? i + d : i; const jj = horiz ? j : j + d;
+        const s0 = ii < 0 || jj < 0 || ii >= bw || jj >= bh ? 0 : src[jj * bw + ii];
+        if (op === 'min' ? !s0 : s0) { v = op === 'min' ? 0 : 1; break; }
+      }
+      out[j * bw + i] = v;
+    }
+    return out;
+  };
+  let a = new Uint8Array(bw * bh);
+  for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) a[j * bw + i] = m[(box.y0 + j) * w + box.x0 + i] ? 1 : 0;
+  a = pass(pass(a, 'min', true), 'min', false);
+  a = pass(pass(a, 'max', true), 'max', false);
+  for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) m[(box.y0 + j) * w + box.x0 + i] = a[j * bw + i];
 }

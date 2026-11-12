@@ -737,3 +737,30 @@ test('Magic → 🎨 Reverse Fill: 🧽 brush some out of what goes, 🖌 brush 
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Magic → 🎨 Reverse Fill: after a fill, ◑ Hold for before shows the photo as it was; 👕 Use as a Fashion piece opens it in Fashion', async () => {
+  const { context, page, errors, box, at } = await canInRefill();
+  const b = await box();
+  await page.mouse.click(...at(b, 0.6, 0.47)); // the label's white
+  await page.mouse.click(...at(b, 0.6, 0.355)); // its red bands
+  await page.getByRole('button', { name: '✨ Remove & fill' }).click();
+  await page.waitForSelector('text=Removed and filled from the surface around it');
+  await page.waitForTimeout(200);
+  const filled = await pixel(page, 0.6, 0.47);
+  assert.ok(filled[2] > 150, `filled with the can (${filled})`);
+  // (Worked out in the worker, off the page's thread.)
+  assert.ok(await page.evaluate(() => performance.getEntriesByType('resource').some((r) => r.name.endsWith('/cleanup-worker.js'))), 'the fill ran in its worker');
+  const hold = page.getByRole('button', { name: 'Hold to see the photo before' });
+  await hold.hover(); await page.mouse.down(); await page.waitForTimeout(150);
+  const before = await pixel(page, 0.6, 0.47);
+  assert.ok(before[0] > 220 && before[2] > 220, `held: the label again (${before})`);
+  await page.mouse.up(); await page.waitForTimeout(150);
+  assert.ok((await pixel(page, 0.6, 0.47))[2] > 150 && (await pixel(page, 0.6, 0.47))[0] < 120, 'let go: filled again');
+  await page.getByRole('button', { name: '👕 Use as a Fashion piece' }).click();
+  await page.waitForFunction(() => location.hash === '#/fashion');
+  await page.waitForSelector('img[alt="2 · Piece"]');
+  assert.equal(await page.locator('img[alt="1 · Base"]').count(), 0);
+  await page.waitForSelector('text=/Your filled photo is the piece/');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

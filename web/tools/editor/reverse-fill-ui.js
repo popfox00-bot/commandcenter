@@ -166,22 +166,44 @@ export function reverseFillTool(env) {
     }
   }
 
+  /**
+   * Removing and filling, in a worker (cleanup-worker.js) so the screen keeps going on a big area; on the
+   * page's thread when there's no worker here.
+   */
+  let worker = null; let seq = 0; const waiting = new Map();
+  function fillOff(rgba, w, h, mask, box, region, from) {
+    if (worker === null) {
+      try {
+        worker = new Worker(new URL('./cleanup-worker.js', import.meta.url), { type: 'module' });
+        worker.onmessage = (e) => { const r = waiting.get(e.data.seq); if (!r) return; waiting.delete(e.data.seq); if (e.data.error) r.reject(new Error(e.data.error)); else r.resolve(e.data.p); };
+        worker.onerror = () => { for (const r of waiting.values()) r.fallback(); waiting.clear(); worker?.terminate(); worker = false; };
+      } catch { worker = false; }
+    }
+    const here = () => reverseFill(rgba, w, h, mask, box, region, { from });
+    if (!worker) return new Promise((r) => setTimeout(() => r(here()), 30));
+    return new Promise((resolve, reject) => {
+      const n = ++seq;
+      waiting.set(n, { resolve, reject, fallback: () => { try { resolve(here()); } catch (e) { reject(e); } } });
+      // (Copies: the photo stays the page's.)
+      worker.postMessage({ seq: n, rgba: Uint8ClampedArray.from(rgba), w, h, mask, box, region, from });
+    });
+  }
+
   /** ✨ Remove & fill: the matched shades taken out of the trace, filled from the surface left around them. */
-  function runReverseFill() {
+  async function runReverseFill() {
     const pv = reversePreview();
     if (!pv?.box) { cleanNote = 'Nothing in the trace matches those colors: tap them inside it, or raise Match.'; env.renderPanel(); return; }
     const w = env.source().width; const h = env.source().height; const { trace, from } = rf;
-    cleaning = true; cleanNote = 'Removing and filling…'; env.renderPanel(); env.schedule();
-    setTimeout(() => {
-      try {
-        const p = reverseFill(env.pixels(), w, h, pv.mask, pv.box, trace.mask, { from });
-        if (!p) { cleanNote = ''; return; }
-        const s = env.state();
-        cleanNote = p.wide ? 'Removed. Little of the surface was left in the trace, so it was filled from around it: trace a bit wider for a better fill.' : `Removed and filled from the surface around it${p.wider ? ' (some from just past your loop: little of it was inside)' : ''}. Undo takes it back.`;
-        rf = { ...newRf(), tol: rf.tol, hand: rf.hand };
-        env.commit({ ...s, patches: [...(s.patches ?? []), env.makePatch(p, w, h)] });
-      } finally { cleaning = false; env.renderPanel(); env.schedule(); }
-    }, 30);
+    cleaning = true; cleanNote = 'Removing and filling… (you can keep looking around)'; env.renderPanel(); env.schedule();
+    try {
+      const p = await fillOff(env.pixels(), w, h, pv.mask, pv.box, trace.mask, from);
+      if (!rf) return;
+      if (!p) { cleanNote = ''; return; }
+      const s = env.state();
+      cleanNote = p.wide ? 'Removed. Little of the surface was left in the trace, so it was filled from around it: trace a bit wider for a better fill.' : `Removed and filled from the surface around it${p.pattern ? ', its pattern carried on through' : ''}${p.wider ? ' (some from just past your loop: little of it was inside)' : ''}. Hold ◑ Before to compare; Undo takes it back.`;
+      rf = { ...newRf(), tol: rf.tol, hand: rf.hand };
+      env.commit({ ...s, patches: [...(s.patches ?? []), env.makePatch(p, w, h)] });
+    } catch (e) { cleanNote = `Couldn't fill it: ${e.message}`; } finally { cleaning = false; env.renderPanel(); env.schedule(); }
   }
 
   /** FM's Reverse Fill: pick the color with the magnifier, the area found and outlined by itself, filled from what's around it. */
@@ -221,7 +243,22 @@ export function reverseFillTool(env) {
       el('p', { class: 'small', 'aria-live': 'polite', text: status }),
       cleanNote ? el('p', { class: `small ${cleaning ? 'muted' : 'ok-text'}`, 'aria-live': 'polite', text: cleanNote }) : null,
       el('button', { type: 'button', class: 'btn primary', text: '✨ Remove & fill', disabled: !ready || cleaning || !pv?.box, onclick: runReverseFill }),
+      env.state().patches?.length ? afterFill() : null,
     ].filter(Boolean);
+  }
+
+  /** Once something's been filled: ◑ Before (held: the photo as it was), and on to Fashion. */
+  function afterFill() {
+    const hold = el('button', { type: 'button', class: 'btn', text: '◑ Hold for before', 'aria-label': 'Hold to see the photo before' });
+    const on = (e) => { e.preventDefault(); env.compare(true); hold.classList.add('active'); };
+    const off = () => { env.compare(false); hold.classList.remove('active'); };
+    hold.addEventListener('pointerdown', on); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) hold.addEventListener(ev, off);
+    hold.addEventListener('contextmenu', (e) => e.preventDefault());
+    const go = (role, label) => el('button', { type: 'button', class: 'btn ghost', text: label, onclick: async (e) => {
+      e.currentTarget.disabled = true; cleanNote = 'Opening in Fashion…'; env.renderPanel();
+      try { await env.openInFashion(role); } catch (err) { cleanNote = `Couldn't open it in Fashion: ${err.message}`; env.renderPanel(); }
+    } });
+    return el('div', { class: 'row wrap rf-after' }, hold, go('piece', '👕 Use as a Fashion piece'), go('base', '🧍 Dress it in Fashion'));
   }
 
   return {

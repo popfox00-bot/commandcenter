@@ -3,7 +3,7 @@
 // the piece placed by the body and bent onto a shape, light, form and compositing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles } from '../web/tools/fashion/fashion-core.js';
+import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout } from '../web/tools/fashion/fashion-core.js';
 
 /**
  * A person w×h: a face (40 wide, 50 tall at the top), a red shirt from the chin to y = 200, blue pants to
@@ -36,7 +36,7 @@ test('fashion: a person\'s layout: face, chin, the waist where the clothes chang
   const { p: p2, rgba: r2 } = person();
   for (let y = 170; y < 200; y++) for (let x = 0; x < 200; x++) { const i = y * 200 + x; if (p2.clothes[i]) r2.set([30, 40, 180, 255], i * 4); }
   assert.ok(Math.abs(bodyLayout(p2, r2).waist - 170) <= 3, 'the color change moves the waist');
-  assert.equal(bodyLayout({ ...p, body: new Uint8Array(p.w * p.h), clothes: new Uint8Array(p.w * p.h), face: new Uint8Array(p.w * p.h), hair: new Uint8Array(p.w * p.h) }), null);
+  assert.equal(bodyLayout({ ...p, body: new Uint8Array(p.w * p.h), clothes: new Uint8Array(p.w * p.h), face: new Uint8Array(p.w * p.h), hair: new Uint8Array(p.w * p.h), others: new Uint8Array(p.w * p.h) }), null);
 });
 
 test('fashion: each kind is found where it\'s worn (top, bottom, hat zone, shoes)', () => {
@@ -118,4 +118,51 @@ test('fashion: maps sampled to the photo\'s size; boxes', () => {
   const r = resample(m, 2, 2, 4, 4);
   assert.equal(r.length, 16); assert.equal(r[0], 0); assert.equal(r[3], 255);
   assert.deepEqual(boxOf(r, 4, 4, 128), { x0: 2, y0: 0, x1: 4, y1: 4 });
+});
+
+test('fashion: a top\'s body and sleeves are told apart (arms hanging beside it, or out to the side)', () => {
+  const w = 200; const h = 200; const m = new Uint8Array(w * h);
+  // Body x 70–130, y 40–180; sleeves out to the side at the top (x 30–70, y 40–70) and down beside it (x 140–160, y 40–160, a gap at 130–140 below y 70).
+  for (let y = 40; y < 180; y++) for (let x = 70; x < 130; x++) m[y * w + x] = 1;
+  for (let y = 40; y < 70; y++) for (let x = 30; x < 70; x++) m[y * w + x] = 1;
+  for (let y = 40; y < 70; y++) for (let x = 130; x < 160; x++) m[y * w + x] = 1;
+  for (let y = 70; y < 160; y++) for (let x = 140; x < 160; x++) m[y * w + x] = 1;
+  for (let y = 40; y < 180; y++) for (let x = 96; x < 104; x++) m[y * w + x] = 0; // a zip down the middle, not part of it
+  const s = splitSleeves(m, w, h, boxOf(m, w, h));
+  assert.ok(Math.abs(s.torso.box.x0 - 69) <= 2 && Math.abs(s.torso.box.x1 - 131) <= 2, JSON.stringify(s.torso.box));
+  assert.ok(s.left.box.x1 <= 70 && s.left.box.x0 === 30, JSON.stringify(s.left.box));
+  assert.ok(s.right.box.x0 >= 130 && s.right.box.y1 === 160, JSON.stringify(s.right.box));
+  // A plain body (no sleeves): no sleeves.
+  const t = new Uint8Array(w * h); for (let y = 40; y < 180; y++) for (let x = 70; x < 130; x++) t[y * w + x] = 1;
+  const s2 = splitSleeves(t, w, h, boxOf(t, w, h)); assert.equal(s2.left, null); assert.equal(s2.right, null);
+});
+
+test('fashion: a pair of shoes is two, left first; one shoe mirrored makes the other', () => {
+  const w = 100; const h = 40; const m = new Uint8Array(w * h);
+  for (let y = 10; y < 30; y++) { for (let x = 60; x < 90; x++) m[y * w + x] = 1; for (let x = 10; x < 35; x++) m[y * w + x] = 1; }
+  const pair = splitPair(m, w, h, boxOf(m, w, h));
+  assert.equal(pair.length, 2); assert.equal(pair[0].box.x0, 10); assert.equal(pair[1].box.x0, 60);
+  // A shoe: dark heel on the left, red toe on the right; mirrored, the toe is on the left.
+  const src = new Uint8ClampedArray(w * h * 4); const a = new Float32Array(w * h);
+  for (let y = 0; y < 10; y++) for (let x = 0; x < 20; x++) { src.set(x < 10 ? [20, 20, 20, 255] : [220, 30, 30, 255], (y * w + x) * 4); a[y * w + x] = 1; }
+  const box = { x0: 0, y0: 0, x1: 20, y1: 10 };
+  const one = renderPiece(src, a, w, h, box, { x0: 50, y0: 10, s: 1 }, null, 0, w, h);
+  const mir = renderPiece(src, a, w, h, box, { x0: 50, y0: 10, s: 1 }, null, 0, w, h, true);
+  const px = (l, x) => [...l.rgba.slice(((5) * l.pw + x) * 4, ((5) * l.pw + x) * 4 + 3)];
+  assert.deepEqual(px(one, 2), [20, 20, 20]); assert.deepEqual(px(mir, 2), [220, 30, 30]);
+  assert.deepEqual(px(mir, 17), [20, 20, 20]);
+});
+
+test('fashion: hands in front of the body; layers merged; a layout scaled', () => {
+  const { p } = person();
+  for (let y = 150; y < 165; y++) for (let x = 80; x < 120; x++) p.body[y * 200 + x] = 255; // a forearm across the shirt
+  for (let y = 100; y < 160; y++) for (let x = 20; x < 30; x++) p.body[y * 200 + x] = 255; // an arm out beside it
+  const L = bodyLayout(p);
+  const a = armsInFront(p, L, 65, 135);
+  assert.equal(a[155 * 200 + 100], 255); assert.equal(a[120 * 200 + 25], 0); assert.equal(a[40 * 200 + 100], 0);
+  const l1 = { x0: 0, y0: 0, pw: 2, ph: 1, rgba: new Uint8ClampedArray([255, 0, 0, 255, 255, 0, 0, 255]) };
+  const l2 = { x0: 1, y0: 0, pw: 2, ph: 1, rgba: new Uint8ClampedArray([0, 0, 255, 255, 0, 0, 255, 255]) };
+  const m = mergeLayers([l1, l2]);
+  assert.equal(m.pw, 3); assert.deepEqual([...m.rgba.slice(4, 8)], [0, 0, 255, 255]); assert.deepEqual([...m.rgba.slice(0, 4)], [255, 0, 0, 255]);
+  const s = scaleLayout(L, 2); assert.equal(s.chin, L.chin * 2); assert.equal(s.face.x1, L.face.x1 * 2);
 });

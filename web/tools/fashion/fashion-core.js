@@ -58,7 +58,8 @@ export function peopleAt(p, w, h) {
 export function bodyLayout(p, rgba = null) {
   const { w, h } = p;
   const any = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) any[i] = Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i]);
+  // (Shoes and what's worn or carried count too: they're `others`.)
+  for (let i = 0; i < w * h; i++) any[i] = Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i], p.others[i]);
   const person = boxOf(any, w, h, 128);
   if (!person) return null;
   const face = boxOf(p.face, w, h, 128);
@@ -104,7 +105,7 @@ export function kindZone(kind, L, w, h) {
   const F = L.face ?? { x0: (P.x0 + P.x1) / 2 - fw / 2, y0: chin - fh, x1: (P.x0 + P.x1) / 2 + fw / 2, y1: chin };
   const z = {
     top: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: waist + fh * 0.25 * cut },
-    jacket: { x0: P.x0, y0: chin - fh * 0.15, x1: P.x1, y1: waist + fh * 0.7 },
+    jacket: { x0: P.x0, y0: chin - fh * 0.15, x1: P.x1, y1: waist + fh * (L.split ? 0.05 : 0.7) },
     bottom: { x0: P.x0, y0: waist - fh * 0.15 * cut, x1: P.x1, y1: ankle + fh * 0.2 },
     dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: Math.min(ankle, waist + fh * 3) },
     hat: { x0: F.x0 - fw * 0.35, y0: F.y0 - fh * 1.0, x1: F.x1 + fw * 0.35, y1: F.y0 + fh * 0.35 },
@@ -231,12 +232,13 @@ export function rigidPlace(kind, sbox, from, to, zone, w, h) {
  * The piece put on the photo: `src` (its photo's pixels, sw wide) where `alpha` (0..1, over its photo)
  * says, from its box `sbox`, placed rigidly by `place` and, with a `region` ({ box, spans } in the photo:
  * the garment it's fitted to) and `fit` (0..1), its height and each row's width bent that far onto the
- * region's (its rows stretched from the piece's own left and right to the region's). The layer's pixels
- * over its box: { x0, y0, pw, ph, rgba } (alpha in rgba), or null.
+ * region's (its rows stretched from the piece's own left and right to the region's). With `flip`, the
+ * piece mirrored left to right (one shoe made the other). The layer's pixels over its box:
+ * { x0, y0, pw, ph, rgba } (alpha in rgba), or null.
  * @param {Uint8ClampedArray} src @param {Float32Array} alpha @param {Box} sbox
  * @param {{ x0: number, y0: number, s: number }} place @param {{ box: Box, spans: Float32Array }|null} region
  */
-export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h) {
+export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h, flip = false) {
   const sbw = sbox.x1 - sbox.x0; const sbh = sbox.y1 - sbox.y0;
   const sspans = rowSpans(alpha, sw, sbox, 1);
   const P = { x0: place.x0, y0: place.y0, x1: place.x0 + sbw * place.s, y1: place.y0 + sbh * place.s };
@@ -252,7 +254,7 @@ export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h) 
     // (A row of the piece with nothing in it: the nearest one with something, a couple of rows off at most.)
     if (sspans[sr * 2] < 0) { let k = -1; for (let d = 1; d <= 2 && k < 0; d++) for (const t of [sr - d, sr + d]) if (t >= 0 && t < sbh && sspans[t * 2] >= 0) { k = t; break; } if (k < 0) continue; sr = k; }
     const sl = sspans[sr * 2]; const sx1 = sspans[sr * 2 + 1];
-    let tl = P.x0 + (sl - sbox.x0) * place.s; let tr = P.x0 + (sx1 - sbox.x0) * place.s;
+    let tl = P.x0 + ((flip ? sbox.x1 - sx1 : sl - sbox.x0)) * place.s; let tr = P.x0 + ((flip ? sbox.x1 - sl : sx1 - sbox.x0)) * place.s;
     if (R && f > 0) {
       const ry = y - R.y0;
       if (ry >= 0 && ry < R.y1 - R.y0 && region.spans[ry * 2] >= 0) { tl += (region.spans[ry * 2] - tl) * f; tr += (region.spans[ry * 2 + 1] - tr) * f; }
@@ -269,7 +271,7 @@ export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h) 
   for (const { y, sy, sl, sx1, tl, tr } of rows) {
     const yy = Math.max(0, Math.min(sh - 1.001, sy)); const ya = Math.floor(yy); const ty = yy - ya; const yb = Math.min(sh - 1, ya + 1);
     for (let x = Math.max(x0, Math.floor(tl)); x < Math.min(x1, Math.ceil(tr)); x++) {
-      const u = (x + 0.5 - tl) / (tr - tl);
+      const u = flip ? (tr - x - 0.5) / (tr - tl) : (x + 0.5 - tl) / (tr - tl);
       const xx = Math.max(0, Math.min(sw - 1.001, sl + u * (sx1 - sl) - 0.5)); const xa = Math.floor(xx); const tx = xx - xa; const xb = Math.min(sw - 1, xa + 1);
       const wts = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty]; const idx = [ya * sw + xa, ya * sw + xb, yb * sw + xa, yb * sw + xb];
       let a = 0; for (let k = 0; k < 4; k++) a += alpha[idx[k]] * wts[k];
@@ -359,4 +361,94 @@ export function composite(rgba, w, h, layer) {
       for (let c = 0; c < 3; c++) rgba[i + c] = rgba[i + c] * (1 - a) + L[o + c] * a;
     }
   }
+}
+
+/** The part of a mask within columns [c0, c1) (or the whole of it), as { mask, box, count } or null. */
+function partOf(m, w, h, box, keep) {
+  const mask = new Uint8Array(w * h); let count = 0;
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) { const i = y * w + x; if (m[i] && keep(x, y)) { mask[i] = 1; count++; } }
+  const b = count ? boxOf(mask, w, h) : null;
+  return b ? { mask, box: b, count } : null;
+}
+
+/**
+ * A top's body and its sleeves (the arms of a jacket, of a shirt): the body is the columns its narrower
+ * lower rows span (below where the sleeves end), the sleeves what reaches past those on either side. { torso, left, right } (each { mask, box, count }; a side null when
+ * there's little sleeve there), so each can be fitted to its own: a long sleeve onto an arm, the body onto
+ * the body.
+ */
+export function splitSleeves(m, w, h, box) {
+  const bh = box.y1 - box.y0;
+  // Each lower row's extent (its leftmost to rightmost pixel: a zip or a gap down the middle doesn't split it).
+  const ls = []; const rs = [];
+  for (let y = Math.round(box.y0 + bh * 0.5); y < box.y1; y++) {
+    let l = -1; let r = -1;
+    for (let x = box.x0; x < box.x1; x++) if (m[y * w + x]) { if (l < 0) l = x; r = x; }
+    if (l >= 0) { ls.push(l); rs.push(r + 1); }
+  }
+  const all = partOf(m, w, h, box, () => true);
+  if (ls.length < 3 || !all) return { torso: all, left: null, right: null };
+  // The body's columns: from its narrower rows (a fifth of the way up the widths): where the sleeves have
+  // ended, or hang apart from it. (Sleeves touching it all the way down make the wider rows.)
+  const order = ls.map((l, i) => i).sort((a, b) => (rs[a] - ls[a]) - (rs[b] - ls[b]));
+  const pick = order.slice(0, Math.max(1, Math.ceil(order.length * 0.2)));
+  const med = (a) => [...a].sort((p, q) => p - q)[a.length >> 1];
+  const t0 = med(pick.map((i) => ls[i])) - 1; const t1 = med(pick.map((i) => rs[i])) + 1;
+  const left = partOf(m, w, h, box, (x) => x < t0); const right = partOf(m, w, h, box, (x) => x >= t1);
+  const big = (p) => p && p.count >= all.count * 0.03 && p.box.y1 - p.box.y0 >= bh * 0.15;
+  const L = big(left) ? left : null; const R = big(right) ? right : null;
+  const torso = partOf(m, w, h, box, (x) => (L ? x >= t0 : true) && (R ? x < t1 : true));
+  return { torso: torso ?? all, left: L, right: R };
+}
+
+/** A pair (shoes, earrings): its two biggest parts, left first, or one (or none) if that's all there is. */
+export function splitPair(m, w, h, box) {
+  const lab = new Int32Array(w * h); const parts = [];
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
+    const s0 = y * w + x; if (!m[s0] || lab[s0]) continue;
+    const id = parts.length + 1; const q = [s0]; lab[s0] = id;
+    for (let k = 0; k < q.length; k++) {
+      const i = q[k]; const X = i % w; const Y = (i / w) | 0;
+      for (const t of [X > box.x0 ? i - 1 : -1, X < box.x1 - 1 ? i + 1 : -1, Y > box.y0 ? i - w : -1, Y < box.y1 - 1 ? i + w : -1]) if (t >= 0 && m[t] && !lab[t]) { lab[t] = id; q.push(t); }
+    }
+    parts.push({ id, n: q.length });
+  }
+  parts.sort((a, b) => b.n - a.n);
+  const keep = parts.slice(0, 2).filter((p, i) => i === 0 || p.n >= parts[0].n * 0.3);
+  return keep.map((p) => partOf(lab, w, h, box, (x, y) => lab[y * w + x] === p.id)).filter(Boolean).sort((a, b) => a.box.x0 - b.box.x0);
+}
+
+/**
+ * Hands and arms that are in front of the body (crossed, on the hips, holding something): the photo's
+ * bare skin (not the face) below the chest and within the body's columns [c0, c1). 0..255 over w × h.
+ * @param {People} p @param {Layout} L
+ */
+export function armsInFront(p, L, c0, c1) {
+  const { w, h } = p; const out = new Uint8Array(w * h);
+  const y0 = Math.max(0, Math.round(L.chin + L.fh * 0.9));
+  for (let y = y0; y < h; y++) for (let x = Math.max(0, Math.round(c0)); x < Math.min(w, Math.round(c1)); x++) {
+    const i = y * w + x; if (p.face[i] < 128) out[i] = p.body[i];
+  }
+  return out;
+}
+
+/** A layout at k times the size. @param {Layout} L @returns {Layout} */
+export function scaleLayout(L, k) {
+  const sb = (b) => b && { x0: b.x0 * k, y0: b.y0 * k, x1: b.x1 * k, y1: b.y1 * k };
+  return { ...L, face: sb(L.face), person: sb(L.person), fw: L.fw * k, fh: L.fh * k, chin: L.chin * k, waist: L.waist * k, ankle: L.ankle * k };
+}
+
+/** Layers ({ x0, y0, pw, ph, rgba }) laid into one, later over earlier. */
+export function mergeLayers(layers) {
+  const ls = layers.filter(Boolean); if (ls.length < 2) return ls[0] ?? null;
+  const x0 = Math.min(...ls.map((l) => l.x0)); const y0 = Math.min(...ls.map((l) => l.y0));
+  const x1 = Math.max(...ls.map((l) => l.x0 + l.pw)); const y1 = Math.max(...ls.map((l) => l.y0 + l.ph));
+  const pw = x1 - x0; const ph = y1 - y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (const l of ls) for (let y = 0; y < l.ph; y++) for (let x = 0; x < l.pw; x++) {
+    const o = (y * l.pw + x) * 4; const a = l.rgba[o + 3] / 255; if (!a) continue;
+    const t = ((l.y0 - y0 + y) * pw + l.x0 - x0 + x) * 4; const b = rgba[t + 3] / 255; const ao = a + b * (1 - a);
+    for (let c = 0; c < 3; c++) rgba[t + c] = (l.rgba[o + c] * a + rgba[t + c] * b * (1 - a)) / ao;
+    rgba[t + 3] = Math.round(ao * 255);
+  }
+  return { x0, y0, pw, ph, rgba };
 }

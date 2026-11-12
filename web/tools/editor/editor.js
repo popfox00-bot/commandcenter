@@ -84,6 +84,15 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
     source: () => source, pixels: () => sourcePixels(), state: () => history.state, commit: (next) => commit(next), makePatch,
     overlayToSource: (x, y) => overlayToSource(x, y), sourceToOverlayMatrix: () => sourceToOverlayMatrix(), slider: (o) => slider(o),
     renderPanel: () => renderPanel(), schedule: () => schedule(),
+    compare: (on) => { comparing = on; schedule(); },
+    // The photo as edited, at full size, handed to Fashion (as its base or its piece).
+    openInFashion: async (role) => {
+      const c = await renderFull();
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.93));
+      const { handoff } = await import('../../lib/handoff.js');
+      handoff.put(`fashion:${role}`, new File([blob], fileName.replace(/\.\w+$/, '') + ' (filled).jpg', { type: 'image/jpeg' }));
+      location.hash = '#/fashion';
+    },
   });
 
   const state = () => history.state;

@@ -8,26 +8,30 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
   Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
   one with no connection. Only what's online by nature needs one: Weather, Sports, Saved
   Files (your Drive) and Jobs.
-- **[Files](#files-draw-and-qr)**, **Draw** and **QR** run entirely on your phone, offline, with no
-  setup. **Files** has tabs for the [Photo Editor](#photo-editor) (with [Collage](#collage--superimpose)
-  and [Cutout](#cutout-and-characters) under it), [Write on PDF](#write-on-pdf), [Scan](#scan), the
-  [File Converter](#file-converter) and [Saved Files](#saved-files) (your own Google Drive folder:
-  the one part that goes online). **[Downloads](#downloads)** is an app of its own: a video from a
-  link, with a queue and a history (it needs a connection). Converted images have an **Edit**
-  button (opens the photo editor) and converted PDFs a **Write on it** button. [Draw](#draw) is a
-  sketching canvas that saves to Photos or to Saved Files. [QR](#qr--barcode): scan codes with a
-  link safety check before anything opens, and make your own QR codes.
+- **[Files](#files-draw-and-qr)** is a page of its own apps, all on your phone, offline: the
+  [Photo Editor](#photo-editor) (Edit, [Collage](#collage--superimpose), [Cutout](#cutout-and-characters)),
+  the [File Converter](#file-converter), [Write on PDF](#write-on-pdf) and [Scan](#scan) (documents, and
+  [QR codes](#qr--barcode): scan with a link safety check before anything opens, make your own).
+  Converted images have an **Edit** button (opens the photo editor) and converted PDFs a **Write on
+  it** button. **[Draw](#draw)** is a sketching canvas that saves to Photos or to Saved Files.
+- **Magic** is a page of three apps: **[Downloads](#downloads)** (a video from a link, with a queue
+  and a history; it needs a connection), **[FM](#fm-facemask)** (face swaps) and
+  **[Saved Files](#saved-files)** (your own Google Drive folder). Each app inside Files or Magic shows
+  its own name at the top, and **‹** goes back to Files or Magic.
 - **[Calendar](#calendar)**: your own events, in a week, day or month view, kept on the phone.
 - **[Weather](#weather)** (Weather Service alerts, forecast, freezes, wind, air quality for ZIP 80214
   by default) and **[Sports](#sports)** (a calendar of your teams' games, plus college football near
   your ZIP, with live scores, TV, lines and results): two apps. Both work on the phone with no setup;
   the same rules drive push notifications from two jobs.
-- **[FM](#fm-facemask)** (FaceMask): face swaps, ⚡ Quick Swap, Characters and 🎨 Reverse Fill, on the phone, offline.
+- **[FM](#fm-facemask)** (FaceMask, in Magic): face swaps, ⚡ Quick Swap, Characters and 🎨 Reverse Fill, on the phone, offline.
 - **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
   Solitaire, Tile Match, Blackjack, Basketball Draft).
 - **[Settings](#settings)**: the app's background color, a preset or any color.
+- **Look:** every button is clearly outlined from the background (on any background color), its text
+  and icon centered; explanations that aren't needed to use something (how it works, privacy,
+  sources) are folded under a small **ⓘ About**.
 - **Jobs** (in Settings), an automation dashboard. Jobs run on a schedule or on demand, results are
 stored in Cloudflare D1, new matches are pushed to your phone with ntfy, and an installable PWA
 shows every job as a card with its latest results and a **Run now** button.
@@ -72,8 +76,8 @@ choices that keep usage under them.
 ## Files, Draw and QR
 
 Open **https://popfox00-bot.github.io/commandcenter/** in Safari, then Share → **Add to Home
-Screen**. Files, Draw and QR work immediately; the Jobs app needs the cloud setup below. (These
-three used to be under one **Tools** icon; old links and bookmarks to them still work.)
+Screen**. Files and Draw work immediately; the Jobs app needs the cloud setup below. (Old links and
+bookmarks still work: the Tools icon's tools, QR (now in Files → Scan), Saved Files (now in Magic).)
 
 Everything they do happens in the browser on your phone. Nothing is uploaded (except what you save
 to [Saved Files](#saved-files), your own Drive; [Downloads](#downloads) only fetches the video link
@@ -412,6 +416,17 @@ A blank canvas to sketch and design on (**Draw** on the home screen):
   (picture size, frame rate, codecs, sound, bitrate), **💾 Save to phone**, **✂️ Save a part** of a
   downloaded MP4 (cut on the phone), **⟳ Download again**, **✕** to remove it, and **🗑 Clear all**.
 
+**🔎 Find videos on a page** (a switch, off by default): with it on, a link that isn't a video file
+is taken as a web page. It's checked (https, not your own network, not a scam), then sent to **your
+own Worker** (the Jobs setup), which fetches the page and answers with only the video files on it
+(a `<video>` and its sources, the page's og:video / player stream tags, its structured VideoObject,
+links to video files, addresses in its player's settings). Pick one to **Open** (the usual checks,
+stills, Download) or **+ Queue all**. Streams in pieces (.m3u8 / .mpd) are counted but can't be saved
+as a file, and big video sites that stream or protect their videos have no file on the page to find.
+Only the page's link goes to your Worker; the videos still come straight from their sites. (Your
+Worker needs its new version deployed once for this: Cloud setup → Cloudflare.) Off, a page's link is
+refused as before ("not a video").
+
 **Privacy:** only the video at the link is fetched, straight from its site to the phone: no other
 server in between, no cookies, sign-ins or referrer sent, nothing from the page it came from runs.
 The links you paste and the queue are kept in memory only, for this visit: they're never written to
@@ -443,6 +458,8 @@ It needs a connection, and it's careful about what it fetches:
   instead of stills, and a failed download offers **↗ Open in the browser** to save it from there.
 
 ### Saved Files
+
+(In **Magic**. A photo opened from it goes to Files → Photo Editor, a PDF to Files → PDF.)
 
 **Files → Saved Files** keeps files in your own Google Drive folder: the folder that holds your
 "Saved Files" spreadsheet. A small Google Apps Script in that spreadsheet
@@ -509,6 +526,8 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
 
 ### QR & Barcode
 
+(In **Files → Scan → ▦ QR codes**.)
+
 **Scan** with the camera (live) or from a photo or screenshot (several codes in one picture are
 listed). QR codes, Data Matrix, Aztec, PDF417 and product barcodes (UPC/EAN/ISBN, Code 128, ...) are
 read on the device with ZXing-C++ (WebAssembly, vendored). **Nothing opens by itself**: you first
@@ -564,17 +583,26 @@ npm run typecheck       # TypeScript checks the files marked // @ts-check (tscon
 node scripts/score-swaps.mjs <folder>   # FM's face swaps on your own photos, scored (see below)
 ```
 
+**Finishing touches** (`web/tools/editor/fit-finish.js`): above the brows, the photo's **own
+forehead** shows through more and more toward the hairline (its texture, shading and stray hairs),
+so the new face sits in that head instead of a big blank forehead of its own; and **color blotches**
+on its skin (a sunburned nose, flushed cheeks, a patch the recolor turned purple) are brought back
+toward its skin's tone, its brightness kept, so freckles and marks still show as marks (eyes, brows
+and lips left as they are).
+
 **Scoring FM's swaps** (`scripts/score-swaps.mjs`, `web/tools/editor/swap-score.js`): give it a folder
 with one folder per pair, each holding `base.jpg` (the photo to change) and `char.jpg` (the new face).
 For each pair it runs ⚡ Quick Swap in the real app (a local browser, offline), finds the faces again in
-the result, and prints three numbers, each 0 when perfect: **aligned** (how far the result's landmarks
-are from the base face's, as a share of the eye spacing: ~0.05 is close), **shape** (how much the new
+the result, and prints its numbers, each 0 when perfect: **aligned** (how far the result's landmarks
+are from the base face's, as a share of the eye spacing: ~0.05 is close), **inner** (the same for the
+eyes, brows, nose and mouth only, leaving out the jaw, which is the new face's own when its shape is
+kept), **shape** (how much the new
 face's own proportions changed, eye size, nose, mouth width and so on: ~0.05 is itself, 0.1 or more
 looks reshaped) and **seam** (how much busier the picture is along the edge of what was put in than the
 photo was there: ~0 can't be seen). Any `result*.jpg` in a pair's folder is scored too, so earlier or
 other results can be compared. The seam number is steadier on the swaps it runs itself than on saved
 JPEGs (their compression noise blurs where the change begins). The photos stay where they are; `--json
-out.json` saves the numbers.
+out.json` saves the numbers, `--save <folder>` each swap's result image (to look at).
 
 Add a tool: create `web/tools/<id>/<id>.js` exporting `mount(host)` (return an unmount function),
 add it to `web/tools/index.js`, and run `npm run precache`.
@@ -602,9 +630,13 @@ saves the face it used.
    realistic result rather than pinned to every point of the face it replaces. **Its own shape is kept**:
    it's placed as one piece by its eyes, nose and mouth (the eyes counting most: moved, sized and turned,
    never bent, narrowed or stretched, `rigidPlacement`), so it looks like itself; **📐 Fit its shape to
-   the face** bends and sizes it to that face instead (as described below). Its own mouth and its
-   own pose are kept as they are too (reshaping them looked forced); two chips do it when you want:
-   **🧊 Turn to its pose** turns it in 3D to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
+   the face** bends and sizes it to that face instead (as described below). Its own mouth is kept as
+   it is unless the expressions clearly differ: its lips parted (and not a wide smile) on a face whose
+   mouth is shut, then it's closed to match by itself (a wide smile is kept: shutting it looked forced;
+   a mouth is never opened by itself); two chips: **🧊 Turn to its pose** is **on unless you turn it
+   off** (it only turns a face posed differently from the one it goes on: a Character turned or tilted
+   away, put on a face looking straight on, lined up much better that way; a face already posed alike
+   is left as it is): it turns it in 3D to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces
    gives how each is turned left/right and up/down, and the Character's own face, given that depth
    (its own, from the face mesh, when it was found by it: all 478 points of its real shape, its mouth
    aside), is turned by the difference (most of the left/right, a little of the up/down) and drawn again

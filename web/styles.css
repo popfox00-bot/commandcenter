@@ -991,3 +991,59 @@ body.has-rail { padding-right: 22px; }
 .dl-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin-top: 2px; }
 .dl-strip[hidden] { display: none; }
 .dl-strip .dl-pic { border-radius: 4px; }
+/* A switch (Downloads: Find videos on a page). */
+.dl-switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; font-size: .92rem; justify-self: start; }
+.dl-switch-input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.dl-switch-track { position: relative; width: 46px; height: 28px; border-radius: 999px; background: var(--idle-bg); border: 1px solid var(--border); transition: background .15s; flex: none; }
+.dl-switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s; }
+.dl-switch-input:checked + .dl-switch-track { background: var(--ok); border-color: var(--ok); }
+.dl-switch-input:checked + .dl-switch-track::after { transform: translateX(18px); }
+.dl-switch-input:focus-visible + .dl-switch-track { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dl-finder { display: grid; gap: 8px; }
+.dl-finder[hidden] { display: none; }
+.dl-found { display: flex; align-items: center; gap: 10px; }
+.dl-found .dl-title { flex: 1; min-width: 0; display: grid; }
+
+/* ===== App-wide: clear controls, readable text, centered content =====
+   Outlines are mixed from the text color, so they stay visible on any background chosen in
+   Settings (light or dark). Every button-like control centers its text and icon. */
+:root { --line: color-mix(in srgb, var(--text) 24%, transparent); --line-strong: color-mix(in srgb, var(--text) 38%, transparent); --lift: 0 1px 2px rgb(0 0 0 / .08), 0 1px 1px rgb(0 0 0 / .04); }
+body { line-height: 1.45; }
+.small { font-size: .875rem; }
+
+/* Buttons (and links styled as buttons): outlined, lifted, text and icon centered. */
+.btn, a.btn, .chip, .seg, .icon-btn, .small-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center;
+  line-height: 1.2; text-decoration: none; -webkit-tap-highlight-color: transparent; user-select: none;
+}
+.btn { border: 1.5px solid var(--line); background: var(--surface); box-shadow: var(--lift); }
+.btn:hover:not(:disabled) { border-color: var(--line-strong); }
+.btn:active:not(:disabled) { transform: scale(.98); box-shadow: none; }
+.btn.primary { border-color: var(--primary); box-shadow: 0 1px 3px color-mix(in srgb, var(--primary) 40%, transparent); }
+.btn.ghost { background: var(--surface); border-style: solid; box-shadow: none; }
+.btn.danger { background: var(--surface); }
+.btn:focus-visible, .chip:focus-visible, .seg:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.icon-btn { border: 1.5px solid var(--line); background: var(--surface); box-shadow: var(--lift); }
+.chip { border: 1.5px solid var(--line); }
+.chip.active { border-color: var(--text); }
+/* Segmented switches: the chosen one stands out (raised, outlined); the others are plain. */
+.segmented { background: color-mix(in srgb, var(--text) 8%, var(--surface)); border: 1px solid var(--line); }
+.seg { color: color-mix(in srgb, var(--text) 78%, transparent); }
+.seg.active { color: var(--text); border: 1px solid var(--line); box-shadow: var(--lift); }
+/* Cards: a clear edge from the background. */
+.card { border-color: var(--line); box-shadow: var(--lift); }
+/* Fields: a visible box. */
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]), select, textarea { border-color: var(--line); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
+/* Tiles: icon and name centered. */
+.app-tile { justify-items: center; text-align: center; }
+.app-icon { display: grid; place-items: center; }
+/* Details folded away ("ⓘ About"): small, out of the way until opened. */
+details.about { color: var(--muted); font-size: .875rem; }
+details.about > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; font-weight: 600; color: var(--muted); }
+details.about > summary::-webkit-details-marker { display: none; }
+details.about[open] > summary { color: var(--text); }
+details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
+/* Hubs (Files, Magic): the same tiles as the home screen. */
+.hub-grid { padding-top: 20px; }
+.studio-hub[hidden] { display: none; }

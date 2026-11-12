@@ -111,15 +111,35 @@ const INNER = [27, 28, 29, 30, 31, 33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 4
  * no bending, narrowing or slanting), so its eyes, nose and mouth lie as close as they can to that face's
  * (the eyes counting most, then the mouth). { x, y, width, rot, affine } in the picture's pixels.
  */
-export function rigidPlacement(charFace, cw, ch, face, W, H) {
+export function rigidPlacement(charFace, cw, ch, face, W, H, { stretch = 0 } = {}) {
   if (charFace.pts?.length !== 68 || face.pts?.length !== 68) return bestPlacement(charFace, cw, ch, face, W, H);
   const from = INNER.map((i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]);
   const to = INNER.map((i) => [face.pts[i][0] * W, face.pts[i][1] * H]);
   const weights = INNER.map((i) => (i >= 36 && i <= 47 ? 3 : i >= 48 ? 2 : 1));
   const m = similarityFit(from, to, weights);
   if (!(m.s > 0) || !Number.isFinite(m.s)) return bestPlacement(charFace, cw, ch, face, W, H);
-  const c = Math.cos(m.rot) * m.s; const s = Math.sin(m.rot) * m.s;
-  return { x: c * (cw / 2) - s * (ch / 2) + m.tx, y: s * (cw / 2) + c * (ch / 2) + m.ty, width: m.s * cw, rot: m.rot, affine: [c, -s, m.tx, s, c, m.ty] };
+  // Then a little stretch along the face's own axes (across its eyes, and from its eyes down to its
+  // mouth), at most `stretch` either way: enough to put its eyes and mouth on that face's (a face with
+  // other proportions, or turned a little away), never enough to change how it looks.
+  const C = (i) => [charFace.pts[i][0] * cw, charFace.pts[i][1] * ch]; const T = (i) => [face.pts[i][0] * W, face.pts[i][1] * H];
+  const mid = (P, lo, hi) => { let x = 0; let y = 0; for (let i = lo; i <= hi; i++) { x += P(i)[0]; y += P(i)[1]; } return [x / (hi - lo + 1), y / (hi - lo + 1)]; };
+  const len = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const cl = mid(C, 36, 41); const cr = mid(C, 42, 47); const cm = mid(C, 48, 59); const ce = [(cl[0] + cr[0]) / 2, (cl[1] + cr[1]) / 2];
+  const tl = mid(T, 36, 41); const tr = mid(T, 42, 47); const tm = mid(T, 48, 59); const te = [(tl[0] + tr[0]) / 2, (tl[1] + tr[1]) / 2];
+  const clamp = (v) => Math.min(1 + stretch, Math.max(1 - stretch, Number.isFinite(v) && v > 0 ? v : 1));
+  const kx = clamp(len(tl, tr) / (m.s * len(cl, cr)));
+  const ky = clamp(len(te, tm) / (m.s * len(ce, cm)));
+  // The stretch in the Character's own frame (its eye line across, down its middle), then turned and scaled.
+  const eyeA = Math.atan2(cr[1] - cl[1], cr[0] - cl[0]); const ux = Math.cos(eyeA); const uy = Math.sin(eyeA);
+  const D = [1 + (kx - 1) * ux * ux + (ky - 1) * uy * uy, (kx - ky) * ux * uy, (kx - ky) * ux * uy, 1 + (kx - 1) * uy * uy + (ky - 1) * ux * ux];
+  const c = Math.cos(m.rot) * m.s; const sn = Math.sin(m.rot) * m.s;
+  const M = [c * D[0] - sn * D[2], c * D[1] - sn * D[3], sn * D[0] + c * D[2], sn * D[1] + c * D[3]];
+  // Placed so its features' weighted middle lands where the plain fit put it.
+  let wx = 0; let wy = 0; let tx = 0; let ty = 0; let wsum = 0;
+  from.forEach(([x, y], i) => { const w = weights[i]; wx += w * x; wy += w * y; tx += w * to[i][0]; ty += w * to[i][1]; wsum += w; });
+  wx /= wsum; wy /= wsum; tx /= wsum; ty /= wsum;
+  const ox = tx - (M[0] * wx + M[1] * wy); const oy = ty - (M[2] * wx + M[3] * wy);
+  return { x: M[0] * (cw / 2) + M[1] * (ch / 2) + ox, y: M[2] * (cw / 2) + M[3] * (ch / 2) + oy, width: m.s * kx * cw, rot: m.rot, affine: [M[0], M[1], ox, M[2], M[3], oy], stretch: [kx, ky] };
 }
 const median = (xs) => { const a = [...xs].sort((p, q) => p - q); return a.length ? a[Math.floor(a.length / 2)] : 0; };
 /** How high a face's forehead is (its hairline above its brows, along the face) for its brow-to-chin length: [forehead, brow-to-chin]. */
@@ -218,4 +238,37 @@ export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, ow
   const affine = [ax[0] - o[0], ay[0] - o[0], o[0], ax[1] - o[1], ay[1] - o[1], o[1]];
   const [x, y] = pic([cw / 2, ch / 2]);
   return { x, y, width: sy * k * cw, rot, squash, shear, affine };
+}
+
+/**
+ * How open a mouth is (68 landmarks, as fractions of a w×h picture): the gap between the lips
+ * (inner lip points 61–63 to 67–65) over the mouth's width. ~0 shut, ~0.1 parted, 0.2+ open (teeth).
+ * @param {number[][]} pts @param {number} w @param {number} h
+ */
+export function mouthOpenness(pts, w, h) {
+  if (pts?.length !== 68) return 0;
+  const d = (a, b) => Math.hypot((pts[a][0] - pts[b][0]) * w, (pts[a][1] - pts[b][1]) * h);
+  const width = d(48, 54); if (!width) return 0;
+  return (d(61, 67) + d(62, 66) + d(63, 65)) / 3 / width;
+}
+
+/**
+ * How wide a mouth is for its face: corner to corner over the eyes' spacing (~0.7–0.85 at rest, 1 or
+ * more in a wide smile). @param {number[][]} pts @param {number} w @param {number} h
+ */
+export function mouthWidth(pts, w, h) {
+  if (pts?.length !== 68) return 0;
+  const mid = (lo, hi) => { let x = 0; let y = 0; for (let i = lo; i <= hi; i++) { x += pts[i][0] * w; y += pts[i][1] * h; } return [x / (hi - lo + 1), y / (hi - lo + 1)]; };
+  const l = mid(36, 41); const r = mid(42, 47); const eyes = Math.hypot(r[0] - l[0], r[1] - l[1]);
+  return eyes ? Math.hypot((pts[54][0] - pts[48][0]) * w, (pts[54][1] - pts[48][1]) * h) / eyes : 0;
+}
+
+/**
+ * Whether the Character's mouth is closed to match by itself (it can still be asked for, or not):
+ * when its lips are parted on a face whose mouth is shut, but not when it's a wide smile (shutting a
+ * big smile looks forced), and never opened by itself (that looks forced too).
+ * @param {number[][]} charPts @param {number} cw @param {number} ch @param {number[][]} facePts @param {number} W @param {number} H
+ */
+export function mouthsDiffer(charPts, cw, ch, facePts, W, H) {
+  return mouthOpenness(charPts, cw, ch) > 0.08 && mouthOpenness(facePts, W, H) < 0.04 && mouthWidth(charPts, cw, ch) < 0.9;
 }

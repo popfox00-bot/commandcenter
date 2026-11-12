@@ -55,23 +55,45 @@ async function convertTo(page, label) {
   return page.$$eval('.result strong', (els) => els.map((e) => e.textContent));
 }
 
-test('home screen of apps: Files, FM, Draw and QR are apps of their own, Jobs is in Settings; old Tools links still work; no setup needed', async () => {
+test('home screen of apps: Files and Magic hold the others (each back to where it came from), Jobs is in Settings; old links still work; no setup needed', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Downloads', 'FM', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Settings']);
   assert.equal(await page.textContent('#title'), 'Command Center');
+  // Files: a page of its apps; each opens with its own name, back to Files.
   await page.click('.app-tile >> text=Files');
-  await page.waitForSelector('.studio-tabs');
+  await page.waitForSelector('.studio-hub .app-tile');
   assert.equal(await page.textContent('#title'), 'Files');
-  assert.deepEqual(await page.$$eval('.studio-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'PDF', 'Scan', 'Convert', 'Saved Files']);
+  assert.deepEqual(await page.$$eval('.studio-hub .app-name', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'Convert', 'PDF', 'Scan']);
+  await page.click('.studio-hub .app-tile >> text=Photo Editor');
+  await page.waitForSelector('.studio-sub:not([hidden]) [role=tab]');
+  assert.equal(await page.textContent('#title'), 'Photo Editor');
   assert.deepEqual(await page.$$eval('.studio-sub [role=tab]', (els) => els.map((e) => e.textContent)), ['✏️ Edit', '🧩 Collage', '✂️ Cutout']);
+  assert.equal(await page.textContent('#view-app .back'), '‹ Files');
+  await page.click('#view-app .back');
+  await page.waitForFunction(() => location.hash === '#/files');
+  // Scan has documents and QR codes.
+  await page.click('.studio-hub .app-tile >> text=Scan');
+  assert.deepEqual(await page.$$eval('.studio-sub:not([hidden]) [role=tab]', (els) => els.map((e) => e.textContent)), ['📄 Documents', '▦ QR codes']);
+  await page.click('.studio-sub >> text=▦ QR codes');
+  await page.waitForSelector('#view-app:not([hidden]) >> text=QR & Barcode');
+  assert.equal(await page.textContent('#title'), 'Scan');
+  await page.click('#view-app .back');
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  await page.click('.app-tile >> text=QR');
-  await page.waitForSelector('#view-app:not([hidden]) >> text=QR & Barcode');
-  assert.equal(await page.textContent('#title'), 'QR');
+  // Magic: Downloads, FM, Saved Files; back to Magic, then Home.
+  await page.click('.app-tile >> text=Magic');
+  await page.waitForSelector('#app-host .app-tile');
+  assert.deepEqual(await page.$$eval('#app-host .app-name', (els) => els.map((e) => e.textContent)), ['Downloads', 'FM', 'Saved Files']);
+  await page.click('#app-host .app-tile >> text=Downloads');
+  await page.waitForSelector('.dl-url');
+  assert.equal(await page.textContent('#title'), 'Downloads');
+  assert.equal(await page.textContent('#view-app .back'), '‹ Magic');
   await page.click('#view-app .back');
+  await page.waitForFunction(() => location.hash === '#/magic');
+  await page.click('#view-app .back');
+  await page.waitForSelector('#view-home:not([hidden])');
   // Jobs lives in Settings now, and goes back there.
   await page.click('.app-tile >> text=Settings');
   await page.click('.st-link >> text=Jobs');
@@ -86,7 +108,7 @@ test('home screen of apps: Files, FM, Draw and QR are apps of their own, Jobs is
   assert.equal(await page.isVisible('#jobs-actions'), false, 'jobs buttons hidden in apps');
   assert.equal(await page.isVisible('#update'), false, 'no update prompt on a first visit');
   // Bookmarks from before: Tools goes home, its tools to their own apps.
-  for (const [from, to] of [['#/files/download', '#/downloads'], ['#/tools', '#/'], ['#/tools/editor/pdf', '#/files/pdf'], ['#/tools/draw', '#/draw'], ['#/tools/qr', '#/qr']]) {
+  for (const [from, to] of [['#/files/download', '#/downloads'], ['#/files/saved', '#/saved'], ['#/qr', '#/files/qr'], ['#/tools', '#/'], ['#/tools/editor', '#/files/photo'], ['#/tools/editor/pdf', '#/files/pdf'], ['#/tools/draw', '#/draw'], ['#/tools/qr', '#/files/qr']]) {
     await page.goto(`${origin}${BASE_PATH}${from}`);
     await page.waitForFunction((t) => location.hash === t, to);
   }
@@ -162,11 +184,12 @@ test('Files app: old converter link redirects, and Edit sends a converted image 
   await page.setInputFiles('#cv-files', [files[1]]);
   await convertTo(page, 'PNG');
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.waitForFunction(() => location.hash === '#/files');
+  await page.waitForFunction(() => location.hash === '#/files/photo');
   await page.waitForSelector('.ed-canvas');
-  assert.equal(await page.getAttribute('[role=tab][aria-selected=true]', 'href'), '#/files');
-  // Switching back keeps the conversion results (tabs stay alive).
-  await page.getByRole('tab', { name: 'Convert' }).click();
+  assert.equal(await page.getAttribute('[role=tab][aria-selected=true]', 'href'), '#/files/photo');
+  // Back to Convert: its results are kept (each stays alive).
+  await page.click('#view-app .back');
+  await page.click('.studio-hub .app-tile >> text=Convert');
   await page.waitForSelector('.result');
   assert.deepEqual(errors, []);
   await context.close();

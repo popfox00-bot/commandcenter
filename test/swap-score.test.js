@@ -1,7 +1,7 @@
 // Swap scoring (web/tools/editor/swap-score.js): lined up, kept its shape, no seam.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alignment, distortion, seam, eyeSpan } from '../web/tools/editor/swap-score.js';
+import { alignment, innerAlignment, distortion, seam, eyeSpan } from '../web/tools/editor/swap-score.js';
 
 /** 68 landmarks of a plain face at (cx, cy), scale s; `mouth` widens the mouth, `nose` lengthens the nose. */
 function face(cx, cy, s, { mouth = 1, nose = 1 } = {}) {
@@ -22,6 +22,9 @@ function face(cx, cy, s, { mouth = 1, nose = 1 } = {}) {
 test('lined up: none when it is the same face, more the farther it is off (as a share of the eye span)', () => {
   const a = face(100, 100, 1);
   assert.equal(alignment(a, a), 0);
+  // Inner features only: a jaw that's the new face's own doesn't count.
+  const jaw = a.map((p, i) => (i < 17 ? [p[0] + 9, p[1] + 9] : p));
+  assert.equal(innerAlignment(a, jaw), 0); assert.ok(alignment(a, jaw) > 0);
   const moved = a.map(([x, y]) => [x + 4, y]);
   assert.ok(Math.abs(alignment(a, moved) - 4 / eyeSpan(a)) < 1e-9);
 });

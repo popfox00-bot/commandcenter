@@ -4,7 +4,7 @@
 // straight from public sources on the phone; no setup needed. Push notifications for the same things
 // come from the weather-alerts and sports jobs. Routes: #/weather, #/sports.
 
-import { el, store } from '../../lib/dom.js';
+import { el, store, about } from '../../lib/dom.js';
 import * as W from './weather-core.js';
 import * as S from './sports-core.js';
 import { nearbyColleges } from './college-sites.js';
@@ -206,7 +206,7 @@ export function mount(host, { only = 'weather' } = {}) {
         el('a', { class: 'btn small-btn', href: 'https://radar.weather.gov/', target: '_blank', rel: 'noopener noreferrer', text: 'Radar' }),
         el('a', { class: 'btn small-btn', href: 'https://www.airnow.gov/', target: '_blank', rel: 'noopener noreferrer', text: 'AirNow' })));
       kids.push(pushNote('weather-alerts', 'Push alerts for these (Weather Service alerts, freezes, wind, air quality) come from the weather-alerts job.'));
-      kids.push(el('p', { class: 'muted small', text: 'Sources: National Weather Service (alerts, forecast, gusts) and Open-Meteo (U.S. AQI, CAMS model). Air quality is a model estimate; AirNow has the official monitor readings.' }));
+      kids.push(about('Sources: National Weather Service (alerts, forecast, gusts) and Open-Meteo (U.S. AQI, CAMS model). Air quality is a model estimate; AirNow has the official monitor readings.'));
       pane.replaceChildren(...kids);
     }
 

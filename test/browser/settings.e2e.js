@@ -46,9 +46,9 @@ test('a background color picked in Settings is used everywhere, readable, and ke
   assert.equal(await page.getAttribute('meta[name="theme-color"]', 'content'), '#0b1020');
 
   // Every screen, and still there after a reload.
-  await page.goto(`${origin}${BASE}#/files`);
-  await page.waitForSelector('.studio-tabs');
-  assert.equal((await colors(page, '.studio-tabs')).bg, 'rgb(11, 16, 32)');
+  await page.goto(`${origin}${BASE}#/files/photo`);
+  await page.waitForSelector('.studio-sub [role=tab]');
+  assert.equal((await colors(page, '.studio-sub')).bg, 'rgb(11, 16, 32)');
   await page.reload();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
   await page.goto(`${origin}${BASE}`);
@@ -85,26 +85,26 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.goto(`${origin}${BASE}`);
   const home = () => page.$$eval('.app-name', (els) => els.map((e) => e.textContent));
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Downloads', 'FM', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Settings']);
   await page.click('.app-tile >> text=Settings');
   await page.waitForSelector('.st-home');
   assert.equal(await page.isDisabled('[aria-label="Move Calendar up"]'), true);
-  await page.click('[aria-label="Move QR up"]');
-  await page.click('[aria-label="Move QR up"]');
-  await page.click('[aria-label="Move QR up"]');
+  await page.click('[aria-label="Move Draw up"]');
+  await page.click('[aria-label="Move Draw up"]');
+  await page.click('[aria-label="Move Draw up"]');
   await page.click('[aria-label="Move Calendar down"]');
-  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Weather', 'Calendar', 'Sports', 'Notes', 'Files', 'QR', 'Downloads', 'FM', 'Draw', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Settings']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Weather', 'Calendar', 'Sports', 'Notes', 'Files', 'QR', 'Downloads', 'FM', 'Draw', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await home(), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Settings']);
   await page.reload();
   await page.waitForSelector('.app-tile');
-  assert.deepEqual((await home()).slice(0, 6), ['Weather', 'Calendar', 'Sports', 'Notes', 'Files', 'QR'], 'kept after a reload');
+  assert.deepEqual((await home()).slice(0, 6), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files'], 'kept after a reload');
   await page.click('.app-tile >> text=Settings');
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Downloads', 'FM', 'Draw', 'QR', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Settings']);
   assert.deepEqual(errors, []);
   await context.close();
 });

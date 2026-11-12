@@ -76,6 +76,25 @@ export function linkFromText(text) {
   return m ? m[0].replace(/[).,;:!?\]}'"]+$/, '') : t;
 }
 
+/**
+ * Whether a web page's link may be sent to your Worker to find videos on it: https only, no name or
+ * password in it, not a device on your own network, not a scam. (Its own ending doesn't matter: it's
+ * a page.) { ok, url, host } or { ok: false, reasons }.
+ * @param {string} input
+ */
+export function checkPageLink(input) {
+  const text = String(input ?? '').trim();
+  if (!text) return refuse('No link', 'Paste the address of the page.');
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`); } catch { return refuse('Not a web address', 'It can\'t be opened as a link.'); }
+  if (u.protocol !== 'https:') return refuse('Not an https page', 'Only https pages are looked at.');
+  if (u.username || u.password) return refuse('A name or password in the address', 'Links like this are used to disguise where they go.');
+  if (isPrivateHost(u.hostname)) return refuse('A device on your own network', 'It points to a router, computer or other device, not a site on the internet.');
+  const a = analyzeUrl(u.href);
+  if (a.verdict === 'danger') return { ok: false, reasons: a.findings.filter((f) => f.level === 'danger').map(({ title, detail }) => ({ title, detail })) };
+  return { ok: true, url: stripTracking(u.href) ?? u.href, host: a.unicodeHost || u.hostname, warnings: a.findings.filter((f) => f.level === 'caution').map(({ title, detail }) => ({ title, detail })) };
+}
+
 /** @param {string} title @param {string} detail @returns {LinkCheck} */
 const refuse = (title, detail) => ({ ok: false, reasons: [{ title, detail }] });
 

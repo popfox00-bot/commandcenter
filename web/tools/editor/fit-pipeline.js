@@ -4,6 +4,7 @@
 // texture matched, blended in both ways, and that face's hair kept in front. Pure, so it can run off the
 // page's thread (fit-worker.js) as well as on it.
 
+import { keepForehead, evenBlotches } from './fit-finish.js';
 import { fitPatch, blendIn, recolor, relight, shadeByShape, keepSkinTexture, matchTexture, hairInFront, targetOutline, skinModel } from './facefit.js';
 import { membrane } from './cleanup.js';
 import { inPolygon, convexHull, scalePolygon } from '../../lib/geometry.js';
@@ -126,6 +127,8 @@ export function buildFitted(photo, W, H, img, charFace, face, { trim = true, ble
     step('shade', () => shadeByShape(patch, photo, W, H, face, outline, s));
     step('skin texture', () => keepSkinTexture(patch, photo, W, H, face, outline, s));
     step('sharpness', () => matchTexture(patch, photo, W, H, face, outline, s));
+    // Above its brows, the photo's own forehead toward the hairline.
+    step('forehead', () => keepForehead(patch, photo, W, H, face, outline, s));
   }
   // Nothing of the old face's eyes, brows or mouth left showing past the new one (before the blend,
   // which brings the photo's own pixels in around it).
@@ -136,6 +139,8 @@ export function buildFitted(photo, W, H, img, charFace, face, { trim = true, ble
   // face's light and color taken on), not just a band at the border.
   const faceW = face.box.w * W;
   step('blend', () => blendIn(patch, photo, W, H, s, { soft: Math.max(2, Math.round(faceW * 0.015)), band: 0, region: outline, spread: outline ? Math.max(8, Math.round(faceW * 0.6)) : 0, skin: face.skin }));
+  // Color blotches on its skin evened out (last: after the blend, which can carry tints in too).
+  if (outline) step('blotches', () => evenBlotches(patch, photo, W, H, face, outline, s));
   // That face's hair (bangs, a strand across it) kept in front.
   if (parts) step('hair', () => hairInFront(patch, parts, W, H));
   patch.timings = timings;

@@ -3,6 +3,7 @@
 // keep your apps' "add me / pay me" codes (Snapchat, Venmo, ...) as branded cards (qr-cards.js).
 // Scanning and making codes run on the device. Only "Check where it leads" goes online, and only when tapped.
 
+import { workerSettings } from '../../lib/worker-api.js';
 import { el, store } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
@@ -56,10 +57,6 @@ export async function codesInPicture(file) {
 
 // ---------- Worker settings (shared with the Jobs tab) ----------
 
-function workerSettings() {
-  const url = (store.get('cc.workerUrl') || window.CC_CONFIG?.workerUrl || (location.hostname.endsWith('.github.io') ? '' : location.origin)).replace(/\/+$/, '');
-  return { url, token: store.get('cc.apiToken') || '' };
-}
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 const shortUrl = (href, max = 80) => (href.length > max ? `${href.slice(0, max - 1)}…` : href);

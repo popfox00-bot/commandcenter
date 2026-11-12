@@ -14,6 +14,8 @@
 import { el, fill, store as ls } from '../../lib/dom.js';
 import { formatBytes } from '../../lib/files.js';
 import { linkFromText, formatTime, uniqueFiles, spreadMarks } from '../../tools/download/download-core.js';
+import { looksLikeVideoFile } from '../../tools/download/find-videos.js';
+import { findOnPage } from './finder.js';
 import { getJobs } from '../../tools/download/download-jobs.js';
 import { links, sizeAndLength } from './links.js';
 import { linkView } from './link-view.js';
@@ -22,6 +24,7 @@ import { progressBar, saveAll } from './job-ui.js';
 import { drawStills } from './stills.js';
 
 const STRICT_KEY = 'cc.download.strict';
+const FIND_KEY = 'cc.download.find';
 const TABS = [['download', 'Download'], ['queue', 'Queue'], ['history', 'History']];
 
 export function mount(host) {
@@ -38,11 +41,15 @@ export function mount(host) {
   const pasteHint = el('p', { class: 'small muted dl-paste-hint', hidden: true });
   const strict = el('input', { type: 'checkbox', checked: ls.get(STRICT_KEY) === '1' });
   strict.addEventListener('change', () => ls.set(STRICT_KEY, strict.checked ? '1' : '0'));
+  // "Find videos": a page's link (not a video file's) is read by your Worker for the videos on it.
+  const findSw = el('input', { type: 'checkbox', role: 'switch', class: 'dl-switch-input', checked: ls.get(FIND_KEY) === '1' });
+  const findRow = el('label', { class: 'dl-switch' }, findSw, el('span', { class: 'dl-switch-track', 'aria-hidden': 'true' }), el('span', { text: 'Find videos on a page' }));
   const queueRow = el('div', { class: 'row wrap dl-queue-row' });
   const viewHost = el('div', { class: 'dl-current' });
+  const finderHost = el('div', { class: 'dl-finder', hidden: true });
   fill(panes.download,
     el('div', { class: 'row dl-row' }, el('div', { class: 'dl-field' }, input, clearBtn), pasteBtn),
-    pasteHint,
+    pasteHint, findRow, finderHost,
     queueRow, viewHost,
     el('details', { class: 'dl-options small' }, el('summary', { text: 'Options & privacy' }),
       el('label', { class: 'dl-strict' }, strict, ' Only accept files the site labels as video'),
@@ -67,17 +74,39 @@ export function mount(host) {
 
   // Checked as soon as it's in: pasted, typed (once typing stops), or Enter.
   let lastChecked = '';
-  const check = () => {
-    const v = linkFromText(input.value);
-    if (v !== input.value) input.value = v;
-    if (!v) { links.close(); lastChecked = ''; renderCurrent(); return; }
-    if (v === lastChecked && links.current()) return;
+  let stopFinder = null;
+  const closeFinder = () => { stopFinder?.(); stopFinder = null; finderHost.hidden = true; fill(finderHost); };
+  /** A video's link opened as usual (from the box, or picked from a page's videos). */
+  const openVideo = (v) => {
     lastChecked = v;
     const l = links.open(v, { strict: strict.checked });
     if (l.check.ok) { input.value = l.check.url; lastChecked = input.value; }
     pasteHint.hidden = true;
     renderCurrent();
   };
+  const check = () => {
+    const v = linkFromText(input.value);
+    if (v !== input.value) input.value = v;
+    if (!v) { links.close(); closeFinder(); lastChecked = ''; renderCurrent(); return; }
+    if (v === lastChecked && (links.current() || !finderHost.hidden)) return;
+    // Find videos on: a page's link is looked at for the videos on it.
+    if (findSw.checked && !looksLikeVideoFile(/^[a-z]+:/i.test(v) ? v : `https://${v}`)) {
+      lastChecked = v; links.close(); renderCurrent(); closeFinder();
+      finderHost.hidden = false;
+      stopFinder = findOnPage(finderHost, v, {
+        onUse: (url) => { closeFinder(); input.value = url; openVideo(url); },
+        onQueueAll: (urls) => { for (const u of urls) { links.open(u, { strict: strict.checked }); links.enqueue(); } flash(`Queued ${urls.length} (${links.queue().length} in the queue).`); renderCurrent(); },
+      });
+      return;
+    }
+    closeFinder();
+    lastChecked = v;
+    const l = links.open(v, { strict: strict.checked });
+    if (l.check.ok) { input.value = l.check.url; lastChecked = input.value; }
+    pasteHint.hidden = true;
+    renderCurrent();
+  };
+  findSw.addEventListener('change', () => { ls.set(FIND_KEY, findSw.checked ? '1' : '0'); lastChecked = ''; if (input.value) check(); });
   let typing = 0;
   input.addEventListener('input', () => {
     clearBtn.hidden = !input.value && !links.current();
@@ -88,7 +117,7 @@ export function mount(host) {
   input.addEventListener('paste', () => setTimeout(check, 0));
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(typing); check(); } });
   // ✕: the link and all that was shown for it gone (and forgotten), ready for another.
-  function clearCurrent() { input.value = ''; lastChecked = ''; links.close(); pasteHint.hidden = true; renderCurrent(); }
+  function clearCurrent() { input.value = ''; lastChecked = ''; links.close(); closeFinder(); pasteHint.hidden = true; renderCurrent(); }
   clearBtn.addEventListener('click', () => { clearCurrent(); input.focus(); });
   // 📋 Paste: what was copied, its link picked out of any text around it, then checked. An iPhone asks
   // first with a small "Paste" bubble by the button; some browsers won't hand it over at all.
@@ -256,6 +285,6 @@ export function mount(host) {
     window.removeEventListener('hashchange', onHash);
     closeView?.(); closeItem?.();
     for (const f of offs) f();
-    clearTimeout(typing); clearTimeout(flashT); clearTimeout(headT);
+    clearTimeout(typing); clearTimeout(flashT); clearTimeout(headT); stopFinder?.();
   };
 }

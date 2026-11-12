@@ -44,8 +44,9 @@ test('handles as each app writes them; cards checked; colors', () => {
 });
 
 test('home screen: the default order, your order, apps added later at the end, Jobs only in Settings', () => {
-  assert.deepEqual(homeApps().map((a) => a.id), ['calendar', 'weather', 'sports', 'notes', 'files', 'downloads', 'fm', 'draw', 'qr', 'rap', 'games', 'settings']);
-  assert.deepEqual(homeApps(['qr', 'calendar', 'gone']).map((a) => a.id).slice(0, 3), ['qr', 'calendar', 'weather'], 'unknown ids ignored; the rest keep their order');
-  assert.deepEqual(homeApps(['qr', 'updates', 'calendar']).map((a) => a.id).slice(0, 4), ['qr', 'weather', 'sports', 'calendar'], 'Updates in a saved order: Weather and Sports in its place');
+  assert.deepEqual(homeApps().map((a) => a.id), ['calendar', 'weather', 'sports', 'notes', 'files', 'magic', 'draw', 'rap', 'games', 'settings']);
+  assert.deepEqual(homeApps(['draw', 'calendar', 'gone']).map((a) => a.id).slice(0, 3), ['draw', 'calendar', 'weather'], 'unknown ids ignored; the rest keep their order');
+  assert.deepEqual(homeApps(['draw', 'updates', 'calendar']).map((a) => a.id).slice(0, 4), ['draw', 'weather', 'sports', 'calendar'], 'Updates in a saved order: Weather and Sports in its place');
+  assert.deepEqual(homeApps(['fm', 'calendar', 'qr', 'downloads', 'files']).map((a) => a.id).slice(0, 3), ['magic', 'calendar', 'files'], 'FM and Downloads: Magic in the first one\'s place; QR (now in Files) gone');
   assert.equal(homeApps(['jobs']).some((a) => a.id === 'jobs'), false);
 });

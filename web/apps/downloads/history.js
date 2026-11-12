@@ -4,7 +4,7 @@
 // 🗑 Clear all removes every one. Removing deletes the download's record and file: nothing of it,
 // the link included, is kept anywhere.
 
-import { el, fill } from '../../lib/dom.js';
+import { el, fill, about } from '../../lib/dom.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/files.js';
 import { noteError } from '../../lib/diag.js';
 import { formatTime, fileNameFor } from '../../tools/download/download-core.js';
@@ -18,7 +18,7 @@ export function historyView(host, { jobs, onAgain }) {
   const list = el('div', { class: 'dl-list' });
   const note = el('p', { class: 'muted small', hidden: true, text: 'Storage isn\'t available here (a private window?): downloads only last until the app is closed.' });
   fill(host, head, note, list,
-    el('p', { class: 'muted small privacy', text: 'Kept on this phone until you remove them (✕ or Clear all), which deletes the file and its link.' }));
+    about('Kept on this phone until you remove them (✕ or Clear all), which deletes the file and its link.'));
   jobs.memoryOnly().then((m) => { note.hidden = !m; });
   const cards = new Map();
 

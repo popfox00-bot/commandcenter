@@ -4,7 +4,7 @@
 // this phone (My drawings) and saved out as PNG to Photos, or to Saved Files (your Google Drive,
 // through the Files app's Saved Files) when that's set up. Nothing else leaves the phone.
 
-import { el } from '../../lib/dom.js';
+import { el, about } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { canvasToBlob } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
@@ -291,7 +291,7 @@ export function mount(host) {
         el('button', { class: 'btn small-btn ghost', text: 'Fit page', onclick: fit }),
         el('button', { class: 'btn small-btn ghost', text: '⋯ More', onclick: more })),
       saveNote,
-      el('p', { class: 'muted small', text: 'One finger draws (Apple Pencil pressure works with the pen); two fingers zoom and move the page. Saved on this phone as you go.' }));
+      about('One finger draws (Apple Pencil pressure works with the pen); two fingers zoom and move the page. Saved on this phone as you go.'));
     requestAnimationFrame(() => { window.scrollTo(0, 0); fit(); });
     const onResize = () => fit();
     window.addEventListener('resize', onResize);

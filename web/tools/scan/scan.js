@@ -1,5 +1,5 @@
 // Scan: photograph paper, straighten it, clean it up, and make a PDF (then sign it in the PDF tab).
-import { el, store } from '../../lib/dom.js';
+import { el, store, about } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { createPdf } from '../../lib/pdf-writer.js';
@@ -30,7 +30,7 @@ export function mount(host, { onWrite } = {}) {
     el('div', { class: 'row wrap scan-add' },
       el('label', { class: 'btn primary', for: 'sc-camera', text: '📷 Take photo' }),
       el('label', { class: 'btn', for: 'sc-files', text: 'Choose photos' })),
-    el('p', { class: 'muted small', text: 'Lay the page on a darker surface for the best automatic edges. Each photo becomes one page.' }),
+    about('Lay the page on a darker surface for the best automatic edges. Each photo becomes one page.'),
     list, footer, output, camera, library);
 
   const write = () => idb.set(SAVE_KEY, { pages: pages.map(({ id, blob, name, corners, filter, rotate }) => ({ id, blob, name, corners, filter, rotate })), savedAt: Date.now() });

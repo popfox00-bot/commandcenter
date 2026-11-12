@@ -2,8 +2,8 @@
 // opened from Settings; other apps load on first open. Two apps hold others:
 // - Files: Photo Editor (with Collage and Cutout), Convert, PDF and Scan (documents, and QR codes):
 //   all on this phone, offline.
-// - Magic: Downloads (a video from a link: needs a connection), FM (FaceMask) and Saved Files (your
-//   own Google Drive folder).
+// - Magic: Downloads (a video from a link: needs a connection), FM (FaceMask), Reverse Fill, Fashion
+//   and Saved Files (your own Google Drive folder).
 // Games is Fox Games, a self-contained page of its own (web/apps/games/fox/).
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', load: () => import('./calendar/calendar.js') },
@@ -11,7 +11,7 @@ export const APPS = [
   { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', load: () => import('./sports/sports.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', load: () => import('./notes/notes.js') },
   { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Convert · PDF · Scan', href: '#/files', load: () => import('../tools/studio/studio.js') },
-  { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Saved Files', href: '#/magic', load: () => import('./magic/magic.js') },
+  { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Fashion · Saved Files', href: '#/magic', load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', load: () => import('../tools/draw/draw.js') },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', load: () => import('./rap/rap.js') },
   { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html' },
@@ -19,6 +19,8 @@ export const APPS = [
   // In Magic (its own apps, opened from it).
   { id: 'downloads', name: 'Downloads', icon: '⬇️', tint: 'blue', note: 'Video links · Queue · History', href: '#/downloads', parent: 'magic', home: false, load: () => import('./downloads/downloads.js') },
   { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', parent: 'magic', home: false, load: () => import('./fm/fm.js') },
+  { id: 'refill', name: 'Reverse Fill', icon: '🎨', tint: 'amber', note: 'Take off a label, logo or stain', href: '#/refill', parent: 'magic', home: false, load: () => import('./refill/refill.js') },
+  { id: 'fashion', name: 'Fashion', icon: '👕', tint: 'pink', note: 'Put a top, pants, hat or shoes on', href: '#/fashion', parent: 'magic', home: false, load: () => import('./fashion/fashion.js') },
   { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'magic', home: false, load: () => import('./saved/saved-app.js') },
   // Not on the home screen: opened from Settings.
   { id: 'jobs', name: 'Jobs', icon: '⏱', tint: 'slate', note: 'Background runs & settings', href: '#/jobs', home: false },

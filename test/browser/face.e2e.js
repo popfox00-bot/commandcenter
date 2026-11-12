@@ -75,11 +75,12 @@ test('faces: FM is an app of its own (the Photo Editor has no face tools); 🙂 
   await page.goto(`${origin}${BASE}#/files/facemask`);
   await page.waitForFunction(() => location.hash === '#/fm');
   await page.waitForSelector('#ed-file', { state: 'attached' });
-  // FM: its own start (Quick Swap first), then only its own tools on the photo: faces, and Reverse Fill.
+  // FM: its own start (Quick Swap first), then only its own tools on the photo: faces (Reverse Fill is an app of its own now).
   await page.getByRole('button', { name: '⚡ Quick Swap faces' }).waitFor();
   await page.setInputFiles('#ed-file', { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  assert.deepEqual(await page.$$eval('.ed-modes [role=tab]', (els) => els.map((e) => e.textContent)), ['🎭 Faces', '🎨 Reverse Fill']);
+  assert.equal(await page.isVisible('.ed-modes'), false);
+  assert.equal(await page.getByRole('tab', { name: '🎨 Reverse Fill' }).count(), 0);
   await page.waitForSelector('text=✨ Auto-Enhance', { state: 'hidden' });
   await page.getByRole('button', { name: '🙂 Identify faces' }).click();
   await page.waitForSelector('.ed-panel >> text=Found 1 face.');
@@ -587,15 +588,16 @@ function pixel(page, fx, fy) {
   }, [fx, fy]);
 }
 
-/** FM with a photo of a can: a green wall; a blue can (x 70–130) with a white label (y 40–70), red bands on it, black print. */
-async function canInFm() {
+/** The Reverse Fill app (Magic) with a photo of a can: a green wall; a blue can (x 70–130) with a white label (y 40–70), red bands on it, black print. */
+async function canInRefill() {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE, headers: { 'content-type': 'text/javascript' } }));
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${origin}${BASE}#/fm`);
+  await page.goto(`${origin}${BASE}#/magic`);
+  await page.click('.app-tile[href="#/refill"]');
   await page.waitForSelector('#ed-file', { state: 'attached' });
   const png = await page.evaluate(async () => {
     const c = new OffscreenCanvas(200, 120);
@@ -610,7 +612,8 @@ async function canInFm() {
   });
   await page.setInputFiles('#ed-file', { name: 'can.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('.ed-canvas');
-  await page.getByRole('tab', { name: '🎨 Reverse Fill' }).click();
+  // Only Reverse Fill: no tabs, no one-tap fixes.
+  assert.equal(await page.isVisible('.ed-modes'), false);
   const box = async () => { await page.evaluate(() => window.scrollTo(0, 0)); return page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }); };
   const at = (b, fx, fy) => [b[0] + fx * b[2], b[1] + fy * b[3]];
   // The label gone and filled with the can, not the wall; Undo brings it back.
@@ -634,8 +637,8 @@ async function canInFm() {
   return { context, page, errors, box, at, check };
 }
 
-test('FM → 🎨 Reverse Fill: press on a color (a magnifier shows it), the area is found and outlined by itself; removed and filled with the can, not the wall', async () => {
-  const { context, page, errors, box, at, check } = await canInFm();
+test('Magic → 🎨 Reverse Fill: press on a color (a magnifier shows it), the area is found and outlined by itself; removed and filled with the can, not the wall', async () => {
+  const { context, page, errors, box, at, check } = await canInRefill();
   await page.waitForSelector('text=/Press on the color to remove/');
   // Pressed beside the label, moved onto it (the magnifier follows), let go: the white picked there.
   let b = await box();
@@ -653,8 +656,8 @@ test('FM → 🎨 Reverse Fill: press on a color (a magnifier shows it), the are
   await context.close();
 });
 
-test('FM → 🎨 Reverse Fill, ✏️ Draw my own loop: pick the shades, trace roughly around it', async () => {
-  const { context, page, errors, box, at, check } = await canInFm();
+test('Magic → 🎨 Reverse Fill, ✏️ Draw my own loop: pick the shades, trace roughly around it', async () => {
+  const { context, page, errors, box, at, check } = await canInRefill();
   await page.getByRole('button', { name: '✏️ Draw my own loop' }).click();
   let b = await box();
   await page.mouse.click(...at(b, 0.6, 0.47));
@@ -696,8 +699,8 @@ test('faces: the upscaler (vendor/esrgan, by face-api\'s TensorFlow.js) loads on
   await context.close();
 });
 
-test('FM → 🎨 Reverse Fill: 🧽 brush some out of what goes, 🖌 brush more in', async () => {
-  const { context, page, errors, box, at } = await canInFm();
+test('Magic → 🎨 Reverse Fill: 🧽 brush some out of what goes, 🖌 brush more in', async () => {
+  const { context, page, errors, box, at } = await canInRefill();
   const count = () => page.evaluate(async () => {
     // (Pink: what goes, drawn over the photo; read once the overlay has been drawn again after the change.)
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));

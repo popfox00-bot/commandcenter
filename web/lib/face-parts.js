@@ -30,6 +30,20 @@ const CLASSES = ['background', 'hair', 'body', 'face', 'clothes', 'others'];
  * (`hair`, `face`: 0..255 how sure, w×h, over the whole picture at that size).
  */
 export async function segmentParts(img, max = 768) {
+  const p = await segmentAll(img, max, ['hair', 'face']);
+  return p && { w: p.w, h: p.h, hair: p.hair, face: p.face };
+}
+
+/**
+ * A whole person, for Fashion: { w, h, hair, face, body, clothes, others } (each 0..255 how sure, w×h,
+ * over the whole picture at most `max` px across), or null.
+ */
+export async function segmentPeople(img, max = 512) {
+  return segmentAll(img, max, ['hair', 'face', 'body', 'clothes', 'others']);
+}
+
+/** The asked-for classes' maps of `img` at most `max` px across, or null if one is missing. */
+async function segmentAll(img, max, names) {
   const s = await imageSegmenter();
   const k = Math.min(1, max / Math.max(img.width, img.height));
   const w = Math.max(1, Math.round(img.width * k)); const h = Math.max(1, Math.round(img.height * k));
@@ -46,8 +60,9 @@ export async function segmentParts(img, max = 768) {
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = Math.round(255 * f[Math.min(mh - 1, Math.floor((y * mh) / h)) * mw + Math.min(mw - 1, Math.floor((x * mw) / w))]);
       return out;
     };
-    const hair = take('hair'); const face = take('face');
-    if (!hair || !face) return null;
-    return { w, h, hair, face };
+    /** @type {Record<string, any>} */
+    const out = { w, h };
+    for (const n of names) { out[n] = take(n); if (!out[n]) return null; }
+    return out;
   } finally { res.close?.(); }
 }

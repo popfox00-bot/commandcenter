@@ -85,7 +85,7 @@ test('home screen of apps: Files and Magic hold the others (each back to where i
   // Magic: Downloads, FM, Saved Files; back to Magic, then Home.
   await page.click('.app-tile >> text=Magic');
   await page.waitForSelector('#app-host .app-tile');
-  assert.deepEqual(await page.$$eval('#app-host .app-name', (els) => els.map((e) => e.textContent)), ['Downloads', 'FM', 'Saved Files']);
+  assert.deepEqual(await page.$$eval('#app-host .app-name', (els) => els.map((e) => e.textContent)), ['Downloads', 'FM', 'Reverse Fill', 'Fashion', 'Saved Files']);
   await page.click('#app-host .app-tile >> text=Downloads');
   await page.waitForSelector('.dl-url');
   assert.equal(await page.textContent('#title'), 'Downloads');

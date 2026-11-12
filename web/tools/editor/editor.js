@@ -32,22 +32,24 @@ const SAVE_KEY = 'editor.session';
 const PREFS_KEY = 'cc.editor.prefs';
 // FaceMask ('face') is the FM app's (the same editor mounted with `fm`: only the face tools), not one here.
 const MODES = [['adjust', 'Adjust'], ['filters', 'Filters'], ['crop', 'Crop'], ['markup', 'Markup'], ['cleanup', 'Clean Up']];
-// The FM app's own: its face tools, and Reverse Fill (only there).
-const FM_MODES = [['face', '🎭 Faces'], ['rfill', '🎨 Reverse Fill']];
+// The FM app's own: its face tools. The Reverse Fill app's: just Reverse Fill.
+const FM_MODES = [['face', '🎭 Faces']];
+const REFILL_MODES = [['rfill', '🎨 Reverse Fill']];
 const TOOLS = [
   ['pen', '✎', 'Pen'], ['highlighter', '▬', 'Highlighter'], ['line', '╱', 'Line'], ['arrow', '➚', 'Arrow'],
   ['rect', '▭', 'Box'], ['ellipse', '◯', 'Oval'], ['text', 'T', 'Text'], ['eraser', '⌫', 'Eraser'],
 ];
 
 /**
- * mount(host, { file, fm }) — `file` opens that photo right away (e.g. sent from the converter). `fm`:
- * the FM app (FaceMask): only the face tools, with a photo of its own (kept apart from Files').
+ * mount(host, { file, fm, refill }) — `file` opens that photo right away (e.g. sent from the converter).
+ * `fm`: the FM app (FaceMask): only the face tools, with a photo of its own (kept apart from Files').
+ * `refill`: the Reverse Fill app: only Reverse Fill, with a photo of its own too.
  */
 /** Whether a placed Character's mouth is matched: as asked, else as worked out (the expressions differ). */
 const mouthOn = (p) => !!(p.mouth ?? p.mouthAuto);
 
-export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
-  const sessionKey = faceApp ? 'fm.session' : SAVE_KEY;
+export function mount(host, { file: initialFile, fm: faceApp = false, refill: refillApp = false } = {}) {
+  const sessionKey = faceApp ? 'fm.session' : refillApp ? 'refill.session' : SAVE_KEY;
   const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, cleanSize: 22, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
   delete prefs.autoCropColor;
   const savePrefs = () => store.set(PREFS_KEY, JSON.stringify(prefs));
@@ -57,7 +59,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   let source = null;          // preview source canvas
   let renderer = null;
   let history = null;
-  let mode = faceApp ? 'face' : 'adjust';
+  let mode = faceApp ? 'face' : refillApp ? 'rfill' : 'adjust';
   let activeAdjust = 'exposure';
   let comparing = false;
   let raf = 0;
@@ -89,7 +91,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   // ---------- screens ----------
 
   function showStart(saved) {
-    const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', multiple: !faceApp, class: 'visually-hidden', id: 'ed-file' });
+    const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', multiple: !faceApp && !refillApp, class: 'visually-hidden', id: 'ed-file' });
     input.addEventListener('change', () => {
       const files = [...input.files];
       input.value = '';
@@ -108,8 +110,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         el('button', { class: 'btn primary block', text: '⚡ Quick Swap faces', onclick: () => quickSwap() }),
         el('p', { class: 'muted small center', text: 'Two photos: the one to change, then the one with the face to put on it. The face is cut out, fitted and blended for you, ready to save.' })) : null,
       el('div', { class: `drop${faceApp ? ' qs-start' : ''}` },
-        el('label', { class: `btn ${faceApp ? '' : 'primary '}block`, for: 'ed-file', text: faceApp ? 'Choose a photo' : 'Choose photos' }),
-        el('p', { class: 'muted small center', text: faceApp ? 'Find its faces, cut one out to keep as a Character, or put a Character on a face (fitted, recolored and blended). Nothing leaves this phone.' : 'Pick one photo to edit it, or many to edit them all at once (Auto-Crop, filters, light and color, size). Your originals are never changed, and nothing leaves this phone.' })),
+        el('label', { class: `btn ${faceApp ? '' : 'primary '}block`, for: 'ed-file', text: faceApp || refillApp ? 'Choose a photo' : 'Choose photos' }),
+        el('p', { class: 'muted small center', text: refillApp ? 'Take something off a surface (a label, a sticker, a logo, a stain): press on its color and it\'s found and outlined, then filled in with the surface around it, its color, light and grain. Nothing leaves this phone.' : faceApp ? 'Find its faces, cut one out to keep as a Character, or put a Character on a face (fitted, recolored and blended). Nothing leaves this phone.' : 'Pick one photo to edit it, or many to edit them all at once (Auto-Crop, filters, light and color, size). Your originals are never changed, and nothing leaves this phone.' })),
       input,
     ].filter(Boolean));
   }
@@ -140,7 +142,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       fileName = name;
       history = createHistory(restored ?? defaultState());
       if (startMode) mode = startMode;
-      if (faceOnly) mode = 'face';
+      if (faceApp) mode = 'face';
+      if (refillApp) { mode = 'rfill'; rfTool.start(); }
       buildEditor();
       if (!restored) persist(true);
     } catch (err) {
@@ -153,7 +156,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   let zoomCtl = null; // zoom within the photo (see buildEditor)
   let quick = null;   // the one-tap fixes under the photo
   // The FM app: the photo with only the face tools (mode 'face'), no editing tabs or one-tap fixes.
-  const faceOnly = faceApp;
+  const faceOnly = faceApp || refillApp;
   let glCanvas; let overlay; let stage; let panel; let undoBtn; let redoBtn; let modeBar; let thumbs = null;
 
   function buildEditor() {
@@ -219,9 +222,11 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   }
 
   function renderModes() {
-    // FaceMask on its own: just its tools (faces, Reverse Fill), none of the editing ones.
+    // FaceMask and Reverse Fill on their own: just their tools, none of the editing ones (and no tab bar for one).
     if (quick) quick.hidden = faceOnly;
-    modeBar.replaceChildren(...(faceOnly ? FM_MODES : MODES).map(([id, label]) => el('button', {
+    const modes = faceApp ? FM_MODES : refillApp ? REFILL_MODES : MODES;
+    modeBar.hidden = modes.length < 2;
+    modeBar.replaceChildren(...modes.map(([id, label]) => el('button', {
       class: `seg${mode === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(mode === id), text: label,
       onclick: () => {
         if (placing && id !== 'face') return;

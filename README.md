@@ -14,16 +14,17 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
   [QR codes](#qr--barcode): scan with a link safety check before anything opens, make your own).
   Converted images have an **Edit** button (opens the photo editor) and converted PDFs a **Write on
   it** button. **[Draw](#draw)** is a sketching canvas that saves to Photos or to Saved Files.
-- **Magic** is a page of three apps: **[Downloads](#downloads)** (a video from a link, with a queue
-  and a history; it needs a connection), **[FM](#fm-facemask)** (face swaps) and
-  **[Saved Files](#saved-files)** (your own Google Drive folder). Each app inside Files or Magic shows
+- **Magic** is a page of five apps: **[Downloads](#downloads)** (a video from a link, with a queue
+  and a history; it needs a connection), **[FM](#fm-facemask)** (face swaps), **[Reverse
+  Fill](#reverse-fill)** (take a label, logo or stain off a surface), **[Fashion](#fashion)** (put a
+  top, pants, a hat or shoes from one photo onto the person in another) and **[Saved Files](#saved-files)** (your own Google Drive folder). Each app inside Files or Magic shows
   its own name at the top, and **‹** goes back to Files or Magic.
 - **[Calendar](#calendar)**: your own events, in a week, day or month view, kept on the phone.
 - **[Weather](#weather)** (Weather Service alerts, forecast, freezes, wind, air quality for ZIP 80214
   by default) and **[Sports](#sports)** (a calendar of your teams' games, plus college football near
   your ZIP, with live scores, TV, lines and results): two apps. Both work on the phone with no setup;
   the same rules drive push notifications from two jobs.
-- **[FM](#fm-facemask)** (FaceMask, in Magic): face swaps, ⚡ Quick Swap, Characters and 🎨 Reverse Fill, on the phone, offline.
+- **[FM](#fm-facemask)** (FaceMask, in Magic): face swaps, ⚡ Quick Swap and Characters, on the phone, offline.
 - **[Notes](#notes)**: notes and checklists with photos, and a grocery list that sorts itself by
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
@@ -57,7 +58,7 @@ choices that keep usage under them.
 ## Contents
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files) · [Downloads](#downloads)
-- [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters, Reverse Fill
+- [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters · [Reverse Fill](#reverse-fill) · [Fashion](#fashion)
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
@@ -149,7 +150,7 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
   smudged, **📋 Copy From Area**: tap a clean spot elsewhere (sand, sky, wall), then tap, brush or
   circle the area to cover: it gets that spot one to one, its edge blended into the new surroundings
   (or **Use on the last clean-up** to redo the last one that way). (Reverse Fill, removing a thing
-  by its colors, is in [FM](#fm-facemask).) Each
+  by its colors, is an app of its own in Magic: [Reverse Fill](#reverse-fill).) Each
   clean-up is one undo step, is shown without it under ◑, and is part of every export.
 - With a mouse, chip rows (Adjust, Filters, Markup…) have a scroll bar, and the scroll wheel moves
   them sideways.
@@ -295,7 +296,7 @@ Cut an object out of a photo: trace around it with your finger (**Trace**), with
 - Press and hold on a photo while tracing, patching or using the wand (or drawing, cropping or
   cleaning up in the editor) just keeps going: no text selection, no "save image" menu.
 - **A magnifier under the finger**: while your finger is down (tracing, Patch, Wand, Brush, and in
-  the editor Clean Up and Copy From Area, and FM's Reverse Fill), what's under it shows enlarged just above it
+  the editor Clean Up and Copy From Area, Reverse Fill, and Fashion's color taps), what's under it shows enlarged just above it
   (below it near the top), with a crosshair at the exact spot and the patch or brush size. Slide to
   aim; **the edit happens when you lift your finger** (a patch or brush stroke is drawn as a trail,
   then applied along it).
@@ -705,24 +706,58 @@ saves the face it used.
    it will be. The fitting and blending run off the page's thread (`fit-worker.js`), so the screen
    doesn't freeze while it's worked out.
    **✓ Place** paints it in at full detail: one undo step, part of every export.
-**🎨 Reverse Fill** (FM's second tab; not in the Photo Editor) removes a thing by its colors, a label
+**🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
+mouth (quarter turns and straighten; undo to go back).
+
+## Reverse Fill
+
+**🎨 Reverse Fill** (an app of its own in Magic; once FM's second tab) removes a thing by its colors, a label
 off a can, a sticker, a logo, a flower in the hair, and fills in with the surface around it, its color,
 light and texture, not what's behind. **Press on the color** to remove: a magnifier shows what's under
 your finger, closer up, with the exact color it will pick beside it; slide to aim and let go to pick
 it. The area of that color is **found and outlined by itself** (yellow): everything joined to where
 you pressed that's near that color, or of its hue in shadow or catching the light (each step on from
-the last a small one: an edge stops it), with room around it for the surface it's on
-(`autoTrace` in `web/tools/editor/cleanup.js`). What will go shows in pink; pick more shades of it
+the last a small one: an edge stops it), with room all around it for the surface it's on (a
+quarter of its size, 12 to 90 px; `autoTrace` in `web/tools/editor/cleanup.js`). What will go shows in pink; pick more shades of it
 (its center, its edge) and each joins in, and **Match** sets how close a shade counts. **✨ Remove &
-fill** takes it out (with a few pixels of its soft edge, so no halo is left) and fills it from the
-parts of the surface that border it most (the can above and below the label), coarse to fine, its
-light and color evened out with it, and the surface's grain added where the fill is smoother. With
+fill** takes it out (with its soft edge and any tinted halo around it, so no outline is left) and
+fills it from the parts of the surface that border it most (the can above and below the label),
+coarse to fine. Its light and color are then matched to the surface all the way around: each edge
+pixel to a robust average of the surface just past it (wider for a bigger area, so it reads the real
+surface rather than the removed thing's tinted fringe, and a stray speck doesn't throw it), spread
+smoothly across the fill, so a gradient of light carries through it; then the surface's grain is
+added where the fill is smoother. (On a lit, grainy test surface this cut the fill's tone error by
+about two thirds compared with before.) With
 **🎯 Fill From**, pick the surface to fill with yourself; **✏️ Draw my own loop** traces it by hand
 instead (tap the shades, then draw a rough loop around it). Pick the same color in other places to take
 them all at once (each is found and outlined), and touch up what goes with **🖌 Add to it** and **🧽 Take
 away** (brushed, with a brush size). One undo step.
-**🙂 Level this face** turns the photo so the picked face is upright, eyes level and above the
-mouth (quarter turns and straighten; undo to go back).
+
+## Fashion
+
+**👕 Fashion** (in Magic) puts a piece of clothing from one photo onto the person in another, on the
+phone (nothing is uploaded). Pick **1 · Base** (the person to dress) and **2 · Piece** (a photo with
+the clothes in it: worn by someone, or on its own).
+
+- **Pick the piece**: say what it is (👕 Top, 🧥 Jacket, 👖 Pants · shorts, 👗 Dress, 🧢 Hat, 👟
+  Shoes, ✨ Other), then **✨ Find it** (where that kind is worn on the person in the photo, by the
+  on-phone person finder), **👆 Tap its color** (the area of the colors you tap, grown from all the
+  spots together, so stripes or a print are one piece; the magnifier shows what you're on; its print
+  or logo inside is taken too), **🧽 Take away** a color, or **✏️ Trace** around it (with a piece
+  picked, only what's inside the loop stays). **Match** sets how close a color counts. Pink shows it.
+- **Put it on**: **➕ Add** (as it is, on top: a hat, shoes, something new), **🧥 Overlay** (over
+  what's worn there, fitted to it, a little wider: a jacket over a shirt), or **🔁 Replace** (what's
+  worn there is taken off and filled from around it, and the piece is fitted to its shape). What it
+  goes on is found by itself, or **👆 tapped** / **✏️ traced** on the base (outlined in yellow). It's
+  placed by the body: as big as the person (by their faces) and where that kind is worn (a top from the
+  chin to the waist, found where the clothes' color changes; a hat on the head; shoes at the feet).
+- **Fine-tune**: drag it (✋ Move), **Size**, **Width**, **Length**, **Turn**, **Fit to body** (how far
+  each row is bent onto the shape of what it goes on), **Form** (the photo's folds and shadows carried
+  onto it), **Light** (its light matched to the photo's, by the two people's faces), **Edge** (softness),
+  and **Keep hair and face in front**. **💾 Save** shares or downloads the picture.
+
+The workings are in `web/tools/fashion/fashion-core.js` (tested in `test/fashion.test.js`); the app
+is `web/apps/fashion/fashion.js`.
 
 ## Weather and Sports
 

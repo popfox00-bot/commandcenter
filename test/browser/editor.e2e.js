@@ -227,7 +227,7 @@ test('clean up: tap a speck away, copy from another area over a spot; then Colla
   await context.close();
 });
 
-test('clean up: Reverse Fill isn\'t in the Photo Editor (it\'s in FM)', async () => {
+test('clean up: Reverse Fill isn\'t in the Photo Editor (it\'s its own app in Magic)', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   await page.goto(`${origin}${BASE}#/files/photo`);

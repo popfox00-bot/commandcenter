@@ -583,6 +583,13 @@ npm run typecheck       # TypeScript checks the files marked // @ts-check (tscon
 node scripts/score-swaps.mjs <folder>   # FM's face swaps on your own photos, scored (see below)
 ```
 
+**Finishing touches** (`web/tools/editor/fit-finish.js`): above the brows, the photo's **own
+forehead** shows through more and more toward the hairline (its texture, shading and stray hairs),
+so the new face sits in that head instead of a big blank forehead of its own; and **color blotches**
+on its skin (a sunburned nose, flushed cheeks, a patch the recolor turned purple) are brought back
+toward its skin's tone, its brightness kept, so freckles and marks still show as marks (eyes, brows
+and lips left as they are).
+
 **Scoring FM's swaps** (`scripts/score-swaps.mjs`, `web/tools/editor/swap-score.js`): give it a folder
 with one folder per pair, each holding `base.jpg` (the photo to change) and `char.jpg` (the new face).
 For each pair it runs ⚡ Quick Swap in the real app (a local browser, offline), finds the faces again in
@@ -624,7 +631,9 @@ saves the face it used.
    it's placed as one piece by its eyes, nose and mouth (the eyes counting most: moved, sized and turned,
    never bent, narrowed or stretched, `rigidPlacement`), so it looks like itself; **📐 Fit its shape to
    the face** bends and sizes it to that face instead (as described below). Its own mouth is kept as
-   it is (reshaping it looked forced); two chips: **🧊 Turn to its pose** is **on unless you turn it
+   it is unless the expressions clearly differ: its lips parted (and not a wide smile) on a face whose
+   mouth is shut, then it's closed to match by itself (a wide smile is kept: shutting it looked forced;
+   a mouth is never opened by itself); two chips: **🧊 Turn to its pose** is **on unless you turn it
    off** (it only turns a face posed differently from the one it goes on: a Character turned or tilted
    away, put on a face looking straight on, lined up much better that way; a face already posed alike
    is left as it is): it turns it in 3D to that face's pose: a generic head (the 68 landmarks with their depth) fitted to both faces

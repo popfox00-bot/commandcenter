@@ -16,6 +16,7 @@ import { reverseFillTool } from './reverse-fill-ui.js';
 import { levelTurn } from '../../lib/face-core.js';
 import { openExpandDialog } from './expand-ui.js';
 import { placedPatch } from './place.js';
+import { mouthsDiffer } from './fit-place.js';
 import { buildFitted } from './fit-pipeline.js';
 import { fitClient } from './fit-client.js';
 import { noteError, noteTimings, timed } from '../../lib/diag.js';
@@ -42,6 +43,9 @@ const TOOLS = [
  * mount(host, { file, fm }) — `file` opens that photo right away (e.g. sent from the converter). `fm`:
  * the FM app (FaceMask): only the face tools, with a photo of its own (kept apart from Files').
  */
+/** Whether a placed Character's mouth is matched: as asked, else as worked out (the expressions differ). */
+const mouthOn = (p) => !!(p.mouth ?? p.mouthAuto);
+
 export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
   const sessionKey = faceApp ? 'fm.session' : SAVE_KEY;
   const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, cleanSize: 22, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
@@ -1276,7 +1280,10 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
       const { photo, W, H, face } = k < 1 ? previewOf(at.faceObj, k) : { photo: photo0, W: W0, H: H0, face: at.faceObj };
       const tune = at.tune && k < 1 ? { ...at.tune, dx: at.tune.dx * k, dy: at.tune.dy * k } : at.tune;
       const paint = at.paint?.length && k < 1 ? at.paint.map((st) => ({ ...st, r: st.r * k, pts: st.pts.map(([x, y]) => [x * k, y * k]) })) : at.paint;
-      const opts = { trim: at.trim, blend: at.blend, tune, paint, turn3d: at.turn3d !== false, mouth: !!at.mouth, keepShape: !at.fitShape };
+      // Its mouth matched when asked, or, unless asked not to, when the expressions clearly differ (one
+      // mouth open, a smile showing teeth, the other shut).
+      at.mouthAuto ??= mouthsDiffer(at.charFace.pts, img.w, img.h, at.faceObj.pts, W0, H0);
+      const opts = { trim: at.trim, blend: at.blend, tune, paint, turn3d: at.turn3d !== false, mouth: at.mouth ?? at.mouthAuto, keepShape: !at.fitShape };
       // Off the page's thread (fit-worker.js), so the screen doesn't freeze; here if that can't be.
       let patch;
       try { patch = await fitOffThread(photo, W, H, img, charOf(at), face, at.parts, opts); } catch (err) {
@@ -1450,7 +1457,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         // (Off unless asked for: each can look forced. Its own mouth and its own pose, as it is.)
         // (Its own shape is kept unless asked: placed as one piece, never bent or stretched.)
         canFit && p.fit ? el('button', { class: `chip${p.fitShape ? ' active' : ''}`, 'aria-pressed': String(!!p.fitShape), text: '📐 Fit its shape to the face', onclick: () => { p.fitShape = !p.fitShape; placeNote = p.fitShape ? 'Its shape bent and sized to the face it\'s on (less like itself).' : 'Its own shape, kept as it is: placed as one piece by its eyes, nose and mouth.'; refreshPreview(); renderPanel(); } }) : null,
-        canFit && p.fit ? el('button', { class: `chip${p.mouth ? ' active' : ''}`, 'aria-pressed': String(!!p.mouth), text: '👄 Match the mouth', onclick: () => { p.mouth = !p.mouth; placeNote = p.mouth ? 'Its mouth closed (or opened) to match the face it\'s on.' : 'Its own mouth, as it is.'; refreshPreview(); renderPanel(); } }) : null,
+        canFit && p.fit ? el('button', { class: `chip${mouthOn(p) ? ' active' : ''}`, 'aria-pressed': String(mouthOn(p)), text: '👄 Match the mouth', onclick: () => { p.mouth = !mouthOn(p); placeNote = p.mouth ? 'Its mouth closed (or opened) to match the face it\'s on.' : 'Its own mouth, as it is.'; refreshPreview(); renderPanel(); } }) : null,
         // (On unless turned off: it only turns a face posed differently from the one it goes on.)
         canFit && p.fit ? el('button', { class: `chip${p.turn3d !== false ? ' active' : ''}`, 'aria-pressed': String(p.turn3d !== false), text: '🧊 Turn to its pose', onclick: () => { p.turn3d = p.turn3d === false; placeNote = p.turn3d !== false ? 'Turned in 3D to the pose of the face it\'s on.' : 'As it faces in its own picture.'; refreshPreview(); renderPanel(); } }) : null,
         canFit && p.fit ? el('button', { class: `chip${p.looks ? ' active' : ''}`, 'aria-pressed': String(!!p.looks), text: '🔀 Compare looks', onclick: () => { if (p.looks) { p.looks = null; renderPanel(); } else compareLooks(); } }) : null,
@@ -1459,7 +1466,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false } = {}) {
         el('button', { class: 'chip', text: '⊙ Middle', onclick: () => { unfit(); p.x = source.width / 2; p.y = source.height / 2; refreshPreview(); renderPanel(); schedule(); } })),
       p.looks ? el('div', { class: 'fm-looks', role: 'group', 'aria-label': 'Looks to choose from' },
         ...p.looks.map((l) => el('button', {
-          type: 'button', class: `fm-look${!!p.mouth === l.mouth && (p.turn3d !== false) === l.turn3d ? ' active' : ''}`, 'aria-label': l.label, 'aria-pressed': String(!!p.mouth === l.mouth && (p.turn3d !== false) === l.turn3d),
+          type: 'button', class: `fm-look${mouthOn(p) === l.mouth && (p.turn3d !== false) === l.turn3d ? ' active' : ''}`, 'aria-label': l.label, 'aria-pressed': String(mouthOn(p) === l.mouth && (p.turn3d !== false) === l.turn3d),
           onclick: () => { p.mouth = l.mouth; p.turn3d = l.turn3d; placeNote = `${l.label}.`; refreshPreview(); renderPanel(); },
         }, l.canvas ?? el('span', { class: 'fm-look-wait muted small', text: '…' }), el('span', { class: 'small', text: l.label })))) : null,
       el('div', { class: 'ed-row' }, el('strong', { class: 'small', text: '🎨 Blend into the photo' }), el('span', { class: 'muted small', text: 'each side to what\'s next to it' })), blend,

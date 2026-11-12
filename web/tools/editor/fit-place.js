@@ -239,3 +239,36 @@ export function realPlacement(charFace, cw, ch, face, W, H, { outline = null, ow
   const [x, y] = pic([cw / 2, ch / 2]);
   return { x, y, width: sy * k * cw, rot, squash, shear, affine };
 }
+
+/**
+ * How open a mouth is (68 landmarks, as fractions of a w×h picture): the gap between the lips
+ * (inner lip points 61–63 to 67–65) over the mouth's width. ~0 shut, ~0.1 parted, 0.2+ open (teeth).
+ * @param {number[][]} pts @param {number} w @param {number} h
+ */
+export function mouthOpenness(pts, w, h) {
+  if (pts?.length !== 68) return 0;
+  const d = (a, b) => Math.hypot((pts[a][0] - pts[b][0]) * w, (pts[a][1] - pts[b][1]) * h);
+  const width = d(48, 54); if (!width) return 0;
+  return (d(61, 67) + d(62, 66) + d(63, 65)) / 3 / width;
+}
+
+/**
+ * How wide a mouth is for its face: corner to corner over the eyes' spacing (~0.7–0.85 at rest, 1 or
+ * more in a wide smile). @param {number[][]} pts @param {number} w @param {number} h
+ */
+export function mouthWidth(pts, w, h) {
+  if (pts?.length !== 68) return 0;
+  const mid = (lo, hi) => { let x = 0; let y = 0; for (let i = lo; i <= hi; i++) { x += pts[i][0] * w; y += pts[i][1] * h; } return [x / (hi - lo + 1), y / (hi - lo + 1)]; };
+  const l = mid(36, 41); const r = mid(42, 47); const eyes = Math.hypot(r[0] - l[0], r[1] - l[1]);
+  return eyes ? Math.hypot((pts[54][0] - pts[48][0]) * w, (pts[54][1] - pts[48][1]) * h) / eyes : 0;
+}
+
+/**
+ * Whether the Character's mouth is closed to match by itself (it can still be asked for, or not):
+ * when its lips are parted on a face whose mouth is shut, but not when it's a wide smile (shutting a
+ * big smile looks forced), and never opened by itself (that looks forced too).
+ * @param {number[][]} charPts @param {number} cw @param {number} ch @param {number[][]} facePts @param {number} W @param {number} H
+ */
+export function mouthsDiffer(charPts, cw, ch, facePts, W, H) {
+  return mouthOpenness(charPts, cw, ch) > 0.08 && mouthOpenness(facePts, W, H) < 0.04 && mouthWidth(charPts, cw, ch) < 0.9;
+}

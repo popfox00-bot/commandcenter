@@ -745,34 +745,32 @@ away** (brushed, with a brush size). One undo step.
 phone (nothing is uploaded). Pick **1 · Base** (the person to dress) and **2 · Piece** (a photo with
 the clothes in it: worn by someone, or on its own).
 
-- **Pick the piece**: say what it is (👕 Top, 🧥 Jacket, 👖 Pants · shorts, 👗 Dress, 🧢 Hat, 👟
-  Shoes, ✨ Other), then **✨ Find it** (where that kind is worn on the person in the photo, by the
-  on-phone person finder), **👆 Tap its color** (the area of the colors you tap, grown from all the
-  spots together, so stripes or a print are one piece; the magnifier shows what you're on; its print
-  or logo inside is taken too), **🧽 Take away** a color, or **✏️ Trace** around it (with a piece
-  picked, only what's inside the loop stays). **Match** sets how close a color counts. Pink shows it.
-- **Put it on**: **➕ Add** (as it is, on top: a hat, shoes, something new), **🧥 Overlay** (over
-  what's worn there, fitted to it, a little wider: a jacket over a shirt), or **🔁 Replace** (what's
-  worn there is taken off and filled from around it, and the piece is fitted to its shape). What it
-  goes on is found by itself, or **👆 tapped** / **✏️ traced** on the base (outlined in yellow). It's
-  placed by the body: as big as the person (by their faces) and where that kind is worn (a top from the
-  chin to the waist, found where the clothes' color changes; a hat on the head; shoes at the feet).
-- **Fitted part by part**: a top's body goes onto the body and each sleeve onto that side's sleeve
-  (a long sleeve over a short one, or a bare arm, keeps its length); shoes go one on each foot (one shoe
-  photographed is mirrored for the other). In Replace, only what the piece doesn't cover of what was
-  worn is taken off, filled from what's beside it (the background, the skin), never from the old
-  garment.
-- **📏 Guides** show where the chin, waist and ankles were found (and where the piece goes): drag a line
-  to correct it, and what's found and where it goes follow.
-- **Fine-tune**: drag it (✋ Move) or pinch it (size and turn), **Size**, **Width**, **Length**, **Turn**,
-  **Fit to body** (how far each row is bent onto the shape of what it goes on), **Form** (the photo's
-  folds and shadows carried onto it), **Light** (its light matched to the photo's, by the two people's
-  faces), **Edge** (softness), **Keep hair and face in front** and **Keep hands and arms in front of
-  the body**. 🖌 **Brush in** / 🩹 **Brush out** touch up the piece and what it goes on. **↶ / ↷** undo
-  and redo; **◑ Hold for before** shows the photo as it was. Your work is kept on the phone: come back
-  and **Continue** where you left off.
-- **💾 Save** works it out again from the photos as opened, at full size (up to 2560 px, about 6 MP),
-  and shares or downloads it.
+- **Pick the piece**: **Found in this photo** lists what's worn there, found by itself (a top, a bottom, a
+  dress, a hat, shoes; each with a small picture of it): tap one. Only what can be there is listed (a
+  bottom only where the top's end is seen, no shoes when the feet are out of the photo). Or say what it
+  is (👕 Top, 🧥 Jacket, 👖 Pants · shorts, 👗 Dress, 🧢 Hat, 👟 Shoes, ✨ Other) and **👆 tap its color**
+  (on a person, only what they're wearing is taken, never the wall behind them however alike; a white
+  shirt doesn't spread into a light gray wall), **🧽 take colors away**, **✏️ trace** around it, or 🖌 / 🩹
+  brush.
+- **Made whole**: cloth isn't see-through, so the piece is made solid (the specks and gaps a pick leaves
+  closed). What was in front of it in its photo (long hair over the shirt, a hand across it) is rebuilt
+  from the cloth around it, under its own shoulder line (the shoulders hidden by hair carried level from
+  those seen, a hidden neckline a gentle U). A piece cut off at the bottom of its photo is carried on down
+  (its bottom mirrored) to the length it needs.
+- **Put it on**, fitted for you: **➕ Add**, **🧥 Overlay** or **🔁 Replace**. It's sized by the body: as wide
+  across the chest as what it goes on, checked against the two people's faces (when an arm hides a
+  shirt's side, the faces win), centered, at the same height under the chin. With nothing worn there, it's
+  fitted to the outline of the body. Its light is matched from each photo's whites (not faces: two people's
+  skin isn't the same color), so a white shirt stays white; it's given a cloth's roundness from its own
+  shape and only the base's broad light direction (nothing of what's beneath, a print or a neckline,
+  shows through). Hair and face (where the person finder is sure) and hands and arms stay in front; in
+  Replace, what the piece doesn't cover is filled from bare skin or the background only.
+- **More edits** has the rest, by hand: tap, trace or brush what it goes on, 📏 **Guides** (chin, waist and
+  ankle lines to drag), **Size**, **Width**, **Length**, **Turn**, **Fit to body**, **Form**, **Light**,
+  **Edge**, edge shading, and what's kept in front. Drag it to move it and pinch to size and turn it at
+  any time; **↶ / ↷** undo and redo; **◑ Before** (held) shows the photo as it was. Your work is kept on the
+  phone: come back and **Continue**.
+- **💾 Save** works it out again at full size (up to 2560 px, about 6 MP) and shares or downloads it.
 
 The workings are in `web/tools/fashion/fashion-core.js` (tested in `test/fashion.test.js`); the app
 is `web/apps/fashion/fashion.js`.

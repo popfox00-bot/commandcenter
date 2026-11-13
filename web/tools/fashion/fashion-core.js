@@ -102,12 +102,14 @@ function splitWaist(rgba, p, chin, fh, waist, ankle) {
 /** Where a kind of piece is worn on a person (`L`), within w × h. @param {Layout} L @returns {Box} */
 export function kindZone(kind, L, w, h) {
   const P = L.person ?? { x0: 0, y0: 0, x1: w, y1: h }; const { fh, fw, chin, waist, ankle } = L; const cut = L.split ? 0 : 1;
+  // (A photo cut off at the chest or the waist: with no color change found, a top runs to its bottom edge.)
+  const open = !L.split && P.y1 >= h - 3;
   const F = L.face ?? { x0: (P.x0 + P.x1) / 2 - fw / 2, y0: chin - fh, x1: (P.x0 + P.x1) / 2 + fw / 2, y1: chin };
   const z = {
-    top: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: waist + fh * 0.25 * cut },
-    jacket: { x0: P.x0, y0: chin - fh * 0.15, x1: P.x1, y1: waist + fh * (L.split ? 0.05 : 0.7) },
+    top: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : waist + fh * 0.25 * cut },
+    jacket: { x0: P.x0, y0: chin - fh * 0.15, x1: P.x1, y1: open ? h : waist + fh * (L.split ? 0.05 : 0.7) },
     bottom: { x0: P.x0, y0: waist - fh * 0.15 * cut, x1: P.x1, y1: ankle + fh * 0.2 },
-    dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: Math.min(ankle, waist + fh * 3) },
+    dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : Math.min(ankle, waist + fh * 3) },
     hat: { x0: F.x0 - fw * 0.35, y0: F.y0 - fh * 1.0, x1: F.x1 + fw * 0.35, y1: F.y0 + fh * 0.35 },
     shoes: { x0: P.x0, y0: ankle - fh * 0.35, x1: P.x1, y1: P.y1 + fh * 0.1 },
   }[kind] ?? P;
@@ -238,15 +240,18 @@ export function rigidPlace(kind, sbox, from, to, zone, w, h) {
  * piece mirrored left to right (one shoe made the other). The layer's pixels over its box:
  * { x0, y0, pw, ph, rgba } (alpha in rgba), or null.
  * @param {Uint8ClampedArray} src @param {Float32Array} alpha @param {Box} sbox
- * @param {{ x0: number, y0: number, s: number }} place @param {{ box: Box, spans: Float32Array }|null} region
+ * @param {{ x0: number, y0: number, s: number }} place @param {{ box: Box, spans: Float32Array, openBottom?: boolean }|null} region
  */
 export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h, flip = false) {
   const sbw = sbox.x1 - sbox.x0; const sbh = sbox.y1 - sbox.y0;
-  const sspans = rowSpans(alpha, sw, sbox, 1);
+  // (Its rows' ends smoothed over a few rows: each row stretched alike, no streaks across it.)
+  const sspans = rowSpans(alpha, sw, sbox, Math.max(2, Math.round((sbox.y1 - sbox.y0) / 60)));
   const P = { x0: place.x0, y0: place.y0, x1: place.x0 + sbw * place.s, y1: place.y0 + sbh * place.s };
   const f = region ? Math.max(0, Math.min(1, fit)) : 0;
   const R = region?.box;
-  const Y0 = R ? P.y0 + (R.y0 - P.y0) * f : P.y0; const Y1 = R ? P.y1 + (R.y1 - P.y1) * f : P.y1;
+  // (What it's fitted to running off the bottom of the photo: its top fitted, its length its own.)
+  const Y0 = R ? P.y0 + (R.y0 - P.y0) * f : P.y0;
+  const Y1 = R && !region.openBottom ? P.y1 + (R.y1 - P.y1) * f : R ? Y0 + (P.y1 - P.y0) : P.y1;
   if (!(Y1 - Y0 > 1)) return null;
   const rows = [];
   let x0 = Infinity; let x1 = -Infinity;
@@ -258,8 +263,13 @@ export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h, 
     const sl = sspans[sr * 2]; const sx1 = sspans[sr * 2 + 1];
     let tl = P.x0 + ((flip ? sbox.x1 - sx1 : sl - sbox.x0)) * place.s; let tr = P.x0 + ((flip ? sbox.x1 - sl : sx1 - sbox.x0)) * place.s;
     if (R && f > 0) {
-      const ry = y - R.y0;
-      if (ry >= 0 && ry < R.y1 - R.y0 && region.spans[ry * 2] >= 0) { tl += (region.spans[ry * 2] - tl) * f; tr += (region.spans[ry * 2 + 1] - tr) * f; }
+      // (Eased in over the first rows of what it's fitted to, and out past its last: no line where it starts.)
+      const ry = y - R.y0; const rh = R.y1 - R.y0; const ease = Math.max(3, rh * 0.08);
+      const ryc = Math.max(0, Math.min(rh - 1, ry));
+      if (region.spans[ryc * 2] >= 0) {
+        const k = f * Math.max(0, Math.min(1, (ry + ease) / ease, (rh + ease - ry) / ease));
+        tl += (region.spans[ryc * 2] - tl) * k; tr += (region.spans[ryc * 2 + 1] - tr) * k;
+      }
     }
     if (!(tr - tl > 0.5)) continue;
     rows.push({ y, sy, sl, sx1, tl, tr });
@@ -293,33 +303,47 @@ export function renderPiece(src, alpha, sw, sh, sbox, place, region, fit, w, h, 
 }
 
 /**
- * The light of the piece's photo turned into the base's: per channel, the base's average over the
- * gain of the piece's, taken from both people's faces (the same skin, the light on it) when both have
- * one, else from the whole of each photo; 0.6 to 1.6 at most. @returns {number[]} [r, g, b] gains
+ * The light of the piece's photo turned into the base's, from each photo's whites (the average of its
+ * brightest 4%, past what's blown out: a wall, a highlight; what the light itself looks like there, whoever
+ * is in it; two people's skin isn't the same color, so faces won't do): brightness 0.85 to 1.2, and a slight
+ * color cast (each channel within 4% of that). So a white shirt stays white, lit as the base is.
+ * (`pRef`, `bRef`: unused, kept for callers.) @returns {number[]} [r, g, b] gains
  */
 export function lightGains(piece, pRef, base, bRef) {
-  const mean = (px, ref) => {
-    const m = [0, 0, 0]; let n = 0;
-    for (let i = 0; i < px.length / 4; i += ref ? 1 : 3) { if (ref && ref[i] < 128) continue; m[0] += px[i * 4]; m[1] += px[i * 4 + 1]; m[2] += px[i * 4 + 2]; n++; }
-    return n > 50 ? m.map((v) => v / n) : null;
+  const whites = (px) => {
+    const n = px.length / 4; const lum = new Float32Array(Math.ceil(n / 3)); let k = 0;
+    for (let i = 0; i < n; i += 3) lum[k++] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+    const sorted = Float32Array.from(lum.subarray(0, k)).sort();
+    const lo = sorted[Math.floor(k * 0.96)]; const hi = Math.min(250, sorted[Math.floor(k * 0.995)]);
+    const m = [0, 0, 0]; let c = 0;
+    for (let i = 0, j = 0; i < n; i += 3, j++) { const L = lum[j]; if (L < lo || L > Math.max(hi, lo + 1)) continue; m[0] += px[i * 4]; m[1] += px[i * 4 + 1]; m[2] += px[i * 4 + 2]; c++; }
+    return c ? m.map((v) => v / c) : [200, 200, 200];
   };
-  let a = pRef && bRef ? mean(piece, pRef) : null; let b = a ? mean(base, bRef) : null;
-  if (!a || !b) { a = mean(piece, null); b = mean(base, null); }
-  return [0, 1, 2].map((c) => Math.max(0.6, Math.min(1.6, (b[c] + 4) / (a[c] + 4))));
+  const a = whites(piece); const b = whites(base);
+  const lum = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2] + 4;
+  const g = Math.max(0.85, Math.min(1.2, lum(b) / lum(a)));
+  return [0, 1, 2].map((c) => g * Math.max(0.96, Math.min(1.04, ((b[c] + 4) / lum(b)) / ((a[c] + 4) / lum(a)))));
 }
 
 /**
- * The photo's form over a box: its light at each pixel over the light around it (folds, creases and the
- * shadows of the body; the print or texture of what's there smoothed away first), 0.55 to 1.4. Multiplied
- * into a piece put there, it takes on the shape of the body. @returns {Float32Array} box-sized
+ * The photo's form over a box: the broad light and shade of the body there (where it turns from the
+ * light, the shadow under an arm, a deep fold) over its average, 0.72 to 1.22; the print, texture and
+ * small edges of what's worn there smoothed away (`fine` px), and, with `ok` (a mask over the photo),
+ * only the body counted (its edge against the background doesn't darken the piece). Multiplied into a
+ * piece put there, it takes on the shape of the body without anything of what's beneath showing through.
+ * @returns {Float32Array} box-sized
  */
-export function formMap(rgba, w, box, fine = 2, coarse = 12) {
+export function formMap(rgba, w, box, fine = 4, coarse = 24, ok = null) {
   const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
-  const L = new Float32Array(bw * bh); const ok = new Uint8Array(bw * bh).fill(1);
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = ((box.y0 + y) * w + box.x0 + x) * 4; L[y * bw + x] = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2] + 6; }
-  const a = boxBlur(L, ok, bw, bh, fine); const b = boxBlur(L, ok, bw, bh, coarse);
+  const L = new Float32Array(bw * bh); const okb = new Uint8Array(bw * bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const j = (box.y0 + y) * w + box.x0 + x; const i = j * 4;
+    L[y * bw + x] = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2] + 10;
+    okb[y * bw + x] = !ok || ok[j] ? 1 : 0;
+  }
+  const a = boxBlur(L, okb, bw, bh, fine); const b = boxBlur(L, okb, bw, bh, coarse);
   const out = new Float32Array(bw * bh);
-  for (let k = 0; k < bw * bh; k++) out[k] = Math.max(0.55, Math.min(1.4, a[k] / b[k]));
+  for (let k = 0; k < bw * bh; k++) out[k] = okb[k] ? Math.max(0.72, Math.min(1.22, a[k] / b[k])) : 1;
   return out;
 }
 
@@ -329,7 +353,7 @@ export function formMap(rgba, w, box, fine = 2, coarse = 12) {
  * kept behind what's in front of it (`front`: 0..255 over the photo, e.g. hair and face), its edge
  * softened by `soft` px.
  */
-export function finishLayer(layer, w, { gains = null, light = 0, form = null, fbox = null, formAmt = 0, front = null, soft = 0 } = {}) {
+export function finishLayer(layer, w, { gains = null, light = 0, form = null, fbox = null, formAmt = 0, front = null, soft = 0, depth = 0, round = 0 } = {}) {
   const { x0, y0, pw, ph, rgba } = layer;
   const g = gains ? gains.map((v) => v ** light) : [1, 1, 1];
   const fbw = fbox ? fbox.x1 - fbox.x0 : 0;
@@ -340,11 +364,30 @@ export function finishLayer(layer, w, { gains = null, light = 0, form = null, fb
     // Softened inward only (it doesn't grow past the piece's own edge).
     for (let k = 0; k < pw * ph; k++) rgba[k * 4 + 3] = Math.min(a[k], Math.max(0, 2 * b[k] - a[k] * 0.999));
   }
+  // Depth (`depth` px): a soft shade just inside its edge, as cloth turns away from the light there.
+  let near = null;
+  if (depth >= 1) { const a = new Float32Array(pw * ph); for (let k = 0; k < pw * ph; k++) a[k] = rgba[k * 4 + 3] / 255; near = boxBlur(a, new Uint8Array(pw * ph).fill(1), pw, ph, Math.round(depth)); }
+  // Roundness (`round`, 0..1): cloth wraps around a body or an arm, so each stretch of it across a row is
+  // lit most in its middle and turns darker toward its sides (a cylinder's shading).
+  let roundness = null;
+  if (round > 0) {
+    roundness = new Float32Array(pw * ph).fill(1);
+    for (let y = 0; y < ph; y++) {
+      let x = 0;
+      while (x < pw) {
+        while (x < pw && rgba[(y * pw + x) * 4 + 3] < 128) x++;
+        const a = x; while (x < pw && rgba[(y * pw + x) * 4 + 3] >= 128) x++;
+        const len = x - a; if (len < 6) continue;
+        for (let i = a; i < x; i++) roundness[y * pw + i] = 1 - round * 0.14 * (1 - Math.sqrt(Math.sin((Math.PI * (i - a + 0.5)) / len)));
+      }
+    }
+  }
   for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
     const o = (y * pw + x) * 4; if (!rgba[o + 3]) continue;
     const X = x0 + x; const Y = y0 + y;
-    let s = 1;
-    if (form && fbox && formAmt > 0 && X >= fbox.x0 && X < fbox.x1 && Y >= fbox.y0 && Y < fbox.y1) s = form[(Y - fbox.y0) * fbw + X - fbox.x0] ** formAmt;
+    let s = near ? 1 - 0.1 * Math.max(0, 1 - near[y * pw + x]) : 1;
+    if (roundness) s *= roundness[y * pw + x];
+    if (form && fbox && formAmt > 0 && X >= fbox.x0 && X < fbox.x1 && Y >= fbox.y0 && Y < fbox.y1) s *= form[(Y - fbox.y0) * fbw + X - fbox.x0] ** formAmt;
     for (let c = 0; c < 3; c++) rgba[o + c] = rgba[o + c] * g[c] * s;
     if (front) rgba[o + 3] = Math.round(rgba[o + 3] * (1 - front[Y * w + X] / 255));
   }
@@ -429,9 +472,11 @@ export function splitPair(m, w, h, box) {
  * bare skin (not the face) below the chest and within the body's columns [c0, c1). 0..255 over w × h.
  * @param {People} p @param {Layout} L
  */
-export function armsInFront(p, L, c0, c1) {
+export function armsInFront(p, L, c0, c1, from = 1.1) {
   const { w, h } = p; const out = new Uint8Array(w * h);
-  const y0 = Math.max(0, Math.round(L.chin + L.fh * 0.9));
+  // (From just below the neckline (`from` faces below the chin): higher up, bare skin is the neckline, which
+  // a top covers.)
+  const y0 = Math.max(0, Math.round(L.chin + L.fh * from));
   for (let y = y0; y < h; y++) for (let x = Math.max(0, Math.round(c0)); x < Math.min(w, Math.round(c1)); x++) {
     const i = y * w + x; if (p.face[i] < 128) out[i] = p.body[i];
   }
@@ -484,4 +529,131 @@ export function openMask(m, w, h, box, r) {
   a = pass(pass(a, 'min', true), 'min', false);
   a = pass(pass(a, 'max', true), 'max', false);
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) m[(box.y0 + j) * w + box.x0 + i] = a[j * bw + i];
+}
+
+/** A mask (within `box`) with gaps narrower than 2r + 1 px closed (grown by r, then shrunk back). In place. */
+export function closeMask(m, w, h, box, r) {
+  if (r < 1) return;
+  const b = { x0: Math.max(0, box.x0 - r), y0: Math.max(0, box.y0 - r), x1: Math.min(w, box.x1 + r), y1: Math.min(h, box.y1 + r) };
+  const bw = b.x1 - b.x0; const bh = b.y1 - b.y0;
+  const pass = (src, grow, horiz) => {
+    const out = new Uint8Array(bw * bh);
+    for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
+      let v = grow ? 0 : 1;
+      for (let d = -r; d <= r; d++) {
+        const ii = horiz ? i + d : i; const jj = horiz ? j : j + d;
+        const s0 = ii < 0 || jj < 0 || ii >= bw || jj >= bh ? (grow ? 0 : 1) : src[jj * bw + ii];
+        if (grow ? s0 : !s0) { v = grow ? 1 : 0; break; }
+      }
+      out[j * bw + i] = v;
+    }
+    return out;
+  };
+  let a = new Uint8Array(bw * bh);
+  for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) a[j * bw + i] = m[(b.y0 + j) * w + b.x0 + i] ? 1 : 0;
+  a = pass(pass(a, true, true), true, false);
+  a = pass(pass(a, false, true), false, false);
+  for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) if (a[j * bw + i]) m[(b.y0 + j) * w + b.x0 + i] = 1;
+}
+
+/**
+ * A piece made solid: cloth isn't see-through, so the specks and small gaps a color pick leaves (its
+ * texture, a fold's shadow, its print) are closed, and holes inside it filled (up to half its size; the
+ * space between an arm and the body reaches its edge, so it stays). A new mask.
+ */
+export function solidify(sel, w, h, box) {
+  const m = Uint8Array.from(sel);
+  const size = Math.max(box.x1 - box.x0, box.y1 - box.y0);
+  closeMask(m, w, h, box, Math.max(1, Math.round(size / 80)));
+  const b = boxOf(m, w, h) ?? box;
+  fillHoles(m, w, h, b, 0.5);
+  return m;
+}
+
+/**
+ * The outline of the person's body where a kind of piece is worn (`p`, `L` at the photo's size): body and
+ * clothes (and, for shoes, what's on the feet), not the face or hair, its slivers taken off and its holes
+ * closed. What a piece is fitted to when nothing's worn there to fit it to, and what sets its size.
+ * { mask, box } or null.
+ * @param {People} p @param {Layout} L
+ */
+export function bodyRegion(kind, p, L) {
+  const { w, h } = p; const z = kindZone(kind, L, w, h);
+  const m = new Uint8Array(w * h);
+  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
+    const i = y * w + x;
+    const on = kind === 'hat' ? Math.max(p.hair[i], p.face[i], p.others[i]) >= 128
+      : kind === 'shoes' ? Math.max(p.others[i], p.body[i], p.clothes[i]) >= 128
+        : Math.max(p.body[i], p.clothes[i]) >= 128 && p.face[i] < 128 && p.hair[i] < 128;
+    if (on) m[i] = 1;
+  }
+  openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 40)));
+  const k = mainParts(m, w, h, z, 0.15);
+  if (!k) return null;
+  fillHoles(k.mask, w, h, k.box, 0.3);
+  return { mask: k.mask, box: k.box };
+}
+
+/**
+ * Where the piece goes, by the body: as wide as what it goes on (its body to the body, not counting
+ * sleeves: a top's body as wide as the torso it goes on, Overlay a little wider), standing at its top (a
+ * top at the shoulders, a bottom at the waist), centered on it; a hat as wide as the head, sitting on it.
+ * `pb` / `pt`: the piece's box and its body's (a top's, without sleeves); `tb` / `tt`: the same of what it
+ * goes on. { x0, y0, s }.
+ */
+export function bodyPlace(kind, pb, pt, tb, tt, mode = 'replace') {
+  const wide = mode === 'overlay' ? 1.05 : 1;
+  const W = (b) => b.x1 - b.x0;
+  if (kind === 'hat') {
+    const s = (W(tb) * 1.12) / W(pb);
+    return { x0: (tb.x0 + tb.x1) / 2 - (W(pb) * s) / 2, y0: tb.y0 + (tb.y1 - tb.y0) * 0.38 - (pb.y1 - pb.y0) * s, s };
+  }
+  const s = (W(tt) * wide) / W(pt);
+  const cx = (tt.x0 + tt.x1) / 2;
+  return { x0: cx - ((pt.x0 + pt.x1) / 2 - pb.x0) * s, y0: tt.y0 - (pt.y0 - pb.y0) * s - (wide - 1) * (tt.y1 - tt.y0) * 0.1, s };
+}
+
+/**
+ * A garment's width across a band of rows (its median extent, row by row: leftmost to rightmost pixel) and
+ * the middle of it: across the chest for a top, the hips for a bottom. { w, cx } or null.
+ */
+export function bandWidth(m, w, box, y0, y1) {
+  const ws = []; const cs = [];
+  for (let y = Math.max(box.y0, Math.round(y0)); y < Math.min(box.y1, Math.round(y1)); y++) {
+    let l = -1; let r = -1;
+    for (let x = box.x0; x < box.x1; x++) if (m[y * w + x]) { if (l < 0) l = x; r = x + 1; }
+    if (l >= 0) { ws.push(r - l); cs.push((l + r) / 2); }
+  }
+  if (ws.length < 3) return null;
+  const med = (a) => [...a].sort((p, q) => p - q)[a.length >> 1];
+  return { w: med(ws), cx: med(cs) };
+}
+
+/** The rows a kind's width is read across: the chest (just below the shoulders) for a top, the hips for a bottom. */
+export function bandRows(kind, box, L) {
+  const bh = box.y1 - box.y0;
+  if (kind === 'bottom') return [box.y0 + bh * 0.04, box.y0 + bh * 0.18];
+  if (L?.face) return [Math.max(box.y0, L.chin + L.fh * 0.45), Math.max(box.y0 + 3, L.chin + L.fh * 0.85)];
+  return [box.y0 + bh * 0.1, box.y0 + bh * 0.25];
+}
+
+/**
+ * Where a garment goes on the body, and how big: as wide across the chest (or hips) as what it goes on,
+ * checked against the two people's faces (the same body, at the size each photo shows it): when the
+ * widths and the faces agree, between the two; when they don't (an arm hiding a shirt's side), the faces.
+ * Centered on it; with both faces, at the same height under the chin; otherwise at its top.
+ * `pm` / `tm`: the piece's and the target's masks (pw, tw wide), `pb` / `tb` their boxes, `pL` / `tL` the
+ * two people's layouts. { x0, y0, s } or null.
+ */
+export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'replace') {
+  const [py0, py1] = bandRows(kind, pb, pL); const [ty0, ty1] = bandRows(kind, tb, tL);
+  const pbw = bandWidth(pm, pw, pb, py0, py1); const tbw = bandWidth(tm, tw, tb, ty0, ty1);
+  const byWidth = pbw && tbw ? tbw.w / pbw.w : null;
+  const byFace = pL?.face && tL?.face ? (tL.fw + tL.fh) / (pL.fw + pL.fh) : null;
+  let s = byWidth && byFace ? (Math.abs(Math.log(byWidth / byFace)) < 0.22 ? Math.sqrt(byWidth * byFace) : byFace) : byWidth ?? byFace;
+  if (!s) return null;
+  if (mode === 'overlay') s *= 1.04;
+  const pcx = pbw?.cx ?? (pb.x0 + pb.x1) / 2; const tcx = tbw?.cx ?? (tb.x0 + tb.x1) / 2;
+  const y0 = pL?.face && tL?.face && kind !== 'bottom' ? tL.chin + (pb.y0 - pL.chin) * s : tb.y0 - (mode === 'overlay' ? (tb.y1 - tb.y0) * 0.01 : 0);
+  return { x0: tcx - (pcx - pb.x0) * s, y0, s };
 }

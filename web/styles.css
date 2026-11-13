@@ -1061,3 +1061,11 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .fa-tune { display: grid; grid-template-columns: 6.5em 1fr; align-items: center; gap: 8px; }
 .fa-range { width: 100%; }
 @media (min-width: 900px) { .fa:has(.fa-stage) { grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); align-items: start; } }
+.fa-more { border: 1px solid var(--line, var(--border)); border-radius: var(--radius); padding: 4px 12px; background: var(--surface); }
+.fa-more > summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-weight: 600; }
+.fa-more[open] { padding-bottom: 12px; display: grid; gap: 10px; }
+.fa-found { display: grid; gap: 6px; }
+.fa-found-row { gap: 10px; }
+.fa-found-item { flex: none; display: grid; justify-items: center; gap: 4px; padding: 6px; border-radius: 12px; border: 1px solid var(--line, var(--border)); background: var(--surface); color: var(--text); min-width: 84px; }
+.fa-found-item img { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; }
+.fa-found-item.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }

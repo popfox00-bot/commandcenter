@@ -26,9 +26,10 @@ export function buildLayer(S) {
   if (!place || !piece?.alpha) return null;
   const fit = tune.fit / 100;
   const fitting = mode !== 'add' && target && fit > 0;
-  const regionOf = (t) => t && (mode === 'overlay' ? { box: t.box, spans: widen(t.spans, t.box, 0.04) } : t);
+  const open = !!target && target.box.y1 >= h - 2;
+  const regionOf = (t) => t && (mode === 'overlay' ? { box: t.box, spans: widen(t.spans, t.box, 0.04), openBottom: open } : { ...t, openBottom: open });
   const at = (b) => ({ x0: place.x0 + (b.x0 - piece.box.x0) * place.s, y0: place.y0 + (b.y0 - piece.box.y0) * place.s, s: place.s });
-  const R = (alpha, box, pl, region, flip = false) => renderPiece(piece.rgba, alpha, piece.w, piece.h, box, pl, region, region ? fit : 0, w, h, flip);
+  const R = (alpha, box, pl, region, flip = false) => renderPiece(piece.draw ?? piece.rgba, alpha, piece.w, piece.h, box, pl, region, region ? fit : 0, w, h, flip);
   const pp = piece.parts; const tp = target?.parts;
   let layers;
   if (fitting && pp?.sleeves && (pp.sleeves.left || pp.sleeves.right)) {
@@ -86,7 +87,12 @@ export function finish(layer, S, cache) {
   const key = `${fbox.x0},${fbox.y0},${fbox.x1},${fbox.y1}`;
   if (cache.formKey !== key || cache.formBase !== base) {
     const fh = base.layout?.fh ?? h / 7;
-    cache.form = formMap(base.rgba, w, fbox, Math.max(1, Math.round(fh / 40)), Math.max(4, Math.round(fh / 3)));
+    // (The body's broad light and shade only: nothing of the print or edges beneath shows through.)
+    // The base's light across the body only (brighter on the side the light comes from), read very broadly:
+    // nothing of what's worn there (its print, its edges) shows through. (The piece's own roundness is
+    // worked out from its shape: finishLayer's `round`.)
+    cache.form = formMap(base.rgba, w, fbox, Math.max(6, Math.round(fh * 0.7)), Math.max(20, Math.round(fh * 2.2)), base.sil ?? null);
+    for (let k = 0; k < cache.form.length; k++) cache.form[k] = Math.max(0.94, Math.min(1.06, cache.form[k]));
     cache.formKey = key; cache.formBase = base;
   }
   let front = null;
@@ -96,19 +102,25 @@ export function finish(layer, S, cache) {
     const fkey = `${tune.front}|${arms}|${kind}|${S.target?.box?.x0},${S.target?.box?.x1}`;
     if (cache.frontKey !== fkey || cache.frontBase !== base) {
       const m = new Uint8Array(w * h);
-      if (tune.front) for (let i = 0; i < m.length; i++) m[i] = kind === 'hat' ? ppl.face[i] : Math.max(ppl.face[i], ppl.hair[i]);
+      // (Only where the person finder is sure (a soft step from 55% to 80%): a faint guess of hair over the
+      // chest would otherwise leave the piece half see-through there.)
+      const sure = (v) => (v <= 140 ? 0 : v >= 205 ? 255 : Math.round(((v - 140) / 65) * 255));
+      if (tune.front) for (let i = 0; i < m.length; i++) m[i] = sure(kind === 'hat' ? ppl.face[i] : Math.max(ppl.face[i], ppl.hair[i]));
       if (arms) {
-        const tb = S.target?.parts?.sleeves?.torso?.box ?? S.target?.box ?? base.layout.person;
-        const inset = (tb.x1 - tb.x0) * 0.04;
-        const a = armsInFront(ppl, base.layout, tb.x0 + inset, tb.x1 - inset);
-        for (let i = 0; i < m.length; i++) if (a[i] > m[i]) m[i] = a[i];
+        // (A top fitted as one, a tee: the arms hanging at its sides stay in front of it too, below where its
+        // sleeves end. A jacket's or a dress's sleeves cover the arms: only hands across the body.)
+        const whole = kind === 'top' || kind === 'bottom';
+        const tb = whole ? { x0: 0, x1: w } : S.target?.parts?.sleeves?.torso?.box ?? S.target?.box ?? base.layout.person;
+        const inset = whole ? 0 : (tb.x1 - tb.x0) * 0.04;
+        const a = armsInFront(ppl, base.layout, tb.x0 + inset, tb.x1 - inset, 1.1);
+        for (let i = 0; i < m.length; i++) { const v = a[i] <= 140 ? 0 : a[i] >= 205 ? 255 : Math.round(((a[i] - 140) / 65) * 255); if (v > m[i]) m[i] = v; }
       }
       cache.front = tune.front || arms ? m : null; cache.frontKey = fkey; cache.frontBase = base;
     }
     front = cache.front;
   }
   const gains = lightGains(piece.rgba, piece.people?.face ?? null, base.rgba, ppl?.face ?? null);
-  return finishLayer(layer, w, { gains, light: tune.light / 100, form: cache.form, fbox, formAmt: tune.form / 100, front, soft: tune.soft });
+  return finishLayer(layer, w, { gains, light: tune.light / 100, form: cache.form, fbox, formAmt: tune.form / 100, front, soft: tune.soft, depth: tune.depth ? Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 14)) : 0, round: tune.form / 100 });
 }
 
 /**
@@ -130,10 +142,13 @@ export function uncovered(target, layer, w, h, front = null) {
 
 /**
  * Those pixels filled from what's around them (the background, the skin beside them), never from what was
- * worn there (`avoid`: the target, grown a little). A patch, or null.
+ * worn there (the target, grown a little), nor (with `people`) the face, hair or other clothes. A patch, or null.
  */
-export function fillUncovered(rgba, w, h, unc, target) {
+export function fillUncovered(rgba, w, h, unc, target, people = null) {
   const avoid = new Uint8Array(w * h); const b = target.box;
+  // (Only from bare skin or the background: not the face (a neckline filled from it shows an eye), the hair,
+  // or other clothes.)
+  if (people) for (let i = 0; i < w * h; i++) if (Math.max(people.face[i], people.hair[i], people.clothes[i], people.others[i]) >= 110) avoid[i] = 1;
   for (let y = Math.max(0, b.y0 - 3); y < Math.min(h, b.y1 + 3); y++) for (let x = Math.max(0, b.x0 - 3); x < Math.min(w, b.x1 + 3); x++) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = x + dx; const Y = y + dy; if (X >= 0 && Y >= 0 && X < w && Y < h && target.mask[Y * w + X]) { avoid[y * w + x] = 1; dy = 4; break; } }
   }

@@ -2,7 +2,7 @@
 // striped tee on white (the piece). The person finder (vendor/mediapipe) is turned off, so everything is
 // done by tapping: the tee's two colors picked (one piece, stripe against stripe), the base's shirt tapped
 // as what it goes on; 🔁 Replace covers the shirt with the tee fitted to its shape, ➕ Add puts it on as
-// it is (the shirt's sleeves showing past it).
+// it is, sized by the shirt's chest (smaller, more of the shirt shows).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -70,6 +70,8 @@ test('Fashion: pick a striped tee by tapping its colors, tap the shirt it replac
   assert.ok(!pink(await pixel(30, 30)) && !pink(await pixel(470, 400)), 'not the white');
   await page.getByRole('button', { name: 'Next: put it on' }).click();
   // 🔁 Replace (the default): tap the shirt it goes on.
+  // (By hand: under More edits.)
+  await page.locator('summary', { hasText: 'More edits' }).click();
   await page.getByRole('button', { name: '👆 Tap what it goes on' }).click();
   await tap(300 / 600, 380 / 800);
   await page.getByRole('button', { name: '✋ Move' }).click();
@@ -86,7 +88,7 @@ test('Fashion: pick a striped tee by tapping its colors, tap the shirt it replac
   await page.getByRole('tab', { name: '➕ Add' }).click();
   let shown = 0;
   for (const [x, y] of [[140, 300], [460, 300], [150, 315], [450, 315], [205, 480], [395, 480]]) if (blue(await pixel(x, y))) shown++;
-  assert.ok(shown >= 1, 'some of the shirt shows past it');
+  // (Sized to the shirt's chest, so little of it may show; smaller, more does.)
   // Size slider: smaller → more of the shirt shows.
   await page.getByRole('slider', { name: 'Size' }).fill('60');
   let more = 0;
@@ -167,6 +169,7 @@ test('Fashion with the person found: ✨ Find it, 📏 guides, a long-sleeved ja
   // 🔁 Replace: the long sleeves keep their length over the bare arms; the hand across the shirt stays in front.
   for (const [x, y] of [[300, 300], [170, 450], [430, 450], [170, 270]]) assert.ok(green(await pixel(x, y)), `jacket on at ${x},${y}: ${await pixel(x, y)}`);
   assert.ok(skin(await pixel(300, 417)), `the hand in front: ${await pixel(300, 417)}`);
+  await page.locator('summary', { hasText: 'More edits' }).click();
   await page.getByRole('checkbox', { name: /hands and arms/ }).uncheck();
   await page.waitForTimeout(300);
   assert.ok(green(await pixel(300, 417)), 'covered without it');

@@ -99,7 +99,15 @@ test('fashion: light, form and what\'s kept in front', () => {
   // Light: the base's faces are darker (half as bright) → the piece is darkened.
   const n = 100; const a = new Uint8ClampedArray(n * 4).fill(200); const b = new Uint8ClampedArray(n * 4).fill(100);
   const ref = new Uint8Array(n).fill(255);
-  const g = lightGains(a, ref, b, ref); assert.ok(g.every((v) => Math.abs(v - 104 / 204) < 0.1 || v === 0.6));
+  // (From each photo's whites, brightness at most 0.85 to 1.2: a white piece is lit as the base is, not turned gray.)
+  const g = lightGains(a, ref, b, ref); assert.ok(g.every((v) => Math.abs(v - 0.85) < 0.01), String(g));
+  // A warm light: only a slight cast (each channel within 4% of the brightness).
+  const warm = new Uint8ClampedArray(n * 4); for (let i = 0; i < n; i++) warm.set([220, 190, 160, 255], i * 4);
+  const g2 = lightGains(a, ref, warm, ref); assert.ok(g2[0] > g2[2] && g2[0] / g2[2] < 1.09, String(g2));
+  // Whatever skin the people have: a dark-skinned person in one photo doesn't darken the piece (it's the whites).
+  const w1 = new Uint8ClampedArray(n * 4); const w2 = new Uint8ClampedArray(n * 4);
+  for (let i = 0; i < n; i++) { w1.set(i < 80 ? [120, 80, 60, 255] : [240, 240, 240, 255], i * 4); w2.set(i < 80 ? [230, 190, 170, 255] : [240, 240, 240, 255], i * 4); }
+  assert.ok(lightGains(w2, null, w1, null).every((v) => Math.abs(v - 1) < 0.03));
   // Form: a dark fold across a flat area shows up below 1, the flat area at 1.
   const w = 40; const h = 40; const px = new Uint8ClampedArray(w * h * 4).fill(180);
   for (let x = 0; x < w; x++) for (let y = 19; y < 21; y++) px.set([90, 90, 90, 255], (y * w + x) * 4);

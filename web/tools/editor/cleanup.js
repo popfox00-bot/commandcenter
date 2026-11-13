@@ -450,7 +450,9 @@ export function colorRegion(rgba, w, h, seeds, shades, tol = 18) {
   const labs = shades.map(([r, g, b]) => toLab(r, g, b));
   const near = (i) => { const [L, A, B] = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); let d = Infinity; for (const c of labs) { const e = (L - c[0]) ** 2 * 0.6 + (A - c[1]) ** 2 + (B - c[2]) ** 2; if (e < d) d = e; } return Math.sqrt(d); };
   // (Its hue within `tol`, and its lightness within 2.5 × `tol`: a shadow on it, not something dark beside it.)
-  const hueNear = (i) => { const [L, A, B] = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); let d = Infinity; for (const c of labs) { if (Math.abs(L - c[0]) > tol * 2.5) continue; const e = (A - c[1]) ** 2 + (B - c[2]) ** 2; if (e < d) d = e; } return Math.sqrt(d); };
+  // (Only for picked shades with a color to them: white, gray and black have no hue to follow, and a light
+  // gray wall would pass for a white shirt in shadow.)
+  const hueNear = (i) => { const [L, A, B] = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); let d = Infinity; for (const c of labs) { if (Math.hypot(c[1], c[2]) < 10 || Math.abs(L - c[0]) > tol * 2.5) continue; const e = (A - c[1]) ** 2 + (B - c[2]) ** 2; if (e < d) d = e; } return Math.sqrt(d); };
   const sel = new Uint8Array(w * h); const seen = new Uint8Array(w * h); const q = [];
   const step = (i, j) => { const a = toLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); const b = toLab(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]); return Math.sqrt((a[0] - b[0]) ** 2 * 0.6 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2); };
   for (const [sx, sy] of seeds) {
@@ -469,7 +471,10 @@ export function colorRegion(rgba, w, h, seeds, shades, tol = 18) {
       if (t < 0 || sel[t]) continue;
       // Near a picked shade; or of its hue however light or dark, smoothly on from the pixel it's reached
       // from (the same thing in shadow, or catching the light: a step that small isn't an edge).
-      if (near(t) > tol * 1.5 && (hueNear(t) > tol || step(i, t) > 6)) continue;
+      // (Within `tol` of a picked shade: in. Within half as much again: in only where it shades smoothly on
+      // from the pixel it's reached from, not across an edge.)
+      const nt = near(t);
+      if (nt > tol && !(nt <= tol * 1.5 && step(i, t) <= 8) && (hueNear(t) > tol || step(i, t) > 6)) continue;
       sel[t] = 1; q.push(t);
     }
   }

@@ -3,7 +3,7 @@
 // the piece placed by the body and bent onto a shape, light, form and compositing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout } from '../web/tools/fashion/fashion-core.js';
+import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap } from '../web/tools/fashion/fashion-core.js';
 
 /**
  * A person w×h: a face (40 wide, 50 tall at the top), a red shirt from the chin to y = 200, blue pants to
@@ -174,4 +174,46 @@ test('fashion: hands in front of the body; layers merged; a layout scaled', () =
   const m = mergeLayers([l1, l2]);
   assert.equal(m.pw, 3); assert.deepEqual([...m.rgba.slice(4, 8)], [0, 0, 255, 255]); assert.deepEqual([...m.rgba.slice(0, 4)], [255, 0, 0, 255]);
   const s = scaleLayout(L, 2); assert.equal(s.chin, L.chin * 2); assert.equal(s.face.x1, L.face.x1 * 2);
+});
+
+test('fashion: the design laid into the base\'s outline: its shape is the outline\'s, its look the piece\'s; gaps bridged', () => {
+  // The piece: 40×60, red and yellow stripes across, with a gap (its neckline) at the top middle.
+  const pw = 40; const ph = 60; const tex = new Uint8ClampedArray(pw * ph * 4); const pm = new Uint8Array(pw * ph);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    tex.set(Math.floor(y / 10) % 2 ? [240, 220, 40, 255] : [200, 30, 30, 255], (y * pw + x) * 4);
+    if (!(y < 8 && x >= 15 && x < 25)) pm[y * pw + x] = 1;
+  }
+  // The base's outline: a trapezoid, 30 wide at the top to 60 at the bottom, 120 tall (another body, another size).
+  const w = 100; const h = 140; const m = new Uint8Array(w * h);
+  for (let y = 10; y < 130; y++) { const half = 15 + ((y - 10) / 120) * 15; for (let x = Math.round(50 - half); x < Math.round(50 + half); x++) m[y * w + x] = 1; }
+  const box = boxOf(m, w, h); const target = { mask: m, box, spans: rowSpans(m, w, box, 2) };
+  const L = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h);
+  assert.equal(L.x0, box.x0); assert.equal(L.pw, box.x1 - box.x0); assert.equal(L.ph, box.y1 - box.y0);
+  const at = (x, y) => [...L.rgba.slice(((y - L.y0) * L.pw + x - L.x0) * 4, ((y - L.y0) * L.pw + x - L.x0) * 4 + 4)];
+  // Everywhere in the outline, nothing outside it.
+  let inside = 0; let outside = 0;
+  for (let y = L.y0; y < L.y0 + L.ph; y++) for (let x = L.x0; x < L.x0 + L.pw; x++) { const a = at(x, y)[3]; if (m[y * w + x]) inside += a ? 1 : 0; else outside += a ? 1 : 0; }
+  assert.ok(inside > 0.97 * m.reduce((a, v) => a + v, 0)); assert.equal(outside, 0);
+  // The stripes, stretched to the outline's height (6 stripes over its 120 rows from row 10: 20 each): row 20
+  // is in the first (red), row 40 in the second (yellow).
+  assert.deepEqual(at(50, 20).slice(0, 3).map((v) => (v > 150 ? 1 : 0)), [1, 0, 0]);
+  assert.deepEqual(at(50, 40).slice(0, 3).map((v) => (v > 150 ? 1 : 0)), [1, 1, 0]);
+  // The neckline gap: bridged with the cloth on either side (red), not left empty.
+  const g = at(50, 12); assert.equal(g[3], 255); assert.ok(g[0] > 150 && g[1] < 80, String(g));
+});
+
+test('fashion: the upper-body zone takes what\'s worn and the neckline skin between, not the arms; folds read from the garment', () => {
+  const { p, rgba } = person();
+  // A V of bare skin in the shirt below the chin (a neckline), and arms beside the shirt.
+  for (let y = 70; y < 100; y++) for (let x = 100 - (100 - y) / 2; x < 100 + (100 - y) / 2; x++) { const i = y * 200 + Math.round(x); p.clothes[i] = 0; p.body[i] = 255; }
+  for (let y = 100; y < 190; y++) for (let x = 55; x < 64; x++) p.body[y * 200 + x] = 255;
+  const L = bodyLayout(p, rgba);
+  const r = kindRegion('upper', p, L);
+  assert.equal(r.mask[90 * 200 + 100], 1, 'the neckline skin is in it');
+  assert.equal(r.mask[150 * 200 + 58], 0, 'the arm beside it is not');
+  // Folds: a dark crease across the garment reads below 1, its flat cloth at 1.
+  const w = 60; const hh = 40; const px = new Uint8ClampedArray(w * hh * 4).fill(150); const gm = new Uint8Array(w * hh).fill(1);
+  for (let x = 0; x < w; x++) for (let y = 19; y < 22; y++) px.set([90, 90, 90, 255], (y * w + x) * 4);
+  const f = foldMap(px, w, gm, { x0: 0, y0: 0, x1: w, y1: hh }, 1, 8);
+  assert.ok(f[20 * w + 30] < 0.95 && Math.abs(f[5 * w + 30] - 1) < 0.03);
 });

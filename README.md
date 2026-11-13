@@ -757,6 +757,19 @@ the clothes in it: worn by someone, or on its own).
   from the cloth around it, under its own shoulder line (the shoulders hidden by hair carried level from
   those seen, a hidden neckline a gentle U). A piece cut off at the bottom of its photo is carried on down
   (its bottom mirrored) to the length it needs.
+- **Body zones**: **🧍 Upper body** (neck to waist), **🦵 Lower body** (waist to ankles) and **Whole outfit** take
+  everything worn there at once (a shirt with the vest over it and the necklace on it, the skin its
+  neckline shows); they're in the found list (where that part of the person is in the photo) and among
+  what it is.
+- **🔁 Replace lays the piece's design into what the base is wearing**: the new garment takes exactly the
+  outline the base's own garment (or zone) has on their body, in their pose, so it can't come out too big
+  or in the wrong place, and the piece supplies its look (its color, pattern and texture, row by row from
+  its left edge to its right, top to bottom; across its gaps, the cloth on either side carried over).
+  The base's own folds and shadows (read from their clothes only) are laid over it; it goes on under
+  their hair, which is laid back over it; their neckline is decided as a whole: their bare skin shows
+  unless the piece's own cloth covers most of it (only cloth seen in the piece's photo covers skin, never
+  what was rebuilt or bridged). A jacket keeps its own shape (its long sleeves over bare arms), and a hat
+  and shoes are fitted as they are.
 - **Put it on**, fitted for you: **➕ Add**, **🧥 Overlay** or **🔁 Replace**. It's sized by the body: as wide
   across the chest as what it goes on, checked against the two people's faces (when an arm hides a
   shirt's side, the faces win), centered, at the same height under the chin. With nothing worn there, it's

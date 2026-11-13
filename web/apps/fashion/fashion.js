@@ -20,7 +20,7 @@ import { noteError } from '../../lib/diag.js';
 import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
-import { KINDS, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout } from '../../tools/fashion/fashion-core.js';
+import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout } from '../../tools/fashion/fashion-core.js';
 import { buildLayer, finish, uncovered, fillUncovered, lay } from './compose.js';
 
 const WORK_MAX = 1024;
@@ -28,7 +28,8 @@ const SAVE_MAX = 2560;      // the saved picture's longest side (and no more tha
 const SESSION_KEY = 'fashion.session';
 const MODES = [['add', '➕ Add'], ['overlay', '🧥 Overlay'], ['replace', '🔁 Replace']];
 // What each way starts with: how far it's fitted to what's worn there, and how much of the photo's form it takes.
-const MODE_TUNE = { add: { fit: 0, form: 60 }, overlay: { fit: 50, form: 60 }, replace: { fit: 65, form: 60 } };
+// (Replace takes the shape of what was worn there, the way it sits on this body: fitted all the way.)
+const MODE_TUNE = { add: { fit: 0, form: 60 }, overlay: { fit: 75, form: 60 }, replace: { fit: 100, form: 60 } };
 const newTune = (mode) => ({ scale: 100, wide: 100, long: 100, rot: 0, dx: 0, dy: 0, soft: 1, light: 80, front: true, arms: true, depth: true, ...MODE_TUNE[mode] });
 // (Fitted body and sleeves apart: a jacket's or a dress's. A tee or a shirt fits as one: its arms hanging
 // over its sides in a photo would make its body look narrower than it is.)
@@ -174,7 +175,7 @@ export function mount(host) {
   function setSel(mask, keepPicks = false) {
     if (!keepPicks) piece.picks = { add: [], del: [], loop: null, base: mask, edits: [] };
     const b = boxOf(mask, piece.w, piece.h);
-    piece.sel = b ? mask : null; piece.box = b; piece.alpha = null; piece.draw = null; piece.view = null; piece.parts = null; place = null;
+    piece.sel = b ? mask : null; piece.box = b; piece.alpha = null; piece.draw = null; piece.rebuilt = null; piece.skinMap = null; piece.view = null; piece.parts = null; place = null;
   }
   const newPicks = () => ({ add: [], del: [], loop: null, base: piece.sel, edits: [] });
   /**
@@ -356,7 +357,7 @@ export function mount(host) {
       }
       piece.draw = draw;
       const solid = Uint8Array.from(m); for (let i = 0; i < w * h; i++) if (occl[i]) solid[i] = 1;
-      piece.solid = solid;
+      piece.solid = solid; piece.rebuilt = occl;
     } catch (e) { noteError('Fashion: rebuilding the piece', e); }
   }
 
@@ -413,6 +414,20 @@ export function mount(host) {
       const k = KINDS.find((q) => q[0] === id);
       out.push({ id, icon: k[1], name: k[2], mask: r.mask, thumb: c.toDataURL('image/jpeg', 0.8) });
     }
+    // Body zones: everything worn there at once (the shirt, the vest over it, the necklace on it).
+    const L = piece.layout; const cut = (L.person?.y1 ?? h) >= h - 3;
+    for (const [id, icon, name] of ZONES) {
+      if ((id === 'lower' && !L.split) || (id === 'outfit' && (cut || !L.split))) continue;
+      const r = kindRegion(id, piece.people, L); if (!r) continue;
+      const b = r.box; const side = Math.max(b.x1 - b.x0, b.y1 - b.y0); const cx = (b.x0 + b.x1) / 2; const cy = (b.y0 + b.y1) / 2;
+      const c = document.createElement('canvas'); c.width = 72; c.height = 72; const x = c.getContext('2d');
+      const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+      const d = new ImageData(Uint8ClampedArray.from(piece.rgba), w, h);
+      for (let i = 0; i < w * h; i++) if (!r.mask[i]) { d.data[i * 4] = 238; d.data[i * 4 + 1] = 238; d.data[i * 4 + 2] = 240; }
+      tmp.getContext('2d').putImageData(d, 0, 0);
+      x.fillStyle = '#eeeef0'; x.fillRect(0, 0, 72, 72); x.drawImage(tmp, cx - side / 2, cy - side / 2, side, side, 0, 0, 72, 72);
+      out.push({ id, icon, name, mask: r.mask, thumb: c.toDataURL('image/jpeg', 0.8), zone: true });
+    }
     piece.found = out;
     return out;
   }
@@ -425,8 +440,8 @@ export function mount(host) {
       el('div', { class: 'chips fa-found-row' }, ...found.map((f) => el('button', {
         type: 'button', class: `fa-found-item${kind === f.id && piece.sel && piece.picks?.base === f.mask ? ' active' : ''}`, 'aria-label': `Use the ${f.name.toLowerCase()}`,
         onclick: () => { kind = f.id; target = null; fillCache = null; place = null; setSel(f.mask); note = `The ${f.name.toLowerCase()} (pink). Tap more of it, take colors away, or trace to keep only what's inside.`; commit(); render(); },
-      }, el('img', { src: f.thumb, alt: '' }), el('span', { class: 'small', text: `${f.icon} ${f.name}` }))))) : null;
-    const kinds = el('div', { class: 'chips' }, ...KINDS.map(([id, icon, name]) => el('button', {
+      }, el('img', { src: f.thumb, alt: '' }), el('span', { class: 'small', text: `${f.icon} ${f.name}` }), f.zone ? el('span', { class: 'small muted', text: 'all of it' }) : null)))) : null;
+    const kinds = el('div', { class: 'chips' }, ...[...KINDS, ...ZONES].map(([id, icon, name]) => el('button', {
       type: 'button', class: `chip${kind === id ? ' active' : ''}`, 'aria-pressed': String(kind === id), text: `${icon} ${name}`,
       onclick: () => { kind = id; target = null; fillCache = null; place = null; if (piece.parts) piece.parts = null; if (piece.people) autoPick(); commit(); render(); },
     })));
@@ -505,7 +520,7 @@ export function mount(host) {
     const pt = piece.parts?.sleeves?.torso?.box ?? piece.box;
     if (kind === 'hat') { const hb = headBox(); if (hb) { place = bodyPlace('hat', piece.box, piece.box, hb, hb, mode); return; } }
     if (target && kind !== 'shoes') {
-      const g = garmentPlace(kind, piece.solid ?? piece.sel, piece.w, piece.box, piece.layout, target.mask, base.w, target.box, base.layout, mode);
+      const g = garmentPlace(kind, piece.solid ?? piece.sel, piece.w, piece.box, piece.layout, target.mask, base.w, target.box, base.layout, mode, { ph: piece.h, th: base.h });
       if (g) { place = g; return; }
       const tt = target.parts?.sleeves?.torso?.box ?? target.box;
       place = bodyPlace(kind, piece.box, pt, target.box, tt, mode); return;
@@ -588,7 +603,7 @@ export function mount(host) {
     if (mode === 'replace' && target && !target.body) {
       const key = layer ? `${layer.x0},${layer.y0},${layer.pw},${layer.ph},${JSON.stringify(tune)}` : `none,${tune.front},${tune.arms}`;
       if (fillCache?.target !== target || (fillCache.key !== key && !interacting)) {
-        const unc = uncovered(target, layer, w, h, cache.front);
+        const unc = uncovered(target, layer, w, h, cache.front, base.people);
         let patch = null;
         try { patch = unc ? fillUncovered(base.rgba, w, h, unc, target, base.people) : null; } catch (e) { noteError('Fashion: taking it off', e); }
         fillCache = { target, key, patch };
@@ -613,7 +628,7 @@ export function mount(host) {
     const check = (key, text) => el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: tune[key], onchange: (e) => { tune[key] = e.target.checked; commit(); render(); } }), el('span', { text }));
     // What was worked out by itself, in a line.
     const auto = !hasPerson ? (base.finding ? 'Finding the person…' : 'No person found in the base: drag the piece into place (More edits has the rest).')
-      : target?.body ? 'Fitted to the body (nothing found worn there).' : target ? `Fitted to the ${KINDS.find((k) => k[0] === kind)?.[2].toLowerCase() ?? 'piece'} worn there${mode === 'replace' ? ', which is taken off' : ''}.` : 'Placed by the body.';
+      : target?.body ? 'Fitted to the body (nothing found worn there).' : target ? `${mode === 'replace' ? 'Laid into' : 'Fitted to'} the ${[...KINDS, ...ZONES].find((k) => k[0] === kind)?.[2].toLowerCase() ?? 'piece'} ${isZone(kind) ? 'of the base' : 'worn there'}${mode === 'replace' ? ', in its shape and folds' : ''}.` : 'Placed by the body.';
     // Everything else, by hand: behind More edits.
     const more = el('details', { class: 'fa-more', open: moreOpen ? true : null }, el('summary', { text: 'More edits' }),
       el('div', { class: 'chips' },
@@ -632,7 +647,7 @@ export function mount(host) {
         row('Form', 'form', 0, 100), row('Light', 'light', 0, 100), row('Edge', 'soft', 0, 12)),
       check('depth', 'Shade its edges (depth)'),
       kind !== 'shoes' && base.people ? check('front', kind === 'hat' ? 'Keep the face in front' : 'Keep hair and face in front') : null,
-      ['top', 'jacket', 'dress', 'bottom'].includes(kind) && base.people ? check('arms', 'Keep hands and arms in front of the body') : null);
+      ['top', 'jacket', 'dress', 'bottom', 'upper', 'lower', 'outfit'].includes(kind) && base.people ? check('arms', 'Keep hands and arms in front of the body') : null);
     more.addEventListener('toggle', () => { moreOpen = more.open; if (!more.open && tool !== 'move') { tool = 'move'; draw(); } });
     return [
       undoBar(),

@@ -14,6 +14,13 @@ export const KINDS = [
   ['top', '👕', 'Top'], ['jacket', '🧥', 'Jacket'], ['bottom', '👖', 'Pants · shorts'], ['dress', '👗', 'Dress'],
   ['hat', '🧢', 'Hat'], ['shoes', '👟', 'Shoes'], ['other', '✨', 'Other'],
 ];
+/**
+ * Body zones: everything worn on a part of the body at once (a shirt with the vest over it and the
+ * necklace on it, the skin a neckline shows): [id, icon, name].
+ */
+export const ZONES = [['upper', '🧍', 'Upper body'], ['lower', '🦵', 'Lower body'], ['outfit', '🧍‍♀️', 'Whole outfit']];
+/** Whether a kind is a body zone. */
+export const isZone = (kind) => ZONES.some((z) => z[0] === kind);
 
 /** @typedef {{ x0: number, y0: number, x1: number, y1: number }} Box */
 /** @typedef {{ w: number, h: number, face: Uint8Array, hair: Uint8Array, body: Uint8Array, clothes: Uint8Array, others: Uint8Array }} People */
@@ -112,6 +119,10 @@ export function kindZone(kind, L, w, h) {
     dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : Math.min(ankle, waist + fh * 3) },
     hat: { x0: F.x0 - fw * 0.35, y0: F.y0 - fh * 1.0, x1: F.x1 + fw * 0.35, y1: F.y0 + fh * 0.35 },
     shoes: { x0: P.x0, y0: ankle - fh * 0.35, x1: P.x1, y1: P.y1 + fh * 0.1 },
+    // Body zones: from the base of the neck to the waist, the waist to the ankles, the neck down.
+    upper: { x0: P.x0, y0: chin + fh * 0.18, x1: P.x1, y1: open ? h : waist + fh * 0.15 * cut },
+    lower: { x0: P.x0, y0: waist - fh * 0.1 * cut, x1: P.x1, y1: P.y1 },
+    outfit: { x0: P.x0, y0: chin + fh * 0.18, x1: P.x1, y1: P.y1 },
   }[kind] ?? P;
   return { x0: Math.max(0, Math.floor(z.x0)), y0: Math.max(0, Math.floor(z.y0)), x1: Math.min(w, Math.ceil(z.x1)), y1: Math.min(h, Math.ceil(z.y1)) };
 }
@@ -127,7 +138,8 @@ export function kindRegion(kind, p, L) {
   const m = new Uint8Array(w * h);
   for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
     const i = y * w + x;
-    const worn = kind === 'hat' ? Math.max(p.others[i], p.clothes[i]) >= 128 && p.face[i] < 128
+    const worn = isZone(kind) ? Math.max(p.others[i], p.clothes[i]) >= 128 && p.face[i] < 128 && p.hair[i] < 128
+      : kind === 'hat' ? Math.max(p.others[i], p.clothes[i]) >= 128 && p.face[i] < 128
       : kind === 'shoes' ? p.others[i] >= 128
         : kind === 'other' ? Math.max(p.others[i], p.clothes[i]) >= 128
           : p.clothes[i] >= 128;
@@ -135,6 +147,12 @@ export function kindRegion(kind, p, L) {
   }
   // (Thin slivers taken off first: the soft edge of an arm or the background read as clothes.)
   openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 60)));
+  // A zone: with the bare skin between what's worn, row by row, around the neckline and chest (not hands
+  // or arms lower down beside it).
+  if (isZone(kind)) for (let y = z.y0; y < Math.min(z.y1, L.chin + L.fh * 1.3); y++) {
+    let l = -1; let r = -1; for (let x = z.x0; x < z.x1; x++) if (m[y * w + x]) { if (l < 0) l = x; r = x; }
+    for (let x = l + 1; x < r; x++) { const i = y * w + x; if (!m[i] && p.body[i] >= 128 && p.face[i] < 128) m[i] = 1; }
+  }
   // (Shoes not told apart from the rest: what's at the very bottom of the person.)
   if (kind === 'shoes' && !m.some(Boolean)) for (let y = Math.max(z.y0, Math.floor(L.ankle)); y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (Math.max(p.clothes[i], p.body[i]) >= 128) m[i] = 1; }
   const kept = mainParts(m, w, h, z, 0.15);
@@ -632,7 +650,7 @@ export function bandWidth(m, w, box, y0, y1) {
 /** The rows a kind's width is read across: the chest (just below the shoulders) for a top, the hips for a bottom. */
 export function bandRows(kind, box, L) {
   const bh = box.y1 - box.y0;
-  if (kind === 'bottom') return [box.y0 + bh * 0.04, box.y0 + bh * 0.18];
+  if (kind === 'bottom' || kind === 'lower') return [box.y0 + bh * 0.04, box.y0 + bh * 0.18];
   if (L?.face) return [Math.max(box.y0, L.chin + L.fh * 0.45), Math.max(box.y0 + 3, L.chin + L.fh * 0.85)];
   return [box.y0 + bh * 0.1, box.y0 + bh * 0.25];
 }
@@ -645,15 +663,123 @@ export function bandRows(kind, box, L) {
  * `pm` / `tm`: the piece's and the target's masks (pw, tw wide), `pb` / `tb` their boxes, `pL` / `tL` the
  * two people's layouts. { x0, y0, s } or null.
  */
-export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'replace') {
+export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'replace', { ph = Infinity, th = Infinity } = {}) {
   const [py0, py1] = bandRows(kind, pb, pL); const [ty0, ty1] = bandRows(kind, tb, tL);
   const pbw = bandWidth(pm, pw, pb, py0, py1); const tbw = bandWidth(tm, tw, tb, ty0, ty1);
   const byWidth = pbw && tbw ? tbw.w / pbw.w : null;
-  const byFace = pL?.face && tL?.face ? (tL.fw + tL.fh) / (pL.fw + pL.fh) : null;
-  let s = byWidth && byFace ? (Math.abs(Math.log(byWidth / byFace)) < 0.22 ? Math.sqrt(byWidth * byFace) : byFace) : byWidth ?? byFace;
+  // (A face counts only when it's whole: not cut off by the photo's edge, and face-shaped. A photo zoomed in
+  // on the shirt cuts off part of the face, which then looks smaller than it is.)
+  const whole = (L, W, H) => !!L?.face && L.face.x0 > 2 && L.face.y0 > 2 && L.face.x1 < W - 2 && L.face.y1 < H - 2 && L.fh / L.fw > 1 && L.fh / L.fw < 1.9;
+  const byFace = whole(pL, pw, ph) && whole(tL, tw, th) ? (tL.fw + tL.fh) / (pL.fw + pL.fh) : null;
+  // When the two agree, between them; when they don't, the garments' own widths.
+  let s = byWidth && byFace ? (Math.abs(Math.log(byWidth / byFace)) < 0.22 ? Math.sqrt(byWidth * byFace) : byWidth) : byWidth ?? byFace;
   if (!s) return null;
   if (mode === 'overlay') s *= 1.04;
   const pcx = pbw?.cx ?? (pb.x0 + pb.x1) / 2; const tcx = tbw?.cx ?? (tb.x0 + tb.x1) / 2;
-  const y0 = pL?.face && tL?.face && kind !== 'bottom' ? tL.chin + (pb.y0 - pL.chin) * s : tb.y0 - (mode === 'overlay' ? (tb.y1 - tb.y0) * 0.01 : 0);
+  // (At the same height under the chin when both chins are seen; otherwise its top at the top of what it goes on.)
+  const chinSeen = (L, H) => !!L?.face && L.face.y1 < H - 2;
+  const y0 = chinSeen(pL, ph) && chinSeen(tL, th) && kind !== 'bottom' && kind !== 'lower' ? tL.chin + (pb.y0 - pL.chin) * s : tb.y0 - (mode === 'overlay' ? (tb.y1 - tb.y0) * 0.01 : 0);
   return { x0: tcx - (pcx - pb.x0) * s, y0, s };
+}
+
+/**
+ * The piece's design laid into the outline of what's worn on the base (Replace): the new garment takes
+ * exactly the shape the base's own garment has on this body, in this pose, and the piece supplies what it
+ * looks like. Each row of the outline, from its left edge to its right, takes the matching row of the
+ * piece, from its left edge to its right (rows matched top to bottom; when either photo cuts the garment
+ * off, row for row at the piece's scale `s`); where the piece has a gap inside a row (its neckline, the
+ * space by an arm) the cloth on either side carries across it. `tex`: the piece's pixels (pw × ph), `pm` its
+ * mask, `pb` its box; `target`: { mask, box, spans }. `adj`: { scale, wide, long, dx, dy } to move or size
+ * the design within the outline; `skin`: the piece's photo's bare-skin map (0..255), to mark where it shows
+ * skin; `rebuilt`: what was rebuilt of it (under its hair). A layer { x0, y0, pw, ph, rgba, skin } whose alpha is
+ * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt).
+ */
+export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null } = {}) {
+  const T = target.box; const tw = T.x1 - T.x0; const th = T.y1 - T.y0;
+  const pbh = pb.y1 - pb.y0; const pbw = pb.x1 - pb.x0;
+  const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
+  // The piece filled across its gaps once: each row, between its ends, the cloth on either side of a gap
+  // carried across it (blended); where it's skin (with `skin`, a neckline) marked as skin.
+  const fill = new Float32Array(pbw * pbh * 3); const isSkin = new Uint8Array(pbw * pbh); const has = new Uint8Array(pbh);
+  for (let ry = 0; ry < pbh; ry++) {
+    const Y = pb.y0 + ry; if (pspans[ry * 2] < 0) continue;
+    const l0 = Math.max(pb.x0, Math.floor(pspans[ry * 2])); const r0 = Math.min(pb.x1 - 1, Math.ceil(pspans[ry * 2 + 1]) - 1);
+    let last = -1;
+    for (let x = l0; x <= r0 + 1; x++) {
+      // (The piece's skin, a neckline, isn't cloth: it's bridged like a gap, and marked.)
+      const k = (ry * pbw);
+      const bare = x <= r0 && skin && skin[Y * pw + x] >= 128;
+      // ("Weak": not cloth seen in the photo, which mustn't cover the base's own bare skin: the piece's skin,
+      // what was rebuilt under its hair, and what's bridged across its gaps.)
+      if (x <= r0 && (bare || (rebuilt && rebuilt[Y * pw + x]) || !pm[Y * pw + x])) isSkin[k + x - pb.x0] = 1;
+      const on = x <= r0 && pm[Y * pw + x] && !bare;
+      if (x <= r0 && !on) continue;
+      // Fill the gap between `last` and x.
+      if (x <= r0) for (let c = 0; c < 3; c++) fill[(k + x - pb.x0) * 3 + c] = tex[(Y * pw + x) * 4 + c];
+      const a = last >= 0 ? last : x <= r0 ? x : -1; const b2 = x <= r0 ? x : last;
+      if (a >= 0 && b2 >= 0 && (last >= 0 ? last + 1 : l0) < (x <= r0 ? x : r0 + 1)) {
+        // (The cloth's color a few pixels in from the gap's edges, averaged: its very edge is blended with
+        // what's beyond it, a neck's skin.)
+        const inner = (x0, dir) => { const m = [0, 0, 0]; let n = 0; for (let d = 2; d <= 6; d++) { const X = x0 + dir * d; if (X < pb.x0 || X >= pb.x1 || !pm[Y * pw + X] || (skin && skin[Y * pw + X] >= 128)) break; for (let c = 0; c < 3; c++) m[c] += tex[(Y * pw + X) * 4 + c]; n++; } if (!n) for (let c = 0; c < 3; c++) m[c] = tex[(Y * pw + x0) * 4 + c]; else for (let c = 0; c < 3; c++) m[c] /= n; return m; };
+        const ca = inner(a, -1); const cb = inner(b2, 1);
+        for (let g = (last >= 0 ? last + 1 : l0); g < (x <= r0 ? x : r0 + 1); g++) {
+          const t = b2 === a ? 0 : (g - a) / (b2 - a);
+          for (let c = 0; c < 3; c++) fill[(k + g - pb.x0) * 3 + c] = ca[c] * (1 - t) + cb[c] * t;
+        }
+      }
+      if (x <= r0) last = x;
+    }
+    has[ry] = 1;
+  }
+  const tspans = target.spans;
+  const A = adj ?? { scale: 100, wide: 100, long: 100, dx: 0, dy: 0 };
+  const zx = (A.scale / 100) * (A.wide / 100); const zy = (A.scale / 100) * (A.long / 100);
+  const rowOf = (y) => {
+    const v = (y - T.y0 - A.dy) / zy;
+    const r = open ? v / s : (v / th) * pbh;
+    let ry = Math.max(0, Math.min(pbh - 1, Math.round(r)));
+    if (!has[ry]) { let k = -1; for (let d = 1; d < pbh && k < 0; d++) for (const t of [ry - d, ry + d]) if (t >= 0 && t < pbh && has[t]) { k = t; break; } ry = k; }
+    return ry;
+  };
+  const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null;
+  for (let y = T.y0; y < T.y1; y++) {
+    const ky = y - T.y0; if (tspans[ky * 2] < 0) continue;
+    const tl = tspans[ky * 2]; const tr = tspans[ky * 2 + 1];
+    const ry = rowOf(y); if (ry < 0) continue;
+    const pl = pspans[ry * 2]; const pr = pspans[ry * 2 + 1];
+    for (let x = Math.max(T.x0, Math.floor(tl)); x < Math.min(T.x1, Math.ceil(tr)); x++) {
+      if (!target.mask[y * w + x]) continue;
+      const u = 0.5 + ((x + 0.5 - tl) / Math.max(1, tr - tl) - 0.5 - A.dx / tw) / zx;
+      const fx = Math.max(pl, Math.min(pr - 1, pl + u * (pr - pl) - 0.5)) - pb.x0;
+      const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, fx - xa));
+      const o = (ky * tw + x - T.x0) * 4; const k = ry * pbw;
+      for (let c = 0; c < 3; c++) rgba[o + c] = fill[(k + xa) * 3 + c] * (1 - t) + fill[(k + xb) * 3 + c] * t;
+      rgba[o + 3] = 255;
+      if (skinOut && isSkin[k + xa]) skinOut[ky * tw + x - T.x0] = 1;
+    }
+  }
+  return { x0: T.x0, y0: T.y0, pw: tw, ph: th, rgba, skin: skinOut };
+}
+
+/**
+ * The folds and shadows of what's worn on the base (where it's darker or lighter than around it, in its
+ * shape), for the design laid into it: the garment's light at each pixel over its light a little farther
+ * around (both within the garment only), toned down where the garment is so dark that its light is mostly
+ * noise, 0.84 to 1.12. Box-sized.
+ */
+export function foldMap(rgba, w, mask, box, fine, coarse) {
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0;
+  const L = new Float32Array(bw * bh); const ok = new Uint8Array(bw * bh); let sum = 0; let n = 0;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const j = (box.y0 + y) * w + box.x0 + x; const i = j * 4;
+    L[y * bw + x] = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+    if (mask[j]) { ok[y * bw + x] = 1; sum += L[y * bw + x]; n++; }
+  }
+  const mean = n ? sum / n : 128;
+  // (A dark garment's folds are only a few levels deep: measured against a floor, so its noise isn't folds.)
+  const floor = Math.max(18, 60 - mean * 0.3);
+  const a = boxBlur(L, ok, bw, bh, fine); const b = boxBlur(L, ok, bw, bh, coarse);
+  const out = new Float32Array(bw * bh).fill(1);
+  for (let k = 0; k < bw * bh; k++) if (ok[k]) out[k] = Math.max(0.84, Math.min(1.12, (a[k] + floor) / (b[k] + floor)));
+  return out;
 }

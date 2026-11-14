@@ -158,6 +158,20 @@ export function kindRegion(kind, p, L, pose = null) {
   // (A zone's arm can be parted from its body by the hair over the shoulder: smaller parts kept.)
   const kept = mainParts(m, w, h, z, isZone(kind) ? 0.05 : 0.15);
   if (!kept) return null;
+  // (A top's or a dress's collar riding up past where it's looked for, at the back of the neck: what of the
+  // clothes is joined to it just above, up to a little above the chin, never the face.)
+  if (['top', 'dress', 'jacket'].includes(kind)) {
+    const yTop = Math.max(0, Math.floor(L.chin - L.fh * 0.6)); const st = [];
+    for (let x = z.x0; x < z.x1; x++) for (let y = z.y0; y < Math.min(z.y1, z.y0 + 3); y++) if (kept.mask[y * w + x]) st.push(y * w + x);
+    for (let a = 0; a < st.length; a++) {
+      const i = st[a]; const x = i % w; const y = (i / w) | 0;
+      for (const t of [x > z.x0 ? i - 1 : -1, x < z.x1 - 1 ? i + 1 : -1, y > yTop ? i - w : -1]) {
+        if (t < 0 || kept.mask[t] || ((t / w) | 0) >= z.y0) continue;
+        if (p.clothes[t] >= 128 && p.face[t] < 128 && p.hair[t] < 128) { kept.mask[t] = 1; st.push(t); }
+      }
+    }
+    const nb = boxOf(kept.mask, w, h); if (nb) kept.box = nb;
+  }
   // (Thin cracks closed first, a fold's shadow the finder wasn't sure was cloth: one reaching its edge
   // isn't a hole, and would show what was worn through the new piece as specks.)
   if (!['shoes', 'hat'].includes(kind)) closeMask(kept.mask, w, h, kept.box, Math.max(1, Math.round(L.fh / 30)));
@@ -1230,4 +1244,54 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
     const fb = { x0: Math.floor(f.box.x0 / k), y0: Math.floor(f.box.y0 / k), x1: Math.ceil(f.box.x1 / k), y1: Math.ceil(f.box.y1 / k) };
     return { p: q, box: kept?.box ?? null, face: fb, n: kept?.count ?? 0 };
   });
+}
+
+/**
+ * A garment's edge as the photo has it (`mask` over `rgba`, w × h, within `box`): for each pixel within `B`
+ * of the mask's edge (on either side), how much of it is the garment (α, 0..1), from where its color falls
+ * between the garment's own color nearby (`F`: the mean of the mask's pixels further in, within `R`) and
+ * what's beside it (`G`: the mean of those further out). The photo's own edge, sharp where it's sharp, soft
+ * where it's soft (a fold, hair), not a blur. Where the two colors are too alike to tell, α is -1 (not
+ * known). { x0, y0, pw, ph, alpha (Float32, -1 off the band), F, G (Float32 rgb) }.
+ * @returns {{ x0: number, y0: number, pw: number, ph: number, alpha: Float32Array, F: Float32Array, G: Float32Array }}
+ */
+export function matteBand(rgba, w, h, mask, box, B = 2, R = 7) {
+  const x0 = Math.max(0, box.x0 - B - R); const y0 = Math.max(0, box.y0 - B - R);
+  const x1 = Math.min(w, box.x1 + B + R); const y1 = Math.min(h, box.y1 + B + R);
+  const pw = x1 - x0; const ph = y1 - y0; const n = pw * ph;
+  const inM = (k) => mask[(y0 + ((k / pw) | 0)) * w + x0 + (k % pw)] ? 1 : 0;
+  // (Distance to the edge, from each side: two chamfer passes over the region, each side to the other.)
+  const dist = (side) => {
+    const d = new Float32Array(n);
+    for (let k = 0; k < n; k++) d[k] = inM(k) === side ? 1e9 : 0;
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const k = y * pw + x; let v = d[k]; if (x > 0) v = Math.min(v, d[k - 1] + 1); if (y > 0) v = Math.min(v, d[k - pw] + 1); if (x > 0 && y > 0) v = Math.min(v, d[k - pw - 1] + 1.414); if (x < pw - 1 && y > 0) v = Math.min(v, d[k - pw + 1] + 1.414); d[k] = v; }
+    for (let y = ph - 1; y >= 0; y--) for (let x = pw - 1; x >= 0; x--) { const k = y * pw + x; let v = d[k]; if (x < pw - 1) v = Math.min(v, d[k + 1] + 1); if (y < ph - 1) v = Math.min(v, d[k + pw] + 1); if (x < pw - 1 && y < ph - 1) v = Math.min(v, d[k + pw + 1] + 1.414); if (x > 0 && y < ph - 1) v = Math.min(v, d[k + pw - 1] + 1.414); d[k] = v; }
+    return d;
+  };
+  const dIn = dist(1); const dOut = dist(0); // (dIn: inside, how far to the outside; dOut: outside, how far in)
+  const okIn = new Uint8Array(n); const okOut = new Uint8Array(n);
+  for (let k = 0; k < n; k++) { if (inM(k) && dIn[k] > B + 0.5) okIn[k] = 1; else if (!inM(k) && dOut[k] > B + 0.5) okOut[k] = 1; }
+  const chan = (c) => { const v = new Float32Array(n); for (let k = 0; k < n; k++) v[k] = rgba[((y0 + ((k / pw) | 0)) * w + x0 + (k % pw)) * 4 + c]; return v; };
+  const C = [chan(0), chan(1), chan(2)];
+  // (The local means, and whether there were any: blurred counts.)
+  const cnt = (ok) => boxBlur(Float32Array.from(ok), new Uint8Array(n).fill(1), pw, ph, R);
+  const cIn = cnt(okIn); const cOut = cnt(okOut);
+  // (What's beside it, nearer: two things side by side out there (a wall, the pants) aren't averaged into one.)
+  const Fm = C.map((v) => boxBlur(v, okIn, pw, ph, R)); const Gm = C.map((v) => boxBlur(v, okOut, pw, ph, Math.max(3, Math.round(R / 2))));
+  const alpha = new Float32Array(n).fill(-1); const F = new Float32Array(n * 3); const G = new Float32Array(n * 3);
+  for (let k = 0; k < n; k++) {
+    const band = inM(k) ? dIn[k] <= B + 0.5 : dOut[k] <= B + 0.5;
+    if (!band || cIn[k] < 0.02 || cOut[k] < 0.02) continue;
+    const f = [Fm[0][k], Fm[1][k], Fm[2][k]]; const g = [Gm[0][k], Gm[1][k], Gm[2][k]];
+    const d = [f[0] - g[0], f[1] - g[1], f[2] - g[2]]; const L2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    for (let c = 0; c < 3; c++) { F[k * 3 + c] = f[c]; G[k * 3 + c] = g[c]; }
+    // (Too alike to tell apart, garment and what's beside it: not known.)
+    if (L2 < 24 * 24) continue;
+    const a = Math.max(0, Math.min(1, ((C[0][k] - g[0]) * d[0] + (C[1][k] - g[1]) * d[1] + (C[2][k] - g[2]) * d[2]) / L2));
+    // (Not a blend of the two (far off the line between them): something else there, the garment's only
+    // if it's the garment's own color.)
+    const res = Math.hypot(C[0][k] - g[0] - a * d[0], C[1][k] - g[1] - a * d[1], C[2][k] - g[2] - a * d[2]);
+    alpha[k] = res > 30 ? (Math.hypot(C[0][k] - f[0], C[1][k] - f[1], C[2][k] - f[2]) < 30 ? 1 : 0) : a;
+  }
+  return { x0, y0, pw, ph, alpha, F, G };
 }

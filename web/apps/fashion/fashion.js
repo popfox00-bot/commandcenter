@@ -21,7 +21,7 @@ import { noteError } from '../../lib/diag.js';
 import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
-import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople } from '../../tools/fashion/fashion-core.js';
+import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand } from '../../tools/fashion/fashion-core.js';
 import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps } from './compose.js';
 
 const WORK_MAX = 1024;
@@ -406,6 +406,7 @@ export function mount(host) {
       if (isZone(kind) && pp) for (let i = 0; i < piece.solid.length; i++) if (piece.solid[i] && pp.hair[i] >= 128 && Math.max(pp.clothes[i], pp.body[i]) < 128) piece.solid[i] = 0;
       repairPiece();
       piece.box = boxOf(piece.solid, piece.w, piece.h) ?? piece.box; piece.alpha = softenMask(piece.solid, piece.w, piece.h, 1);
+      matteEdge();
     }
     if (!piece.parts) {
       const soft = (p) => p && { ...p, alpha: partAlpha(piece.alpha, p, piece.w, piece.h) };
@@ -554,6 +555,29 @@ export function mount(host) {
       const solid = Uint8Array.from(m); for (let i = 0; i < w * h; i++) if (occl[i]) solid[i] = 1;
       piece.solid = solid; piece.rebuilt = occl;
     } catch (e) { noteError('Fashion: rebuilding the piece', e); }
+  }
+
+  /**
+   * The piece's edge as its photo has it: each pixel within a couple of pixels of its outline gets its own
+   * share of the piece (from its color between the piece's nearby and the background's: matteBand) as its
+   * alpha, and its color with the background's part taken out (so no rim of the wall it was photographed
+   * against comes with it). Sharp where the photo is sharp, soft where it's soft; not blurred.
+   */
+  function matteEdge() {
+    const { w, h } = piece; const fh = piece.layout?.fh ?? h / 7;
+    const src = piece.draw ?? piece.rgba;
+    const mb = matteBand(src, w, h, piece.solid, piece.box, Math.max(2, Math.round(fh / 45)), Math.max(5, Math.round(fh / 12)));
+    const draw = piece.draw ? piece.draw : Uint8ClampedArray.from(piece.rgba); let n = 0;
+    for (let y = 0; y < mb.ph; y++) for (let x = 0; x < mb.pw; x++) {
+      const k = y * mb.pw + x; const a = mb.alpha[k]; if (a < 0) continue;
+      const i = (mb.y0 + y) * w + mb.x0 + x;
+      piece.alpha[i] = a;
+      // (Its own color there: the photo's, less the background's share, where enough of it is the piece.)
+      if (a > 0.12 && a < 0.98) for (let c = 0; c < 3; c++) { const g = mb.G[k * 3 + c]; draw[i * 4 + c] = g + (src[i * 4 + c] - g) / a; }
+      if (a > 0.12 && !piece.solid[i]) piece.solid[i] = 1;
+      n++;
+    }
+    if (n) piece.draw = draw;
   }
 
   /**

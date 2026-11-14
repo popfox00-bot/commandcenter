@@ -3,7 +3,8 @@
 // it, worn or not). Pick its kind, then the piece itself: ✨ found by itself (where that kind is worn),
 // 👆 a tap on its color (the area of the colors tapped, grown from all the spots together; the magnifier
 // shows what's under the finger), ✏️ a loop traced around it, 🧽 colors taken away, 🖌 / 🩹 brushed in or
-// out. Then on the base: ➕ Add (as it is, on top), 🧥 Overlay (over what's worn there, fitted to it), or
+// out. Then on the base: 🧥 Overlay (on top of what's worn there, fitted to it as far as Fit to body says:
+// at 0, as it is), or
 // 🔁 Replace (what's worn there taken off where the piece doesn't cover it, the piece fitted to its shape:
 // its body to the body, each sleeve to its arm, each shoe to its foot). Placed by the body (📏 guides show
 // where the chin, waist and ankles were found, and drag to correct them), its light matched to the
@@ -28,7 +29,7 @@ const SAVE_MAX = 2560;      // the saved picture's longest side (and no more tha
 const SESSION_KEY = 'fashion.session';
 const PIECES_KEY = 'fashion.pieces';          // the saved pieces' list: [{ id, name, kind, thumb, savedAt }]
 const pieceKey = (id) => `fashion.piece.${id}`; // each one: { blob, mask, w, h, layout }
-const MODES = [['add', '➕ Add'], ['overlay', '🧥 Overlay'], ['replace', '🔁 Replace']];
+const MODES = [['overlay', '🧥 Overlay'], ['replace', '🔁 Replace']];
 // What each way starts with: how far it's fitted to what's worn there, and how much of the photo's form it takes.
 // (Replace takes the shape of what was worn there, the way it sits on this body: fitted all the way.)
 const MODE_TUNE = { add: { fit: 0, form: 60 }, overlay: { fit: 75, form: 60 }, replace: { fit: 100, form: 60 } };
@@ -272,6 +273,8 @@ export function mount(host) {
   });
   function apply(sn) {
     ({ step, kind, mode, tol } = sn); tune = { ...sn.tune };
+    // (Add was Overlay not fitted: a session kept from before opens as that.)
+    if (mode === 'add') { mode = 'overlay'; tune.fit = 0; }
     if (sn.who) { if (piece?.persons && sn.who.piece != null) choose(piece, sn.who.piece); if (base?.persons && sn.who.base != null) choose(base, sn.who.base); }
     if (piece) { piece.picks = sn.picks; setSel(sn.sel ?? new Uint8Array(piece.w * piece.h), true); if (sn.pieceLayout) piece.layout = sn.pieceLayout; }
     if (base && sn.baseLayout) base.layout = sn.baseLayout;
@@ -854,7 +857,7 @@ export function mount(host) {
       tool.startsWith('brush') ? el('div', { class: 'range-row' }, el('span', { class: 'small', text: 'Brush' }), rangeInput(4, 60, brush, 'Brush size', (v) => { brush = v; })) : null,
       el('div', { class: 'fa-tunes' },
         row('Size', 'scale', 40, 250), row('Width', 'wide', 50, 160), row('Length', 'long', 50, 160), row('Turn', 'rot', -45, 45),
-        mode !== 'add' ? row('Fit to body', 'fit', 0, 100) : null,
+        row('Fit to body', 'fit', 0, 100),
         row('Form', 'form', 0, 100), row('Light', 'light', 0, 100), row('Edge', 'soft', 0, 12)),
       check('depth', 'Shade its edges (depth)'),
       kind !== 'shoes' && base.people ? check('front', kind === 'hat' ? 'Keep the face in front' : 'Keep hair and face in front') : null,
@@ -864,7 +867,7 @@ export function mount(host) {
       undoBar(),
       whoRow(base, 'Who to dress? (tap a face, or tap them in the photo)'),
       modeBar,
-      el('p', { class: 'small muted', text: { add: 'Add: on top, as it is (a hat, shoes, something new).', overlay: 'Overlay: over what\'s worn there (a jacket over a shirt).', replace: 'Replace: what\'s worn there is taken off and the piece put in its place.' }[mode] }),
+      el('p', { class: 'small muted', text: { overlay: 'Overlay: on top of what\'s worn there (a jacket over a shirt, a hat, shoes). Drag to move it, pinch to size and turn it.', replace: 'Replace: what\'s worn there is taken off and the piece put in its place. Drag to move it, pinch to size and turn it.' }[mode] }),
       el('p', { class: 'small', 'aria-live': 'polite', text: note || auto }),
       el('div', { class: 'row wrap' },
         el('button', { class: 'btn ghost', type: 'button', text: '‹ Piece', onclick: () => { step = 'pick'; tool = 'tap'; note = ''; render(); } }),

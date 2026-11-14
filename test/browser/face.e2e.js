@@ -764,3 +764,37 @@ test('Magic → 🎨 Reverse Fill: after a fill, ◑ Hold for before shows the p
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('faces: 👥 Best face: from another shot of the same people, that person\'s face (their open eyes) put on this photo, one undo step', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/vendor/mediapipe/**', (route) => route.abort());
+  await context.route('**/vendor/face/face-api.esm.js', (route) => route.fulfill({ body: FAKE3, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fm`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  const make = (eyes) => page.evaluate(async (eyes) => {
+    const c = new OffscreenCanvas(400, 300); const x = c.getContext('2d');
+    x.fillStyle = 'rgb(40,140,60)'; x.fillRect(0, 0, 400, 300);
+    x.fillStyle = 'rgb(90,50,20)'; x.beginPath(); x.ellipse(200, 120, 90, 95, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgb(225,180,150)'; x.beginPath(); x.ellipse(200, 160, 70, 80, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgb(90,50,20)'; x.fillRect(120, 60, 160, 45);
+    if (eyes) { x.fillStyle = 'rgb(20,15,15)'; for (const ex of [172, 228]) { x.beginPath(); x.arc(ex, 129, 7, 0, Math.PI * 2); x.fill(); } }
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  }, eyes);
+  const closed = await make(false); const open = await make(true);
+  await page.setInputFiles('#ed-file', { name: 'group.png', mimeType: 'image/png', buffer: Buffer.from(closed) });
+  const btn = page.getByRole('button', { name: '👥 Best face from another shot' });
+  await btn.waitFor();
+  const chooser = page.waitForEvent('filechooser');
+  await btn.click();
+  await (await chooser).setFiles({ name: 'other.png', mimeType: 'image/png', buffer: Buffer.from(open) });
+  await page.waitForSelector('.ed-panel >> text=/taken from the other shot/');
+  await page.waitForTimeout(250);
+  const eye = () => page.$eval('.ed-canvas', (c) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round((172 / 400) * c.width), Math.round((129 / 300) * c.height), 1, 1).data].slice(0, 3); });
+  assert.ok((await eye())[0] < 120, `open eyes from the other shot: ${await eye()}`);
+  await page.getByRole('button', { name: 'Undo' }).click(); await page.waitForTimeout(250);
+  assert.ok((await eye())[0] > 170, 'undone');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

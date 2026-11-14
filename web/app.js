@@ -5,11 +5,27 @@ import { $, el, store } from './lib/dom.js';
 import { APPS, FILES_APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
 import { VERSION, HISTORY } from './version.js';
+import { glanceCards, recentStrip } from './lib/home-extras.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
 
+// Above the apps: today's weather and your games at a glance, and Recent edits (unfinished work).
+let extraUrls = [];
+let extrasRun = 0;
+async function renderExtras() {
+  const run = ++extrasRun;
+  let strip = null; const urls = [];
+  try { strip = await recentStrip(urls); } catch { strip = null; }
+  if (run !== extrasRun) { for (const u of urls) URL.revokeObjectURL(u); return; }
+  for (const u of extraUrls) URL.revokeObjectURL(u);
+  extraUrls = urls;
+  let cards = null; try { cards = glanceCards(); } catch { cards = null; }
+  $('#home-extras').replaceChildren(...[cards, strip].filter(Boolean));
+}
+
 function renderHome() {
+  renderExtras();
   $('#app-grid').replaceChildren(...homeApps(store.json(HOME_ORDER_KEY, null)).map((a) => el('a', { class: 'app-tile', href: a.href },
     el('span', { class: `app-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
     el('span', { class: 'app-name', text: a.name }),

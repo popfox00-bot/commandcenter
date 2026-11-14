@@ -21,7 +21,7 @@ import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople } from '../../tools/fashion/fashion-core.js';
-import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor } from './compose.js';
+import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace } from './compose.js';
 
 const WORK_MAX = 1024;
 const SAVE_MAX = 2560;      // the saved picture's longest side (and no more than ~6 MP: a phone's memory)
@@ -239,7 +239,7 @@ export function mount(host) {
   function autoPick(quiet = false) {
     if (!piece) return;
     if (piece.finding) { if (!quiet) note = 'Still finding the person…'; return; }
-    const r = piece.people && piece.layout ? kindRegion(kind, piece.people, piece.layout) : null;
+    const r = piece.people && piece.layout ? kindRegion(kind, piece.people, piece.layout, piece.pose) : null;
     if (!r) { if (!quiet) note = 'Couldn\'t find one by itself: tap its color, or trace around it.'; return; }
     setSel(r.mask); note = 'Found ✨ (pink). Tap more of it, 🧽 take colors away, 🖌 brush, or ✏️ trace to keep only what\'s inside.';
   }
@@ -481,7 +481,7 @@ export function mount(host) {
     if (piece.found) return piece.found;
     const { w, h } = piece; const out = [];
     for (const id of ['top', 'bottom', 'dress', 'hat', 'shoes']) {
-      const r = kindRegion(id, piece.people, piece.layout); if (!r) continue;
+      const r = kindRegion(id, piece.people, piece.layout, piece.pose); if (!r) continue;
       const n = r.mask.reduce((a, v) => a + v, 0); if (n < w * h * 0.01) continue;
       // (What can't be there: a bottom only where a top's end was seen (the clothes change color); a dress only
       // where they don't and it runs well past the waist, the photo not cut off there; shoes only with the
@@ -507,7 +507,7 @@ export function mount(host) {
     const L = piece.layout; const cut = (L.person?.y1 ?? h) >= h - 3;
     for (const [id, icon, name] of ZONES) {
       if ((id === 'lower' && !L.split) || (id === 'outfit' && (cut || !L.split))) continue;
-      const r = kindRegion(id, piece.people, L); if (!r) continue;
+      const r = kindRegion(id, piece.people, L, piece.pose); if (!r) continue;
       const b = r.box; const side = Math.max(b.x1 - b.x0, b.y1 - b.y0); const cx = (b.x0 + b.x1) / 2; const cy = (b.y0 + b.y1) / 2;
       const c = document.createElement('canvas'); c.width = 72; c.height = 72; const x = c.getContext('2d');
       const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
@@ -575,7 +575,7 @@ export function mount(host) {
    */
   function autoTarget() {
     if (!base?.people || !base.layout || kind === 'other') return;
-    const r = kind === 'hat' ? null : kindRegion(kind, base.people, base.layout);
+    const r = kind === 'hat' ? null : kindRegion(kind, base.people, base.layout, base.pose);
     const b = r ? null : bodyRegion(kind, base.people, base.layout);
     if (r) setTarget(r.mask, true); else if (b && kind !== 'hat') { setTarget(b.mask, true); target.body = true; } else target = null;
   }
@@ -763,6 +763,41 @@ export function mount(host) {
   }
 
   /** 💾 The picture at full size (from the photos as they were opened): the same, worked out again bigger. */
+  /**
+   * The piece's layer made at full size (`S`: the scene at the base's full size, `k` times the working one):
+   * its photo opened again at full size, what was picked and rebuilt on it brought up to that, and the
+   * design laid into the base's outline there. Null when its photo isn't bigger than the working one.
+   */
+  async function sharpLayer(S, k, up) {
+    const bmp = await decodeImage(piece.file, await sniffType(piece.file));
+    let fit = fitSize(bmp.width, bmp.height, SAVE_MAX);
+    if (fit.width * fit.height > 6e6) { const q = Math.sqrt(6e6 / (fit.width * fit.height)); fit = { width: Math.floor(fit.width * q), height: Math.floor(fit.height * q) }; }
+    if (fit.width < piece.w * 1.1) { bmp.close?.(); return null; }
+    const c = drawToCanvas(bmp, fit.width, fit.height, '#fff'); bmp.close?.();
+    const PW = c.width; const PH = c.height; const kp = PW / piece.w;
+    const rgba = c.getContext('2d').getImageData(0, 0, PW, PH).data;
+    const solid = up(piece.solid ?? piece.sel, piece.w, piece.h, PW, PH); const box = boxOf(solid, PW, PH);
+    if (!box) return null;
+    const rebuilt = piece.rebuilt ? up(piece.rebuilt, piece.w, piece.h, PW, PH) : null;
+    // (What was rebuilt (hair, a hand across it) is smooth cloth: brought up from the working size there,
+    // the photo's own pixels everywhere else.)
+    let draw = null;
+    if (piece.draw && rebuilt) {
+      const d0 = document.createElement('canvas'); d0.width = piece.w; d0.height = piece.h; d0.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(piece.draw), piece.w, piece.h), 0, 0);
+      const d1 = document.createElement('canvas'); d1.width = PW; d1.height = PH; const x1 = d1.getContext('2d'); x1.imageSmoothingQuality = 'high'; x1.drawImage(d0, 0, 0, PW, PH);
+      const dd = x1.getImageData(0, 0, PW, PH).data; draw = Uint8ClampedArray.from(rgba);
+      for (let i = 0; i < PW * PH; i++) if (rebuilt[i]) { draw[i * 4] = dd[i * 4]; draw[i * 4 + 1] = dd[i * 4 + 1]; draw[i * 4 + 2] = dd[i * 4 + 2]; }
+    }
+    const scalePose = (q, f) => q && Object.fromEntries(Object.entries(q).map(([key, v]) => [key, Array.isArray(v[0]) ? v.map((pt) => [pt[0] * f, pt[1] * f, pt[2]]) : [v[0] * f, v[1] * f, v[2]]]));
+    const pBig = { ...piece, w: PW, h: PH, rgba, draw, solid, sel: solid, alpha: softenMask(solid, PW, PH, 1), box, rebuilt, people: piece.people && peopleAt(piece.people, PW, PH), layout: piece.layout && scaleLayout(piece.layout, kp), pose: scalePose(piece.pose, kp), parts: null, skinMap: null, zparts: null };
+    const bBig = { ...S.base, pose: scalePose(base.pose, k), parts: null, tone: undefined };
+    const S2 = { ...S, base: bBig, piece: pBig, place: { ...place, x0: place.x0 * k, y0: place.y0 * k, s: (place.s * k) / kp }, tune: { ...S.tune, dx: tune.dx * k, dy: tune.dy * k } };
+    const layer = buildLayer(S2);
+    if (!layer) return null;
+    finish(layer, S2, {});
+    return layer;
+  }
+
   async function save() {
     busy = true; render();
     try {
@@ -791,8 +826,13 @@ export function mount(host) {
           tBig = tb && { mask: tm, box: tb, spans: rowSpans(tm, W, tb, Math.round(14 * k)), parts: torso ? { sleeves: { torso: { box: sc(torso.box) } } } : {}, body: target.body };
         }
         const S = { base: bBig, piece: extended(), target: tBig, kind, mode, place, tune: { ...tune, soft: tune.soft * k } };
-        const small = buildLayer(scene());
+        // Replace laid in at full size from the piece's own photo at full size: sharp, not the preview blown
+        // up. (If that can't be done, the preview's, brought up.)
         let layer = null;
+        if (isTrace(S) && extended() === piece) {
+          try { layer = await sharpLayer(S, k, up); } catch (e) { noteError('Fashion: laying it in at full size', e); layer = null; }
+        }
+        const small = layer ? null : buildLayer(scene());
         if (small) {
           const c0 = document.createElement('canvas'); c0.width = small.pw; c0.height = small.ph;
           c0.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(small.rgba), small.pw, small.ph), 0, 0);

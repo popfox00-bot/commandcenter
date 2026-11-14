@@ -111,7 +111,9 @@ function splitWaist(rgba, p, chin, fh, waist, ankle) {
 export function kindZone(kind, L, w, h) {
   const P = L.person ?? { x0: 0, y0: 0, x1: w, y1: h }; const { fh, fw, chin, waist, ankle } = L; const cut = L.split ? 0 : 1;
   // (A photo cut off at the chest or the waist: with no color change found, a top runs to its bottom edge.)
-  const open = !L.split && P.y1 >= h - 3;
+  // (Cut off: the person reaches the bottom edge and there's little of them below the chin, an upper body
+  // only; a long dress touching the bottom edge isn't that.)
+  const open = !L.split && P.y1 >= h - 3 && P.y1 - chin < fh * 4.5;
   const F = L.face ?? { x0: (P.x0 + P.x1) / 2 - fw / 2, y0: chin - fh, x1: (P.x0 + P.x1) / 2 + fw / 2, y1: chin };
   const z = {
     top: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : waist + fh * 0.25 * cut },
@@ -135,8 +137,9 @@ export function kindZone(kind, L, w, h) {
  * in it closed. { mask, box } or null when there's little there.
  * @param {People} p @param {Layout} L
  */
-export function kindRegion(kind, p, L) {
+export function kindRegion(kind, p, L, pose = null) {
   const { w, h } = p; const z = kindZone(kind, L, w, h);
+  if (isZone(kind)) return zoneRegion(kind, p, L, z, pose);
   const m = new Uint8Array(w * h);
   for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
     const i = y * w + x;
@@ -155,12 +158,84 @@ export function kindRegion(kind, p, L) {
   // (A zone's arm can be parted from its body by the hair over the shoulder: smaller parts kept.)
   const kept = mainParts(m, w, h, z, isZone(kind) ? 0.05 : 0.15);
   if (!kept) return null;
+  // (Thin cracks closed first, a fold's shadow the finder wasn't sure was cloth: one reaching its edge
+  // isn't a hole, and would show what was worn through the new piece as specks.)
+  if (!['shoes', 'hat'].includes(kind)) closeMask(kept.mask, w, h, kept.box, Math.max(1, Math.round(L.fh / 30)));
   fillHoles(kept.mask, w, h, kept.box, 0.3);
   // (A zone's holes filled only with what's on the person: not the background seen through the loop of
   // an arm with its hand on a hip.)
   if (isZone(kind)) for (let i = 0; i < w * h; i++) if (kept.mask[i] && Math.max(p.body[i], p.clothes[i], p.others[i], p.hair[i]) < 64) kept.mask[i] = 0;
   if (kept.count < w * h * 0.003) return null;
   return { mask: kept.mask, box: kept.box };
+}
+
+/**
+ * A body zone's outline: all of the person in it, whatever they're wearing there, as one clean outline:
+ * their clothes, their bare skin, and the hair lying over them (on the shoulders, down the chest: within
+ * the body's own width, row by row, and out to their shoulders where the pose found them, hair hiding a
+ * shoulder's edge), never the face, nor the background beside them or seen through the loop of an arm.
+ * Its edge smoothed. { mask, box } or null.
+ * @param {People} p @param {Layout} L @param {Box} z @param {any} pose
+ */
+function zoneRegion(kind, p, L, z, pose) {
+  const { w, h } = p; const m = new Uint8Array(w * h);
+  // The waist by the body, not by where the clothes change color (a satin dress's shading isn't a waist):
+  // with the hips found, about a third of the way from them up to the shoulders; else by the person's
+  // proportions (a quarter of the way from the chin to the ankles), or the face's size, the lower.
+  const seen0 = (q) => q && q[2] >= 0.3;
+  const P = L.person ?? { x0: 0, y0: 0, x1: w, y1: h };
+  const cutOff = P.y1 >= h - 3 && P.y1 - L.chin < L.fh * 4.5;
+  if (!cutOff && kind !== 'outfit') {
+    let waist;
+    if (pose && seen0(pose.hips[0]) && seen0(pose.hips[1]) && seen0(pose.shoulders[0]) && seen0(pose.shoulders[1])) {
+      const hy = (pose.hips[0][1] + pose.hips[1][1]) / 2; const sy = (pose.shoulders[0][1] + pose.shoulders[1][1]) / 2;
+      waist = hy > sy ? hy - (hy - sy) * 0.3 : null;
+    }
+    waist ??= Math.max(L.chin + L.fh * 2.6, L.chin + (L.ankle - L.chin) * 0.29);
+    waist = Math.round(Math.min(h, waist));
+    z = kind === 'upper' ? { ...z, y1: Math.max(z.y0 + 1, waist) } : { ...z, y0: Math.min(z.y1 - 1, waist) };
+  }
+  const on = (i) => Math.max(p.body[i], p.clothes[i], p.others[i]) >= 128 && p.face[i] < 128;
+  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (on(i) && p.hair[i] < 128) m[i] = 1; }
+  openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 60)));
+  // Each row's ends (of what isn't hair); near the shoulders, the widest a little way below too (a shoulder
+  // hidden by hair is seen lower down, as the arm), and the shoulders the pose found.
+  const zh = z.y1 - z.y0; const ends = new Int32Array(zh * 2).fill(-1);
+  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) if (m[y * w + x]) { const k = (y - z.y0) * 2; if (ends[k] < 0) ends[k] = x; ends[k + 1] = x; }
+  const seen = (q) => q && q[2] >= 0.3;
+  const sh = pose && seen(pose.shoulders[0]) && seen(pose.shoulders[1]) ? pose.shoulders : null;
+  const swd = sh ? Math.abs(sh[1][0] - sh[0][0]) : 0; const shY = sh ? (sh[0][1] + sh[1][1]) / 2 : L.chin + L.fh * 0.5;
+  const reach = Math.round(L.fh * 0.6);
+  for (let y = z.y0; y < z.y1; y++) {
+    let l = ends[(y - z.y0) * 2]; let r = ends[(y - z.y0) * 2 + 1];
+    // (Above the shoulders, only the neck itself: not the hair either side of it.)
+    // (Tapered: the width found lower down drawn in a pixel for each row up, so a shoulder rounds toward
+    // the neck instead of a square corner.)
+    if (y >= shY - L.fh * 0.1 && y < shY + L.fh * 0.8) for (let yy = y; yy < Math.min(z.y1, y + reach); yy++) { const a = ends[(yy - z.y0) * 2]; if (a >= 0) { const d = yy - y; l = l < 0 ? a + d : Math.min(l, a + d); r = Math.max(r, ends[(yy - z.y0) * 2 + 1] - d); } }
+    if (sh && y >= shY - L.fh * 0.15 && y < shY + L.fh * 0.8) for (const [k2, q] of sh.entries()) {
+      // (Only a shoulder on this person: a pose's shoulder can land on the one beside them.)
+      const X = Math.round(q[0]); const Y = Math.round(q[1]); if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+      const qi = Y * w + X; if (Math.max(p.body[qi], p.clothes[qi], p.hair[qi], p.others[qi]) < 128) continue;
+      const d = Math.max(0, Math.round(shY - y));
+      if (k2 === 0) { const e = Math.round(q[0] - swd * 0.06) + d; l = l < 0 ? e : Math.min(l, e); } else r = Math.max(r, Math.round(q[0] + swd * 0.06) - d);
+    }
+    if (l < 0) continue;
+    // (Hair, or anything of the person, between the ends: theirs.)
+    for (let x = Math.max(z.x0, l); x <= Math.min(z.x1 - 1, r); x++) { const i = y * w + x; if (!m[i] && p.face[i] < 128 && Math.max(p.hair[i], p.body[i], p.clothes[i], p.others[i]) >= 128) m[i] = 1; }
+  }
+  // Smoothed: small notches closed, specks off; one body (and what's joined to it), its holes closed.
+  const r1 = Math.max(1, Math.round(L.fh / 22));
+  closeMask(m, w, h, z, r1);
+  openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 40)));
+  const kept = mainParts(m, w, h, z, 0.05);
+  if (!kept) return null;
+  fillHoles(kept.mask, w, h, kept.box, 0.3);
+  // (Never the background: what closing bridged between an arm and the side, the loop of an arm.)
+  for (let i = 0; i < w * h; i++) if (kept.mask[i] && Math.max(p.body[i], p.clothes[i], p.others[i], p.hair[i]) < 64) kept.mask[i] = 0;
+  let n = 0; for (let i = 0; i < w * h; i++) n += kept.mask[i];
+  if (n < w * h * 0.003) return null;
+  const b = boxOf(kept.mask, w, h);
+  return b && { mask: kept.mask, box: b };
 }
 
 /** The joined parts of a mask (within `box`) at least `frac` the size of the biggest. { mask, box, count } or null. */
@@ -783,26 +858,38 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   const tspans = target.spans;
   const A = adj ?? { scale: 100, wide: 100, long: 100, dx: 0, dy: 0 };
   const zx = (A.scale / 100) * (A.wide / 100); const zy = (A.scale / 100) * (A.long / 100);
-  const rowOf = (y) => {
-    const v = (y - T.y0 - A.dy) / zy;
-    const r = open ? v / s : (v / th) * pbh;
-    let ry = Math.max(0, Math.min(pbh - 1, Math.round(r)));
+  const nearRow = (ry) => {
+    ry = Math.max(0, Math.min(pbh - 1, ry));
     if (!has[ry]) { let k = -1; for (let d = 1; d < pbh && k < 0; d++) for (const t of [ry - d, ry + d]) if (t >= 0 && t < pbh && has[t]) { k = t; break; } ry = k; }
     return ry;
   };
+  // (Where a row of the outline falls between two of the piece's: both, blended. A piece stretched taller
+  // otherwise repeats its rows, streaks across it.)
+  const rowAt = (y) => { const v = (y - T.y0 - A.dy) / zy; return Math.max(0, Math.min(pbh - 1, (open ? v / s : (v / th) * pbh) - 0.5)); };
+  const rowOf = (y) => nearRow(Math.round(rowAt(y)));
   const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null;
   for (let y = T.y0; y < T.y1; y++) {
     const ky = y - T.y0; if (tspans[ky * 2] < 0) continue;
     const tl = tspans[ky * 2]; const tr = tspans[ky * 2 + 1];
     const ry = rowOf(y); if (ry < 0) continue;
+    const fr = rowAt(y); const ra = nearRow(Math.floor(fr)); const rb = nearRow(Math.floor(fr) + 1);
+    const tv = ra >= 0 && rb >= 0 && ra !== rb ? Math.max(0, Math.min(1, fr - Math.floor(fr))) : 0;
     const pl = pspans[ry * 2]; const pr = pspans[ry * 2 + 1];
+    // (The color at u across the piece's row r: its two nearest pixels, blended.)
+    const sample = (r, u, c) => {
+      const l = pspans[r * 2]; const rr = pspans[r * 2 + 1];
+      const fx = Math.max(l, Math.min(rr - 1, l + u * (rr - l) - 0.5)) - pb.x0;
+      const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, fx - xa));
+      return fill[(r * pbw + xa) * 3 + c] * (1 - t) + fill[(r * pbw + xb) * 3 + c] * t;
+    };
     for (let x = Math.max(T.x0, Math.floor(tl)); x < Math.min(T.x1, Math.ceil(tr)); x++) {
       if (!target.mask[y * w + x]) continue;
       const u = 0.5 + ((x + 0.5 - tl) / Math.max(1, tr - tl) - 0.5 - A.dx / tw) / zx;
       const fx = Math.max(pl, Math.min(pr - 1, pl + u * (pr - pl) - 0.5)) - pb.x0;
-      const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, fx - xa));
+      const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx)));
       const o = (ky * tw + x - T.x0) * 4; const k = ry * pbw;
-      for (let c = 0; c < 3; c++) rgba[o + c] = fill[(k + xa) * 3 + c] * (1 - t) + fill[(k + xb) * 3 + c] * t;
+      if (tv > 0) for (let c = 0; c < 3; c++) rgba[o + c] = sample(ra, u, c) * (1 - tv) + sample(rb, u, c) * tv;
+      else for (let c = 0; c < 3; c++) rgba[o + c] = sample(ry, u, c);
       rgba[o + 3] = 255;
       if (skinOut && isSkin[k + xa]) skinOut[ky * tw + x - T.x0] = 1;
       if (bareOut && isBare[k + xa]) bareOut[ky * tw + x - T.x0] = 1;
@@ -894,11 +981,18 @@ export function upperParts(p, L, w, h, kind = 'upper', pose = null) {
       which[i] = bd < reach && bd < spine * 0.9 && !shoulder && same ? best : 0;
     }
   }
+  const armArea = [0, 0];
+  if (which && pose) {
+    const sw2 = Math.hypot(pose.shoulders[1][0] - pose.shoulders[0][0], pose.shoulders[1][1] - pose.shoulders[0][1]);
+    for (let k = 0; k < 2; k++) { if (!seen(pose.elbows[k])) continue; const s2 = pose.shoulders[k]; const e = pose.elbows[k]; const wr = seen(pose.wrists[k]) ? pose.wrists[k] : e; armArea[k] = (Math.hypot(e[0] - s2[0], e[1] - s2[1]) + Math.hypot(wr[0] - e[0], wr[1] - e[1])) * sw2 * 0.22; }
+  }
   const part = (id, keep) => {
     const m = new Uint8Array(w * h); let n = 0; let cl = 0;
     for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (sil[i] && (which ? which[i] === id : keep(x))) { m[i] = 1; n++; if (p.clothes[i] >= 128) cl++; } }
-    // (Too little to be an arm or a torso: under 2% of the outline.)
+    // (Too little to be an arm or a torso: under 2% of the outline; or, by the pose, under a third of what an
+    // arm that long would cover: a sliver of the side beside an arm hidden behind someone.)
     if (n < total * 0.02) return null;
+    if (which && id && armArea[id - 1] && n < armArea[id - 1] * 0.3) return null;
     const k = mainParts(m, w, h, boxOf(m, w, h), 0.3);
     return k && { mask: k.mask, box: k.box, n: k.count, covered: cl / n > 0.45, clothFrac: cl / n };
   };
@@ -1093,12 +1187,33 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
     }
     for (const i of q) if (!isSeed[i]) own[i] = top;
   }
+  // At the picture's own size: each pixel the person of the cells around it; where they differ (where two
+  // people meet), whoever's color nearby it's nearest, pixel by pixel (no steps of the coarser grid along
+  // the edge); its soft rim, the person of the nearest cell.
+  const lbl = new Int8Array(w * h).fill(-1);
+  const localMean = (X, Y, c) => { const m3 = [0, 0, 0]; let n = 0; for (let yy = Math.max(0, Y - 2); yy <= Math.min(H - 1, Y + 2); yy++) for (let xx = Math.max(0, X - 2); xx <= Math.min(W - 1, X + 2); xx++) { const j = yy * W + xx; if (own[j] === c) { m3[0] += lab[j * 3]; m3[1] += lab[j * 3 + 1]; m3[2] += lab[j * 3 + 2]; n++; } } return n ? m3.map((v) => v / n) : null; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i], p.others[i]) === 0) continue;
+    const fx = Math.max(0, Math.min(W - 1, (x + 0.5) * k - 0.5)); const fy = Math.max(0, Math.min(H - 1, (y + 0.5) * k - 0.5));
+    const X0 = Math.floor(fx); const Y0 = Math.floor(fy); const X1 = Math.min(W - 1, X0 + 1); const Y1 = Math.min(H - 1, Y0 + 1);
+    const cand = new Set(); for (const j of [Y0 * W + X0, Y0 * W + X1, Y1 * W + X0, Y1 * W + X1]) if (own[j] >= 0) cand.add(own[j]);
+    if (cand.size === 1) { lbl[i] = [...cand][0]; continue; }
+    const Xn = Math.round(fx); const Yn = Math.round(fy);
+    if (!cand.size) {
+      // (The soft rim outside everyone's cells: the nearest cell's person, a cell or two away.)
+      let best = -1; let bd = 9;
+      for (let yy = Math.max(0, Yn - 2); yy <= Math.min(H - 1, Yn + 2); yy++) for (let xx = Math.max(0, Xn - 2); xx <= Math.min(W - 1, Xn + 2); xx++) { const j = yy * W + xx; const d = (xx - fx) ** 2 + (yy - fy) ** 2; if (own[j] >= 0 && d < bd) { bd = d; best = own[j]; } }
+      lbl[i] = best; continue;
+    }
+    const q = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+    let best = -1; let bd = Infinity;
+    for (const c of cand) { const mm = localMean(Xn, Yn, c); if (!mm) continue; const d = (q[0] - mm[0]) ** 2 * 0.5 + (q[1] - mm[1]) ** 2 + (q[2] - mm[2]) ** 2; if (d < bd) { bd = d; best = c; } }
+    lbl[i] = best;
+  }
   return people.map((f, who) => {
     const m = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      const Y = Math.min(H - 1, Math.floor(y * k));
-      for (let x = 0; x < w; x++) if (own[Y * W + Math.min(W - 1, Math.floor(x * k))] === who) m[y * w + x] = 1;
-    }
+    for (let i = 0; i < w * h; i++) if (lbl[i] === who) m[i] = 1;
     const kept = mainParts(m, w, h, { x0: 0, y0: 0, x1: w, y1: h }, 0.2);
     /** @type {any} */ const q = { w, h };
     for (const c of ['face', 'hair', 'body', 'clothes', 'others']) { const a = new Uint8Array(w * h); if (kept) for (let i = 0; i < w * h; i++) if (kept.mask[i]) a[i] = p[c][i]; q[c] = a; }

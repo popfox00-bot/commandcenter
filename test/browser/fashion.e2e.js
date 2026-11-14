@@ -427,3 +427,67 @@ test('Photo Editor → Clean Up → 👤 Remove a person: a tap on one of two pe
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Fashion: an upper body zone onto someone with a hand across their front: their hand stays in front; the waist line moves the zone; the check before saving points at what still shows', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS, headers: { 'content-type': 'text/javascript' } }));
+  await context.route('**/lib/pose.js', (route) => route.fulfill({ body: FAKE_POSE_ONE, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fashion`);
+  await page.waitForSelector('#fa-base', { state: 'attached' });
+  const imgs = await page.evaluate(async () => {
+    const mk = async (draw) => { const c = new OffscreenCanvas(600, 900); const x = c.getContext('2d'); draw(x); return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer())); };
+    const SKIN = '#e0a888';
+    const figure = (x, top, hand) => {
+      x.fillStyle = '#ece6da'; x.fillRect(0, 0, 600, 900);
+      x.fillStyle = SKIN; x.beginPath(); x.ellipse(300, 140, 55, 70, 0, 0, 7); x.fill(); x.fillRect(280, 200, 40, 45); x.fillRect(150, 250, 34, 260); x.fillRect(416, 250, 34, 260);
+      x.fillStyle = top; x.fillRect(205, 238, 190, 290);
+      x.fillStyle = '#4a4744'; x.fillRect(205, 528, 190, 292);
+      if (hand) { x.fillStyle = SKIN; x.fillRect(184, 420, 150, 32); x.fillStyle = top; x.beginPath(); x.arc(470, 470, 14, 0, 7); x.fill(); }
+      x.fillStyle = '#111'; x.fillRect(200, 820, 100, 30); x.fillRect(300, 820, 100, 30);
+    };
+    // The base: a red top, their hand across it, and a stray red patch beside them the zone won't take.
+    return { base: await mk((x) => figure(x, '#b8323c', true)), piece: await mk((x) => figure(x, '#2c5fb0', false)) };
+  });
+  await page.setInputFiles('#fa-base', { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from(imgs.base) }); await page.waitForSelector('img[alt="1 · Base"]');
+  await page.setInputFiles('#fa-piece', { name: 'p.png', mimeType: 'image/png', buffer: Buffer.from(imgs.piece) }); await page.waitForSelector('img[alt="2 · Piece"]');
+  await page.getByRole('button', { name: 'Next: pick the piece' }).click();
+  await page.getByRole('button', { name: '🧍 Upper body' }).last().click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole('slider', { name: 'Waist line' }).count(), 1, 'a waist line for the zone');
+  await page.getByRole('button', { name: 'Next: put it on' }).click();
+  await page.waitForTimeout(900);
+  const pixel = (x, y) => page.evaluate(async ([X, Y]) => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return Array.from(document.querySelector('.fa-canvas').getContext('2d').getImageData(X, Y, 1, 1).data.slice(0, 3));
+  }, [x, y]);
+  const blue = ([r, g, b]) => b > r + 40;
+  const skin = ([r, g, b]) => r > 180 && g > 130 && b > 100 && r - b > 50;
+  assert.ok(blue(await pixel(300, 330)), `the zone is on: ${await pixel(300, 330)}`);
+  assert.ok(skin(await pixel(260, 436)), `their own hand stays in front: ${await pixel(260, 436)}`);
+  // The waist line raised: the zone ends higher (the bottom of the old top shows again under it).
+  const before = await pixel(300, 400);
+  const slider = page.getByRole('slider', { name: 'Waist line' });
+  await slider.fill('-40'); await slider.dispatchEvent('change');
+  await page.waitForTimeout(600);
+  const after = await pixel(300, 400);
+  assert.ok(blue(before) && !blue(after), `raised: ${before} → ${after}`);
+  await slider.fill('0'); await slider.dispatchEvent('change'); await page.waitForTimeout(400);
+  // Save: the check points at the stray bit of the old top first; Show me marks it and picks the brush.
+  await page.getByRole('button', { name: '💾 Save' }).click();
+  const dlg = page.locator('dialog[open].fa-check');
+  await dlg.waitFor();
+  assert.match(await dlg.textContent(), /still shows/);
+  await dlg.getByRole('button', { name: 'Show me' }).first().click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.chip.active', { hasText: 'Brush in' }).count(), 1, 'the brush that fixes it');
+  // And Save anyway saves.
+  await page.getByRole('button', { name: '💾 Save' }).click();
+  await dlg.waitFor();
+  const dl = page.waitForEvent('download');
+  await dlg.getByRole('button', { name: 'Save anyway' }).click();
+  assert.match((await dl).suggestedFilename(), /^fashion-/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

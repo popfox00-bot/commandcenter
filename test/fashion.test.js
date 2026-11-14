@@ -3,7 +3,7 @@
 // the piece placed by the body and bent onto a shape, light, form and compositing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm, splitPeople } from '../web/tools/fashion/fashion-core.js';
+import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm, splitPeople, skinTexture } from '../web/tools/fashion/fashion-core.js';
 
 /**
  * A person w×h: a face (40 wide, 50 tall at the top), a red shirt from the chin to y = 200, blue pants to
@@ -280,4 +280,38 @@ test('fashion: a group photo told apart: each person their own, parted where one
   assert.ok(ps[0].p.face[40 * w + 60] && !ps[0].p.face[40 * w + 140], 'each their own face');
   // One person: the maps as they are.
   assert.equal(splitPeople(p, rgba, []).length >= 1, true);
+});
+
+test('fashion: laid in by the poses: the piece\'s shoulders and waist rows land on the base\'s, not stretched evenly', () => {
+  // A piece 100 rows tall with a mark at row 30 (its waist); an outline 100 rows tall whose waist is at row 60.
+  const pw = 40; const ph = 100; const tex = new Uint8ClampedArray(pw * ph * 4).fill(200); const pm = new Uint8Array(pw * ph).fill(1);
+  for (let x = 0; x < pw; x++) for (let y = 29; y < 32; y++) tex.set([10, 10, 10, 255], (y * pw + x) * 4);
+  for (let i = 0; i < pw * ph; i++) tex[i * 4 + 3] = 255;
+  const w = 40; const h = 100; const mask = new Uint8Array(w * h).fill(1); const box = { x0: 0, y0: 0, x1: w, y1: h };
+  const target = { mask, box, spans: rowSpans(mask, w, box, 1) };
+  const dark = (L) => { const ys = []; for (let y = 0; y < L.ph; y++) if (L.rgba[(y * L.pw + 20) * 4] < 100) ys.push(y); return ys.length ? ys.reduce((a, b) => a + b) / ys.length : -1; };
+  const even = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h);
+  assert.ok(Math.abs(dark(even) - 30) < 3, `evenly: the mark stays at 30 (${dark(even)})`);
+  const posed = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h, { rows: [[20, 10], [60, 30]] });
+  assert.ok(Math.abs(dark(posed) - 60) < 3, `by the poses: the waist mark lands on the base's waist row (${dark(posed)})`);
+});
+
+test('fashion: an upper body zone ends at a waist tilted as the hips are; a person\'s own skin texture is found', () => {
+  const w = 300; const h = 600; const n = w * h;
+  const p = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  for (let y = 40; y < 110; y++) for (let x = 125; x < 175; x++) p.face[y * w + x] = 255;
+  for (let y = 110; y < 560; y++) for (let x = 90; x < 210; x++) p.clothes[y * w + x] = 255;
+  const L = bodyLayout(p, null);
+  const P = (x, y) => [x, y, 1];
+  // Hips tilted: the left one (x 110) at y 330, the right one (x 190) at y 370.
+  const pose = { nose: P(150, 80), shoulders: [P(100, 130), P(200, 130)], elbows: [P(90, 220), P(210, 220)], wrists: [P(90, 300), P(210, 300)], hips: [P(110, 330), P(190, 370)], knees: [P(115, 450), P(185, 450)], ankles: [P(115, 550), P(185, 550)] };
+  const r = kindRegion('upper', p, L, pose);
+  const bottom = (x) => { let y = h - 1; while (y > 0 && !r.mask[y * w + x]) y--; return y; };
+  assert.ok(bottom(195) - bottom(105) > 15, `the waist line slants with the hips: ${bottom(105)} → ${bottom(195)}`);
+  // Skin texture: from a square of skin with a fine pattern, its detail (not its shade) comes back.
+  const rgba = new Uint8ClampedArray(n * 4);
+  for (let i = 0; i < n; i++) { const x = i % w; rgba.set([200 + (x % 2 ? 8 : -8), 150, 120, 255], i * 4); p.body[i] = 255; p.clothes[i] = 0; p.face[i] = 0; }
+  const t = skinTexture(rgba, w, h, p, 60);
+  assert.ok(t, 'found');
+  assert.ok(Math.abs(t(0, 0)[0] - t(1, 0)[0]) > 8 && Math.abs(t(0, 0)[1]) < 2, `its fine detail: ${t(0, 0)} / ${t(1, 0)}`);
 });

@@ -770,6 +770,10 @@ the clothes in it: worn by someone, or on its own).
   the base's straps taken off, filled from the skin); the piece's own neckline is followed (higher: it
   covers the base's neckline pixel by pixel; lower: the base person's skin shows, shaded as the light on
   them); it's made as sharp and as grainy as the photo; and hair or an arm over it casts a soft shadow.
+- **Check before saving** (Replace): what would give it away is looked for first: bits of the old garment
+  still showing around it, or the new piece reaching past the person. If there's anything, a sheet shows
+  each spot with **Show me** (it's marked on the photo and the brush that fixes it is picked) or **Save
+  anyway**; with nothing found, it just saves.
 - **Your pieces**: **⭐ Keep this piece** saves it on the phone (its picture, outline and kind); it's under
   **2 · Piece** next time ("Or one of your pieces"), ✕ to remove it.
 - **Sharp**: saving lays the piece in again at full size from its own photo opened at full size (not the
@@ -801,7 +805,13 @@ the clothes in it: worn by someone, or on its own).
   waist is found by the body (from the pose's hips, or the person's proportions), not where the clothes
   change color; the hair over their shoulders is part of it, out to their shoulders; its clothes and its skin (a shirt with the vest over it and the
   necklace on it, and the bare arms, shoulders or legs: more than the 👕 Top, which is only what's worn);
-  never the face or hair, nor the background seen through the loop of an arm. They're in the found list
+  never the face or hair, nor the background seen through the loop of an arm. Laid in by both people's
+  poses: the piece's shoulders on the base's shoulders and its waist on their waist (each person's
+  proportions, however they lean). The waist tilts as the hips do (weight on one leg), and a **Waist line**
+  slider on each photo raises or lowers it (the outline shows a moment as you move it). An upper body's
+  new hem casts a soft shadow on what's worn below it, cloth over cloth, not a cut. Skin that has to be
+  made up (a bare arm where a sleeve was, a lower neckline) takes the person's own skin texture from their
+  clearest patch of skin, not a flat color; their own hand across their front stays in front. They're in the found list
   (marked "clothes + skin", where that part of the person is in the photo) and among what it is. A hand
   across the body isn't part of it: it's rebuilt from the cloth around it. Skin and clothing are told apart part by part: the person's pose (shoulders, elbows,
   wrists, found on the phone by MediaPipe's Pose Landmarker, `web/lib/pose.js`) tells each arm from the

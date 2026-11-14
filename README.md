@@ -1,6 +1,8 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen of app icons: **Calendar**, **Weather**,
+A personal, phone-first app. It opens on a home screen with today's weather and your teams' next (or
+live) game at a glance (from what Weather and Sports last loaded: Home itself goes online for nothing),
+**Recent edits** (unfinished work in any editor, newest first: tap to continue), and app icons: **Calendar**, **Weather**,
 **Sports**, **Notes**, **Files**, **FM**, **Draw**, **QR**, **Rap**, **Games** and **Settings** (the order can be changed in
 Settings → Edit Home Screen; **Jobs** is opened from Settings).
 
@@ -143,7 +145,9 @@ Modeled on the iPhone Photos editor; edits are non-destructive and the original 
 - **Markup**: pen, highlighter, line, arrow, box, oval, text (optional background box), eraser;
   colors and size. Markup stays attached to the picture when you crop, rotate or flip.
 - **Clean Up** (like the iPhone's): remove anything, a person in the back, a sign, a speck, an
-  overlay icon. **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
+  overlay icon. **👤 Remove a person**: one tap on someone (a photobomber, a stranger in the back) takes
+  out their whole outline (found by the person finder on the phone; in a group, only them), with its soft
+  rim and the shadow at their edge, filled from the background only (never copied from anyone else). **Tap** it (a spot the brush size), **brush** over it, or **draw a circle around**
   it (the shape is recognized: everything inside goes). The area is rebuilt from the picture around
   it, coarse to fine (the layout first, then the texture: lines and patterns run on), and its light
   and color are evened out where it meets the photo (`web/tools/editor/cleanup.js`). If a fill looks
@@ -617,6 +621,12 @@ with a photo open, **⚡ Quick Swap** offers it as the first). The biggest face 
 cut out, fitted onto the biggest face in the first, recolored and blended (all as in step 3 below)
 and placed as one undo step, ready to save with **Done**; **✂️ Keep that face as a Character**
 saves the face it used.
+
+**👥 Best face from another shot** (with a group photo open): someone's eyes closed or a smile missed?
+Pick another shot of the same group; the faces in both are matched by where each person stands (in order
+across the picture when both shots have as many), you tap whose face to fix, and that person's face from
+the other shot (their open eyes, their smile) is fitted, relit and blended on as Quick Swap does. One undo
+step.
 1. **🙂 Identify faces**: the faces are found (on the phone) and outlined along their own shape;
    with more than one, each gets a number: tap it (or **Face 1**, **Face 2**…) to pick it.
 2. **✂️ Cut out & save as Character**: the face, cut out in one go along its own outline from its
@@ -804,7 +814,10 @@ the clothes in it: worn by someone, or on its own).
   old garment outside its outline (thin straps, a sliver at its edge) takes the new one's color, keeping
   its own shading. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
-- **Put it on**, fitted for you: **➕ Add**, **🧥 Overlay** or **🔁 Replace**. It's sized by the body: as wide
+- **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
+  body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the
+  whole piece and **pinch** to size and turn it (in Replace, what it no longer covers of the old garment is
+  taken off). It's sized by the body: as wide
   across the chest as what it goes on, checked against the two people's faces (when an arm hides a
   shirt's side, the faces win), centered, at the same height under the chin. With nothing worn there, it's
   fitted to the outline of the body. Its light is matched from each photo's whites (not faces: two people's

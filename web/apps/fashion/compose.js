@@ -296,18 +296,21 @@ export function buildLayer(S) {
   // pose); moved or sized by hand, the design moves within it.
   if (isTrace(S)) {
     // A body zone between two people: part by part (the torso, each arm), as each is covered or bare.
+    // (Laid into the outline as it is; then moved, sized and turned by hand as a whole, the same as in
+    // Overlay: what it no longer covers of the old garment is taken off.)
+    const still = { ...S, tune: { ...tune, scale: 100, wide: 100, long: 100, rot: 0, dx: 0, dy: 0 } };
     if (isZone(kind) && kind !== 'lower' && base.layout && piece.layout && base.people && piece.people) {
-      const z = zoneLayer(S); if (z) return z;
+      const z = zoneLayer(still); if (z) return transformLayer(z, tune, w, h);
     }
     const open = target.box.y1 >= h - 2 || piece.box.y1 >= piece.h - 2;
     const under = underHair(S);
-    const layer = traceTransfer(piece.draw ?? piece.rgba, piece.solid ?? piece.sel, piece.w, piece.h, piece.box, under, w, h, { s: place.s, open, adj: tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null });
+    const layer = traceTransfer(piece.draw ?? piece.rgba, piece.solid ?? piece.sel, piece.w, piece.h, piece.box, under, w, h, { s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null });
     neckline(layer, base, w);
     softEdge(layer, under, w, h);
-    return layer;
+    return transformLayer(layer, tune, w, h);
   }
   const fit = tune.fit / 100;
-  const fitting = mode !== 'add' && target && fit > 0;
+  const fitting = target && fit > 0;
   const open = !!target && target.box.y1 >= h - 2;
   const regionOf = (t) => t && (mode === 'overlay' ? { box: t.box, spans: widen(t.spans, t.box, 0.04), openBottom: open } : { ...t, openBottom: open });
   const at = (b) => ({ x0: place.x0 + (b.x0 - piece.box.x0) * place.s, y0: place.y0 + (b.y0 - piece.box.y0) * place.s, s: place.s });

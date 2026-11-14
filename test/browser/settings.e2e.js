@@ -183,3 +183,39 @@ test('Settings → Storage: what\'s kept on the phone by kind, with its size; wh
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Home: today\'s weather and a live game at a glance (from what Weather and Sports kept: no requests), and Recent edits opening their apps', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; const external = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('request', (r) => { if (!r.url().startsWith(origin) && !/^(blob|data):/.test(r.url())) external.push(r.url()); });
+  await page.goto(`${origin}${BASE}`);
+  // Nothing kept yet: the cards say where to start; no Recent edits.
+  await page.waitForSelector('.glance');
+  assert.match(await page.locator('.glance[href="#/weather"]').textContent(), /Open Weather/);
+  assert.equal(await page.locator('.recent').count(), 0);
+  await page.evaluate(async () => {
+    const now = Date.now(); const iso = (ms) => new Date(now + ms).toISOString();
+    localStorage.setItem('cc.updates.weather', JSON.stringify({ at: now, lat: 1, lon: 1, hourly: [{ start: iso(-1800000), end: iso(1800000), tempF: 47, short: 'Mostly Sunny', precip: 10 }], daily: [{ isDaytime: true, end: iso(6 * 3600000), tempF: 54 }, { isDaytime: false, end: iso(18 * 3600000), tempF: 31 }], alerts: [{ event: 'Wind Advisory' }] }));
+    localStorage.setItem('cc.updates.sports', JSON.stringify({ 'nba:den': { at: now, games: [{ id: '1', date: iso(86400000), state: 'pre', home: { abbr: 'DEN' }, away: { abbr: 'UTA' } }, { id: '2', date: iso(-3600000), state: 'in', detail: 'Q4 2:31', home: { abbr: 'DEN', score: '102' }, away: { abbr: 'LAL', score: '98' } }] } }));
+    const { idb } = await import('./lib/idb.js');
+    const c = new OffscreenCanvas(40, 40); c.getContext('2d').fillRect(0, 0, 40, 40);
+    await idb.set('editor.session', { name: 'beach.jpg', blob: await c.convertToBlob({ type: 'image/png' }), state: {}, savedAt: now - 3600000 });
+    await idb.set('scan.session', { pages: [], savedAt: now - 60000 });
+  });
+  await page.reload();
+  await page.waitForSelector('.recent-item');
+  const w = await page.locator('.glance[href="#/weather"]').textContent();
+  assert.match(w, /47°/); assert.match(w, /Mostly Sunny/); assert.match(w, /H 54°/); assert.match(w, /Wind Advisory/);
+  const s = await page.locator('.glance[href="#/sports"]').textContent();
+  assert.match(s, /LAL 98\s+@\s+DEN 102/, 'the live game, not the one tomorrow'); assert.match(s, /Q4 2:31/);
+  // Recent edits: newest first (Scan a minute ago, then the Photo Editor an hour ago), each opening its app.
+  assert.deepEqual(await page.locator('.recent-name').allTextContents(), ['📷 Scan', '🖼️ Photo Editor']);
+  await page.locator('.recent-item', { hasText: 'Photo Editor' }).click();
+  await page.waitForFunction(() => location.hash === '#/files/photo');
+  await page.waitForSelector('text=Continue editing beach.jpg?');
+  assert.deepEqual(external, []);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

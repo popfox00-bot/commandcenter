@@ -71,6 +71,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
   // Clean Up: the stroke being drawn (overlay pixels), Copy From Area (on, and the spot to copy from in
   // source pixels), the last clean-up (to redo it as a copy), and a note for the panel.
   let cleanStroke = null; let copyMode = false; let copyFrom = null; let lastClean = null; let cleanNote = ''; let cleaning = false;
+  let personMode = false; // 👤 Remove a person: a tap takes away the whole person there
   // Generative Expand: the photo (file, name, edits) from before the last expand, to go back to.
   let beforeExpand = null; let pendingBefore = null;
   // ➕ Character: the image being placed (see startPlacing), and the pointers moving or pinching it.
@@ -546,9 +547,60 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
     renderPanel(); schedule();
   }
 
+  /**
+   * 👤 Remove a person: the person at a point (found on the phone by the person finder; in a group, only
+   * them, told apart from the others as Fashion does), their whole outline with its soft rim and the
+   * shadow at their edge, taken away and filled from the picture around them. One undo step.
+   */
+  async function removePersonAt(x, y) {
+    const w = source.width; const h = source.height; const X = Math.round(x); const Y = Math.round(y);
+    if (X < 0 || Y < 0 || X >= w || Y >= h) return;
+    cleaning = true; cleanNote = 'Finding the person…'; renderPanel(); schedule();
+    try {
+      const c = applyPatches(source, state().patches ?? []);
+      const rgba = sourcePixels();
+      const { segmentPeople } = await import('../../lib/face-parts.js');
+      const F = await import('../fashion/fashion-core.js');
+      const seg = await segmentPeople(c);
+      if (!seg) { cleanNote = 'Couldn\'t find people in this photo: brush over them instead.'; return; }
+      const all = F.peopleAt(seg, w, h);
+      let poses = []; try { poses = await (await import('../../lib/pose.js')).detectPoses(c); } catch { poses = []; }
+      const ppl = F.splitPeople(all, rgba, poses);
+      const on = (q, i) => Math.max(q.body[i], q.clothes[i], q.face[i], q.hair[i], q.others[i]);
+      const i0 = Y * w + X;
+      const who = ppl.length > 1 ? ppl.findIndex((q) => on(q.p, i0) >= 96) : (on(all, i0) >= 96 ? 0 : -1);
+      if (who < 0) { cleanNote = 'No one right there: tap on the person (or turn 👤 off to tap a spot).'; return; }
+      const q = ppl[who].p; const m = new Uint8Array(w * h);
+      for (let i = 0; i < w * h; i++) if (on(q, i) >= 64) m[i] = 1;
+      let box = null; { let x0 = w; let y0 = h; let x1 = 0; let y1 = 0; for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) if (m[yy * w + xx]) { if (xx < x0) x0 = xx; if (xx >= x1) x1 = xx + 1; if (yy < y0) y0 = yy; y1 = yy + 1; } if (x1 > x0) box = { x0, y0, x1, y1 }; }
+      if (!box) { cleanNote = 'No one right there.'; return; }
+      // (Grown a little: the soft rim of their outline, and the shadow where they meet the ground.)
+      const g = Math.max(2, Math.round(Math.max(w, h) / 250));
+      const grown = Uint8Array.from(m);
+      for (let yy = Math.max(0, box.y0 - g); yy < Math.min(h, box.y1 + g); yy++) for (let xx = Math.max(0, box.x0 - g); xx < Math.min(w, box.x1 + g); xx++) {
+        if (m[yy * w + xx]) continue;
+        let near = false; for (let d = 1; d <= g && !near; d++) near = (xx - d >= 0 && m[yy * w + xx - d]) || (xx + d < w && m[yy * w + xx + d]) || (yy - d >= 0 && m[(yy - d) * w + xx]) || (yy + d < h && m[(yy + d) * w + xx]);
+        if (near) grown[yy * w + xx] = 1;
+      }
+      const gb = { x0: Math.max(0, box.x0 - g), y0: Math.max(0, box.y0 - g), x1: Math.min(w, box.x1 + g), y1: Math.min(h, box.y1 + g) };
+      cleanNote = 'Taking them out…'; renderPanel();
+      await new Promise((r) => setTimeout(r, 30));
+      // (Filled from the background only: never copied from anyone else in the photo.)
+      const avoid = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) if (grown[i] || on(all, i) >= 64) avoid[i] = 1;
+      const p = cleanUp(rgba, w, h, grown, gb, { avoid });
+      if (!p) { cleanNote = ''; return; }
+      const s = state();
+      lastClean = { mask: grown, box: gb, before: s.patches ?? [] };
+      cleanNote = `${ppl.length > 1 ? `Person ${who + 1} of ${ppl.length}` : 'The person'} taken out and filled in. Undo takes it back; 📋 Copy From Area can redo it from a spot you pick.`;
+      commit({ ...s, patches: [...(s.patches ?? []), makePatch(p, w, h)] });
+    } catch (err) { cleanNote = `Couldn't take them out: ${err.message}`; }
+    finally { cleaning = false; renderPanel(); schedule(); }
+  }
+
   function runCleanUp(st) {
     const w = source.width; const h = source.height;
     const pts = st.pts.map(([x, y]) => overlayToSource(x, y));
+    if (personMode) { const [px, py] = pts[pts.length - 1]; removePersonAt(px, py); return; }
     // The brush size in source pixels: how far one brush radius across the overlay reaches in the source.
     const [ax, ay] = overlayToSource(st.pts[0][0], st.pts[0][1]); const [bx, by] = overlayToSource(st.pts[0][0] + st.r, st.pts[0][1]);
     const r = Math.max(2, Math.hypot(bx - ax, by - ay));
@@ -645,13 +697,17 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
     });
     const copy = el('button', {
       class: `chip${copyMode ? ' active' : ''}`, 'aria-pressed': String(copyMode), text: '📋 Copy From Area',
-      onclick: () => { copyMode = !copyMode; copyFrom = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
+      onclick: () => { copyMode = !copyMode; personMode = false; copyFrom = null; cleanNote = copyMode ? 'Tap the spot to copy from.' : ''; renderPanel(); schedule(); },
+    });
+    const person = el('button', {
+      class: `chip${personMode ? ' active' : ''}`, 'aria-pressed': String(personMode), text: '👤 Remove a person',
+      onclick: () => { personMode = !personMode; copyMode = false; copyFrom = null; cleanNote = personMode ? 'Tap the person to take out (someone in the background, a photobomber).' : ''; renderPanel(); schedule(); },
     });
     const hint = copyMode
       ? (copyFrom ? 'Tap, brush or circle the area to cover: it gets a copy of the spot you picked, blended in.' : 'Tap the spot to copy from: a clean piece of what should be there (sand, sky, wall).')
       : 'Tap a spot, brush over something, or draw a circle around it: it\'s removed and filled in from the picture around it.';
     return [
-      el('div', { class: 'chips' }, copy,
+      el('div', { class: 'chips' }, person, copy,
         copyMode && copyFrom ? el('button', { class: 'chip', text: '↺ Pick another spot', onclick: () => { copyFrom = null; cleanNote = 'Tap the spot to copy from.'; renderPanel(); schedule(); } }) : null,
         copyMode && copyFrom && lastClean ? el('button', { class: 'chip', text: '↻ Use on the last clean-up', onclick: copyOverLast }) : null),
       el('p', { class: 'small muted ed-clean-hint', text: hint }),
@@ -917,6 +973,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
       el('p', { class: 'small muted', text: 'Find the faces, then cut one out to keep as a Character, or put one of your Characters on a face.' }),
       el('div', { class: 'fm-actions' },
         el('button', { class: 'btn', text: '⚡ Quick Swap', disabled: fm.busy, onclick: () => quickSwap(true) }),
+        history && source ? el('button', { class: 'btn', text: '👥 Best face from another shot', disabled: fm.busy, onclick: () => bestFace() }) : null,
         fm.quickCut ? el('button', { class: 'btn', text: '✂️ Keep that face as a Character', disabled: fm.busy, onclick: keepQuickFace }) : null),
       el('div', { class: 'fm-actions' },
         el('button', { class: `btn${looked ? '' : ' primary'}`, text: looked ? '🙂 Find faces again' : '🙂 Identify faces', disabled: fm.busy, onclick: identifyFaces })),
@@ -1015,6 +1072,75 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
     } catch (err) { placing = null; fm.note = `Quick Swap didn't work: ${err.message}`; }
     finally { fm.busy = false; renderPanel(); schedule(); }
   }
+  // ---------- 👥 Best face (a group photo) ----------
+
+  /** A photo picked (the file chooser opened at once, from the tap): a File, or null. */
+  function pickPhoto() {
+    return new Promise((resolve) => {
+      const input = el('input', { type: 'file', accept: 'image/*,.heic,.heif', class: 'visually-hidden' });
+      input.addEventListener('change', () => { resolve(input.files?.[0] ?? null); input.remove(); });
+      input.addEventListener('cancel', () => { resolve(null); input.remove(); });
+      document.body.append(input); input.click();
+    });
+  }
+  /** Which face (each a small picture of it, from `img`): its index, or null when cancelled. */
+  function chooseFace(img, faces, title) {
+    return new Promise((resolve) => {
+      const pics = faces.map((f, i) => {
+        const W = img.width; const H = img.height; const side = Math.max(f.box.w * W, f.box.h * H) * 1.6;
+        const c = document.createElement('canvas'); c.width = 96; c.height = 96;
+        c.getContext('2d').drawImage(img, (f.box.x + f.box.w / 2) * W - side / 2, (f.box.y + f.box.h / 2) * H - side / 2, side, side, 0, 0, 96, 96);
+        return el('button', { class: 'fm-face-pick', value: String(i), 'aria-label': `Face ${i + 1}` }, el('img', { src: c.toDataURL('image/jpeg', 0.85), alt: '' }), el('span', { class: 'small', text: `${i + 1}` }));
+      });
+      const dlg = el('dialog', { class: 'ed-dialog' }, el('form', { method: 'dialog', class: 'sheet' },
+        el('h2', { text: title }), el('div', { class: 'fm-face-picks' }, ...pics),
+        el('div', { class: 'row end' }, el('button', { class: 'btn ghost', value: 'cancel', text: 'Cancel' }))));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue && dlg.returnValue !== 'cancel' ? Number(dlg.returnValue) : null); });
+      document.body.append(dlg); dlg.showModal();
+    });
+  }
+  /**
+   * 👥 Best face: in a group photo, one person's face (eyes closed, a missed smile) taken from another shot
+   * of the same group, the same person's (matched by where they stand: in order across the picture when
+   * both shots have as many faces, else the nearest), fitted, relit and blended on as Quick Swap does, its
+   * own eyes and mouth kept. One undo step.
+   */
+  async function bestFace() {
+    if (!history || !source) { fm.note = 'Open the group photo first.'; renderPanel(); return; }
+    const f = await pickPhoto(); if (!f) return;
+    fm.busy = true; fm.quickCut = null; fm.note = '👥 Finding the faces in both shots…'; renderPanel();
+    try {
+      const { detectFaces } = await import('../../lib/face.js');
+      const { cutOutFace } = await import('./facemask.js');
+      const here = (await detectFaces(applyPatches(source, state().patches ?? []))).sort((a, b) => (a.box.x + a.box.w / 2) - (b.box.x + b.box.w / 2));
+      const bm = await decodeImage(f, await sniffType(f)); const fit = fitSize(bm.width, bm.height, PREVIEW_MAX);
+      const other = drawToCanvas(bm, fit.width, fit.height, null); bm.close?.();
+      const there = (await detectFaces(other)).sort((a, b) => (a.box.x + a.box.w / 2) - (b.box.x + b.box.w / 2));
+      if (!here.length) { fm.note = 'No face found in this photo.'; return; }
+      if (!there.length) { fm.note = 'No face found in the other shot.'; return; }
+      const c = (q) => [q.box.x + q.box.w / 2, q.box.y + q.box.h / 2];
+      const matchOf = (i) => (here.length === there.length ? there[i] : there.reduce((a, b) => (Math.hypot(c(b)[0] - c(here[i])[0], c(b)[1] - c(here[i])[1]) < Math.hypot(c(a)[0] - c(here[i])[0], c(a)[1] - c(here[i])[1]) ? b : a)));
+      fm.faces = here;
+      fm.busy = false; renderPanel();
+      const idx = here.length > 1 ? await chooseFace(applyPatches(source, state().patches ?? []), here, '👥 Which face to fix?') : 0;
+      if (idx == null) { fm.note = ''; return; }
+      fm.busy = true; fm.note = '👥 Taking their face from the other shot…'; renderPanel();
+      const cut = cutOutFace(other, matchOf(idx));
+      if (!cut?.face) { fm.note = 'Couldn\'t cut their face out of the other shot.'; return; }
+      const W = source.width; const H = source.height;
+      const full = pixelsOf(cut, 1024); const small = pixelsOf(cut, 420);
+      placing = { name: 'their face from the other shot', full, small, aspect: full.w / full.h, x: W / 2, y: H / 2, width: W * 0.35, rot: 0, blend: 70, fit: false, trim: true, faceObj: null, preview: null, faces: here, face: -1, shown: null, charFace: cut.face, flip: false, userFlip: false, mirror: {}, tune: newTune(), paint: [], brush: null, brushSize: 22 };
+      renderShown();
+      await findFaces(); await withParts();
+      await placeOnFace(true, idx);
+      await upscaleIfSmall();
+      if (!placing?.fit) { placing = null; fm.note = 'Couldn\'t line the faces up.'; return; }
+      await finishPlacing();
+      fm.note = `👥 Face ${idx + 1} taken from the other shot (its eyes and smile). Tap Done to save it; Undo takes it back.`;
+    } catch (err) { placing = null; fm.note = `That didn't work: ${err.message}`; }
+    finally { fm.busy = false; renderPanel(); schedule(); }
+  }
+
   /** The face a Quick Swap used, kept as a Character (to use again). */
   async function keepQuickFace() {
     const cut = fm.quickCut; if (!cut) return;

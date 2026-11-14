@@ -1093,3 +1093,30 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .fa-who-item { flex: none; display: grid; justify-items: center; gap: 2px; padding: 4px; border-radius: 999px 999px 12px 12px; border: 1px solid var(--line, var(--border)); background: var(--surface); color: var(--text); min-width: 56px; }
 .fa-who-item img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
 .fa-who-item.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
+
+/* FM: 👥 Best face, which face to fix. */
+.fm-face-picks { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px; }
+.fm-face-pick { display: grid; justify-items: center; gap: 2px; padding: 4px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.fm-face-pick img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
+
+/* Home: the at-a-glance cards (weather, games) and Recent edits, above the apps. */
+.home-extras { display: grid; gap: 14px; max-width: 720px; margin: 12px auto 0; padding: 0 16px; }
+.glance-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.glance { display: grid; gap: 4px; align-content: start; color: var(--text); text-decoration: none; min-height: 96px; }
+.glance-head { display: flex; justify-content: space-between; gap: 6px; }
+.glance-head > span:first-child { flex: none; }
+.glance-head > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.glance-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.glance-main .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.glance-big { font-size: 1.8rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.glance-game { font-size: 1.02rem; font-variant-numeric: tabular-nums; }
+.glance.live { border-color: #e5484d; }
+.glance-alert { color: #b54708; font-weight: 600; }
+.recent-title { margin: 0 0 6px; font-weight: 600; text-transform: none; }
+.recent-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.recent-item { flex: none; width: 104px; display: grid; gap: 3px; color: var(--text); text-decoration: none; }
+.recent-pic { width: 104px; height: 92px; border-radius: 14px; object-fit: cover; border: 1px solid var(--border); background: var(--surface); }
+.recent-icon { display: grid; place-items: center; font-size: 2rem; }
+.recent-name, .recent-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .glance-alert { color: #ffb86b; } }
+:root[data-theme="dark"] .glance-alert { color: #ffb86b; }

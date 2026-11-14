@@ -1,7 +1,8 @@
 // Browser test for Fashion (Magic, `npm run test:web`): a drawn figure in a blue shirt (the base) and a
 // striped tee on white (the piece). The person finder (vendor/mediapipe) is turned off, so everything is
 // done by tapping: the tee's two colors picked (one piece, stripe against stripe), the base's shirt tapped
-// as what it goes on; 🔁 Replace covers the shirt with the tee fitted to its shape, ➕ Add puts it on as
+// as what it goes on; 🔁 Replace covers the shirt with the tee fitted to its shape, 🧥 Overlay with Fit to
+// body at 0 puts it on as
 // it is, sized by the shirt's chest (smaller, more of the shirt shows).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,7 +28,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); server?.close(); });
 
-test('Fashion: pick a striped tee by tapping its colors, tap the shirt it replaces; Replace fits it to the shirt, Add puts it on as it is', async () => {
+test('Fashion: pick a striped tee by tapping its colors, tap the shirt it replaces; Replace fits it to the shirt and drags as a whole; Overlay unfitted puts it on as it is', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await context.route('**/vendor/mediapipe/**', (route) => route.abort());
   const page = await context.newPage();
@@ -84,16 +85,31 @@ test('Fashion: pick a striped tee by tapping its colors, tap the shirt it replac
   // The face and the pants stay as they were.
   assert.ok(!tee(await pixel(300, 150)) || (await pixel(300, 150))[1] > 140, 'face');
   assert.deepEqual(await pixel(250, 600), [51, 48, 46]);
-  // ➕ Add: the tee as it is (not bent onto the shirt): the shirt's sleeve tips show past it.
-  await page.getByRole('tab', { name: '➕ Add' }).click();
+  // Dragged in Replace, the whole tee moves (not only its pattern inside the shirt's outline): the old shirt
+  // is taken off where it no longer covers it.
+  assert.equal(await page.getByRole('tab', { name: '➕ Add' }).count(), 0, 'no Add: Overlay does it');
+  await page.locator('.fa-canvas').scrollIntoViewIfNeeded();
+  const cb = await page.locator('.fa-canvas').boundingBox(); const cwid = await page.evaluate(() => document.querySelector('.fa-canvas').width);
+  const toPage = (x, y) => [cb.x + (x / cwid) * cb.width, cb.y + (y / cwid) * cb.width];
+  await page.mouse.move(...toPage(300, 380)); await page.mouse.down(); await page.mouse.move(...toPage(380, 380), { steps: 6 }); await page.mouse.up();
+  await page.waitForTimeout(400);
+  assert.ok(tee(await pixel(470, 380)), `moved right with the finger: ${await pixel(470, 380)}`);
+  assert.ok(!tee(await pixel(215, 380)), `and off the left of the shirt: ${await pixel(215, 380)}`);
+  const more = async () => { if (!(await page.locator('details.fa-more').evaluate((d) => d.open))) await page.locator('summary', { hasText: 'More edits' }).click(); };
+  await more();
+  await page.getByRole('button', { name: '↺ Reset' }).click();
+  // 🧥 Overlay, not fitted (Fit to body at 0): the tee as it is (not bent onto the shirt): the shirt's sleeve tips show past it.
+  await page.getByRole('tab', { name: '🧥 Overlay' }).click();
+  await more();
+  await page.getByRole('slider', { name: 'Fit to body' }).fill('0');
   let shown = 0;
   for (const [x, y] of [[140, 300], [460, 300], [150, 315], [450, 315], [205, 480], [395, 480]]) if (blue(await pixel(x, y))) shown++;
   // (Sized to the shirt's chest, so little of it may show; smaller, more does.)
   // Size slider: smaller → more of the shirt shows.
   await page.getByRole('slider', { name: 'Size' }).fill('60');
-  let more = 0;
-  for (const [x, y] of [[140, 300], [460, 300], [150, 315], [450, 315], [205, 480], [395, 480], [210, 300], [390, 300]]) if (blue(await pixel(x, y))) more++;
-  assert.ok(more > shown, `smaller: ${shown} → ${more}`);
+  let bigger = 0;
+  for (const [x, y] of [[140, 300], [460, 300], [150, 315], [450, 315], [205, 480], [395, 480], [210, 300], [390, 300]]) if (blue(await pixel(x, y))) bigger++;
+  assert.ok(bigger > shown, `smaller: ${shown} → ${bigger}`);
   // Save works (a download here: no share sheet).
   const dl = page.waitForEvent('download');
   await page.getByRole('button', { name: '💾 Save' }).click();
@@ -373,6 +389,41 @@ test('Fashion: a top with straps onto a strapless one: straps drawn over the bar
   await page.getByRole('button', { name: /^Use Top/ }).click();
   await page.waitForSelector('img[alt="2 · Piece"]');
   await page.getByText(/^Top · .*: ready\./).waitFor();
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Photo Editor → Clean Up → 👤 Remove a person: a tap on one of two people takes them out (the background filled in), the other stays', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS, headers: { 'content-type': 'text/javascript' } }));
+  await context.route('**/lib/pose.js', (route) => route.fulfill({ body: FAKE_POSES, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files/photo`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(600, 900); const x = c.getContext('2d'); const SKIN = '#e0a888';
+    x.fillStyle = '#ece6da'; x.fillRect(0, 0, 600, 900);
+    for (const [cx, dress] of [[180, '#b8323c'], [420, '#3c9a46']]) {
+      x.fillStyle = SKIN; x.beginPath(); x.ellipse(cx, 125, 45, 58, 0, 0, 7); x.fill(); x.fillRect(cx - 16, 180, 32, 50);
+      x.fillStyle = dress; x.fillRect(cx - 90, 225, 180, 560);
+    }
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await page.setInputFiles('#ed-file', { name: 'two.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.getByRole('tab', { name: 'Clean Up' }).click();
+  await page.getByRole('button', { name: '👤 Remove a person' }).click();
+  const pixel = (fx, fy) => page.$eval('.ed-canvas', (c, [u, v]) => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); return [...x.getImageData(Math.round(u * c.width), Math.round(v * c.height), 1, 1).data].slice(0, 3); }, [fx, fy]);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const b = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; });
+  await page.mouse.click(b[0] + (180 / 600) * b[2], b[1] + (500 / 900) * b[3]);
+  await page.waitForSelector('text=/taken out and filled in/', { timeout: 60000 });
+  await page.waitForTimeout(200);
+  const bg = ([r, g, bl]) => Math.abs(r - 236) < 24 && Math.abs(g - 230) < 24 && Math.abs(bl - 218) < 30;
+  for (const [x, y] of [[180, 500], [180, 125], [120, 700]]) assert.ok(bg(await pixel(x / 600, y / 900)), `person 1 gone at ${x},${y}: ${await pixel(x / 600, y / 900)}`);
+  const green = await pixel(420 / 600, 500 / 900); assert.ok(green[1] > green[0] + 40, `person 2 stays: ${green}`);
+  await page.getByRole('button', { name: 'Undo' }).click(); await page.waitForTimeout(200);
+  const red = await pixel(180 / 600, 500 / 900); assert.ok(red[0] > red[1] + 60, `undone: ${red}`);
   assert.deepEqual(errors, []);
   await context.close();
 });

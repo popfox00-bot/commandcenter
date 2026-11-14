@@ -1120,3 +1120,8 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .recent-name, .recent-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .glance-alert { color: #ffb86b; } }
 :root[data-theme="dark"] .glance-alert { color: #ffb86b; }
+
+/* Fashion: the check before saving. */
+.fa-check-item { display: grid; grid-template-columns: 80px 1fr; gap: 10px; align-items: center; margin: 8px 0; }
+.fa-check-item img { width: 80px; height: 80px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border); }
+.fa-check-item p { margin: 0 0 6px; }

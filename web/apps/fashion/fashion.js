@@ -21,6 +21,7 @@ import { noteError } from '../../lib/diag.js';
 import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
+import { rgbToLab } from '../../lib/color-match.js';
 import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand } from '../../tools/fashion/fashion-core.js';
 import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps } from './compose.js';
 
@@ -53,6 +54,8 @@ export function mount(host) {
   const pointers = new Map(); let pinch = null;
   let comparing = false;
   let moreOpen = false;
+  let showZoneUntil = 0;
+  let flag = null;          // a spot the check before saving points at: { box, until }    // the outline of what it goes on, shown a moment after the waist line is moved
   let alive = true;
   const history = { undo: [], redo: [] };
   let resume = null;       // a saved session to continue
@@ -164,6 +167,16 @@ export function mount(host) {
       if (piece.picks?.base && !piece.picks.add.length && !piece.picks.edits?.length) autoPick(true);
       note = `Made part of person ${img.who + 1}.`;
     } else { if (!target || target.auto) autoTarget(); place = null; placeIt(); fillCache = null; note = `Made part of person ${img.who + 1}.`; }
+  }
+  /**
+   * A body zone's waist line, raised or lowered (as a share of the face's height) on one photo: where the
+   * upper body ends and the lower body starts on it. `then`: what's found again after.
+   */
+  function waistRow(img, then) {
+    if (!isZone(kind) || kind === 'outfit' || !img?.layout) return null;
+    const L = img.layout; const v = Math.round(((L.waistShift ?? 0) / L.fh) * 100);
+    return el('div', { class: 'range-row' }, el('span', { class: 'small', text: 'Waist line' }),
+      (() => { let nv = v; return rangeInput(-60, 60, v, 'Waist line', (x) => { nv = x; }, () => { img.layout = { ...img.layout, waistShift: (nv / 100) * L.fh }; then(); commit(); render(); }); })());
   }
   /** In a group photo: who (a face to tap for each person, left to right). */
   function whoRow(img, label) {
@@ -683,6 +696,7 @@ export function mount(host) {
       el('p', { class: 'small', text: found.length ? 'Or say what it is:' : 'What is it?' }), kinds,
       tools,
       tool.startsWith('brush') ? el('div', { class: 'range-row' }, el('span', { class: 'small', text: 'Brush' }), rangeInput(4, 60, brush, 'Brush size', (v) => { brush = v; })) : null,
+      waistRow(piece, () => { if (!piece.picks?.add.length && !piece.picks?.edits?.length) autoPick(true); piece.found = null; }),
       el('div', { class: 'range-row' }, el('span', { class: 'small', text: 'Match' }), rangeInput(4, 45, tol, 'Match', (v) => { tol = v; }, () => { if (piece.picks?.add.length || piece.picks?.del.length) { rebuildSel(); commit(); render(); } })),
       el('p', { class: 'small muted', 'aria-live': 'polite', text: note || (piece.finding ? 'Finding the person…' : piece.sel ? 'Pink is the piece.' : 'Press on the piece\'s color (the magnifier shows what you\'re on), or trace around it.') }),
       el('div', { class: 'row' },
@@ -893,10 +907,11 @@ export function mount(host) {
       modeBar,
       el('p', { class: 'small muted', text: { overlay: 'Overlay: on top of what\'s worn there (a jacket over a shirt, a hat, shoes). Drag to move it, pinch to size and turn it.', replace: 'Replace: what\'s worn there is taken off and the piece put in its place. Drag to move it, pinch to size and turn it.' }[mode] }),
       el('p', { class: 'small', 'aria-live': 'polite', text: note || auto }),
+      waistRow(base, () => { if (!target || target.auto) autoTarget(); place = null; placeIt(); fillCache = null; showZoneUntil = Date.now() + 2500; setTimeout(() => { if (alive) draw(); }, 2600); }),
       el('div', { class: 'row wrap' },
         el('button', { class: 'btn ghost', type: 'button', text: '‹ Piece', onclick: () => { step = 'pick'; tool = 'tap'; note = ''; render(); } }),
         hold,
-        el('button', { class: 'btn primary', type: 'button', text: busy ? 'Saving…' : '💾 Save', disabled: busy, onclick: save })),
+        el('button', { class: 'btn primary', type: 'button', text: busy ? 'Saving…' : '💾 Save', disabled: busy, onclick: () => save() })),
       more,
       about('It\'s fitted for you: placed and sized by the person\'s body outline (its body to their torso, each sleeve to an arm, each shoe to a foot), its light matched to the photo, the body\'s shading carried onto it, hair, face and hands kept in front. Drag it to move it, pinch to size it; More edits has the rest. Saved at full size (up to 2560 px). Everything is worked out on this phone.'),
     ];
@@ -938,7 +953,61 @@ export function mount(host) {
     return layer;
   }
 
-  async function save() {
+  /**
+   * The check before saving (Replace): what would give it away, found on the picture as it is. Bits of the
+   * old garment still showing around it (its color, uncovered, in clumps), and the new piece reaching past
+   * the person onto the background. [{ what, box, tool, hint }] (where it is, and the brush that fixes it).
+   */
+  function assess() {
+    if (mode !== 'replace' || !target || target.body || !base?.people) return [];
+    const { w, h } = base; const out = new Uint8ClampedArray(w * h * 4); const layer = compose(out);
+    if (!layer) return [];
+    const at = (x, y) => { const lx = x - layer.x0; const ly = y - layer.y0; return lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph ? layer.rgba[(ly * layer.pw + lx) * 4 + 3] : 0; };
+    const fh = base.layout?.fh ?? h / 7; const b = target.box; const g = Math.round(fh * 0.15);
+    const x0 = Math.max(0, b.x0 - g); const y0 = Math.max(0, b.y0 - g); const x1 = Math.min(w, b.x1 + g); const y1 = Math.min(h, b.y1 + g);
+    // The old garment's color: what was worn there, its median.
+    const vs = [[], [], []]; for (let y = b.y0; y < b.y1; y += 2) for (let x = b.x0; x < b.x1; x += 2) { const i = y * w + x; if (target.mask[i] && base.people.clothes[i] >= 128) for (let c = 0; c < 3; c++) vs[c].push(base.rgba[i * 4 + c]); }
+    if (vs[0].length < 50) return [];
+    const med = vs.map((v) => { v.sort((a, c) => a - c); return v[v.length >> 1]; }); const old = rgbToLab(med[0], med[1], med[2]);
+    const left = new Uint8Array(w * h); const past = new Uint8Array(w * h);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = y * w + x; const a = at(x, y); const p = base.people;
+      if (a < 128 && p.clothes[i] >= 128 && p.face[i] < 128 && p.hair[i] < 100) { const q = rgbToLab(out[i * 4], out[i * 4 + 1], out[i * 4 + 2]); if (Math.hypot((q[0] - old[0]) * 0.5, q[1] - old[1], q[2] - old[2]) < 14) left[i] = 1; }
+      if (a >= 200 && Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i], p.others[i]) < 40) past[i] = 1;
+    }
+    const issues = [];
+    const clumps = (m, min) => { const box = { x0, y0, x1, y1 }; const k = mainParts(m, w, h, box, 0); if (!k) return []; const lab = new Int32Array(w * h); const res = []; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const s0 = y * w + x; if (!m[s0] || lab[s0]) continue; const q = [s0]; lab[s0] = 1; let bx0 = x; let by0 = y; let bx1 = x; let by1 = y; for (let t = 0; t < q.length; t++) { const i = q[t]; const X = i % w; const Y = (i / w) | 0; bx0 = Math.min(bx0, X); bx1 = Math.max(bx1, X); by0 = Math.min(by0, Y); by1 = Math.max(by1, Y); for (const n of [i - 1, i + 1, i - w, i + w]) if (n >= 0 && n < w * h && m[n] && !lab[n]) { lab[n] = 1; q.push(n); } } if (q.length >= min) res.push({ n: q.length, box: { x0: bx0, y0: by0, x1: bx1 + 1, y1: by1 + 1 } }); } return res.sort((a2, c) => c.n - a2.n); };
+    const min = Math.max(25, Math.round(fh * fh * 0.02));
+    for (const c of clumps(left, min).slice(0, 2)) issues.push({ what: `Some of the old ${[...KINDS, ...ZONES].find((q) => q[0] === kind)?.[2].toLowerCase() ?? 'piece'} still shows here.`, box: c.box, tool: 'brush+', hint: 'Brush over it: it\'s added to what the piece goes on, and covered.' });
+    for (const c of clumps(past, min).slice(0, 1)) issues.push({ what: 'The new piece reaches past the person here.', box: c.box, tool: 'brush-', hint: 'Brush over it: it\'s taken out of what the piece goes on.' });
+    return issues;
+  }
+  /** The check's findings, before saving: each with Show me (the spot marked, the brush that fixes it picked), or Save anyway. */
+  function checkFirst(issues) {
+    const crop = (bx) => {
+      const pad = Math.round(Math.max(bx.x1 - bx.x0, bx.y1 - bx.y0) * 0.6) + 10; const cx = (bx.x0 + bx.x1) / 2; const cy = (bx.y0 + bx.y1) / 2; const side = Math.max(bx.x1 - bx.x0, bx.y1 - bx.y0) + pad * 2;
+      const c = document.createElement('canvas'); c.width = 80; c.height = 80; c.getContext('2d').drawImage(canvas, cx - side / 2, cy - side / 2, side, side, 0, 0, 80, 80); return c.toDataURL('image/jpeg', 0.8);
+    };
+    const dlg = el('dialog', { class: 'ed-dialog fa-check' }, el('form', { method: 'dialog', class: 'sheet' },
+      el('h2', { text: 'Before you save' }),
+      el('p', { class: 'small muted', text: 'A couple of spots could give it away:' }),
+      ...issues.map((it, k) => el('div', { class: 'fa-check-item' }, el('img', { src: crop(it.box), alt: '' }),
+        el('div', {}, el('p', { class: 'small', text: it.what }), el('button', { class: 'btn small', value: `fix${k}`, text: 'Show me' })))),
+      el('div', { class: 'row end' }, el('button', { class: 'btn ghost', value: 'cancel', text: 'Not now' }), el('button', { class: 'btn primary', value: 'save', text: 'Save anyway' }))));
+    dlg.addEventListener('close', () => {
+      const v = dlg.returnValue; dlg.remove();
+      if (v === 'save') { save(true); return; }
+      const m = /^fix(\d+)$/.exec(v ?? ''); if (!m) return;
+      const it = issues[Number(m[1])];
+      tool = it.tool; moreOpen = true; note = it.hint; flag = { box: it.box, until: Date.now() + 4000 };
+      render(); setTimeout(() => { if (alive) draw(); }, 4100);
+      canvas?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    document.body.append(dlg); dlg.showModal();
+  }
+
+  async function save(checked = false) {
+    if (!checked) { let issues = []; try { issues = assess(); } catch (e) { noteError('Fashion: the check before saving', e); } if (issues.length) { checkFirst(issues); return; } }
     busy = true; render();
     try {
       const big = async (img) => {
@@ -1173,7 +1242,7 @@ export function mount(host) {
       else {
         const out = new Uint8ClampedArray(base.w * base.h * 4);
         compose(out);
-        if (target && tool !== 'move') for (let y = target.box.y0; y < target.box.y1; y++) for (let x = target.box.x0; x < target.box.x1; x++) {
+        if (target && (tool !== 'move' || Date.now() < showZoneUntil)) for (let y = target.box.y0; y < target.box.y1; y++) for (let x = target.box.x0; x < target.box.x1; x++) {
           const i = y * base.w + x; if (!target.mask[i]) continue;
           const edge = !target.mask[i - 1] || !target.mask[i + 1] || !target.mask[i - base.w] || !target.mask[i + base.w];
           if (edge) out.set([255, 214, 10, 255], i * 4);
@@ -1182,6 +1251,8 @@ export function mount(host) {
       }
       shown = step;
       if (tool === 'guides' && !comparing) drawGuides(im);
+      // (A spot the check before saving pointed at.)
+      if (flag && step === 'put' && Date.now() < flag.until) { const k = perPx(); const pad = 6 * k; ctx.save(); ctx.strokeStyle = '#ff3b30'; ctx.lineWidth = 3 * k; ctx.setLineDash([8 * k, 5 * k]); ctx.strokeRect(flag.box.x0 - pad, flag.box.y0 - pad, flag.box.x1 - flag.box.x0 + pad * 2, flag.box.y1 - flag.box.y0 + pad * 2); ctx.restore(); }
       // A loop or brush stroke being drawn, and the magnifier while picking a color.
       if (press && tool !== 'move' && tool !== 'guides') {
         const k = perPx();

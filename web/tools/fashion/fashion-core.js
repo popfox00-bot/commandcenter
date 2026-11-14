@@ -25,7 +25,7 @@ export const isZone = (kind) => ZONES.some((z) => z[0] === kind);
 
 /** @typedef {{ x0: number, y0: number, x1: number, y1: number }} Box */
 /** @typedef {{ w: number, h: number, face: Uint8Array, hair: Uint8Array, body: Uint8Array, clothes: Uint8Array, others: Uint8Array }} People */
-/** @typedef {{ face: Box|null, person: Box|null, fw: number, fh: number, chin: number, waist: number, ankle: number, split: boolean }} Layout */
+/** @typedef {{ face: Box|null, person: Box|null, fw: number, fh: number, chin: number, waist: number, ankle: number, split: boolean, waistShift?: number }} Layout */
 
 /** The box of a mask's set pixels (at least `thr`), or null. @param {ArrayLike<number>} m @returns {Box|null} */
 export function boxOf(m, w, h, thr = 1) {
@@ -199,6 +199,7 @@ function zoneRegion(kind, p, L, z, pose) {
   const seen0 = (q) => q && q[2] >= 0.3;
   const P = L.person ?? { x0: 0, y0: 0, x1: w, y1: h };
   const cutOff = P.y1 >= h - 3 && P.y1 - L.chin < L.fh * 4.5;
+  let tilt = null;
   if (!cutOff && kind !== 'outfit') {
     let waist;
     if (pose && seen0(pose.hips[0]) && seen0(pose.hips[1]) && seen0(pose.shoulders[0]) && seen0(pose.shoulders[1])) {
@@ -206,13 +207,21 @@ function zoneRegion(kind, p, L, z, pose) {
       waist = hy > sy ? hy - (hy - sy) * 0.3 : null;
     }
     waist ??= Math.max(L.chin + L.fh * 2.6, L.chin + (L.ankle - L.chin) * 0.29);
-    waist = Math.round(Math.min(h, waist));
-    z = kind === 'upper' ? { ...z, y1: Math.max(z.y0 + 1, waist) } : { ...z, y0: Math.min(z.y1 - 1, waist) };
+    waist = Math.round(Math.min(h, waist + (L.waistShift ?? 0)));
+    // (Tilted as the hips are: someone leaning, their weight on one leg.)
+    if (pose && seen0(pose.hips[0]) && seen0(pose.hips[1]) && Math.abs(pose.hips[1][0] - pose.hips[0][0]) > 4) {
+      const slope = Math.max(-0.35, Math.min(0.35, (pose.hips[1][1] - pose.hips[0][1]) / (pose.hips[1][0] - pose.hips[0][0])));
+      const cx = (pose.hips[0][0] + pose.hips[1][0]) / 2; const reach = Math.ceil(Math.abs(slope) * (z.x1 - z.x0));
+      tilt = { waist, slope, cx };
+      z = kind === 'upper' ? { ...z, y1: Math.min(h, Math.max(z.y0 + 1, waist + reach)) } : { ...z, y0: Math.max(0, Math.min(z.y1 - 1, waist - reach)) };
+    } else z = kind === 'upper' ? { ...z, y1: Math.max(z.y0 + 1, waist) } : { ...z, y0: Math.min(z.y1 - 1, waist) };
   }
+  const cutAt = (x) => (tilt ? tilt.waist + (x - tilt.cx) * tilt.slope : null);
+  const beyond = (x, y) => tilt && (kind === 'upper' ? y >= cutAt(x) : y < cutAt(x));
   // (Shoes are a piece of their own: not part of the lower body or the outfit.)
   const feet = kind === 'upper' ? Infinity : L.ankle - L.fh * 0.4;
   const on = (i, y) => Math.max(p.body[i], p.clothes[i], p.others[i]) >= 128 && p.face[i] < 128 && !(y > feet && p.others[i] >= 128 && p.others[i] >= p.clothes[i]);
-  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (on(i, y) && p.hair[i] < 128) m[i] = 1; }
+  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (on(i, y) && p.hair[i] < 128 && !beyond(x, y)) m[i] = 1; }
   openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 60)));
   // Each row's ends (of what isn't hair); near the shoulders, the widest a little way below too (a shoulder
   // hidden by hair is seen lower down, as the arm), and the shoulders the pose found.
@@ -237,7 +246,20 @@ function zoneRegion(kind, p, L, z, pose) {
     }
     if (l < 0) continue;
     // (Hair, or anything of the person, between the ends: theirs.)
-    for (let x = Math.max(z.x0, l); x <= Math.min(z.x1 - 1, r); x++) { const i = y * w + x; if (!m[i] && p.face[i] < 128 && Math.max(p.hair[i], p.body[i], p.clothes[i], p.others[i]) >= 128) m[i] = 1; }
+    for (let x = Math.max(z.x0, l); x <= Math.min(z.x1 - 1, r); x++) { const i = y * w + x; if (!m[i] && p.face[i] < 128 && !beyond(x, y) && Math.max(p.hair[i], p.body[i], p.clothes[i], p.others[i]) >= 128) m[i] = 1; }
+  }
+  // (Its clothes riding up past the chin row, a collar at the back of the neck: what's joined to them above.)
+  if (kind !== 'lower') {
+    const yTop = Math.max(0, Math.floor(L.chin - L.fh * 0.6)); const st = [];
+    for (let x = z.x0; x < z.x1; x++) for (let y = z.y0; y < Math.min(z.y1, z.y0 + 3); y++) if (m[y * w + x] && p.clothes[y * w + x] >= 128) st.push(y * w + x);
+    for (let a = 0; a < st.length; a++) {
+      const i = st[a]; const x = i % w; const y = (i / w) | 0;
+      for (const t of [x > z.x0 ? i - 1 : -1, x < z.x1 - 1 ? i + 1 : -1, y > yTop ? i - w : -1]) {
+        if (t < 0 || m[t] || ((t / w) | 0) >= z.y0) continue;
+        if (p.clothes[t] >= 128 && p.face[t] < 128 && p.hair[t] < 128) { m[t] = 1; st.push(t); }
+      }
+    }
+    z = { ...z, y0: Math.min(z.y0, yTop) };
   }
   // Smoothed: small notches closed, specks off; one body (and what's joined to it), its holes closed.
   const r1 = Math.max(1, Math.round(L.fh / 22));
@@ -246,6 +268,7 @@ function zoneRegion(kind, p, L, z, pose) {
   const kept = mainParts(m, w, h, z, 0.05);
   if (!kept) return null;
   fillHoles(kept.mask, w, h, kept.box, 0.3);
+  if (tilt) for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) if (beyond(x, y)) kept.mask[y * w + x] = 0;
   // (Never the background: what closing bridged between an arm and the side, the loop of an arm.)
   for (let i = 0; i < w * h; i++) if (kept.mask[i] && (Math.max(p.body[i], p.clothes[i], p.others[i], p.hair[i]) < 64 || ((i / w) > feet && p.others[i] >= 128 && p.others[i] >= p.clothes[i]))) kept.mask[i] = 0;
   let n = 0; for (let i = 0; i < w * h; i++) n += kept.mask[i];
@@ -787,7 +810,7 @@ export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'repla
  * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt;
  * `bare`: 1 where it's the piece's bare skin itself).
  */
-export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null } = {}) {
+export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null } = {}) {
   const T = target.box; const tw = T.x1 - T.x0; const th = T.y1 - T.y0;
   const pbh = pb.y1 - pb.y0; const pbw = pb.x1 - pb.x0;
   const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
@@ -883,7 +906,17 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   };
   // (Where a row of the outline falls between two of the piece's: both, blended. A piece stretched taller
   // otherwise repeats its rows, streaks across it.)
-  const rowAt = (y) => { const v = (y - T.y0 - A.dy) / zy; return Math.max(0, Math.min(pbh - 1, (open ? v / s : (v / th) * pbh) - 0.5)); };
+  // (`rows`: rows of the outline matched to rows of the piece, [[y, pieceY], ...] top to bottom, e.g. the
+  // shoulders to the shoulders and the waist to the waist, by the two people's poses: in between, and
+  // above and below, as straight lines from one to the next. Else top to top and bottom to bottom.)
+  const anchors = rows && rows.length >= 2 && !open ? [[T.y0, pb.y0], ...rows.filter(([ty, py]) => ty > T.y0 + 2 && ty < T.y1 - 2 && py > pb.y0 + 2 && py < pb.y1 - 2), [T.y1, pb.y1]].sort((a, b) => a[0] - b[0]) : null;
+  if (anchors) for (let i = 1; i < anchors.length; i++) if (anchors[i][1] <= anchors[i - 1][1]) { anchors.length = 0; break; }
+  const viaAnchors = (y) => { for (let i = 1; i < anchors.length; i++) if (y <= anchors[i][0] || i === anchors.length - 1) { const [a0, b0] = anchors[i - 1]; const [a1, b1] = anchors[i]; return b0 + ((y - a0) * (b1 - b0)) / Math.max(1, a1 - a0); } return pb.y1; };
+  const rowAt = (y) => {
+    const v = (y - T.y0 - A.dy) / zy;
+    if (anchors?.length) return Math.max(0, Math.min(pbh - 1, viaAnchors(T.y0 + v) - pb.y0 - 0.5));
+    return Math.max(0, Math.min(pbh - 1, (open ? v / s : (v / th) * pbh) - 0.5));
+  };
   const rowOf = (y) => nearRow(Math.round(rowAt(y)));
   const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null; const neckOut = skin ? new Uint8Array(tw * th) : null;
   for (let y = T.y0; y < T.y1; y++) {
@@ -1027,7 +1060,7 @@ export function upperParts(p, L, w, h, kind = 'upper', pose = null) {
  * in its middle, in the base person's skin color (`tone`), lit as an arm is round. The rest of the
  * sleeve isn't drawn (what was behind it is filled in). A layer over the sleeve's box.
  */
-export function bareArm(sleeve, w, h, tone, people) {
+export function bareArm(sleeve, w, h, tone, people, skinDetail = null) {
   const b = sleeve.box; const bw = b.x1 - b.x0; const bh = b.y1 - b.y0;
   // The arm's own width: its bare skin just below the sleeve, if it's seen there.
   let armW = 0; const ws = [];
@@ -1043,10 +1076,12 @@ export function bareArm(sleeve, w, h, tone, people) {
     const sw = r - l; const aw = Math.min(sw, armW > 3 ? armW : sw * 0.62); const c = (l + r) / 2;
     for (let x = Math.max(b.x0, Math.floor(c - aw / 2)); x < Math.min(b.x1, Math.ceil(c + aw / 2)); x++) {
       const u = (x + 0.5 - (c - aw / 2)) / aw; const shade = 0.82 + 0.18 * Math.sqrt(Math.max(0, Math.sin(Math.PI * u)));
-      seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 4;
+      seed = (seed * 1103515245 + 12345) >>> 0; const g = skinDetail ? 0 : ((seed / 4294967296) - 0.5) * 4;
       const edge = Math.min(1, (x + 1 - (c - aw / 2)), (c + aw / 2) - x);
       const o = ((y - b.y0) * bw + x - b.x0) * 4;
-      for (let k = 0; k < 3; k++) rgba[o + k] = tone[k] * shade + g;
+      // (Their own skin's fine detail, where it's known: pores, its unevenness; not a smooth paint.)
+      const dt = skinDetail ? skinDetail(x, y) : null;
+      for (let k = 0; k < 3; k++) rgba[o + k] = tone[k] * shade + g + (dt ? dt[k] * shade : 0);
       rgba[o + 3] = Math.round(255 * Math.max(0, Math.min(1, edge)));
     }
   }
@@ -1294,4 +1329,33 @@ export function matteBand(rgba, w, h, mask, box, B = 2, R = 7) {
     alpha[k] = res > 30 ? (Math.hypot(C[0][k] - f[0], C[1][k] - f[1], C[2][k] - f[2]) < 30 ? 1 : 0) : a;
   }
   return { x0, y0, pw, ph, alpha, F, G };
+}
+
+/**
+ * A person's own skin texture, to carry into skin that's made up (a bare arm where a sleeve was, a lower
+ * neckline): the biggest square of their clear skin (`people` body, not face or hair, at `rgba`), its fine
+ * detail only (each pixel less the blur of its square: no light or shade), tiled mirrored over the picture.
+ * A function (x, y) → [dr, dg, db], or null when too little skin is seen.
+ */
+export function skinTexture(rgba, w, h, people, fh = 60) {
+  const ok = (i) => people.body[i] >= 200 && people.face[i] < 100 && people.hair[i] < 60;
+  // (The biggest all-skin square: an integral of the skin, tried from big to small.)
+  const I = new Int32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += ok(y * w + x) ? 1 : 0; I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row; } }
+  const sum = (x0, y0, s2) => I[(y0 + s2) * (w + 1) + x0 + s2] - I[y0 * (w + 1) + x0 + s2] - I[(y0 + s2) * (w + 1) + x0] + I[y0 * (w + 1) + x0];
+  let best = null;
+  for (let S = Math.min(64, Math.round(fh * 0.8)); S >= 8 && !best; S = Math.round(S * 0.8)) {
+    const step = Math.max(2, S >> 2);
+    for (let y = 0; y + S <= h && !best; y += step) for (let x = 0; x + S <= w; x += step) if (sum(x, y, S) >= S * S * 0.98) { best = { x, y, S }; break; }
+  }
+  if (!best) return null;
+  const { S } = best; const D = new Float32Array(S * S * 3);
+  const r = Math.max(2, Math.round(S / 6));
+  for (let c = 0; c < 3; c++) {
+    const v = new Float32Array(S * S); for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) v[y * S + x] = rgba[((best.y + y) * w + best.x + x) * 4 + c];
+    const bl = boxBlur(v, new Uint8Array(S * S).fill(1), S, S, r);
+    for (let k = 0; k < S * S; k++) D[k * 3 + c] = Math.max(-25, Math.min(25, v[k] - bl[k]));
+  }
+  const mir = (t) => { const m = ((t % (2 * S)) + 2 * S) % (2 * S); return m < S ? m : 2 * S - 1 - m; };
+  return (x, y) => { const k = mir(Math.round(y)) * S + mir(Math.round(x)); return [D[k * 3], D[k * 3 + 1], D[k * 3 + 2]]; };
 }

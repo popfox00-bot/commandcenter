@@ -4,6 +4,7 @@
 import { $, el, store } from './lib/dom.js';
 import { APPS, FILES_APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
+import { VERSION, HISTORY } from './version.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
@@ -32,6 +33,7 @@ async function route() {
   if (inFiles) { back.href = '#/files'; back.textContent = '‹ Files'; } else if (parent) { back.href = parent.href; back.textContent = `‹ ${parent.name}`; } else { back.href = '#/'; back.textContent = '‹ Home'; }
   $('#title').textContent = { home: 'Command Center', jobs: 'Jobs', app: inFiles?.name ?? app?.name }[view];
   $('#jobs-actions').hidden = view !== 'jobs';
+  $('#version').hidden = view !== 'home';
   setJobsActive(view === 'jobs');
 
   if (mountedApp && (view !== 'app' || mountedApp.id !== app.id)) {
@@ -57,6 +59,21 @@ async function mountInto(host, entry, id) {
     return { id, unmount: null };
   }
 }
+
+// The version, small at the top right of the home screen; tap it for what changed in each.
+$('#version').textContent = `v${VERSION}`;
+$('#version').setAttribute('aria-label', `Version ${VERSION}: what's new`);
+$('#version').addEventListener('click', () => {
+  const d = $('#versions');
+  d.replaceChildren(
+    el('div', { class: 'versions-head' }, el('h2', { id: 'versions-title', text: 'Version history' }),
+      el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', text: '✕', onclick: () => d.close() })),
+    el('ol', { class: 'versions-list' }, ...HISTORY.map((h) => el('li', { class: h.v === VERSION ? 'current' : '' },
+      el('div', { class: 'versions-row' }, el('strong', { text: `v${h.v}` }), el('span', { class: 'small muted', text: new Date(`${h.date}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) }), h.v === VERSION ? el('span', { class: 'small versions-now', text: 'This version' }) : null),
+      el('p', { class: 'small', text: h.notes })))));
+  d.showModal();
+});
+$('#versions').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 renderHome();
 window.addEventListener('hashchange', route);

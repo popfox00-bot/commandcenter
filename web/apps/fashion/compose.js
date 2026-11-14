@@ -5,6 +5,7 @@
 
 import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone } from '../../tools/fashion/fashion-core.js';
 import { softenMask } from '../../lib/geometry.js';
+import { rgbToLab } from '../../lib/color-match.js';
 import { cleanUp } from '../../tools/editor/cleanup.js';
 
 /**
@@ -95,11 +96,14 @@ function neckline(layer, base, w, zone = false) {
   }
   // A body zone: where the piece shows its bare skin (a tank top's shoulders) and the base was clothed
   // there, the base person's skin (their color, lit round by the folds of the light on them later).
+  // (Only at the shoulders and chest, what a neckline or a tank top shows: lower down, the piece's skin is
+  // an arm or a hand across it, and the cloth carries on under it.)
   if (zone && layer.bare) {
     const tone = skinTone(base); if (!tone) return;
+    const lowest = base.layout ? base.layout.chin + base.layout.fh * 1.4 - y0 : ph;
     let seed = 5;
     for (let k = 0; k < n; k++) {
-      if (!layer.bare[k] || !layer.rgba[k * 4 + 3] || isBare(k)) continue;
+      if (!layer.bare[k] || !layer.rgba[k * 4 + 3] || isBare(k) || (k / pw) > lowest) continue;
       seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 4;
       for (let c = 0; c < 3; c++) layer.rgba[k * 4 + c] = tone[c] + g;
     }
@@ -380,5 +384,67 @@ export function lay(out, w, h, p) {
       const i = (Y * w + X) * 4;
       for (let c = 0; c < 3; c++) out[i + c] = out[i + c] * (1 - a) + p.rgba[o + c] * a;
     }
+  }
+}
+
+/**
+ * What's left of the garment taken off that the piece doesn't cover (Replace): its thin straps (too thin
+ * for the person finder, read as skin or hair), a sliver at its edge, a tie hanging from it: what's on the
+ * person there of that garment's own hue (by its color, not its lightness), not covered by the piece. They're the same garment, so they take the
+ * piece's color: { x0, y0, pw, ph, wgt (0..1, how much), gain ([r, g, b]: the piece's color over the old
+ * garment's) } at the base's size, or null.
+ */
+export function leftovers(S, layer) {
+  const { base, target } = S; const p = base.people;
+  if (!isTrace(S) || !layer || !p || !base.layout) return null;
+  const { w, h } = base; const cl = clothesOf(S);
+  // The old garment's color (its mean, and its hue) and the piece's where it was laid.
+  const bm = [0, 0, 0]; let nb = 0; let ta = 0; let tb = 0;
+  const lm = [0, 0, 0]; let nl = 0;
+  for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) {
+    const i = (layer.y0 + y) * w + layer.x0 + x; if (!cl[i]) continue;
+    for (let c = 0; c < 3; c++) bm[c] += base.rgba[i * 4 + c];
+    const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); ta += q[1]; tb += q[2]; nb++;
+    const o = (y * layer.pw + x) * 4; if (layer.rgba[o + 3] >= 250) { for (let c = 0; c < 3; c++) lm[c] += layer.rgba[o + c]; nl++; }
+  }
+  if (nb < 50 || nl < 50) return null;
+  ta /= nb; tb /= nb;
+  const gain = [0, 1, 2].map((c) => (lm[c] / nl) / Math.max(8, bm[c] / nb));
+  // Around it, about half a face's width.
+  const g = Math.round(base.layout.fw * 0.6); const B = target.box;
+  const x0 = Math.max(0, B.x0 - g); const y0 = Math.max(0, B.y0 - g); const x1 = Math.min(w, B.x1 + g); const y1 = Math.min(h, B.y1 + g);
+  const pw = x1 - x0; const ph = y1 - y0; const wgt = new Float32Array(pw * ph); let any = 0;
+  const covered = (X, Y) => { const lx = X - layer.x0; const ly = Y - layer.y0; return lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128; };
+  // (Of their hue: near its color, or its hue at any lightness (its shade); and nearer it than their skin,
+  // on them (a strap too thin for the person finder to call clothes), never the leaves behind them.)
+  const tone = skinTone(base); const sk = tone ? rgbToLab(tone[0], tone[1], tone[2]) : null;
+  const tc = Math.hypot(ta, tb); const th0 = Math.atan2(tb, ta);
+  for (let Y = y0; Y < y1; Y++) for (let X = x0; X < x1; X++) {
+    const i = Y * w + X;
+    if (p.face[i] >= 128 || Math.max(p.clothes[i], p.body[i], p.others[i], p.hair[i]) < 40 || covered(X, Y)) continue;
+    const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
+    const d = Math.hypot(q[1] - ta, q[2] - tb); const qc = Math.hypot(q[1], q[2]);
+    let hd = Math.abs(Math.atan2(q[2], q[1]) - th0); if (hd > Math.PI) hd = 2 * Math.PI - hd; hd *= 180 / Math.PI;
+    let v = d < 22 ? Math.min(1, (22 - d) / 10) : 0;
+    if (tc >= 8 && qc >= 8) v = Math.max(v, hd < 20 ? 1 : hd < 35 ? (35 - hd) / 15 : 0);
+    if (!v) continue;
+    if (sk) {
+      // (Nearer the garment's hue than their skin's, by its angle where both have color; else by distance.)
+      let hs = Math.abs(Math.atan2(q[2], q[1]) - Math.atan2(sk[2], sk[1])); if (hs > Math.PI) hs = 2 * Math.PI - hs; hs *= 180 / Math.PI;
+      if (qc >= 8 && tc >= 8 ? hs <= hd : Math.hypot(q[1] - sk[1], q[2] - sk[2]) < d) continue;
+    }
+    if (p.clothes[i] < 90) v *= 0.9;
+    wgt[(Y - y0) * pw + X - x0] = v; any++;
+  }
+  return any ? { x0, y0, pw, ph, wgt, gain } : null;
+}
+
+/** The leftovers (above) recolored on `out` (w wide) from `src` (the base's pixels, the same size). In place. */
+export function recolor(out, w, rest, src) {
+  if (!rest) return;
+  for (let y = 0; y < rest.ph; y++) for (let x = 0; x < rest.pw; x++) {
+    const v = rest.wgt[y * rest.pw + x]; if (!v) continue;
+    const i = ((rest.y0 + y) * w + rest.x0 + x) * 4;
+    for (let c = 0; c < 3; c++) out[i + c] = out[i + c] * (1 - v) + Math.min(255, src[i + c] * rest.gain[c]) * v;
   }
 }

@@ -79,6 +79,18 @@ body {
 }
 .topbar h1 { font-size: 1.15rem; margin: 0; }
 .topbar-actions { display: flex; gap: 6px; }
+.version-tag { margin-left: auto; padding: 4px 8px; min-height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, var(--text)); opacity: 0.75; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.version-tag:hover, .version-tag:focus-visible { opacity: 1; background: var(--surface); }
+.versions { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius, 14px); background: var(--surface); color: var(--text); }
+.versions::backdrop { background: rgb(0 0 0 / 0.4); }
+.versions-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.versions-head h2 { margin: 0; font-size: 1.05rem; }
+.versions-list { list-style: none; margin: 0; padding: 4px 16px 16px; }
+.versions-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.versions-list li:last-child { border-bottom: 0; }
+.versions-list p { margin: 4px 0 0; }
+.versions-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.versions-now { color: var(--primary); font-weight: 600; }
 
 .icon-btn {
   min-width: 44px; min-height: 44px;
@@ -1069,3 +1081,8 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .fa-found-item { flex: none; display: grid; justify-items: center; gap: 4px; padding: 6px; border-radius: 12px; border: 1px solid var(--line, var(--border)); background: var(--surface); color: var(--text); min-width: 84px; }
 .fa-found-item img { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; }
 .fa-found-item.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
+.fa-who { display: grid; gap: 6px; }
+.fa-who .chips { gap: 8px; }
+.fa-who-item { flex: none; display: grid; justify-items: center; gap: 2px; padding: 4px; border-radius: 999px 999px 12px 12px; border: 1px solid var(--line, var(--border)); background: var(--surface); color: var(--text); min-width: 56px; }
+.fa-who-item img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
+.fa-who-item.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }

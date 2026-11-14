@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "5773999c4add",
+  "version": "594b8ab7de68",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -73,6 +73,7 @@ const PRECACHE = {
     "lib/loupe.js",
     "lib/pdf-reader.js",
     "lib/pdf-writer.js",
+    "lib/pose.js",
     "lib/saved-files-setup.js",
     "lib/saved-files.js",
     "lib/sha256.js",
@@ -157,6 +158,7 @@ const PRECACHE = {
     "vendor/face/model/tiny_face_detector_model.bin",
     "vendor/mediapipe/LICENSE",
     "vendor/mediapipe/face_landmarker.task",
+    "vendor/mediapipe/pose_landmarker_lite.task",
     "vendor/mediapipe/selfie_multiclass_256x256.tflite",
     "vendor/mediapipe/vision_bundle.mjs",
     "vendor/mediapipe/wasm/vision_wasm_internal.js",

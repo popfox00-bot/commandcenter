@@ -3,7 +3,7 @@
 // turned by hand, finished (light, form, what's kept in front), over the base, with what was worn there
 // taken off where the piece doesn't cover it (Replace).
 
-import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans } from '../../tools/fashion/fashion-core.js';
+import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone } from '../../tools/fashion/fashion-core.js';
 import { softenMask } from '../../lib/geometry.js';
 import { cleanUp } from '../../tools/editor/cleanup.js';
 
@@ -45,7 +45,8 @@ function clothesOf(S) {
 /**
  * The piece's photo's bare skin, its neck included (the person finder may count the neck as face, or be
  * unsure of a neckline's skin): what it says is skin (fairly sure), or below the chin, the color of that
- * person's own face (its median, within a few shades), once.
+ * person's own face (its median, within a few shades) where it isn't said to be clothes (a white shirt's shadow
+ * can be a pale person's skin color), once.
  */
 function pieceSkin(piece) {
   const p = piece.people; if (!p) return null;
@@ -57,7 +58,7 @@ function pieceSkin(piece) {
   for (let i = 0; i < n; i++) {
     const below = i / W > chin - 2;
     let s2 = Math.max(p.body[i] >= 90 ? 255 : 0, below && p.face[i] >= 90 ? 255 : 0);
-    if (!s2 && below && tone && p.hair[i] < 128) {
+    if (!s2 && below && tone && p.hair[i] < 128 && p.clothes[i] < 128) {
       const d = Math.abs(px[i * 4] - tone[0]) + Math.abs(px[i * 4 + 1] - tone[1]) + Math.abs(px[i * 4 + 2] - tone[2]);
       if (d < 70) s2 = 255;
     }
@@ -67,7 +68,131 @@ function pieceSkin(piece) {
   return m;
 }
 
-/** Whether the scene lays the design into the outline of what's worn (Replace, on a garment found or traced). */
+/**
+ * Where the base shows its own bare skin (a neckline, the neck), only cloth seen in the piece's photo covers
+ * it; the piece's skin, a gap in it, or what was rebuilt under its hair lets the base's skin show. (Where
+ * the base is clothed there, the cloth carries on: skin made up from nothing looks painted on.) Decided for
+ * each patch of it (the neck and neckline, a bare shoulder) as a whole, not pixel by pixel (an island of
+ * cloth in it looks cut out): when most of a patch meets the piece's own cloth, the piece covers it (a
+ * higher neckline, a jacket's shoulders); otherwise the base keeps its skin there. In place on the layer.
+ */
+function neckline(layer, base, w, zone = false) {
+  if (!layer.skin || !base.people) return;
+  const { pw, ph, x0, y0 } = layer; const n = pw * ph;
+  const isBare = (k) => { const i = (y0 + ((k / pw) | 0)) * w + x0 + (k % pw); return base.people.body[i] >= 128 || base.people.face[i] >= 128; };
+  // Each patch of the base's bare skin in it (the neck and neckline, a bare shoulder) decided on its own.
+  const lab = new Int32Array(n); let id = 0;
+  for (let k0 = 0; k0 < n; k0++) {
+    if (lab[k0] || !layer.rgba[k0 * 4 + 3] || !isBare(k0)) continue;
+    id++; const q = [k0]; lab[k0] = id; let cloth = 0;
+    for (let qi = 0; qi < q.length; qi++) {
+      const k = q[qi]; if (!layer.skin[k]) cloth++;
+      const x = k % pw; const y = (k / pw) | 0;
+      for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, y > 0 ? k - pw : -1, y < ph - 1 ? k + pw : -1]) if (t >= 0 && !lab[t] && layer.rgba[t * 4 + 3] && isBare(t)) { lab[t] = id; q.push(t); }
+    }
+    const cover = cloth / q.length > 0.6;
+    for (const k of q) { const i = (y0 + ((k / pw) | 0)) * w + x0 + (k % pw); if (!cover || base.people.face[i] >= 128) layer.rgba[k * 4 + 3] = 0; }
+  }
+  // A body zone: where the piece shows its bare skin (a tank top's shoulders) and the base was clothed
+  // there, the base person's skin (their color, lit round by the folds of the light on them later).
+  if (zone && layer.bare) {
+    const tone = skinTone(base); if (!tone) return;
+    let seed = 5;
+    for (let k = 0; k < n; k++) {
+      if (!layer.bare[k] || !layer.rgba[k * 4 + 3] || isBare(k)) continue;
+      seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 4;
+      for (let c = 0; c < 3; c++) layer.rgba[k * 4 + c] = tone[c] + g;
+    }
+  }
+}
+
+/** The layer's edge: the outline's own, softened a pixel. In place. */
+function softEdge(layer, outline, w, h) {
+  if (outline.soft?.length !== w * h) outline.soft = softenMask(outline.mask, w, h, 1);
+  for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) { const o = (y * layer.pw + x) * 4; if (layer.rgba[o + 3]) layer.rgba[o + 3] = Math.round(255 * Math.min(1, outline.soft[(layer.y0 + y) * w + layer.x0 + x] * 1.15)); }
+}
+
+/** A mask's part within [c0, c1) columns, as an outline { mask, box, spans } (or null). */
+function cut(m, w, h, c0, c1, extra = null) {
+  const o = new Uint8Array(w * h); let n = 0;
+  for (let i = 0; i < m.length; i++) { const x = i % w; if ((m[i] || (extra && extra[i])) && x >= c0 && x < c1) { o[i] = 1; n++; } }
+  if (!n) return null;
+  const b = boxOf(o, w, h);
+  return b && { mask: o, box: b, spans: rowSpans(o, w, b, Math.max(8, Math.round((b.y1 - b.y0) / 14))) };
+}
+
+/**
+ * A body zone from one person onto another, part by part. The torso: the piece's design laid into the
+ * base's (its neckline decided as above). Each arm, as each is covered (a sleeve) or bare:
+ * sleeve onto sleeve — the piece's sleeve laid into the base's; sleeve onto a bare arm — the piece's
+ * sleeve laid over the base's arm, in the arm's shape; a bare arm onto a sleeve — the base's sleeve
+ * taken off: a bare arm in their skin tone, lit round, the rest of the sleeve filled from what's beside
+ * it; bare onto bare — the base's own arm. One layer.
+ */
+function zoneLayer(S) {
+  const { base, piece, target, place, tune, kind } = S; const { w, h } = base;
+  const key = `${kind}`;
+  if (base.parts?.key !== key || base.parts.of !== base.layout || base.parts.pose !== base.pose) base.parts = { key, of: base.layout, pose: base.pose, v: upperParts(base.people, base.layout, w, h, kind, base.pose ?? null) };
+  if (piece.zparts?.key !== key || piece.zparts.of !== piece.layout || piece.zparts.pose !== piece.pose) piece.zparts = { key, of: piece.layout, pose: piece.pose, v: upperParts(piece.people, piece.layout, piece.w, piece.h, kind, piece.pose ?? null) };
+  const bp = base.parts.v; const pp = piece.zparts.v;
+  if (!bp.torso || !pp.torso) return null;
+  // Part by part only when an arm differs clearly (in a sleeve on one, bare on the other: a tank top and a
+  // jacket); alike (two tees: a short sleeve and a bare forearm on both), the zone is laid in whole.
+  const differs = ['left', 'right'].some((k) => bp[k] && pp[k] && clearly(bp[k]) !== null && clearly(pp[k]) !== null && clearly(bp[k]) !== clearly(pp[k]));
+  if (!differs) return null;
+  const under = underHair(S);
+  const pm = piece.solid ?? piece.sel; const tex = piece.draw ?? piece.rgba; const sk = pieceSkin(piece);
+  const layers = [];
+  // The torso.
+  // (The torso: what's worn there less the arms; by the pose when it was found, else by columns.)
+  const minus = (m, arms) => { const o = Uint8Array.from(m); for (let i = 0; i < o.length; i++) if (arms[i]) o[i] = 0; return o; };
+  // (Their whole torso, its bare skin too (a tank top's shoulders), not only what's worn on it: skin and
+  // cloth are told apart below, patch by patch.)
+  const withTorso = (m, part) => { const o = Uint8Array.from(m); if (part) for (let i = 0; i < o.length; i++) if (part.mask[i]) o[i] = 1; return o; };
+  const tAll = withTorso(under.mask, bp.torso); const pAll = withTorso(pm, pp.torso);
+  const tT = bp.byPose ? cut(minus(tAll, bp.arms), w, h, -1, w + 1) : cut(tAll, w, h, bp.t0, bp.t1);
+  const pT = pp.byPose ? cut(minus(pAll, pp.arms), piece.w, piece.h, -1, piece.w + 1) : cut(pAll, piece.w, piece.h, pp.t0, pp.t1);
+  if (tT && pT) {
+    const open = tT.box.y1 >= h - 2 || pT.box.y1 >= piece.h - 2;
+    const L = traceTransfer(tex, pT.mask, piece.w, piece.h, pT.box, tT, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null });
+    neckline(L, base, w, true); softEdge(L, tT, w, h); layers.push(L);
+  }
+  // The arms.
+  const tone = skinTone(base);
+  for (const side of ['left', 'right']) {
+    const b = bp[side]; const p = pp[side]; if (!b || !p) continue;
+    const pCl = cut(p.mask, piece.w, piece.h, -1, piece.w + 1);
+    if (p.covered) {
+      // A sleeve: into the base's sleeve, or over their bare arm in its shape.
+      const pc = Uint8Array.from(pCl.mask); for (let i = 0; i < pc.length; i++) if (piece.people.clothes[i] < 100) pc[i] = 0;
+      const pb = boxOf(pc, piece.w, piece.h); if (!pb) continue;
+      const tB = cut(b.mask, w, h, -1, w + 1);
+      const L = traceTransfer(tex, pc, piece.w, piece.h, pb, tB, w, h, { s: place.s, open: false, adj: tune });
+      softEdge(L, tB, w, h); layers.push(L);
+    } else if (b.covered && tone) {
+      // A bare arm where the base's sleeve was.
+      const sl = Uint8Array.from(b.mask); for (let i = 0; i < sl.length; i++) if (base.people.clothes[i] < 100) sl[i] = 0;
+      const sb = boxOf(sl, w, h); if (!sb) continue;
+      layers.push(bareArm({ mask: sl, box: sb }, w, h, tone, base.people));
+    }
+  }
+  if (!layers.length) return null;
+  // (The torso over the arms: drawn last.)
+  return mergeLayers([...layers.slice(1), layers[0]]);
+}
+
+/** Whether a part is clearly covered (true: mostly clothes), clearly bare (false), or neither (null: a short sleeve). */
+const clearly = (part) => (part.clothFrac > 0.7 ? true : part.clothFrac < 0.3 ? false : null);
+
+/** The base person's skin color (their bare skin's median, else their face's), once. */
+function skinTone(base) {
+  if (base.tone !== undefined) return base.tone;
+  const p = base.people; const pick = (map) => { const v = [[], [], []]; for (let i = 0; i < map.length; i += 3) if (map[i] >= 200) for (let c = 0; c < 3; c++) v[c].push(base.rgba[i * 4 + c]); return v[0].length > 60 ? v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }) : null; };
+  base.tone = pick(p.body) ?? pick(p.face);
+  return base.tone;
+}
+
+/** Whether the scene lays the design/** Whether the scene lays the design into the outline of what's worn (Replace, on a garment found or traced). */
 // (Not a jacket: its own shape, its long sleeves over bare arms, is what it is; nor a hat or shoes, fitted
 // as they are.)
 export const isTrace = (S) => S.mode === 'replace' && !!S.target && !S.target.body && !['shoes', 'hat', 'jacket'].includes(S.kind);
@@ -93,32 +218,15 @@ export function buildLayer(S) {
   // Replace: the piece's design laid into the outline of what's worn there (its shape, on this body, in this
   // pose); moved or sized by hand, the design moves within it.
   if (isTrace(S)) {
+    // A body zone between two people: part by part (the torso, each arm), as each is covered or bare.
+    if (isZone(kind) && kind !== 'lower' && base.layout && piece.layout && base.people && piece.people) {
+      const z = zoneLayer(S); if (z) return z;
+    }
     const open = target.box.y1 >= h - 2 || piece.box.y1 >= piece.h - 2;
     const under = underHair(S);
     const layer = traceTransfer(piece.draw ?? piece.rgba, piece.solid ?? piece.sel, piece.w, piece.h, piece.box, under, w, h, { s: place.s, open, adj: tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null });
-    // Where the base shows its own bare skin (a neckline, the neck), only cloth seen in the piece's photo
-    // covers it; the piece's skin, a gap in it, or what was rebuilt under its hair lets the base's skin show.
-    // (Where the base is clothed there, the cloth carries on: skin made up from nothing looks painted on.)
-    // Decided for the neckline as a whole, not pixel by pixel (an island of cloth in it looks cut out): when
-    // most of the base's bare skin there meets the piece's own cloth, the piece's higher neckline covers
-    // it; otherwise the base keeps its neckline.
-    if (layer.skin && base.people) {
-      let bare = 0; let cloth = 0;
-      const isBare = (i) => base.people.body[i] >= 128 || base.people.face[i] >= 128;
-      for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) {
-        const k = y * layer.pw + x; if (!layer.rgba[k * 4 + 3]) continue;
-        if (isBare((layer.y0 + y) * w + layer.x0 + x)) { bare++; if (!layer.skin[k]) cloth++; }
-      }
-      const cover = bare > 0 && cloth / bare > 0.6;
-      for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) {
-        const k = y * layer.pw + x; const i = (layer.y0 + y) * w + layer.x0 + x;
-        if (!isBare(i)) continue;
-        if (!cover || base.people.face[i] >= 128) layer.rgba[k * 4 + 3] = 0;
-      }
-    }
-    // Its edge: the outline's own, softened a pixel.
-    if (under.soft?.length !== w * h) under.soft = softenMask(under.mask, w, h, 1);
-    for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) { const o = (y * layer.pw + x) * 4; if (layer.rgba[o + 3]) layer.rgba[o + 3] = Math.round(255 * Math.min(1, under.soft[(layer.y0 + y) * w + layer.x0 + x] * 1.15)); }
+    neckline(layer, base, w);
+    softEdge(layer, under, w, h);
     return layer;
   }
   const fit = tune.fit / 100;
@@ -214,8 +322,9 @@ export function finish(layer, S, cache) {
       if (arms) {
         // (A top fitted as one, a tee: the arms hanging at its sides stay in front of it too, below where its
         // sleeves end. A jacket's or a dress's sleeves cover the arms: only hands across the body.)
-        const whole = ['top', 'bottom', 'upper', 'lower', 'outfit'].includes(kind);
-        const tb = whole ? { x0: 0, x1: w } : S.target?.parts?.sleeves?.torso?.box ?? S.target?.box ?? base.layout.person;
+        // (A body zone's arms are its own: only hands across the body stay in front.)
+        const whole = ['top', 'bottom', 'lower'].includes(kind);
+        const tb = whole ? { x0: 0, x1: w } : (isZone(kind) && base.parts?.v?.torso?.box) || S.target?.parts?.sleeves?.torso?.box || S.target?.box || base.layout.person;
         const inset = whole ? 0 : (tb.x1 - tb.x0) * 0.04;
         const a = armsInFront(ppl, base.layout, tb.x0 + inset, tb.x1 - inset, 1.1);
         for (let i = 0; i < m.length; i++) { const v = a[i] <= 140 ? 0 : a[i] >= 205 ? 255 : Math.round(((a[i] - 140) / 65) * 255); if (v > m[i]) m[i] = v; }

@@ -120,10 +120,10 @@ export function kindZone(kind, L, w, h) {
     dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : Math.min(ankle, waist + fh * 3) },
     hat: { x0: F.x0 - fw * 0.35, y0: F.y0 - fh * 1.0, x1: F.x1 + fw * 0.35, y1: F.y0 + fh * 0.35 },
     shoes: { x0: P.x0, y0: ankle - fh * 0.35, x1: P.x1, y1: P.y1 + fh * 0.1 },
-    // Body zones: from the base of the neck to the waist, the waist to the ankles, the neck down.
-    upper: { x0: P.x0, y0: chin + fh * 0.18, x1: P.x1, y1: open ? h : waist + fh * 0.15 * cut },
+    // Body zones: from the chin to the waist (the shoulders and neck in it), the waist to the ankles, the chin down.
+    upper: { x0: P.x0, y0: chin, x1: P.x1, y1: open ? h : waist + fh * 0.15 * cut },
     lower: { x0: P.x0, y0: waist - fh * 0.1 * cut, x1: P.x1, y1: P.y1 },
-    outfit: { x0: P.x0, y0: chin + fh * 0.18, x1: P.x1, y1: P.y1 },
+    outfit: { x0: P.x0, y0: chin, x1: P.x1, y1: P.y1 },
   }[kind] ?? P;
   return { x0: Math.max(0, Math.floor(z.x0)), y0: Math.max(0, Math.floor(z.y0)), x1: Math.min(w, Math.ceil(z.x1)), y1: Math.min(h, Math.ceil(z.y1)) };
 }
@@ -693,7 +693,8 @@ export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'repla
  * mask, `pb` its box; `target`: { mask, box, spans }. `adj`: { scale, wide, long, dx, dy } to move or size
  * the design within the outline; `skin`: the piece's photo's bare-skin map (0..255), to mark where it shows
  * skin; `rebuilt`: what was rebuilt of it (under its hair). A layer { x0, y0, pw, ph, rgba, skin } whose alpha is
- * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt).
+ * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt;
+ * `bare`: 1 where it's the piece's bare skin itself).
  */
 export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null } = {}) {
   const T = target.box; const tw = T.x1 - T.x0; const th = T.y1 - T.y0;
@@ -701,7 +702,7 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
   // The piece filled across its gaps once: each row, between its ends, the cloth on either side of a gap
   // carried across it (blended); where it's skin (with `skin`, a neckline) marked as skin.
-  const fill = new Float32Array(pbw * pbh * 3); const isSkin = new Uint8Array(pbw * pbh); const has = new Uint8Array(pbh);
+  const fill = new Float32Array(pbw * pbh * 3); const isSkin = new Uint8Array(pbw * pbh); const isBare = new Uint8Array(pbw * pbh); const has = new Uint8Array(pbh);
   for (let ry = 0; ry < pbh; ry++) {
     const Y = pb.y0 + ry; if (pspans[ry * 2] < 0) continue;
     const l0 = Math.max(pb.x0, Math.floor(pspans[ry * 2])); const r0 = Math.min(pb.x1 - 1, Math.ceil(pspans[ry * 2 + 1]) - 1);
@@ -713,6 +714,7 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       // ("Weak": not cloth seen in the photo, which mustn't cover the base's own bare skin: the piece's skin,
       // what was rebuilt under its hair, and what's bridged across its gaps.)
       if (x <= r0 && (bare || (rebuilt && rebuilt[Y * pw + x]) || !pm[Y * pw + x])) isSkin[k + x - pb.x0] = 1;
+      if (bare && pm[Y * pw + x]) isBare[k + x - pb.x0] = 1;
       const on = x <= r0 && pm[Y * pw + x] && !bare;
       if (x <= r0 && !on) continue;
       // Fill the gap between `last` and x.
@@ -779,7 +781,7 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
     if (!has[ry]) { let k = -1; for (let d = 1; d < pbh && k < 0; d++) for (const t of [ry - d, ry + d]) if (t >= 0 && t < pbh && has[t]) { k = t; break; } ry = k; }
     return ry;
   };
-  const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null;
+  const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null;
   for (let y = T.y0; y < T.y1; y++) {
     const ky = y - T.y0; if (tspans[ky * 2] < 0) continue;
     const tl = tspans[ky * 2]; const tr = tspans[ky * 2 + 1];
@@ -794,9 +796,10 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       for (let c = 0; c < 3; c++) rgba[o + c] = fill[(k + xa) * 3 + c] * (1 - t) + fill[(k + xb) * 3 + c] * t;
       rgba[o + 3] = 255;
       if (skinOut && isSkin[k + xa]) skinOut[ky * tw + x - T.x0] = 1;
+      if (bareOut && isBare[k + xa]) bareOut[ky * tw + x - T.x0] = 1;
     }
   }
-  return { x0: T.x0, y0: T.y0, pw: tw, ph: th, rgba, skin: skinOut };
+  return { x0: T.x0, y0: T.y0, pw: tw, ph: th, rgba, skin: skinOut, bare: bareOut };
 }
 
 /**
@@ -820,4 +823,108 @@ export function foldMap(rgba, w, mask, box, fine, coarse) {
   const out = new Float32Array(bw * bh).fill(1);
   for (let k = 0; k < bw * bh; k++) if (ok[k]) out[k] = Math.max(0.84, Math.min(1.12, (a[k] + floor) / (b[k] + floor)));
   return out;
+}
+
+/**
+ * A person's upper body in parts (`p`, `L` at the photo's size; a zone's rows): the torso (a little over
+ * two face-widths either side of the face's middle, the chest) and each arm beside it, each with whether
+ * it's covered (mostly clothes: a sleeve) or bare (mostly skin: a tank top's arm). The outline is the body
+ * and what's on it, not the face or hair. { torso, left, right } (each { mask, box, n, covered } or null).
+ * @param {People} p @param {Layout} L
+ */
+export function upperParts(p, L, w, h, kind = 'upper', pose = null) {
+  const z = kindZone(kind, L, w, h);
+  const sil = new Uint8Array(w * h);
+  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
+    const i = y * w + x;
+    if (Math.max(p.body[i], p.clothes[i], p.others[i]) >= 128 && p.face[i] < 128 && p.hair[i] < 128) sil[i] = 1;
+  }
+  openMask(sil, w, h, z, Math.max(1, Math.round(L.fh / 60)));
+  let total = 0; for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) total += sil[y * w + x];
+  const fc = L.face ? (L.face.x0 + L.face.x1) / 2 : (z.x0 + z.x1) / 2;
+  const t0 = fc - 1.2 * L.fw; const t1 = fc + 1.2 * L.fw;
+  // Which part each pixel is: by the pose (each arm the outline along its shoulder, elbow and wrist,
+  // closer to that line than to the spine), else by columns (the chest's, from the face's width).
+  const seen = (q) => q && q[2] >= 0.3;
+  const usePose = pose && seen(pose.shoulders[0]) && seen(pose.shoulders[1]);
+  let which = null; // 0 torso, 1 left arm, 2 right arm (by the picture)
+  if (usePose) {
+    const segDist = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+    const sw = Math.hypot(pose.shoulders[1][0] - pose.shoulders[0][0], pose.shoulders[1][1] - pose.shoulders[0][1]);
+    const ms = [(pose.shoulders[0][0] + pose.shoulders[1][0]) / 2, (pose.shoulders[0][1] + pose.shoulders[1][1]) / 2];
+    const mh = seen(pose.hips[0]) && seen(pose.hips[1]) ? [(pose.hips[0][0] + pose.hips[1][0]) / 2, (pose.hips[0][1] + pose.hips[1][1]) / 2] : [ms[0], ms[1] + sw * 1.6];
+    const arm = (k) => {
+      const s2 = pose.shoulders[k]; const e = seen(pose.elbows[k]) ? pose.elbows[k] : [s2[0] + (k ? 1 : -1) * sw * 0.1, s2[1] + sw * 0.9];
+      const wr = seen(pose.wrists[k]) ? pose.wrists[k] : [e[0], e[1] + sw * 0.8];
+      // (Past the wrist a little: the hand.)
+      const hand = [wr[0] + (wr[0] - e[0]) * 0.25, wr[1] + (wr[1] - e[1]) * 0.25];
+      return [s2, e, wr, hand];
+    };
+    const arms = [arm(0), arm(1)]; const reach = sw * 0.21;
+    // (What's at a point: skin 1, clothes 2, nothing 0.)
+    const matAt = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= w || Y >= h) return 0; const i = Y * w + X; return p.body[i] >= 128 ? 1 : Math.max(p.clothes[i], p.others[i]) >= 128 ? 2 : 0; };
+    const nearest = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return [a[0] + t * dx, a[1] + t * dy]; };
+    // (Along the upper arm, how far from the shoulder: the first eighth of it is the shoulder's, the body's.)
+    const along = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; return ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1); };
+    which = new Uint8Array(w * h);
+    for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
+      const i = y * w + x; if (!sil[i]) continue;
+      const spine = segDist(x, y, ms, mh);
+      let best = 0; let bd = Infinity;
+      let shoulder = false; let on = null;
+      for (let k = 0; k < 2; k++) {
+        const A = arms[k]; const ds = [segDist(x, y, A[0], A[1]), segDist(x, y, A[1], A[2]), segDist(x, y, A[2], A[3])];
+        const j = ds.indexOf(Math.min(...ds));
+        if (ds[j] < bd) { bd = ds[j]; best = k + 1; shoulder = j === 0 && along(x, y, A[0], A[1]) < 0.12; on = nearest(x, y, A[j], A[j + 1]); }
+      }
+      // (The same stuff as the arm itself there: a bare arm doesn't take in the shirt's side beside it.)
+      const mArm = on ? matAt(on[0], on[1]) : 0; const mHere = matAt(x, y);
+      const same = !mArm || !mHere || mArm === mHere;
+      which[i] = bd < reach && bd < spine * 0.9 && !shoulder && same ? best : 0;
+    }
+  }
+  const part = (id, keep) => {
+    const m = new Uint8Array(w * h); let n = 0; let cl = 0;
+    for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (sil[i] && (which ? which[i] === id : keep(x))) { m[i] = 1; n++; if (p.clothes[i] >= 128) cl++; } }
+    // (Too little to be an arm or a torso: under 2% of the outline.)
+    if (n < total * 0.02) return null;
+    const k = mainParts(m, w, h, boxOf(m, w, h), 0.3);
+    return k && { mask: k.mask, box: k.box, n: k.count, covered: cl / n > 0.45, clothFrac: cl / n };
+  };
+  const left = part(1, (x) => x < t0); const right = part(2, (x) => x >= t1);
+  // What's arm (either), to take out of the torso.
+  const arms = new Uint8Array(w * h); for (const a of [left, right]) if (a) for (let i = 0; i < arms.length; i++) if (a.mask[i]) arms[i] = 1;
+  return { torso: part(0, (x) => x >= t0 && x < t1), left, right, arms, t0, t1, byPose: !!which };
+}
+
+/**
+ * A bare arm where a sleeve was (a tank top put on someone in a jacket): within the sleeve's outline, each
+ * row an arm as wide as the base's own bare arm below the sleeve (or, not seen, 62% of the sleeve), set
+ * in its middle, in the base person's skin color (`tone`), lit as an arm is round. The rest of the
+ * sleeve isn't drawn (what was behind it is filled in). A layer over the sleeve's box.
+ */
+export function bareArm(sleeve, w, h, tone, people) {
+  const b = sleeve.box; const bw = b.x1 - b.x0; const bh = b.y1 - b.y0;
+  // The arm's own width: its bare skin just below the sleeve, if it's seen there.
+  let armW = 0; const ws = [];
+  for (let y = b.y1; y < Math.min(h, b.y1 + bh * 0.4); y++) {
+    let l = -1; let r = -1; for (let x = Math.max(0, b.x0 - 4); x < Math.min(w, b.x1 + 4); x++) if (people.body[y * w + x] >= 128) { if (l < 0) l = x; r = x; }
+    if (l >= 0) ws.push(r - l + 1);
+  }
+  if (ws.length >= 3) { ws.sort((a, c) => a - c); armW = ws[ws.length >> 1]; }
+  const rgba = new Uint8ClampedArray(bw * bh * 4); let seed = 3;
+  for (let y = b.y0; y < b.y1; y++) {
+    let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (sleeve.mask[y * w + x]) { if (l < 0) l = x; r = x + 1; }
+    if (l < 0) continue;
+    const sw = r - l; const aw = Math.min(sw, armW > 3 ? armW : sw * 0.62); const c = (l + r) / 2;
+    for (let x = Math.max(b.x0, Math.floor(c - aw / 2)); x < Math.min(b.x1, Math.ceil(c + aw / 2)); x++) {
+      const u = (x + 0.5 - (c - aw / 2)) / aw; const shade = 0.82 + 0.18 * Math.sqrt(Math.max(0, Math.sin(Math.PI * u)));
+      seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 4;
+      const edge = Math.min(1, (x + 1 - (c - aw / 2)), (c + aw / 2) - x);
+      const o = ((y - b.y0) * bw + x - b.x0) * 4;
+      for (let k = 0; k < 3; k++) rgba[o + k] = tone[k] * shade + g;
+      rgba[o + 3] = Math.round(255 * Math.max(0, Math.min(1, edge)));
+    }
+  }
+  return { x0: b.x0, y0: b.y0, pw: bw, ph: bh, rgba };
 }

@@ -70,6 +70,10 @@ export function mount(host) {
         const p = await segmentPeople(c);
         if (p) { img.people = peopleAt(p, img.w, img.h); img.layout = img.savedLayout ?? bodyLayout(img.people, img.rgba); }
       } catch (e) { noteError('Fashion: finding the person', e); }
+      // Their pose (shoulders, elbows, wrists): an arm told from the body beside it.
+      if (img.people) {
+        try { const { detectPose } = await import('../../lib/pose.js'); img.pose = await detectPose(c); } catch (e) { noteError('Fashion: finding the pose', e); }
+      }
       img.finding = false;
       if (!alive) return;
       if (img === piece && step === 'pick' && !piece.sel) autoPick(true);

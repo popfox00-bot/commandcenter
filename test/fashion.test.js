@@ -3,7 +3,7 @@
 // the piece placed by the body and bent onto a shape, light, form and compositing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap } from '../web/tools/fashion/fashion-core.js';
+import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm } from '../web/tools/fashion/fashion-core.js';
 
 /**
  * A person w×h: a face (40 wide, 50 tall at the top), a red shirt from the chin to y = 200, blue pants to
@@ -216,4 +216,36 @@ test('fashion: the upper-body zone takes what\'s worn and the neckline skin betw
   for (let x = 0; x < w; x++) for (let y = 19; y < 22; y++) px.set([90, 90, 90, 255], (y * w + x) * 4);
   const f = foldMap(px, w, gm, { x0: 0, y0: 0, x1: w, y1: hh }, 1, 8);
   assert.ok(f[20 * w + 30] < 0.95 && Math.abs(f[5 * w + 30] - 1) < 0.03);
+});
+
+test('fashion: an upper body in parts by the pose: a tank top\'s bare arms told from its body; a jacket\'s sleeves covered', () => {
+  const w = 600; const h = 900;
+  const fig = (wear) => {
+    const n = w * h; const p = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+    const rect = (x0, y0, x1, y1, m) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { p.body[y * w + x] = 0; p.clothes[y * w + x] = 0; m[y * w + x] = 255; } };
+    for (let y = 70; y < 210; y++) for (let x = 245; x < 355; x++) p.face[y * w + x] = 255;
+    rect(278, 200, 322, 245, p.body); rect(148, 250, 188, 550, p.body); rect(412, 250, 452, 550, p.body);
+    if (wear === 'tank') rect(208, 238, 392, 530, p.clothes);
+    else { rect(196, 238, 404, 538, p.clothes); rect(140, 245, 198, 515, p.clothes); rect(402, 245, 460, 515, p.clothes); }
+    rect(212, 530, 388, 850, p.clothes);
+    return p;
+  };
+  const P = (x, y) => [x, y, 1];
+  const pose = { shoulders: [P(205, 250), P(395, 250)], elbows: [P(168, 390), P(432, 390)], wrists: [P(168, 520), P(432, 520)], hips: [P(245, 525), P(355, 525)] };
+  const tank = fig('tank'); const t = upperParts(tank, bodyLayout(tank), w, h, 'upper', pose);
+  assert.equal(t.byPose, true);
+  assert.equal(t.left.covered, false); assert.equal(t.right.covered, false); assert.equal(t.torso.covered, true);
+  assert.ok(t.left.box.x1 <= 190 && t.right.box.x0 >= 410, `arms are the arms: ${JSON.stringify([t.left.box, t.right.box])}`);
+  assert.equal(t.torso.mask[350 * w + 215], 1, 'the tank\'s side is its body\'s');
+  const jacket = fig('jacket'); const j = upperParts(jacket, bodyLayout(jacket), w, h, 'upper', pose);
+  assert.equal(j.left.covered, true); assert.equal(j.right.covered, true);
+  assert.equal(j.left.mask[400 * w + 160], 1); assert.equal(j.torso.mask[400 * w + 300], 1);
+  // A bare arm where a sleeve was: as wide as the bare arm seen below it, in the skin's color.
+  const sleeve = { mask: new Uint8Array(w * h), box: { x0: 140, y0: 245, x1: 198, y1: 515 } };
+  for (let y = 245; y < 515; y++) for (let x = 140; x < 198; x++) sleeve.mask[y * w + x] = 1;
+  // (The figure's bare forearm below the sleeve: 40 wide, x 148–188.)
+  const people = fig('jacket');
+  const arm = bareArm(sleeve, w, h, [224, 168, 136], people);
+  let on = 0; for (let x = 0; x < arm.pw; x++) if (arm.rgba[((400 - arm.y0) * arm.pw + x) * 4 + 3] > 128) on++;
+  assert.ok(Math.abs(on - 40) <= 3, `arm width ${on}`);
 });

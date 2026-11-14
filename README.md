@@ -745,6 +745,9 @@ away** (brushed, with a brush size). One undo step.
 phone (nothing is uploaded). Pick **1 · Base** (the person to dress) and **2 · Piece** (a photo with
 the clothes in it: worn by someone, or on its own).
 
+- **Sharp**: saving lays the piece in again at full size from its own photo opened at full size (not the
+  preview blown up); a piece stretched taller blends between its rows (no streaks); where two people meet,
+  each pixel goes to whoever's color it's nearest (no stair steps).
 - **Group photos**: with several people in a photo, each is told apart on the phone (one for each face;
   each grows out from their face and their pose over everyone's pixels, parting where the color changes,
   so two people side by side part where one's dress meets the other's, and each patch of one color, a
@@ -765,7 +768,9 @@ the clothes in it: worn by someone, or on its own).
   those seen, a hidden neckline a gentle U). A piece cut off at the bottom of its photo is carried on down
   (its bottom mirrored) to the length it needs.
 - **Body zones**: **🧍 Upper body** (neck to waist), **🦵 Lower body** (waist to ankles) and **Whole outfit** take
-  all of that part of the body at once, its clothes and its skin (a shirt with the vest over it and the
+  all of that part of the body at once as one clean outline of that person, whatever they wear there: the
+  waist is found by the body (from the pose's hips, or the person's proportions), not where the clothes
+  change color; the hair over their shoulders is part of it, out to their shoulders; its clothes and its skin (a shirt with the vest over it and the
   necklace on it, and the bare arms, shoulders or legs: more than the 👕 Top, which is only what's worn);
   never the face or hair, nor the background seen through the loop of an arm. They're in the found list
   (marked "clothes + skin", where that part of the person is in the photo) and among what it is. A hand

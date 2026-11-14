@@ -140,10 +140,14 @@ function zoneLayer(S) {
   if (piece.zparts?.key !== key || piece.zparts.of !== piece.layout || piece.zparts.pose !== piece.pose) piece.zparts = { key, of: piece.layout, pose: piece.pose, v: upperParts(piece.people, piece.layout, piece.w, piece.h, kind, piece.pose ?? null) };
   const bp = base.parts.v; const pp = piece.zparts.v;
   if (!bp.torso || !pp.torso) return null;
-  // Part by part only when an arm differs clearly (in a sleeve on one, bare on the other: a tank top and a
-  // jacket); alike (two tees: a short sleeve and a bare forearm on both), the zone is laid in whole.
+  // Part by part when an arm differs clearly (in a sleeve on one, bare on the other: a tank top and a
+  // jacket), or both are bare-armed; alike in sleeves (two tees), the zone is laid in whole.
   const differs = ['left', 'right'].some((k) => bp[k] && pp[k] && clearly(bp[k]) !== null && clearly(pp[k]) !== null && clearly(bp[k]) !== clearly(pp[k]));
-  if (!differs) return null;
+  // (Or both bare-armed: torso onto torso, each keeping their own arms; laid in whole, one's arm would be
+  // squeezed into the other's side.)
+  const bare = (q) => !q || clearly(q) === false;
+  const bothBare = bare(bp.left) && bare(bp.right) && bare(pp.left) && bare(pp.right) && (pp.left || pp.right);
+  if (!differs && !bothBare) return null;
   const under = underHair(S);
   const pm = piece.solid ?? piece.sel; const tex = piece.draw ?? piece.rgba; const sk = pieceSkin(piece);
   const layers = [];
@@ -159,7 +163,9 @@ function zoneLayer(S) {
   if (tT && pT) {
     const open = tT.box.y1 >= h - 2 || pT.box.y1 >= piece.h - 2;
     const L = traceTransfer(tex, pT.mask, piece.w, piece.h, pT.box, tT, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null });
-    neckline(L, base, w, true); softEdge(L, tT, w, h); layers.push(L);
+    // (The piece's bare skin painted where the base was clothed only when an arm changes, a tank top onto a
+    // jacket: both bare-armed, the base's own neckline and skin stay.)
+    neckline(L, base, w, differs); softEdge(L, tT, w, h); layers.push(L);
   }
   // The arms.
   const tone = skinTone(base);

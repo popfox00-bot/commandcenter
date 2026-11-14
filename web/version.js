@@ -4,6 +4,7 @@
 
 /** @type {{ v: string, date: string, notes: string }[]} */
 export const HISTORY = [
+  { v: '1.65', date: '2026-11-14', notes: 'Fashion: hidden fabric filled with its own texture; straps matched (drawn on bare shoulders, taken off for a strapless piece); the new neckline followed; sharpness and grain matched to the photo; soft shadows where hair or an arm lies over it; group photos: each person\'s pose found on them alone, and 🧍 Part of them to fix who\'s who; Lower body and Whole outfit for any outfit (shoes apart); ⭐ keep a piece to use again. Settings: Storage, what\'s kept on the phone and clearing it.' },
   { v: '1.64', date: '2026-11-14', notes: 'Fashion: sharper results — saved at full size from the piece\'s own photo, no streaks where a piece is stretched, no stair-step edges where two people meet, no specks through the new piece. Body zones: neck to waist by the body itself (not where the clothes change color), one clean outline of that person with the hair over their shoulders; both bare-armed, torso onto torso, each keeping their own arms.' },
   { v: '1.63', date: '2026-11-14', notes: 'Fashion: group photos — pick whose clothes and who to dress (tap a face or tap them); body zones take the skin too (arms, shoulders), not just what\'s worn; a dress laid in to its hem; the old garment\'s straps take the new color. Version history on the home screen.' },
   { v: '1.62', date: '2026-11-13', notes: 'Fashion: body zones tell skin from clothing part by part (a tank top onto a jacket and back).' },

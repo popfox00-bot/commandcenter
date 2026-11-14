@@ -1,12 +1,14 @@
 // Settings: app-wide preferences, kept on this phone. Edit Home Screen (the order of the apps), the
 // background color (a preset or any color; text, cards and borders follow it so everything stays
-// readable, see web/theme.js), the Saved Files connection (Google Drive), and the way into Jobs.
+// readable, see web/theme.js), the Saved Files connection (Google Drive), Storage (what's kept on the
+// phone, how much room it takes, and clearing what can go), Diagnostics, and the way into Jobs.
 // Route: #/settings.
 
 import { el, store } from '../../lib/dom.js';
 import { homeApps, HOME_ORDER_KEY } from '../index.js';
 import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
+import { storageSettings } from '../../lib/storage-usage.js';
 
 export function mount(host) {
   const theme = globalThis.ccTheme;
@@ -98,6 +100,7 @@ export function mount(host) {
       status,
       el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default', onclick: () => { theme.save(null); render(); } }))),
     savedFilesSettings(),
+    storageSettings(),
     el('section', { class: 'card' },
       el('h2', { text: 'Diagnostics' }),
       el('p', { class: 'small muted', text: 'What\'s loaded, how long things took, and anything that went wrong. Kept on this phone only; Copy report to share it.' }),

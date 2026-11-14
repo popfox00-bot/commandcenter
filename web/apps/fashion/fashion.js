@@ -15,17 +15,19 @@ import { el, fill, about } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas } from '../../lib/image.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
 import { drawLoupe } from '../../lib/loupe.js';
-import { fillPolygon, softenMask } from '../../lib/geometry.js';
+import { fillPolygon, softenMask, boxBlur } from '../../lib/geometry.js';
 import { noteError } from '../../lib/diag.js';
 import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople } from '../../tools/fashion/fashion-core.js';
-import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace } from './compose.js';
+import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps } from './compose.js';
 
 const WORK_MAX = 1024;
 const SAVE_MAX = 2560;      // the saved picture's longest side (and no more than ~6 MP: a phone's memory)
 const SESSION_KEY = 'fashion.session';
+const PIECES_KEY = 'fashion.pieces';          // the saved pieces' list: [{ id, name, kind, thumb, savedAt }]
+const pieceKey = (id) => `fashion.piece.${id}`; // each one: { blob, mask, w, h, layout }
 const MODES = [['add', '➕ Add'], ['overlay', '🧥 Overlay'], ['replace', '🔁 Replace']];
 // What each way starts with: how far it's fitted to what's worn there, and how much of the photo's form it takes.
 // (Replace takes the shape of what was worn there, the way it sits on this body: fitted all the way.)
@@ -39,7 +41,7 @@ const GUIDES = [['chin', 'Chin', '#3d8bff'], ['waist', 'Waist', '#ffd60a'], ['an
 export function mount(host) {
   /** @type {any} */ let base = null; /** @type {any} */ let piece = null;
   let kind = 'top'; let mode = 'replace'; let step = 'photos';
-  let tool = 'tap';        // the piece: 'tap' | 'erase' | 'trace' | 'brush+' | 'brush-' | 'guides'; the base: 'move' | 'tap' | 'trace' | 'brush+' | 'brush-' | 'guides'
+  let tool = 'tap';        // the piece: 'tap' | 'erase' | 'trace' | 'brush+' | 'brush-' | 'brush-person' | 'guides'; the base: 'move' | 'tap' | 'trace' | 'brush+' | 'brush-' | 'guides'
   let tol = 20; let brush = 18; let note = ''; let busy = false;
   let target = null;       // what's worn on the base there: { mask, box, spans, auto, taps, edits, parts }
   let tune = newTune(mode); let place = null;
@@ -53,6 +55,8 @@ export function mount(host) {
   let alive = true;
   const history = { undo: [], redo: [] };
   let resume = null;       // a saved session to continue
+  let saved = [];          // the pieces kept on the phone (their list)
+  idb.get(PIECES_KEY).then((v) => { saved = Array.isArray(v) ? v : []; if (alive && step === 'photos') render(); });
 
   // ---------- photos ----------
 
@@ -77,8 +81,17 @@ export function mount(host) {
         try { const { detectPoses } = await import('../../lib/pose.js'); poses = await detectPoses(c); } catch (e) { noteError('Fashion: finding the pose', e); }
         img.poses = poses;
         try {
-          const split = splitPeople(img.allPeople, img.rgba, poses);
-          if (split.length > 1) img.persons = split.map((q) => ({ ...q, pose: poseIn(q.face, poses), thumb: faceThumb(img, q.face) }));
+          let split = splitPeople(img.allPeople, img.rgba, poses);
+          if (split.length > 1) {
+            // Each person's pose found again on them alone (a group's poses can cross from one to the next),
+            // and the people told apart again with those.
+            const { detectPoseOf } = await import('../../lib/pose.js');
+            const own = [];
+            for (const q of split) { let ps = null; try { ps = q.face ? await detectPoseOf(c, q.face) : null; } catch { ps = null; } own.push(ps ?? poseIn(q.face, poses)); }
+            const better = own.filter(Boolean);
+            if (better.length) { const again = splitPeople(img.allPeople, img.rgba, better); if (again.length === split.length) split = again; }
+            img.persons = split.map((q) => ({ ...q, pose: poseIn(q.face, better.length ? better : poses), thumb: faceThumb(img, q.face) }));
+          }
         } catch (e) { noteError('Fashion: telling the people apart', e); }
         const biggest = img.persons ? img.persons.reduce((a, q, k) => (q.n > img.persons[a].n ? k : a), 0) : 0;
         choose(img, img.savedWho ?? biggest, true);
@@ -132,6 +145,25 @@ export function mount(host) {
     else { target = null; fillCache = null; place = null; autoTarget(); placeIt(); note = `Dressing person ${k + 1}.`; }
     commit(); render();
   }
+  /**
+   * In a group photo, part of the picture (`mask` within `box`) given to the chosen person (where the
+   * people were told apart wrongly: two people's shoulders where they hug): theirs, and no one else's; then
+   * what's found on them, or what the piece goes on, again.
+   */
+  function giveTo(img, mask, box) {
+    const A = img.allPeople; const me = img.persons[img.who];
+    for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
+      const i = y * img.w + x; if (!mask[i]) continue;
+      for (const c of ['face', 'hair', 'body', 'clothes', 'others']) { me.p[c][i] = A[c][i]; for (const q of img.persons) if (q !== me) q.p[c][i] = 0; }
+    }
+    img.layout = bodyLayout(img.people, img.rgba); img.sil = null; img.parts = null; img.zparts = null;
+    if (img === piece) {
+      piece.found = null; piece.parts = null;
+      // (What was found by itself is found again; what was picked by hand stays.)
+      if (piece.picks?.base && !piece.picks.add.length && !piece.picks.edits?.length) autoPick(true);
+      note = `Made part of person ${img.who + 1}.`;
+    } else { if (!target || target.auto) autoTarget(); place = null; placeIt(); fillCache = null; note = `Made part of person ${img.who + 1}.`; }
+  }
   /** In a group photo: who (a face to tap for each person, left to right). */
   function whoRow(img, label) {
     if (!img?.persons) return null;
@@ -165,10 +197,57 @@ export function mount(host) {
       el('div', { class: 'fa-slots' },
         slot('base', '1 · Base', 'The person to dress'),
         slot('piece', '2 · Piece', 'A photo with the clothes in it')),
+      saved.length ? el('div', { class: 'fa-found' },
+        el('p', { class: 'small', text: 'Or one of your pieces:' }),
+        el('div', { class: 'chips fa-found-row' }, ...saved.map((sp) => el('div', { class: 'fa-saved' },
+          el('button', { type: 'button', class: 'fa-found-item', 'aria-label': `Use ${sp.name}`, onclick: () => useSaved(sp) }, el('img', { src: sp.thumb, alt: '' }), el('span', { class: 'small', text: sp.name })),
+          el('button', { type: 'button', class: 'fa-saved-del', 'aria-label': `Remove ${sp.name}`, text: '✕', onclick: () => removeSaved(sp) }))))) : null,
       note ? el('p', { class: 'small muted center', text: note }) : null,
       el('button', { class: 'btn primary block', type: 'button', text: 'Next: pick the piece', disabled: !base || !piece, onclick: () => { step = 'pick'; tool = 'tap'; note = ''; if (!piece.sel) autoPick(true); commit(); render(); } }),
       about('Pick the person to dress, then a photo with the piece in it (worn by someone, or on its own). Both stay on this phone: nothing is uploaded.'),
     ];
+  }
+  /** ⭐ The piece as picked kept on the phone (its picture, its outline, its kind), to use again. */
+  async function keepPiece() {
+    if (!piece?.sel || !piece.box) return;
+    prepPiece();
+    const m = piece.solid ?? piece.sel; const b = boxOf(m, piece.w, piece.h); if (!b) return;
+    const pad = 4; const x0 = Math.max(0, b.x0 - pad); const y0 = Math.max(0, b.y0 - pad); const x1 = Math.min(piece.w, b.x1 + pad); const y1 = Math.min(piece.h, b.y1 + pad);
+    const w = x1 - x0; const h = y1 - y0; const src = piece.draw ?? piece.rgba;
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const d = new ImageData(w, h); const mask = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y0 + y) * piece.w + x0 + x; const o = (y * w + x) * 4; for (let k = 0; k < 4; k++) d.data[o + k] = src[i * 4 + k]; if (m[i]) mask[y * w + x] = 1; else d.data[o + 3] = 0; }
+    c.getContext('2d').putImageData(d, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    const side = Math.max(w, h); const t = document.createElement('canvas'); t.width = 72; t.height = 72; const tx = t.getContext('2d');
+    tx.fillStyle = '#eeeef0'; tx.fillRect(0, 0, 72, 72); tx.drawImage(c, ((side - w) / 2) * (72 / side), ((side - h) / 2) * (72 / side), w * (72 / side), h * (72 / side));
+    const L = piece.layout; const layout = L && { ...L, face: L.face && { x0: L.face.x0 - x0, y0: L.face.y0 - y0, x1: L.face.x1 - x0, y1: L.face.y1 - y0 }, person: L.person && { x0: L.person.x0 - x0, y0: L.person.y0 - y0, x1: L.person.x1 - x0, y1: L.person.y1 - y0 }, chin: L.chin - y0, waist: L.waist - y0, ankle: L.ankle - y0 };
+    const id = Date.now().toString(36);
+    const name = `${[...KINDS, ...ZONES].find((q) => q[0] === kind)?.[2] ?? 'Piece'} · ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+    await idb.set(pieceKey(id), { blob, mask, w, h, layout });
+    saved = [{ id, name, kind, thumb: t.toDataURL('image/jpeg', 0.8), savedAt: Date.now() }, ...saved];
+    await idb.set(PIECES_KEY, saved);
+    note = `Kept on this phone as "${name}": it's under 2 · Piece next time.`; render();
+  }
+  /** One of your pieces as the piece: its picture, already picked. */
+  async function useSaved(sp) {
+    const v = await idb.get(pieceKey(sp.id));
+    if (!v?.blob) { note = 'That piece is gone from this phone.'; saved = saved.filter((q) => q.id !== sp.id); idb.set(PIECES_KEY, saved); render(); return; }
+    note = 'Opening…'; render();
+    try {
+      const f = new File([v.blob], `${sp.name}.png`, { type: 'image/png' });
+      const im = await load(f);
+      if (v.layout) im.savedLayout = v.layout;
+      piece = im; place = null; kind = sp.kind;
+      // (Its outline as it was picked: brought to the size it opened at, if that differs.)
+      let mask = v.mask;
+      if (im.w !== v.w || im.h !== v.h) { const r = resample(Uint8Array.from(v.mask, (q) => (q ? 255 : 0)), v.w, v.h, im.w, im.h); mask = new Uint8Array(im.w * im.h); for (let i = 0; i < mask.length; i++) mask[i] = r[i] >= 128 ? 1 : 0; }
+      setSel(mask); piece.found = null; resume = null; note = `${sp.name}: ready. Next: pick the base, then put it on.`;
+    } catch (e) { note = e.message; }
+    render();
+  }
+  async function removeSaved(sp) {
+    if (!confirm(`Remove "${sp.name}" from this phone?`)) return;
+    saved = saved.filter((q) => q.id !== sp.id); await idb.set(PIECES_KEY, saved); await idb.del(pieceKey(sp.id)); render();
   }
   async function usePhoto(which, f) {
     note = 'Opening…'; render();
@@ -319,6 +398,9 @@ export function mount(host) {
       // (A body zone has gaps of its own, the background seen through the loop of an arm: not closed.)
       const pp = piece.people;
       if (isZone(kind) && pp) for (let i = 0; i < piece.solid.length; i++) if (piece.solid[i] && !piece.sel[i] && Math.max(pp.body[i], pp.clothes[i], pp.others[i], pp.hair[i]) < 64) piece.solid[i] = 0;
+      // (A zone's outline takes in the hair over the shoulders; what's carried over is the clothes and skin
+      // under it: the hair is set aside here and rebuilt from the cloth around it, below.)
+      if (isZone(kind) && pp) for (let i = 0; i < piece.solid.length; i++) if (piece.solid[i] && pp.hair[i] >= 128 && Math.max(pp.clothes[i], pp.body[i]) < 128) piece.solid[i] = 0;
       repairPiece();
       piece.box = boxOf(piece.solid, piece.w, piece.h) ?? piece.box; piece.alpha = softenMask(piece.solid, piece.w, piece.h, 1);
     }
@@ -437,12 +519,33 @@ export function mount(host) {
       for (let k = 0; k < bw * bh; k++) if (free[k]) for (let c = 0; c < 3; c++) val[k * 3 + c] = avg[c] / na;
       membrane(val, free, bw, bh);
       const draw = Uint8ClampedArray.from(piece.rgba);
+      // The cloth's own fine detail (its weave, the ripples of its sheen): its brightness less a blur of it,
+      // on the clean cloth; carried into what's filled from the clean cloth just past the filled part's edge,
+      // mirrored across it, so the fill isn't smooth paint.
+      const lum = new Float32Array(bw * bh); const ok = new Uint8Array(bw * bh);
+      for (let k = 0; k < bw * bh; k++) { const i = (bx.y0 + ((k / bw) | 0)) * w + bx.x0 + (k % bw); lum[k] = (piece.rgba[i * 4] + piece.rgba[i * 4 + 1] + piece.rgba[i * 4 + 2]) / 3; ok[k] = !free[k] ? 1 : 0; }
+      const soft = boxBlur(lum, ok, bw, bh, Math.max(2, Math.round((L?.fh ?? 60) / 14)));
+      const detail = (k) => (ok[k] ? lum[k] - soft[k] : null);
+      const mirrored = (x, y) => {
+        // (The nearest clean cloth along the row, either way, and the pixel as far past it again.)
+        for (let d = 1; d < bw; d++) {
+          for (const dir of [-1, 1]) {
+            const X = x + dir * d; if (X < 0 || X >= bw) continue;
+            const k = y * bw + X; if (!ok[k]) continue;
+            const X2 = X + dir * Math.min(d, 24); const k2 = y * bw + X2;
+            return X2 >= 0 && X2 < bw && ok[k2] ? detail(k2) : detail(k);
+          }
+        }
+        return 0;
+      };
       let seed = 7;
       for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
         const i = (bx.y0 + y) * w + bx.x0 + x; if (!occl[i]) continue;
-        seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 6;
+        seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 2;
+        const dt = Math.max(-40, Math.min(40, mirrored(x, y) ?? 0));
         // (Leaning toward the cloth's usual color: next to hair it's in the hair's shadow, darker than it is.)
-        for (let c = 0; c < 3; c++) draw[i * 4 + c] = val[(y * bw + x) * 3 + c] * 0.35 + med[c] * 0.65 + g;
+        const wv = p.hair[i] >= 70 ? 0.35 : 0.85; // (under a hand, the light and shade around it carried on)
+        for (let c = 0; c < 3; c++) { const base0 = val[(y * bw + x) * 3 + c] * wv + med[c] * (1 - wv); draw[i * 4 + c] = base0 + dt * (base0 / 128) * 0.7 + g; }
       }
       piece.draw = draw;
       const solid = Uint8Array.from(m); for (let i = 0; i < w * h; i++) if (occl[i]) solid[i] = 1;
@@ -506,7 +609,9 @@ export function mount(host) {
     // Body zones: everything worn there at once (the shirt, the vest over it, the necklace on it).
     const L = piece.layout; const cut = (L.person?.y1 ?? h) >= h - 3;
     for (const [id, icon, name] of ZONES) {
-      if ((id === 'lower' && !L.split) || (id === 'outfit' && (cut || !L.split))) continue;
+      // (Lower body and the whole outfit when the legs are in the photo: by the body, whatever's worn.)
+      const legs = (L.person?.y1 ?? h) - L.chin >= L.fh * 4.5;
+      if ((id === 'lower' || id === 'outfit') && !legs) continue;
       const r = kindRegion(id, piece.people, L, piece.pose); if (!r) continue;
       const b = r.box; const side = Math.max(b.x1 - b.x0, b.y1 - b.y0); const cx = (b.x0 + b.x1) / 2; const cy = (b.y0 + b.y1) / 2;
       const c = document.createElement('canvas'); c.width = 72; c.height = 72; const x = c.getContext('2d');
@@ -541,6 +646,7 @@ export function mount(host) {
       toolChip('trace', '✏️ Trace', () => (piece.sel ? 'Draw around the piece: only what\'s inside stays.' : 'Draw all the way around the piece.')),
       toolChip('brush+', '🖌 Brush in', 'Brush over more of the piece.'),
       toolChip('brush-', '🩹 Brush out', 'Brush over what isn\'t the piece.'),
+      piece.persons ? toolChip('brush-person', '🧍 Part of them', () => `Brush over what belongs to person ${piece.who + 1} (where they were told apart wrongly).`) : null,
       piece.layout ? toolChip('guides', '📏 Guides', 'Where the chin, waist and ankles were found (what ✨ Find it goes by): drag a line to correct it.') : null,
       piece.sel ? el('button', { type: 'button', class: 'chip', text: 'Clear', onclick: () => { piece.picks = { add: [], del: [], loop: null, base: null, edits: [] }; setSel(new Uint8Array(piece.w * piece.h), true); commit(); render(); } }) : null);
     return [
@@ -555,6 +661,7 @@ export function mount(host) {
       el('div', { class: 'row' },
         el('button', { class: 'btn ghost', type: 'button', text: '‹ Photos', onclick: () => { step = 'photos'; note = ''; render(); } }),
         el('button', { class: 'btn primary', type: 'button', text: 'Next: put it on', disabled: !piece.sel, onclick: () => goPut() })),
+      piece.sel ? el('button', { class: 'btn ghost block', type: 'button', text: '⭐ Keep this piece', onclick: keepPiece }) : null,
     ];
   }
 
@@ -577,6 +684,9 @@ export function mount(host) {
     if (!base?.people || !base.layout || kind === 'other') return;
     const r = kind === 'hat' ? null : kindRegion(kind, base.people, base.layout, base.pose);
     const b = r ? null : bodyRegion(kind, base.people, base.layout);
+    // (A body zone's outline takes in the hair over the shoulders; what the piece goes on doesn't: the hair
+    // stays in front of it.)
+    if (r && isZone(kind)) { const p = base.people; for (let i = 0; i < r.mask.length; i++) if (r.mask[i] && p.hair[i] >= 90 && Math.max(p.clothes[i], p.body[i]) < 128) r.mask[i] = 0; }
     if (r) setTarget(r.mask, true); else if (b && kind !== 'hat') { setTarget(b.mask, true); target.body = true; } else target = null;
   }
   /** The head (face and hair) on the base: what a hat sits on. */
@@ -705,9 +815,11 @@ export function mount(host) {
     if (layer && mode === 'replace' && target && !target.body) {
       if (fillCache && (fillCache.restKey !== fillCache.key || fillCache.restTarget !== target)) {
         try { fillCache.rest = leftovers(S, layer); } catch (e) { fillCache.rest = null; noteError('Fashion: the straps', e); }
+        try { fillCache.straps = straps(S, layer, fillCache.rest); } catch (e) { fillCache.straps = null; noteError('Fashion: the straps', e); }
         fillCache.restKey = fillCache.key; fillCache.restTarget = target;
       }
       recolor(out, w, fillCache?.rest ?? null, base.rgba);
+      if (fillCache?.straps) lay(out, w, h, fillCache.straps);
     }
     return layer;
   }
@@ -735,6 +847,7 @@ export function mount(host) {
         toolChip('trace', '✏️ Trace it', 'Draw around what\'s worn there now.'),
         toolChip('brush+', '🖌 Brush in', 'Brush over more of what it goes on.'),
         toolChip('brush-', '🩹 Brush out', 'Brush over what it doesn\'t go on.'),
+        base.persons ? toolChip('brush-person', '🧍 Part of them', () => `Brush over what belongs to person ${base.who + 1} (where they were told apart wrongly).`) : null,
         hasPerson ? toolChip('guides', '📏 Guides', 'Where the chin, waist and ankles were found, and where it goes (dashed): drag a line to correct it.') : null,
         target ? el('button', { type: 'button', class: 'chip', text: 'Clear what it goes on', onclick: () => { target = null; fillCache = null; placeIt(); commit(); render(); } }) : null,
         el('button', { type: 'button', class: 'chip', text: '↺ Reset', onclick: () => { tune = newTune(mode); if (target?.auto || !target) autoTarget(); placeIt(); fillCache = null; commit(); render(); } })),
@@ -862,6 +975,14 @@ export function mount(host) {
           for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) wgt[y * cw + x] = big[y * rw + x] / 255;
           recolor(out, W, { x0: rx, y0: ry, pw: cw, ph: ch, wgt, gain: rest.gain }, B.rgba);
         }
+        // (The straps, taken off or drawn at the working size: brought up.)
+        const sp = mode === 'replace' ? fillCache?.straps : null;
+        if (layer && sp) {
+          const c3 = document.createElement('canvas'); c3.width = sp.pw; c3.height = sp.ph; c3.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(sp.rgba), sp.pw, sp.ph), 0, 0);
+          const c4 = document.createElement('canvas'); c4.width = Math.ceil(sp.pw * k); c4.height = Math.ceil(sp.ph * k);
+          const x4 = c4.getContext('2d'); x4.imageSmoothingQuality = 'high'; x4.drawImage(c3, 0, 0, c4.width, c4.height);
+          lay(out, W, H, { x0: Math.round(sp.x0 * k), y0: Math.round(sp.y0 * k), pw: c4.width, ph: c4.height, rgba: x4.getImageData(0, 0, c4.width, c4.height).data });
+        }
       }
       const c = document.createElement('canvas'); c.width = W; c.height = H;
       c.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
@@ -943,6 +1064,12 @@ export function mount(host) {
         if (im === base) { if (!target || target.auto) autoTarget(); placeIt(); fillCache = null; }
         note = `${GUIDES.find((g) => g[0] === pr.guide)[1]} moved.`; commit();
       } else note = 'Drag one of the lines (chin, waist, ankles) up or down.';
+      render(); return;
+    }
+    if (tool === 'brush-person') {
+      // (A group photo: what's brushed over made the chosen person's, and no one else's.)
+      const m = strokeMask(pr.pts, brush * k, im.w, im.h);
+      if (m.box && im.persons && im.who != null) { giveTo(im, m.mask, m.box); commit(); }
       render(); return;
     }
     if (tool.startsWith('brush')) {

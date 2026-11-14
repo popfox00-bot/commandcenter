@@ -195,8 +195,10 @@ function zoneRegion(kind, p, L, z, pose) {
     waist = Math.round(Math.min(h, waist));
     z = kind === 'upper' ? { ...z, y1: Math.max(z.y0 + 1, waist) } : { ...z, y0: Math.min(z.y1 - 1, waist) };
   }
-  const on = (i) => Math.max(p.body[i], p.clothes[i], p.others[i]) >= 128 && p.face[i] < 128;
-  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (on(i) && p.hair[i] < 128) m[i] = 1; }
+  // (Shoes are a piece of their own: not part of the lower body or the outfit.)
+  const feet = kind === 'upper' ? Infinity : L.ankle - L.fh * 0.4;
+  const on = (i, y) => Math.max(p.body[i], p.clothes[i], p.others[i]) >= 128 && p.face[i] < 128 && !(y > feet && p.others[i] >= 128 && p.others[i] >= p.clothes[i]);
+  for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (on(i, y) && p.hair[i] < 128) m[i] = 1; }
   openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 60)));
   // Each row's ends (of what isn't hair); near the shoulders, the widest a little way below too (a shoulder
   // hidden by hair is seen lower down, as the arm), and the shoulders the pose found.
@@ -231,7 +233,7 @@ function zoneRegion(kind, p, L, z, pose) {
   if (!kept) return null;
   fillHoles(kept.mask, w, h, kept.box, 0.3);
   // (Never the background: what closing bridged between an arm and the side, the loop of an arm.)
-  for (let i = 0; i < w * h; i++) if (kept.mask[i] && Math.max(p.body[i], p.clothes[i], p.others[i], p.hair[i]) < 64) kept.mask[i] = 0;
+  for (let i = 0; i < w * h; i++) if (kept.mask[i] && (Math.max(p.body[i], p.clothes[i], p.others[i], p.hair[i]) < 64 || ((i / w) > feet && p.others[i] >= 128 && p.others[i] >= p.clothes[i]))) kept.mask[i] = 0;
   let n = 0; for (let i = 0; i < w * h; i++) n += kept.mask[i];
   if (n < w * h * 0.003) return null;
   const b = boxOf(kept.mask, w, h);
@@ -777,7 +779,7 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
   // The piece filled across its gaps once: each row, between its ends, the cloth on either side of a gap
   // carried across it (blended); where it's skin (with `skin`, a neckline) marked as skin.
-  const fill = new Float32Array(pbw * pbh * 3); const isSkin = new Uint8Array(pbw * pbh); const isBare = new Uint8Array(pbw * pbh); const has = new Uint8Array(pbh);
+  const fill = new Float32Array(pbw * pbh * 3); const isSkin = new Uint8Array(pbw * pbh); const isBare = new Uint8Array(pbw * pbh); const isNeck = new Uint8Array(pbw * pbh); const has = new Uint8Array(pbh);
   for (let ry = 0; ry < pbh; ry++) {
     const Y = pb.y0 + ry; if (pspans[ry * 2] < 0) continue;
     const l0 = Math.max(pb.x0, Math.floor(pspans[ry * 2])); const r0 = Math.min(pb.x1 - 1, Math.ceil(pspans[ry * 2 + 1]) - 1);
@@ -790,6 +792,8 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       // what was rebuilt under its hair, and what's bridged across its gaps.)
       if (x <= r0 && (bare || (rebuilt && rebuilt[Y * pw + x]) || !pm[Y * pw + x])) isSkin[k + x - pb.x0] = 1;
       if (bare && pm[Y * pw + x]) isBare[k + x - pb.x0] = 1;
+      // (The piece's own skin there, inside its outline or not: its neckline.)
+      if (bare) isNeck[k + x - pb.x0] = 1;
       const on = x <= r0 && pm[Y * pw + x] && !bare;
       if (x <= r0 && !on) continue;
       // Fill the gap between `last` and x.
@@ -867,7 +871,7 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   // otherwise repeats its rows, streaks across it.)
   const rowAt = (y) => { const v = (y - T.y0 - A.dy) / zy; return Math.max(0, Math.min(pbh - 1, (open ? v / s : (v / th) * pbh) - 0.5)); };
   const rowOf = (y) => nearRow(Math.round(rowAt(y)));
-  const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null;
+  const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null; const neckOut = skin ? new Uint8Array(tw * th) : null;
   for (let y = T.y0; y < T.y1; y++) {
     const ky = y - T.y0; if (tspans[ky * 2] < 0) continue;
     const tl = tspans[ky * 2]; const tr = tspans[ky * 2 + 1];
@@ -893,9 +897,10 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       rgba[o + 3] = 255;
       if (skinOut && isSkin[k + xa]) skinOut[ky * tw + x - T.x0] = 1;
       if (bareOut && isBare[k + xa]) bareOut[ky * tw + x - T.x0] = 1;
+      if (neckOut && isNeck[k + xa]) neckOut[ky * tw + x - T.x0] = 1;
     }
   }
-  return { x0: T.x0, y0: T.y0, pw: tw, ph: th, rgba, skin: skinOut, bare: bareOut };
+  return { x0: T.x0, y0: T.y0, pw: tw, ph: th, rgba, skin: skinOut, bare: bareOut, neck: neckOut };
 }
 
 /**
@@ -1089,10 +1094,14 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
     const pose = (poses ?? []).filter((q, n) => !used.has(n) && q.nose[2] >= 0.3 && q.nose[0] * k >= B.x0 - fw * 0.15 && q.nose[0] * k <= B.x1 + fw * 0.15 && q.nose[1] * k >= B.y0 - fh * 0.15 && q.nose[1] * k <= B.y1 + fh * 0.15)
       .sort((a, b) => Math.hypot(a.nose[0] * k - cx0, a.nose[1] * k - cy0) - Math.hypot(b.nose[0] * k - cx0, b.nose[1] * k - cy0))[0];
     if (pose) used.add(poses.indexOf(pose));
+    // (Their own color: what's straight below their face at the chest. A pose's line over a color far from
+    // it has crossed onto the person beside them there, and seeds nothing.)
+    const ref = (() => { const cx = Math.round((B.x0 + B.x1) / 2); const v = [[], [], []]; for (let Y = Math.round(B.y1 + fh * 1.2); Y < Math.min(H, B.y1 + fh * 2.5); Y++) { const j = Y * W + cx; if (any[j]) for (let c = 0; c < 3; c++) v[c].push(lab[j * 3 + c]); } return v[0].length >= 3 ? v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }) : null; })();
+    const mineColor = (j) => !ref || Math.hypot((lab[j * 3] - ref[0]) * 0.5, lab[j * 3 + 1] - ref[1], lab[j * 3 + 2] - ref[2]) < 24;
     const line = (a, b) => {
       if (!a || !b || a[2] < 0.5 || b[2] < 0.5) return;
       const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * k) + 1;
-      for (let t = 0; t <= n; t++) { const X = Math.round((a[0] + ((b[0] - a[0]) * t) / n) * k); const Y = Math.round((a[1] + ((b[1] - a[1]) * t) / n) * k); if (X >= 0 && Y >= 0 && X < W && Y < H && any[Y * W + X]) seed(Y * W + X, who); }
+      for (let t = 0; t <= n; t++) { const X = Math.round((a[0] + ((b[0] - a[0]) * t) / n) * k); const Y = Math.round((a[1] + ((b[1] - a[1]) * t) / n) * k); if (X >= 0 && Y >= 0 && X < W && Y < H && any[Y * W + X] && mineColor(Y * W + X)) seed(Y * W + X, who); }
     };
     if (pose) {
       // (The spine and the middle of the hips only: a pose's shoulders and far ends can land on the person
@@ -1110,11 +1119,12 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
       }
       // (On down the legs, or what's over them: as far again below the hips.)
       line(mh, [mh[0] + (mh[0] - ms[0]) * 0.3, mh[1] + (mh[1] - ms[1]) * 1.3, mh[2]]);
-    } else {
-      // (No pose of theirs: straight down from their face, from the chin about as far as a body goes,
-      // while it's on someone.)
+    }
+    // (And straight down from their face, from the chin, while it's on someone: about as far as a body goes
+    // without a pose of theirs, their chest with one.)
+    {
       const cx = Math.round((B.x0 + B.x1) / 2); let off = 0;
-      for (let Y = B.y1; Y < Math.min(H, B.y1 + fh * 6.5); Y++) { const j = Y * W + cx; if (!any[j]) { if (++off > fh * 0.3) break; continue; } off = 0; seed(j, who); }
+      for (let Y = B.y1; Y < Math.min(H, B.y1 + fh * (pose ? 2.5 : 6.5)); Y++) { const j = Y * W + cx; if (!any[j]) { if (++off > fh * 0.3) break; continue; } off = 0; seed(j, who); }
     }
   });
   for (let j = 0; j < W * H; j++) { if (own[j] === -2) { own[j] = -1; dist[j] = Infinity; } else if (own[j] >= 0) push(0, j); }

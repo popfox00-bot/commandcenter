@@ -162,3 +162,24 @@ test('Home: the version small at the top right; tapped, the version history (thi
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Settings → Storage: what\'s kept on the phone by kind, with its size; what can go is cleared (asked first), your notes can\'t be from here', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}`);
+  await page.evaluate(async () => { const { idb } = await import('./lib/idb.js'); await idb.set('fashion.session', { x: new Uint8Array(300000) }); await idb.set('notes.v1', [{ t: 'kept' }]); });
+  await page.goto(`${origin}${BASE}#/settings`);
+  const card = page.locator('section.card', { has: page.locator('h2', { hasText: 'Storage' }) });
+  const row = (name) => card.locator('.st-storage-row', { hasText: name });
+  await row('Work in progress').waitFor();
+  assert.match(await row('Work in progress').textContent(), /29\d KB/);
+  assert.equal(await row('Notes').getByRole('button').count(), 0, 'notes have no Clear here');
+  page.once('dialog', (d) => d.accept());
+  await row('Work in progress').getByRole('button', { name: /Clear/ }).click();
+  await page.waitForFunction(() => ![...document.querySelectorAll('.st-storage-name')].some((n) => n.textContent === 'Work in progress'));
+  assert.equal(await page.evaluate(async () => (await (await import('./lib/idb.js')).idb.get('fashion.session')) ?? null), null);
+  assert.deepEqual(await page.evaluate(async () => (await (await import('./lib/idb.js')).idb.get('notes.v1'))), [{ t: 'kept' }], 'notes untouched');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

@@ -8,6 +8,7 @@
 
 import { rgbToLab } from '../../lib/color-match.js';
 import { boxBlur } from '../../lib/geometry.js';
+import { membrane } from '../editor/cleanup.js';
 
 /** The kinds of pieces: [id, icon, name]. */
 export const KINDS = [
@@ -730,6 +731,43 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       if (x <= r0) last = x;
     }
     has[ry] = 1;
+  }
+  // Its skin and gaps (a neckline, the space by an arm) filled smoothly in both directions from its clean
+  // cloth (a few pixels away, past a collar's edge that's half skin), with a little grain: a hole filled
+  // row by row from its very edges comes out striped.
+  {
+    const weak = new Uint8Array(pbw * pbh); let nw = 0;
+    for (let ry = 0; ry < pbh; ry++) {
+      if (!has[ry]) continue;
+      const l0 = Math.max(pb.x0, Math.floor(pspans[ry * 2])); const r0 = Math.min(pb.x1 - 1, Math.ceil(pspans[ry * 2 + 1]) - 1);
+      for (let x = l0; x <= r0; x++) { const Y = pb.y0 + ry; if (!pm[Y * pw + x] || (skin && skin[Y * pw + x] >= 128)) { weak[ry * pbw + x - pb.x0] = 1; nw++; } }
+    }
+    if (nw) {
+      const R = Math.max(2, Math.round(Math.max(pbw, pbh) / 120));
+      const near = new Uint8Array(pbw * pbh);
+      for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) {
+        if (!weak[y * pbw + x]) continue;
+        for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const X = x + dx; const Y = y + dy; if (X >= 0 && Y >= 0 && X < pbw && Y < pbh) near[Y * pbw + X] = 1; }
+      }
+      // (Worked on with a 2-pixel frame around it, held at its edge's colors: the smoothing doesn't reach a
+      // grid's outermost pixels.)
+      const F = 2; const fw = pbw + 2 * F; const fh = pbh + 2 * F;
+      const val = new Float32Array(fw * fh * 3); const free = new Uint8Array(fw * fh);
+      for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+        const sx = Math.max(0, Math.min(pbw - 1, x - F)); const sy = Math.max(0, Math.min(pbh - 1, y - F)); const k = sy * pbw + sx; const o = y * fw + x;
+        for (let c = 0; c < 3; c++) val[o * 3 + c] = fill[k * 3 + c];
+        const inside = x >= F && y >= F && x < pbw + F && y < pbh + F;
+        free[o] = inside && (near[k] || !has[sy]) ? 1 : 0;
+      }
+      membrane(val, free, fw, fh);
+      let seed = 11;
+      for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) {
+        const k = y * pbw + x; if (!near[k]) continue;
+        seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 5;
+        const o = (y + F) * fw + x + F;
+        for (let c = 0; c < 3; c++) fill[k * 3 + c] = val[o * 3 + c] + g;
+      }
+    }
   }
   const tspans = target.spans;
   const A = adj ?? { scale: 100, wide: 100, long: 100, dx: 0, dy: 0 };

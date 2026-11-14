@@ -204,3 +204,42 @@ test('Fashion with the person found: ✨ Find it, 📏 guides, a long-sleeved ja
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Fashion: saving Replace from photos bigger than the working size (a phone\'s) works, at full size', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fashion`);
+  await page.waitForSelector('#fa-base', { state: 'attached' });
+  // The same drawn figures, 2.4 times as big (1440 × 2160): over the working size, as a phone's photos are.
+  const imgs = await page.evaluate(async () => {
+    const K = 2.4;
+    const mk = async (draw) => { const c = new OffscreenCanvas(600 * K, 900 * K); const x = c.getContext('2d'); x.scale(K, K); draw(x); return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: 0.9 })).arrayBuffer())); };
+    const SKIN = '#e0a888';
+    const figure = (x, shirt) => {
+      x.fillStyle = '#ece6da'; x.fillRect(0, 0, 600, 900);
+      x.fillStyle = SKIN; x.beginPath(); x.ellipse(300, 140, 55, 70, 0, 0, 7); x.fill(); x.fillRect(280, 200, 40, 40);
+      x.fillRect(150, 250, 34, 260); x.fillRect(416, 250, 34, 260);
+      x.fillStyle = shirt; x.fillRect(205, 235, 190, 285); x.fillRect(146, 240, 60, 70); x.fillRect(394, 240, 60, 70);
+      x.fillStyle = '#4a4744'; x.fillRect(210, 520, 85, 300); x.fillRect(305, 520, 85, 300);
+    };
+    return { base: await mk((x) => figure(x, '#2f55b5')), piece: await mk((x) => figure(x, '#2c8a4a')) };
+  });
+  await page.setInputFiles('#fa-base', { name: 'base.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgs.base) });
+  await page.waitForSelector('img[alt="1 · Base"]');
+  await page.setInputFiles('#fa-piece', { name: 'piece.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgs.piece) });
+  await page.waitForSelector('img[alt="2 · Piece"]');
+  await page.getByRole('button', { name: 'Next: pick the piece' }).click();
+  await page.waitForSelector('text=/Found ✨/');
+  await page.getByRole('button', { name: 'Next: put it on' }).click();
+  await page.waitForSelector('text=/Laid into the top/');
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: '💾 Save' }).click();
+  const d = await dl;
+  assert.match(d.suggestedFilename(), /^fashion-.*\.jpg$/);
+  await page.waitForSelector('text=/Saved \\(1440 × 2160\\)/');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

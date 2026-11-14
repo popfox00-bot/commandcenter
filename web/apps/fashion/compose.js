@@ -42,12 +42,27 @@ function clothesOf(S) {
   return m;
 }
 
-/** The piece's photo's bare skin, its neck included (the person finder may count the neck as face), once. */
+/**
+ * The piece's photo's bare skin, its neck included (the person finder may count the neck as face, or be
+ * unsure of a neckline's skin): what it says is skin (fairly sure), or below the chin, the color of that
+ * person's own face (its median, within a few shades), once.
+ */
 function pieceSkin(piece) {
   const p = piece.people; if (!p) return null;
   if (piece.skinMap?.length === p.body.length) return piece.skinMap;
-  const m = new Uint8Array(p.body.length); const chin = piece.layout ? piece.layout.chin : 0;
-  for (let i = 0; i < m.length; i++) m[i] = Math.max(p.body[i], (i / piece.w) > chin - 2 ? p.face[i] : 0);
+  const n = p.body.length; const W = piece.w; const chin = piece.layout ? piece.layout.chin : 0; const px = piece.rgba;
+  const v = [[], [], []]; for (let i = 0; i < n; i += 2) if (p.face[i] >= 200) for (let c = 0; c < 3; c++) v[c].push(px[i * 4 + c]);
+  const tone = v[0].length > 40 ? v.map((a2) => { a2.sort((x, y) => x - y); return a2[a2.length >> 1]; }) : null;
+  const m = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const below = i / W > chin - 2;
+    let s2 = Math.max(p.body[i] >= 90 ? 255 : 0, below && p.face[i] >= 90 ? 255 : 0);
+    if (!s2 && below && tone && p.hair[i] < 128) {
+      const d = Math.abs(px[i * 4] - tone[0]) + Math.abs(px[i * 4 + 1] - tone[1]) + Math.abs(px[i * 4 + 2] - tone[2]);
+      if (d < 70) s2 = 255;
+    }
+    m[i] = s2;
+  }
   piece.skinMap = m;
   return m;
 }

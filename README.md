@@ -760,7 +760,14 @@ the clothes in it: worn by someone, or on its own).
 - **Body zones**: **🧍 Upper body** (neck to waist), **🦵 Lower body** (waist to ankles) and **Whole outfit** take
   everything worn there at once (a shirt with the vest over it and the necklace on it, the skin its
   neckline shows); they're in the found list (where that part of the person is in the photo) and among
-  what it is.
+  what it is. Skin and clothing are told apart part by part: the person's pose (shoulders, elbows,
+  wrists, found on the phone by MediaPipe's Pose Landmarker, `web/lib/pose.js`) tells each arm from the
+  torso beside it, and each is covered (a sleeve) or bare. When an arm differs (a tank top put on someone
+  in a jacket, or the other way round): a sleeve onto a bare arm is laid over the arm in its shape; a bare
+  arm onto a sleeve takes the sleeve off (an arm in the person's own skin color, lit round, the rest of
+  the sleeve filled from what's behind it); bare shoulders where the base was clothed get their skin;
+  each patch of the base's own bare skin (the neckline, a shoulder) is covered only when the piece's
+  cloth covers most of it.
 - **🔁 Replace lays the piece's design into what the base is wearing**: the new garment takes exactly the
   outline the base's own garment (or zone) has on their body, in their pose, so it can't come out too big
   or in the wrong place, and the piece supplies its look (its color, pattern and texture, row by row from

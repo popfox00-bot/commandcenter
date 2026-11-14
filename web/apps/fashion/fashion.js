@@ -70,6 +70,10 @@ export function mount(host) {
         const p = await segmentPeople(c);
         if (p) { img.people = peopleAt(p, img.w, img.h); img.layout = img.savedLayout ?? bodyLayout(img.people, img.rgba); }
       } catch (e) { noteError('Fashion: finding the person', e); }
+      // Their pose (shoulders, elbows, wrists): an arm told from the body beside it.
+      if (img.people) {
+        try { const { detectPose } = await import('../../lib/pose.js'); img.pose = await detectPose(c); } catch (e) { noteError('Fashion: finding the pose', e); }
+      }
       img.finding = false;
       if (!alive) return;
       if (img === piece && step === 'pick' && !piece.sel) autoPick(true);
@@ -678,32 +682,32 @@ export function mount(host) {
       const B = await big(base);
       let out; let W = base.w; let H = base.h;
       if (!B) { out = new Uint8ClampedArray(base.w * base.h * 4); compose(out); } else {
-        // Everything scaled up: the base by k, the piece by kp.
+        // The piece exactly as in the preview (worked out at the working size: its fitting, the design laid
+        // in, its neckline), brought up to full size; then finished there (light, the base's folds, hair and
+        // hands in front), on the full-size photo, so what's saved is what was shown, sharp where it matters.
         W = B.w; H = B.h; const k = W / base.w;
-        // (A piece rebuilt where hair was over it: at the size it was rebuilt at.)
-        const P = (piece.draw ? null : await big(piece)) ?? { w: piece.w, h: piece.h, rgba: piece.draw ?? piece.rgba };
-        const kp = P.w / piece.w;
         // (A 0/1 mask brought up smoothly, then 0/1 again: no stair steps.)
         const up = (m, w, h, W2, H2) => { const r = resample(Uint8Array.from(m, (v) => (v ? 255 : 0)), w, h, W2, H2); for (let i = 0; i < r.length; i++) r[i] = r[i] >= 128 ? 1 : 0; return r; };
-        const scaleBox = (b, s) => b && { x0: Math.floor(b.x0 * s), y0: Math.floor(b.y0 * s), x1: Math.ceil(b.x1 * s), y1: Math.ceil(b.y1 * s) };
-        const pieceSel = up(piece.solid ?? piece.sel, piece.w, piece.h, P.w, P.h);
-        const pBig = { w: P.w, h: P.h, rgba: P.rgba, box: boxOf(pieceSel, P.w, P.h) ?? scaleBox(piece.box, kp), alpha: softenMask(pieceSel, P.w, P.h, Math.max(1, Math.round(kp))), layout: piece.layout && scaleLayout(piece.layout, kp), people: piece.people && peopleAt(piece.people, P.w, P.h), parts: null };
-        const soft = (p) => p && { ...p, alpha: partAlpha(pBig.alpha, p, P.w, P.h) };
-        if (piece.parts?.sleeves) { const s = splitSleeves(pieceSel, P.w, P.h, pBig.box); pBig.parts = { sleeves: { torso: soft(s.torso), left: soft(s.left), right: soft(s.right) } }; } else if (piece.parts?.pair) pBig.parts = { pair: splitPair(pieceSel, P.w, P.h, pBig.box).map(soft) };
         const bBig = { w: W, h: H, rgba: B.rgba, layout: base.layout && scaleLayout(base.layout, k), people: base.people && peopleAt(base.people, W, H), sil: base.sil ? up(base.sil, base.w, base.h, W, H) : null };
         let tBig = null;
         if (target) {
           const tm = up(target.mask, base.w, base.h, W, H); const tb = boxOf(tm, W, H);
-          const withSpans = (p) => p && { ...p, spans: rowSpans(p.mask, W, p.box, 3) };
-          let parts = {};
-          if (target.parts?.sleeves) { const s = splitSleeves(tm, W, H, tb); parts = { sleeves: { torso: withSpans(s.torso), left: withSpans(s.left), right: withSpans(s.right) } }; } else if (target.parts?.pair) parts = { pair: splitPair(tm, W, H, tb).map(withSpans) };
-          tBig = tb && { mask: tm, box: tb, spans: rowSpans(tm, W, tb, Math.round(14 * k)), parts, body: target.body };
+          const torso = target.parts?.sleeves?.torso; const sc = (b2) => b2 && { x0: Math.floor(b2.x0 * k), y0: Math.floor(b2.y0 * k), x1: Math.ceil(b2.x1 * k), y1: Math.ceil(b2.y1 * k) };
+          tBig = tb && { mask: tm, box: tb, spans: rowSpans(tm, W, tb, Math.round(14 * k)), parts: torso ? { sleeves: { torso: { box: sc(torso.box) } } } : {}, body: target.body };
         }
-        // The piece's photo is bigger by kp, the base by k: its scale on the base goes up by k / kp.
-        const S = { base: bBig, piece: pBig, target: tBig, kind, mode, place: place && { x0: (place.x0 - piece.box.x0 * place.s) * k + pBig.box.x0 * place.s * (k / kp), y0: (place.y0 - piece.box.y0 * place.s) * k + pBig.box.y0 * place.s * (k / kp), s: place.s * (k / kp) }, tune: { ...tune, dx: tune.dx * k, dy: tune.dy * k, soft: tune.soft * k } };
+        const S = { base: bBig, piece: extended(), target: tBig, kind, mode, place, tune: { ...tune, soft: tune.soft * k } };
+        const small = buildLayer(scene());
+        let layer = null;
+        if (small) {
+          const c0 = document.createElement('canvas'); c0.width = small.pw; c0.height = small.ph;
+          c0.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(small.rgba), small.pw, small.ph), 0, 0);
+          const x0 = Math.round(small.x0 * k); const y0 = Math.round(small.y0 * k);
+          const c1 = document.createElement('canvas'); c1.width = Math.max(1, Math.min(W - x0, Math.ceil(small.pw * k))); c1.height = Math.max(1, Math.min(H - y0, Math.ceil(small.ph * k)));
+          const x1 = c1.getContext('2d'); x1.imageSmoothingQuality = 'high'; x1.drawImage(c0, 0, 0, small.pw * k, small.ph * k);
+          layer = { x0, y0, pw: c1.width, ph: c1.height, rgba: x1.getImageData(0, 0, c1.width, c1.height).data };
+          finish(layer, S, {});
+        }
         out = Uint8ClampedArray.from(B.rgba);
-        const layer = buildLayer(S); const bigCache = {};
-        if (layer) finish(layer, S, bigCache);
         // What was taken off (worked out at the working size), brought up and laid where the piece doesn't cover.
         if (mode === 'replace' && tBig && !tBig.body && fillCache?.patch) {
           const fp = fillCache.patch; const c = document.createElement('canvas'); c.width = fp.pw; c.height = fp.ph;

@@ -3,6 +3,10 @@ MediaPipe Tasks Vision 0.10.14 (@mediapipe/tasks-vision, npm) and its Face Landm
 under the Apache License 2.0 (below). Unchanged, except the source-map comment removed from
 vision_bundle.mjs (its map is not vendored).
 
+Also its Pose Landmarker (lite) model (pose_landmarker_lite.task, float16, from
+storage.googleapis.com/mediapipe-models; sha256 59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a).
+Copyright Google LLC, under the Apache License 2.0 (below). Unchanged.
+
 Also its Selfie Multiclass Segmentation model (selfie_multiclass_256x256.tflite, float32, from
 storage.googleapis.com/mediapipe-models/image_segmenter; its model card: "Licensed under Apache License,
 Version 2.0"), unchanged: what's hair, face skin and so on, for FM's face swaps.

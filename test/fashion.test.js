@@ -3,7 +3,7 @@
 // the piece placed by the body and bent onto a shape, light, form and compositing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm } from '../web/tools/fashion/fashion-core.js';
+import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm, splitPeople } from '../web/tools/fashion/fashion-core.js';
 
 /**
  * A person w×h: a face (40 wide, 50 tall at the top), a red shirt from the chin to y = 200, blue pants to
@@ -202,7 +202,7 @@ test('fashion: the design laid into the base\'s outline: its shape is the outlin
   const g = at(50, 12); assert.equal(g[3], 255); assert.ok(g[0] > 150 && g[1] < 80, String(g));
 });
 
-test('fashion: the upper-body zone takes what\'s worn and the neckline skin between, not the arms; folds read from the garment', () => {
+test('fashion: the upper-body zone takes all of the body there, clothes and skin (the neckline, the arms), not the face or hair; folds read from the garment', () => {
   const { p, rgba } = person();
   // A V of bare skin in the shirt below the chin (a neckline), and arms beside the shirt.
   for (let y = 70; y < 100; y++) for (let x = 100 - (100 - y) / 2; x < 100 + (100 - y) / 2; x++) { const i = y * 200 + Math.round(x); p.clothes[i] = 0; p.body[i] = 255; }
@@ -210,7 +210,10 @@ test('fashion: the upper-body zone takes what\'s worn and the neckline skin betw
   const L = bodyLayout(p, rgba);
   const r = kindRegion('upper', p, L);
   assert.equal(r.mask[90 * 200 + 100], 1, 'the neckline skin is in it');
-  assert.equal(r.mask[150 * 200 + 58], 0, 'the arm beside it is not');
+  assert.equal(r.mask[150 * 200 + 58], 1, 'the bare arm beside it too (a zone is more than the top)');
+  assert.equal(r.mask[40 * 200 + 100], 0, 'not the face');
+  const top = kindRegion('top', p, L);
+  assert.equal(top.mask[150 * 200 + 58], 0, 'the top alone is only what\'s worn');
   // Folds: a dark crease across the garment reads below 1, its flat cloth at 1.
   const w = 60; const hh = 40; const px = new Uint8ClampedArray(w * hh * 4).fill(150); const gm = new Uint8Array(w * hh).fill(1);
   for (let x = 0; x < w; x++) for (let y = 19; y < 22; y++) px.set([90, 90, 90, 255], (y * w + x) * 4);
@@ -248,4 +251,33 @@ test('fashion: an upper body in parts by the pose: a tank top\'s bare arms told 
   const arm = bareArm(sleeve, w, h, [224, 168, 136], people);
   let on = 0; for (let x = 0; x < arm.pw; x++) if (arm.rgba[((400 - arm.y0) * arm.pw + x) * 4 + 3] > 128) on++;
   assert.ok(Math.abs(on - 40) <= 3, `arm width ${on}`);
+});
+
+test('fashion: a group photo told apart: each person their own, parted where one dress meets the next', () => {
+  // Two people side by side, touching: faces at x 60 and 140; a red dress (x 30..100) and a green one
+  // (x 100..170), the red one's wearer leaning, so halfway between the faces isn't where they part.
+  const w = 200; const h = 300; const n = w * h;
+  const p = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(235);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; let c = null;
+    if (y >= 20 && y < 60 && Math.abs(x - 60) < 16) { p.face[i] = 255; c = [220, 180, 150]; }
+    else if (y >= 20 && y < 60 && Math.abs(x - 140) < 16) { p.face[i] = 255; c = [210, 170, 140]; }
+    else if (y >= 60 && y < 280 && x >= 30 && x < 120 - (y > 150 ? 20 : 0)) { p.clothes[i] = 255; c = [180, 30, 40]; }
+    else if (y >= 60 && y < 280 && x >= 100 - (y > 150 ? 0 : -20) && x < 170) { p.clothes[i] = 255; c = [90, 170, 60]; }
+    if (c) rgba.set([...c, 255], i * 4);
+  }
+  const P = (x, y) => [x, y, 1];
+  const pose = (cx) => ({ nose: P(cx, 40), shoulders: [P(cx - 25, 70), P(cx + 25, 70)], elbows: [P(cx - 30, 120), P(cx + 30, 120)], wrists: [P(cx - 30, 160), P(cx + 30, 160)], hips: [P(cx - 15, 160), P(cx + 15, 160)], knees: [P(cx - 12, 220), P(cx + 12, 220)], ankles: [P(cx - 12, 275), P(cx + 12, 275)] });
+  const ps = splitPeople(p, rgba, [pose(60), pose(140)]);
+  assert.equal(ps.length, 2);
+  const mine = (k, x, y) => ps[k].p.clothes[y * w + x] >= 128;
+  // Below y 150 the red dress ends at x 100: the green one is all the second person's, its left edge too.
+  assert.ok(mine(1, 105, 200) && !mine(0, 105, 200), 'the green dress\'s left edge is the second person\'s');
+  assert.ok(mine(0, 95, 200) && !mine(1, 95, 200), 'the red dress\'s right edge is the first person\'s');
+  // Above, the red dress reaches x 120: still the first person's.
+  assert.ok(mine(0, 115, 100), 'the red dress where it reaches past the middle');
+  assert.ok(ps[0].p.face[40 * w + 60] && !ps[0].p.face[40 * w + 140], 'each their own face');
+  // One person: the maps as they are.
+  assert.equal(splitPeople(p, rgba, []).length >= 1, true);
 });

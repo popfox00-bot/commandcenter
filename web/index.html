@@ -22,6 +22,7 @@
 <body>
   <header class="topbar">
     <h1 id="title">Command Center</h1>
+    <button id="version" class="version-tag" type="button" hidden aria-haspopup="dialog"></button>
     <div class="topbar-actions" id="jobs-actions" hidden>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
       <button id="open-settings" class="icon-btn" aria-label="Settings">⚙</button>
@@ -29,6 +30,7 @@
   </header>
 
   <button id="update" class="update-bar" hidden>A new version is ready. Tap to reload.</button>
+  <dialog id="versions" class="versions" aria-labelledby="versions-title"></dialog>
 
   <section id="view-home" class="view" hidden>
     <nav id="app-grid" class="app-grid" aria-label="Apps"></nav>

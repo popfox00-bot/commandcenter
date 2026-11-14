@@ -243,3 +243,68 @@ test('Fashion: saving Replace from photos bigger than the working size (a phone\
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+// A stand-in for the pose finder: two people side by side, at fixed places in the picture (fractions of it).
+const FAKE_POSES = `
+const one = (cx, W, H) => { const P = (x, y) => [x * W, y * H, 1]; return { nose: P(cx, 0.14), shoulders: [P(cx - 0.09, 0.26), P(cx + 0.09, 0.26)], elbows: [P(cx - 0.11, 0.4), P(cx + 0.11, 0.4)], wrists: [P(cx - 0.11, 0.52), P(cx + 0.11, 0.52)], hips: [P(cx - 0.06, 0.55), P(cx + 0.06, 0.55)], knees: [P(cx - 0.05, 0.75), P(cx + 0.05, 0.75)], ankles: [P(cx - 0.05, 0.93), P(cx + 0.05, 0.93)] }; };
+export async function detectPoses(img) { return [one(0.3, img.width, img.height), one(0.7, img.width, img.height)]; }
+export async function detectPose(img) { return (await detectPoses(img))[0]; }`;
+
+test('Fashion in a group photo: choose whose clothes (a face, or a tap on them) and who to dress; only that person\'s dress is taken and replaced', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS, headers: { 'content-type': 'text/javascript' } }));
+  await context.route('**/lib/pose.js', (route) => route.fulfill({ body: FAKE_POSES, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fashion`);
+  await page.waitForSelector('#fa-base', { state: 'attached' });
+  // Two people, their dresses touching: a red one (left) and a green one (right).
+  const png = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(600, 900); const x = c.getContext('2d'); const SKIN = '#e0a888';
+    x.fillStyle = '#ece6da'; x.fillRect(0, 0, 600, 900);
+    for (const [cx, dress] of [[180, '#b8323c'], [420, '#3c9a46']]) {
+      x.fillStyle = SKIN; x.beginPath(); x.ellipse(cx, 125, 45, 58, 0, 0, 7); x.fill(); x.fillRect(cx - 16, 180, 32, 50);
+      x.fillStyle = dress; x.fillRect(cx - 120, 225, 240, 600);
+      x.fillStyle = '#111'; x.fillRect(cx - 60, 825, 50, 25); x.fillRect(cx + 10, 825, 50, 25);
+    }
+    return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  const file = { name: 'group.png', mimeType: 'image/png', buffer: Buffer.from(png) };
+  await page.setInputFiles('#fa-base', file); await page.waitForSelector('img[alt="1 · Base"]');
+  await page.setInputFiles('#fa-piece', file); await page.waitForSelector('img[alt="2 · Piece"]');
+  await page.getByRole('button', { name: 'Next: pick the piece' }).click();
+  // Two people found: a face to tap for each.
+  await page.waitForSelector('.fa-who-item');
+  assert.equal(await page.locator('.fa-who-item').count(), 2);
+  const pixel = (x, y) => page.evaluate(async ([X, Y]) => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return Array.from(document.querySelector('.fa-canvas').getContext('2d').getImageData(X, Y, 1, 1).data.slice(0, 3));
+  }, [x, y]);
+  const pink = ([r, g, b]) => r > 150 && b > 90 && g < 130;
+  // Whose clothes: the person on the right (their face). Their green dress is picked, not the red one beside it.
+  await page.getByRole('button', { name: 'Person 2', exact: true }).click();
+  await page.getByRole('button', { name: '👗 Dress' }).click();
+  await page.waitForSelector('text=/Found ✨/');
+  assert.ok(pink(await pixel(420, 500)), `the green dress picked: ${await pixel(420, 500)}`);
+  assert.ok(pink(await pixel(330, 600)), 'to its left edge');
+  assert.ok(!pink(await pixel(250, 600)), `not the red dress next to it: ${await pixel(250, 600)}`);
+  assert.ok(!pink(await pixel(290, 400)), 'not even where they touch');
+  // A tap on the other person chooses them instead.
+  await page.locator('.fa-canvas').click({ position: await page.evaluate(() => { const c = document.querySelector('.fa-canvas'); const r = c.getBoundingClientRect(); return { x: (180 / c.width) * r.width, y: (500 / c.height) * r.height }; }) });
+  await page.waitForSelector('.fa-who-item.active >> text=1');
+  // Back to the green dress, then dress person 1 in it.
+  await page.getByRole('button', { name: 'Person 2', exact: true }).click();
+  await page.getByRole('button', { name: '👗 Dress' }).click();
+  await page.getByRole('button', { name: 'Next: put it on' }).click();
+  await page.waitForSelector('.fa-who-item');
+  await page.getByRole('button', { name: 'Person 1', exact: true }).click();
+  await page.waitForTimeout(800);
+  const green = ([r, g, b]) => g > r + 30 && g > b + 10;
+  const red = ([r, g, b]) => r > g + 60 && r > b + 50;
+  // 🔁 Replace: person 1's red dress is now green; person 2's own dress is as it was; no red left on person 1.
+  for (const [x, y] of [[180, 300], [120, 600], [240, 750]]) assert.ok(green(await pixel(x, y)), `person 1 in green at ${x},${y}: ${await pixel(x, y)}`);
+  assert.ok(green(await pixel(420, 500)), 'person 2 untouched');
+  assert.ok(!red(await pixel(180, 500)), 'no red left');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

@@ -20,8 +20,8 @@ import { noteError } from '../../lib/diag.js';
 import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
-import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout } from '../../tools/fashion/fashion-core.js';
-import { buildLayer, finish, uncovered, fillUncovered, lay } from './compose.js';
+import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople } from '../../tools/fashion/fashion-core.js';
+import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor } from './compose.js';
 
 const WORK_MAX = 1024;
 const SAVE_MAX = 2560;      // the saved picture's longest side (and no more than ~6 MP: a phone's memory)
@@ -64,15 +64,24 @@ export function mount(host) {
     const img = { file, canvas: c, w: c.width, h: c.height, rgba: c.getContext('2d').getImageData(0, 0, c.width, c.height).data, people: null, layout: null, finding: true };
     // The person in it (where their face, body and clothes are), worked out on the phone. Without it
     // (the model can't load), everything still works by tapping and tracing.
-    img.found = (async () => {
+    img.ready = (async () => {
       try {
         const { segmentPeople } = await import('../../lib/face-parts.js');
         const p = await segmentPeople(c);
-        if (p) { img.people = peopleAt(p, img.w, img.h); img.layout = img.savedLayout ?? bodyLayout(img.people, img.rgba); }
+        if (p) img.allPeople = peopleAt(p, img.w, img.h);
       } catch (e) { noteError('Fashion: finding the person', e); }
-      // Their pose (shoulders, elbows, wrists): an arm told from the body beside it.
-      if (img.people) {
-        try { const { detectPose } = await import('../../lib/pose.js'); img.pose = await detectPose(c); } catch (e) { noteError('Fashion: finding the pose', e); }
+      if (img.allPeople) {
+        // Their poses (shoulders, elbows, wrists): an arm told from the body beside it, and each person
+        // in a group photo told from the next.
+        let poses = [];
+        try { const { detectPoses } = await import('../../lib/pose.js'); poses = await detectPoses(c); } catch (e) { noteError('Fashion: finding the pose', e); }
+        img.poses = poses;
+        try {
+          const split = splitPeople(img.allPeople, img.rgba, poses);
+          if (split.length > 1) img.persons = split.map((q) => ({ ...q, pose: poseIn(q.face, poses), thumb: faceThumb(img, q.face) }));
+        } catch (e) { noteError('Fashion: telling the people apart', e); }
+        const biggest = img.persons ? img.persons.reduce((a, q, k) => (q.n > img.persons[a].n ? k : a), 0) : 0;
+        choose(img, img.savedWho ?? biggest, true);
       }
       img.finding = false;
       if (!alive) return;
@@ -81,6 +90,61 @@ export function mount(host) {
       render();
     })();
     return img;
+  }
+
+  /** The pose whose nose is in a face (a little past it; the nearest its middle), or null. */
+  function poseIn(face, poses) {
+    if (!face) return null;
+    const fw = face.x1 - face.x0; const fh = face.y1 - face.y0;
+    const cx = (face.x0 + face.x1) / 2; const cy = (face.y0 + face.y1) / 2;
+    return poses.filter((q) => q.nose[0] >= face.x0 - fw * 0.15 && q.nose[0] <= face.x1 + fw * 0.15 && q.nose[1] >= face.y0 - fh * 0.15 && q.nose[1] <= face.y1 + fh * 0.15)
+      .sort((a, b) => Math.hypot(a.nose[0] - cx, a.nose[1] - cy) - Math.hypot(b.nose[0] - cx, b.nose[1] - cy))[0] ?? null;
+  }
+  /** A small round picture of a face (its head, a little around it), for choosing who. */
+  function faceThumb(img, f) {
+    if (!f) return null;
+    const side = Math.max(f.x1 - f.x0, f.y1 - f.y0) * 1.5; const cx = (f.x0 + f.x1) / 2; const cy = (f.y0 + f.y1) / 2;
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    c.getContext('2d').drawImage(img.canvas, cx - side / 2, cy - side / 2, side, side, 0, 0, 64, 64);
+    return c.toDataURL('image/jpeg', 0.8);
+  }
+  /**
+   * The one person in a photo everything goes by (in a group photo, the one chosen): only their face, body
+   * and clothes, their layout and their pose. `first`: as it's found (a saved layout kept).
+   */
+  function choose(img, k, first = false) {
+    const P = img.persons;
+    if (!P) {
+      img.who = null; img.people = img.allPeople; img.pose = img.poses?.length ? img.poses.reduce((a, b) => (Math.abs(b.shoulders[1][0] - b.shoulders[0][0]) > Math.abs(a.shoulders[1][0] - a.shoulders[0][0]) ? b : a)) : null;
+    } else {
+      k = Math.max(0, Math.min(P.length - 1, k));
+      if (!first && img.who === k) return;
+      img.who = k; img.people = P[k].p; img.pose = P[k].pose;
+    }
+    img.layout = first && img.savedLayout ? img.savedLayout : bodyLayout(img.people, img.rgba);
+    img.sil = null;
+  }
+  /** Someone else in a group photo chosen: what was picked on them, or found on them, starts over. */
+  function switchTo(img, k) {
+    if (!img?.persons || img.who === k) return;
+    choose(img, k);
+    if (img === piece) { piece.found = null; piece.parts = null; setSel(new Uint8Array(piece.w * piece.h)); autoPick(true); note = `Person ${k + 1}: ${piece.sel ? 'found ✨ (pink).' : 'tap what to take.'}`; }
+    else { target = null; fillCache = null; place = null; autoTarget(); placeIt(); note = `Dressing person ${k + 1}.`; }
+    commit(); render();
+  }
+  /** In a group photo: who (a face to tap for each person, left to right). */
+  function whoRow(img, label) {
+    if (!img?.persons) return null;
+    return el('div', { class: 'fa-who' }, el('span', { class: 'small', text: label }),
+      el('div', { class: 'chips' }, ...img.persons.map((q, k) => el('button', {
+        type: 'button', class: `fa-who-item${img.who === k ? ' active' : ''}`, 'aria-pressed': String(img.who === k), 'aria-label': `Person ${k + 1}`,
+        onclick: () => switchTo(img, k),
+      }, q.thumb ? el('img', { src: q.thumb, alt: '' }) : null, el('span', { class: 'small', text: `${k + 1}` })))));
+  }
+  /** Which person in a group photo is at a point, or -1. */
+  function personAt(img, x, y) {
+    if (!img?.persons) return -1; const i = y * img.w + x;
+    return img.persons.findIndex((q) => Math.max(q.p.body[i], q.p.clothes[i], q.p.face[i], q.p.hair[i], q.p.others[i]) >= 128);
   }
 
   function photosView() {
@@ -125,9 +189,11 @@ export function mount(host) {
     target: target && { mask: target.mask, auto: target.auto, body: !!target.body, taps: target.taps ?? [], edits: target.edits ?? [] },
     baseLayout: base?.layout ? { ...base.layout } : null, pieceLayout: piece?.layout ? { ...piece.layout } : null,
     place: place && { ...place },
+    who: { base: base?.who ?? null, piece: piece?.who ?? null },
   });
   function apply(sn) {
     ({ step, kind, mode, tol } = sn); tune = { ...sn.tune };
+    if (sn.who) { if (piece?.persons && sn.who.piece != null) choose(piece, sn.who.piece); if (base?.persons && sn.who.base != null) choose(base, sn.who.base); }
     if (piece) { piece.picks = sn.picks; setSel(sn.sel ?? new Uint8Array(piece.w * piece.h), true); if (sn.pieceLayout) piece.layout = sn.pieceLayout; }
     if (base && sn.baseLayout) base.layout = sn.baseLayout;
     if (sn.target && base) { setTarget(sn.target.mask, sn.target.auto); target.taps = sn.target.taps; target.edits = sn.target.edits; target.body = sn.target.body; } else target = null;
@@ -159,6 +225,7 @@ export function mount(host) {
       base = await load(saved.baseFile); piece = await load(saved.pieceFile);
       if (saved.baseLayout) base.savedLayout = saved.baseLayout;
       if (saved.pieceLayout) piece.savedLayout = saved.pieceLayout;
+      if (saved.who) { base.savedWho = saved.who.base; piece.savedWho = saved.who.piece; }
       resume = null; note = '';
       apply(saved); history.undo = [snap()]; history.redo = [];
       tool = step === 'put' ? 'move' : 'tap';
@@ -249,6 +316,9 @@ export function mount(host) {
     // Solid (cloth isn't see-through: the specks and gaps a pick leaves closed), its edge only softened.
     if (!piece.alpha) {
       piece.solid = solidify(piece.sel, piece.w, piece.h, piece.box);
+      // (A body zone has gaps of its own, the background seen through the loop of an arm: not closed.)
+      const pp = piece.people;
+      if (isZone(kind) && pp) for (let i = 0; i < piece.solid.length; i++) if (piece.solid[i] && !piece.sel[i] && Math.max(pp.body[i], pp.clothes[i], pp.others[i], pp.hair[i]) < 64) piece.solid[i] = 0;
       repairPiece();
       piece.box = boxOf(piece.solid, piece.w, piece.h) ?? piece.box; piece.alpha = softenMask(piece.solid, piece.w, piece.h, 1);
     }
@@ -309,14 +379,24 @@ export function mount(host) {
     }
     for (let x = b.x0; x < b.x1; x++) top[x] = Number.isNaN(filledTop[x]) ? b.y0 : filledTop[x];
     const occl = new Uint8Array(w * h); let n = 0;
+    // (Each row's ends; and for a hand, the widest the piece is a hand's height around: a hand on a hip
+    // reaches past the piece's edge in its own rows.)
+    // (A body zone's skin is its own (its arms), but a hand across its cloth isn't: there, the cloth's ends.)
+    const zone = isZone(kind);
+    const ends = new Int32Array((b.y1 - b.y0) * 2).fill(-1);
+    for (let y = b.y0; y < b.y1; y++) { for (let x = b.x0; x < b.x1; x++) if (m[y * w + x] && (!zone || p.clothes[y * w + x] >= 128)) { if (ends[(y - b.y0) * 2] < 0) ends[(y - b.y0) * 2] = x; ends[(y - b.y0) * 2 + 1] = x; } }
+    const HR = Math.round((L?.fh ?? 40) * 0.45);
     for (let y = b.y0; y < b.y1; y++) {
-      let l = -1; let r = -1;
-      for (let x = b.x0; x < b.x1; x++) if (m[y * w + x]) { if (l < 0) l = x; r = x; }
+      const l = ends[(y - b.y0) * 2]; const r = ends[(y - b.y0) * 2 + 1];
       if (l < 0) continue;
-      for (let x = l; x <= r; x++) {
+      let lw = l; let rw = r;
+      if (y > hands) for (let yy = Math.max(b.y0, y - HR); yy < Math.min(b.y1, y + HR); yy++) { const a = ends[(yy - b.y0) * 2]; if (a >= 0) { lw = Math.min(lw, a); rw = Math.max(rw, ends[(yy - b.y0) * 2 + 1]); } }
+      for (let x = lw; x <= rw; x++) {
         // (Hair, picked with it or not: a dark lock caught at its edge goes too.)
         const i = y * w + x; if (y < top[x] - 1) continue;
-        if (p.hair[i] >= 70 || (y > hands && !m[i] && p.body[i] >= 128)) { occl[i] = 1; n++; continue; }
+        if (y > hands && (!m[i] || zone) && p.body[i] >= 128) { occl[i] = 1; n++; continue; }
+        if (x < l || x > r) continue;
+        if (p.hair[i] >= 70) { occl[i] = 1; n++; continue; }
         // (A dark tip of hair the finder was less sure of: far darker than the cloth, beside some hair.)
         if (p.hair[i] >= 20 && m[i] && piece.rgba[i * 4] + piece.rgba[i * 4 + 1] + piece.rgba[i * 4 + 2] < tone - 150) { occl[i] = 1; n++; }
       }
@@ -334,17 +414,22 @@ export function mount(host) {
     const val = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh).fill(1);
     // Only clean cloth sets the color: not within 3 px of what's filled (a hair's soft edge), and near the
     // cloth's own typical color (its median).
-    const med = [0, 1, 2].map((c) => { const v = []; for (let i = 0; i < w * h; i += 7) if (m[i] && !occl[i]) v.push(piece.rgba[i * 4 + c]); v.sort((a2, b2) => a2 - b2); return v[v.length >> 1] ?? 128; });
+    // (In a body zone, its cloth only: not its arms' skin.)
+    const cloth = (i) => m[i] && !occl[i] && (!zone || p.clothes[i] >= 128);
+    const med = [0, 1, 2].map((c) => { const v = []; for (let i = 0; i < w * h; i += 7) if (cloth(i)) v.push(piece.rgba[i * 4 + c]); v.sort((a2, b2) => a2 - b2); return v[v.length >> 1] ?? 128; });
     const near = (i) => { for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = (i % w) + dx; const Y = ((i / w) | 0) + dy; if (X >= 0 && Y >= 0 && X < w && Y < h && occl[Y * w + X]) return true; } return false; };
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
       const i = (bx.y0 + y) * w + bx.x0 + x; const k = y * bw + x;
-      if (!m[i] || occl[i] || near(i)) continue;
+      if (!cloth(i) || near(i)) continue;
       const d = Math.abs(piece.rgba[i * 4] - med[0]) + Math.abs(piece.rgba[i * 4 + 1] - med[1]) + Math.abs(piece.rgba[i * 4 + 2] - med[2]);
       if (d > 90) continue;
       free[k] = 0; for (let c = 0; c < 3; c++) val[k * 3 + c] = piece.rgba[i * 4 + c];
     }
-    // (What isn't filled nor clean cloth, the hair's fringe, is filled too.)
-    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = (bx.y0 + y) * w + bx.x0 + x; if (m[i] && !occl[i] && free[y * bw + x]) occl[i] = 1; }
+    // (What isn't filled nor clean cloth right beside what's filled, the hair's fringe, is filled too; a fold's
+    // shade further off is left as it is, it just doesn't set the color.)
+    const fringe = [];
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = (bx.y0 + y) * w + bx.x0 + x; if (m[i] && !occl[i] && free[y * bw + x] && near(i) && (!zone || p.clothes[i] >= 128)) fringe.push(i); }
+    for (const i of fringe) occl[i] = 1;
     try {
       // (Seeded with the cloth's average, so what nothing reaches isn't black.)
       const avg = [0, 0, 0]; let na = 0; for (let k = 0; k < bw * bh; k++) if (!free[k]) { avg[0] += val[k * 3]; avg[1] += val[k * 3 + 1]; avg[2] += val[k * 3 + 2]; na++; }
@@ -444,7 +529,7 @@ export function mount(host) {
       el('div', { class: 'chips fa-found-row' }, ...found.map((f) => el('button', {
         type: 'button', class: `fa-found-item${kind === f.id && piece.sel && piece.picks?.base === f.mask ? ' active' : ''}`, 'aria-label': `Use the ${f.name.toLowerCase()}`,
         onclick: () => { kind = f.id; target = null; fillCache = null; place = null; setSel(f.mask); note = `The ${f.name.toLowerCase()} (pink). Tap more of it, take colors away, or trace to keep only what's inside.`; commit(); render(); },
-      }, el('img', { src: f.thumb, alt: '' }), el('span', { class: 'small', text: `${f.icon} ${f.name}` }), f.zone ? el('span', { class: 'small muted', text: 'all of it' }) : null)))) : null;
+      }, el('img', { src: f.thumb, alt: '' }), el('span', { class: 'small', text: `${f.icon} ${f.name}` }), f.zone ? el('span', { class: 'small muted', text: 'clothes + skin' }) : null)))) : null;
     const kinds = el('div', { class: 'chips' }, ...[...KINDS, ...ZONES].map(([id, icon, name]) => el('button', {
       type: 'button', class: `chip${kind === id ? ' active' : ''}`, 'aria-pressed': String(kind === id), text: `${icon} ${name}`,
       onclick: () => { kind = id; target = null; fillCache = null; place = null; if (piece.parts) piece.parts = null; if (piece.people) autoPick(); commit(); render(); },
@@ -460,6 +545,7 @@ export function mount(host) {
       piece.sel ? el('button', { type: 'button', class: 'chip', text: 'Clear', onclick: () => { piece.picks = { add: [], del: [], loop: null, base: null, edits: [] }; setSel(new Uint8Array(piece.w * piece.h), true); commit(); render(); } }) : null);
     return [
       undoBar(),
+      whoRow(piece, 'Whose clothes? (tap a face, or tap them in the photo)'),
       foundRow,
       el('p', { class: 'small', text: found.length ? 'Or say what it is:' : 'What is it?' }), kinds,
       tools,
@@ -615,6 +701,14 @@ export function mount(host) {
       if (fillCache.patch) lay(out, w, h, fillCache.patch);
     }
     if (layer) lay(out, w, h, layer);
+    // (What's left of the old garment just outside it, its straps, recolored as the piece.)
+    if (layer && mode === 'replace' && target && !target.body) {
+      if (fillCache && (fillCache.restKey !== fillCache.key || fillCache.restTarget !== target)) {
+        try { fillCache.rest = leftovers(S, layer); } catch (e) { fillCache.rest = null; noteError('Fashion: the straps', e); }
+        fillCache.restKey = fillCache.key; fillCache.restTarget = target;
+      }
+      recolor(out, w, fillCache?.rest ?? null, base.rgba);
+    }
     return layer;
   }
 
@@ -655,6 +749,7 @@ export function mount(host) {
     more.addEventListener('toggle', () => { moreOpen = more.open; if (!more.open && tool !== 'move') { tool = 'move'; draw(); } });
     return [
       undoBar(),
+      whoRow(base, 'Who to dress? (tap a face, or tap them in the photo)'),
       modeBar,
       el('p', { class: 'small muted', text: { add: 'Add: on top, as it is (a hat, shoes, something new).', overlay: 'Overlay: over what\'s worn there (a jacket over a shirt).', replace: 'Replace: what\'s worn there is taken off and the piece put in its place.' }[mode] }),
       el('p', { class: 'small', 'aria-live': 'polite', text: note || auto }),
@@ -717,6 +812,16 @@ export function mount(host) {
           lay(out, W, H, { x0: Math.round(fp.x0 * k), y0: Math.round(fp.y0 * k), pw: c2.width, ph: c2.height, rgba: x2.getImageData(0, 0, c2.width, c2.height).data });
         }
         if (layer) lay(out, W, H, layer);
+        // (The old garment's straps, recolored: worked out at the working size, brought up.)
+        const rest = mode === 'replace' ? fillCache?.rest : null;
+        if (layer && rest) {
+          const rw = Math.max(1, Math.round(rest.pw * k)); const rh = Math.max(1, Math.round(rest.ph * k));
+          const big = resample(Uint8Array.from(rest.wgt, (v) => Math.round(v * 255)), rest.pw, rest.ph, rw, rh);
+          const rx = Math.round(rest.x0 * k); const ry = Math.round(rest.y0 * k);
+          const cw = Math.min(rw, W - rx); const ch = Math.min(rh, H - ry); const wgt = new Float32Array(cw * ch);
+          for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) wgt[y * cw + x] = big[y * rw + x] / 255;
+          recolor(out, W, { x0: rx, y0: ry, pw: cw, ph: ch, wgt, gain: rest.gain }, B.rgba);
+        }
       }
       const c = document.createElement('canvas'); c.width = W; c.height = H;
       c.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
@@ -826,7 +931,11 @@ export function mount(host) {
         } else { setTarget(loop); target.base = loop; placeIt(); note = 'That\'s what it goes on (yellow).'; }
         commit();
       } else if (last[0] >= 0 && last[1] >= 0 && last[0] < im.w && last[1] < im.h) {
-        if (step === 'pick') pickAt(Math.round(last[0]), Math.round(last[1])); else tapTarget(Math.round(last[0]), Math.round(last[1]));
+        const X = Math.round(last[0]); const Y = Math.round(last[1]);
+        // (In a group photo, a tap on someone else: them chosen first.)
+        const other = tool === 'tap' ? personAt(im, X, Y) : -1;
+        if (other >= 0 && other !== im.who) { switchTo(im, other); if (step === 'pick' && piece.sel) return; }
+        if (step === 'pick') pickAt(X, Y); else tapTarget(X, Y);
         commit();
       }
       render(); return;

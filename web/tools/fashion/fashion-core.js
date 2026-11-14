@@ -16,8 +16,8 @@ export const KINDS = [
   ['hat', '🧢', 'Hat'], ['shoes', '👟', 'Shoes'], ['other', '✨', 'Other'],
 ];
 /**
- * Body zones: everything worn on a part of the body at once (a shirt with the vest over it and the
- * necklace on it, the skin a neckline shows): [id, icon, name].
+ * Body zones: all of a part of the body at once, its clothes and its skin (a shirt with the vest over it
+ * and the necklace on it, and the bare arms, shoulders or legs): [id, icon, name].
  */
 export const ZONES = [['upper', '🧍', 'Upper body'], ['lower', '🦵', 'Lower body'], ['outfit', '🧍‍♀️', 'Whole outfit']];
 /** Whether a kind is a body zone. */
@@ -117,7 +117,8 @@ export function kindZone(kind, L, w, h) {
     top: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : waist + fh * 0.25 * cut },
     jacket: { x0: P.x0, y0: chin - fh * 0.15, x1: P.x1, y1: open ? h : waist + fh * (L.split ? 0.05 : 0.7) },
     bottom: { x0: P.x0, y0: waist - fh * 0.15 * cut, x1: P.x1, y1: ankle + fh * 0.2 },
-    dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : Math.min(ankle, waist + fh * 3) },
+    // (A dress: to its hem, a gown's to the feet; only clothes are taken, so not the legs or shoes.)
+    dress: { x0: P.x0, y0: chin - fh * 0.1, x1: P.x1, y1: open ? h : Math.max(waist + fh * 1.5, Math.min(P.y1, ankle + fh * 0.3)) },
     hat: { x0: F.x0 - fw * 0.35, y0: F.y0 - fh * 1.0, x1: F.x1 + fw * 0.35, y1: F.y0 + fh * 0.35 },
     shoes: { x0: P.x0, y0: ankle - fh * 0.35, x1: P.x1, y1: P.y1 + fh * 0.1 },
     // Body zones: from the chin to the waist (the shoulders and neck in it), the waist to the ankles, the chin down.
@@ -139,7 +140,8 @@ export function kindRegion(kind, p, L) {
   const m = new Uint8Array(w * h);
   for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
     const i = y * w + x;
-    const worn = isZone(kind) ? Math.max(p.others[i], p.clothes[i]) >= 128 && p.face[i] < 128 && p.hair[i] < 128
+    // (A body zone: all of the body there, its clothes and its bare skin (arms, shoulders, legs), all but the face and hair.)
+    const worn = isZone(kind) ? Math.max(p.others[i], p.clothes[i], p.body[i]) >= 128 && p.face[i] < 128 && p.hair[i] < 128
       : kind === 'hat' ? Math.max(p.others[i], p.clothes[i]) >= 128 && p.face[i] < 128
       : kind === 'shoes' ? p.others[i] >= 128
         : kind === 'other' ? Math.max(p.others[i], p.clothes[i]) >= 128
@@ -148,17 +150,15 @@ export function kindRegion(kind, p, L) {
   }
   // (Thin slivers taken off first: the soft edge of an arm or the background read as clothes.)
   openMask(m, w, h, z, Math.max(1, Math.round(L.fh / 60)));
-  // A zone: with the bare skin between what's worn, row by row, around the neckline and chest (not hands
-  // or arms lower down beside it).
-  if (isZone(kind)) for (let y = z.y0; y < Math.min(z.y1, L.chin + L.fh * 1.3); y++) {
-    let l = -1; let r = -1; for (let x = z.x0; x < z.x1; x++) if (m[y * w + x]) { if (l < 0) l = x; r = x; }
-    for (let x = l + 1; x < r; x++) { const i = y * w + x; if (!m[i] && p.body[i] >= 128 && p.face[i] < 128) m[i] = 1; }
-  }
   // (Shoes not told apart from the rest: what's at the very bottom of the person.)
   if (kind === 'shoes' && !m.some(Boolean)) for (let y = Math.max(z.y0, Math.floor(L.ankle)); y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) { const i = y * w + x; if (Math.max(p.clothes[i], p.body[i]) >= 128) m[i] = 1; }
-  const kept = mainParts(m, w, h, z, 0.15);
+  // (A zone's arm can be parted from its body by the hair over the shoulder: smaller parts kept.)
+  const kept = mainParts(m, w, h, z, isZone(kind) ? 0.05 : 0.15);
   if (!kept) return null;
   fillHoles(kept.mask, w, h, kept.box, 0.3);
+  // (A zone's holes filled only with what's on the person: not the background seen through the loop of
+  // an arm with its hand on a hip.)
+  if (isZone(kind)) for (let i = 0; i < w * h; i++) if (kept.mask[i] && Math.max(p.body[i], p.clothes[i], p.others[i], p.hair[i]) < 64) kept.mask[i] = 0;
   if (kept.count < w * h * 0.003) return null;
   return { mask: kept.mask, box: kept.box };
 }
@@ -753,11 +753,20 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       }
       // (Worked on with a 2-pixel frame around it, held at its edge's colors: the smoothing doesn't reach a
       // grid's outermost pixels.)
+      // (What's outside the piece's rows (beside a strap, above it) held at the nearest of its own colors in
+      // that row, or the nearest row with any: never at nothing, black, which a neckline would fade to.)
       const F = 2; const fw = pbw + 2 * F; const fh = pbh + 2 * F;
       const val = new Float32Array(fw * fh * 3); const free = new Uint8Array(fw * fh);
+      const rowNear = new Int32Array(pbh).fill(-1);
+      for (let y = 0; y < pbh; y++) { if (has[y]) { rowNear[y] = y; continue; } for (let d = 1; d < pbh; d++) { if (y - d >= 0 && has[y - d]) { rowNear[y] = y - d; break; } if (y + d < pbh && has[y + d]) { rowNear[y] = y + d; break; } } }
       for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
         const sx = Math.max(0, Math.min(pbw - 1, x - F)); const sy = Math.max(0, Math.min(pbh - 1, y - F)); const k = sy * pbw + sx; const o = y * fw + x;
-        for (let c = 0; c < 3; c++) val[o * 3 + c] = fill[k * 3 + c];
+        const ry2 = rowNear[sy];
+        if (ry2 >= 0) {
+          const l1 = Math.max(0, Math.floor(pspans[ry2 * 2]) - pb.x0); const r1 = Math.min(pbw - 1, Math.ceil(pspans[ry2 * 2 + 1]) - 1 - pb.x0);
+          const k2 = ry2 * pbw + Math.max(l1, Math.min(r1, sx));
+          for (let c = 0; c < 3; c++) val[o * 3 + c] = fill[k2 * 3 + c];
+        } else for (let c = 0; c < 3; c++) val[o * 3 + c] = fill[k * 3 + c];
         const inside = x >= F && y >= F && x < pbw + F && y < pbh + F;
         free[o] = inside && (near[k] || !has[sy]) ? 1 : 0;
       }
@@ -860,7 +869,8 @@ export function upperParts(p, L, w, h, kind = 'upper', pose = null) {
       const hand = [wr[0] + (wr[0] - e[0]) * 0.25, wr[1] + (wr[1] - e[1]) * 0.25];
       return [s2, e, wr, hand];
     };
-    const arms = [arm(0), arm(1)]; const reach = sw * 0.21;
+    // (An arm whose elbow the pose can't see is behind something (the person beside them): not made up.)
+    const arms = [seen(pose.elbows[0]) ? arm(0) : null, seen(pose.elbows[1]) ? arm(1) : null]; const reach = sw * 0.21;
     // (What's at a point: skin 1, clothes 2, nothing 0.)
     const matAt = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= w || Y >= h) return 0; const i = Y * w + X; return p.body[i] >= 128 ? 1 : Math.max(p.clothes[i], p.others[i]) >= 128 ? 2 : 0; };
     const nearest = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return [a[0] + t * dx, a[1] + t * dy]; };
@@ -873,7 +883,8 @@ export function upperParts(p, L, w, h, kind = 'upper', pose = null) {
       let best = 0; let bd = Infinity;
       let shoulder = false; let on = null;
       for (let k = 0; k < 2; k++) {
-        const A = arms[k]; const ds = [segDist(x, y, A[0], A[1]), segDist(x, y, A[1], A[2]), segDist(x, y, A[2], A[3])];
+        const A = arms[k]; if (!A) continue;
+        const ds = [segDist(x, y, A[0], A[1]), segDist(x, y, A[1], A[2]), segDist(x, y, A[2], A[3])];
         const j = ds.indexOf(Math.min(...ds));
         if (ds[j] < bd) { bd = ds[j]; best = k + 1; shoulder = j === 0 && along(x, y, A[0], A[1]) < 0.12; on = nearest(x, y, A[j], A[j + 1]); }
       }
@@ -927,4 +938,171 @@ export function bareArm(sleeve, w, h, tone, people) {
     }
   }
   return { x0: b.x0, y0: b.y0, pw: bw, ph: bh, rgba };
+}
+
+/**
+ * A photo of several people told apart (`p` at the picture's size, `rgba` its pixels, `poses` from
+ * detectPoses or []): one person for each face found. Each grows out from their face (and, where a pose
+ * is clearly theirs, its nose in that face, along their skeleton) over everyone's pixels, the nearest by
+ * a path that costs more where the color changes: so two people side by side part where one's dress meets
+ * the other's, not halfway between them. Each person's maps keep only their pixels (and only those joined
+ * to the bulk of them). [{ p, box, face, n }] left to right; one entry, the maps as they are, for one
+ * person or none.
+ * `T` (for tuning): { res: the size it's worked out at, edge / steep: what a change of color costs,
+ * step / mean: how far a patch of one color reaches }.
+ * @param {People} p @param {ArrayLike<number>} rgba @param {any[]} [poses] @param {any} [T] @returns {{ p: People, box: Box|null, face: Box|null, n: number }[]}
+ */
+export function splitPeople(p, rgba, poses = [], T = {}) {
+  const { w, h } = p; const { res = 400, edge = 5, steep = 6, step = 7, mean = 16 } = T;
+  const one = [{ p, box: null, face: null, n: 0 }];
+  // Worked out at most `res` (400) px across.
+  const k = Math.min(1, res / Math.max(w, h)); const W = Math.max(1, Math.round(w * k)); const H = Math.max(1, Math.round(h * k));
+  const at = (X, Y) => Math.min(h - 1, Math.floor((Y + 0.5) / k)) * w + Math.min(w - 1, Math.floor((X + 0.5) / k));
+  const any = new Uint8Array(W * H); const face = new Uint8Array(W * H); const lab = new Float32Array(W * H * 3);
+  for (let Y = 0; Y < H; Y++) for (let X = 0; X < W; X++) {
+    const i = at(X, Y); const j = Y * W + X;
+    any[j] = Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i], p.others[i]) >= 96 ? 1 : 0;
+    face[j] = p.face[i] >= 128 ? 1 : 0;
+    const c = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); lab[j * 3] = c[0]; lab[j * 3 + 1] = c[1]; lab[j * 3 + 2] = c[2];
+  }
+  // The faces: each joined patch of face skin, the small ones (a hand, an ear apart) left out.
+  const lab0 = new Int32Array(W * H); const faces = [];
+  for (let s0 = 0; s0 < W * H; s0++) {
+    if (!face[s0] || lab0[s0]) continue;
+    const q = [s0]; lab0[s0] = faces.length + 1; let x0 = W; let y0 = H; let x1 = 0; let y1 = 0;
+    for (let t = 0; t < q.length; t++) {
+      const i = q[t]; const X = i % W; const Y = (i / W) | 0;
+      if (X < x0) x0 = X; if (X >= x1) x1 = X + 1; if (Y < y0) y0 = Y; if (Y >= y1) y1 = Y + 1;
+      for (const n of [X > 0 ? i - 1 : -1, X < W - 1 ? i + 1 : -1, Y > 0 ? i - W : -1, Y < H - 1 ? i + W : -1]) if (n >= 0 && face[n] && !lab0[n]) { lab0[n] = faces.length + 1; q.push(n); }
+    }
+    faces.push({ id: faces.length + 1, px: q, n: q.length, box: { x0, y0, x1, y1 } });
+  }
+  const big = Math.max(0, ...faces.map((f) => f.n));
+  const people = faces.filter((f) => f.n >= big * 0.2 && f.n >= 12).sort((a, b) => (a.box.x0 + a.box.x1) - (b.box.x0 + b.box.x1));
+  if (people.length < 2) return one;
+  // The seeds: each face, and the skeleton of the pose whose nose is in it (one pose to a face at most).
+  const N = people.length; const dist = new Float64Array(W * H).fill(Infinity); const own = new Int8Array(W * H).fill(-1);
+  const heap = []; // [d, j]
+  const push = (d, j) => { heap.push([d, j]); let c = heap.length - 1; while (c > 0) { const pa = (c - 1) >> 1; if (heap[pa][0] <= d) break; [heap[pa], heap[c]] = [heap[c], heap[pa]]; c = pa; } };
+  const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let c = 0; for (;;) { const l = 2 * c + 1; const r = l + 1; let m = c; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; c = m; } } return top; };
+  const seed = (j, who) => { if (own[j] === -2) return; if (own[j] >= 0 && own[j] !== who) { own[j] = -2; dist[j] = 0; return; } own[j] = who; dist[j] = 0; };
+  const used = new Set();
+  people.forEach((f, who) => {
+    for (const j of f.px) seed(j, who);
+    const B = f.box; const fw = B.x1 - B.x0; const fh = B.y1 - B.y0;
+    // (Of the poses whose nose is in this face, the one nearest its middle: two can be found on one person.)
+    const cx0 = (B.x0 + B.x1) / 2; const cy0 = (B.y0 + B.y1) / 2;
+    const pose = (poses ?? []).filter((q, n) => !used.has(n) && q.nose[2] >= 0.3 && q.nose[0] * k >= B.x0 - fw * 0.15 && q.nose[0] * k <= B.x1 + fw * 0.15 && q.nose[1] * k >= B.y0 - fh * 0.15 && q.nose[1] * k <= B.y1 + fh * 0.15)
+      .sort((a, b) => Math.hypot(a.nose[0] * k - cx0, a.nose[1] * k - cy0) - Math.hypot(b.nose[0] * k - cx0, b.nose[1] * k - cy0))[0];
+    if (pose) used.add(poses.indexOf(pose));
+    const line = (a, b) => {
+      if (!a || !b || a[2] < 0.5 || b[2] < 0.5) return;
+      const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * k) + 1;
+      for (let t = 0; t <= n; t++) { const X = Math.round((a[0] + ((b[0] - a[0]) * t) / n) * k); const Y = Math.round((a[1] + ((b[1] - a[1]) * t) / n) * k); if (X >= 0 && Y >= 0 && X < W && Y < H && any[Y * W + X]) seed(Y * W + X, who); }
+    };
+    if (pose) {
+      // (The spine and the middle of the hips only: a pose's shoulders and far ends can land on the person
+      // beside them.)
+      const m = (a, b, t = 0.5) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, Math.min(a[2], b[2])];
+      const ms = m(pose.shoulders[0], pose.shoulders[1]); const mh = m(pose.hips[0], pose.hips[1]);
+      line(ms, mh);
+      line(m(pose.hips[0], pose.hips[1], 0.3), m(pose.hips[0], pose.hips[1], 0.7));
+      // (And each shoulder that's nearer their own face than anyone else's: theirs, not the next person's.)
+      const fc = (g) => [((g.box.x0 + g.box.x1) / 2) / k, ((g.box.y0 + g.box.y1) / 2) / k];
+      const mine = fc(f);
+      for (const sh of pose.shoulders) {
+        const dm = Math.hypot(sh[0] - mine[0], sh[1] - mine[1]);
+        if (people.every((g) => g === f || Math.hypot(sh[0] - fc(g)[0], sh[1] - fc(g)[1]) > dm)) line(ms, m(ms, sh, 0.7));
+      }
+      // (On down the legs, or what's over them: as far again below the hips.)
+      line(mh, [mh[0] + (mh[0] - ms[0]) * 0.3, mh[1] + (mh[1] - ms[1]) * 1.3, mh[2]]);
+    } else {
+      // (No pose of theirs: straight down from their face, from the chin about as far as a body goes,
+      // while it's on someone.)
+      const cx = Math.round((B.x0 + B.x1) / 2); let off = 0;
+      for (let Y = B.y1; Y < Math.min(H, B.y1 + fh * 6.5); Y++) { const j = Y * W + cx; if (!any[j]) { if (++off > fh * 0.3) break; continue; } off = 0; seed(j, who); }
+    }
+  });
+  for (let j = 0; j < W * H; j++) { if (own[j] === -2) { own[j] = -1; dist[j] = Infinity; } else if (own[j] >= 0) push(0, j); }
+  // Grown out over everyone, each step costing more for a change of color.
+  while (heap.length) {
+    const [d, i] = pop(); if (d > dist[i]) continue;
+    const X = i % W; const Y = (i / W) | 0;
+    for (const n of [X > 0 ? i - 1 : -1, X < W - 1 ? i + 1 : -1, Y > 0 ? i - W : -1, Y < H - 1 ? i + W : -1]) {
+      if (n < 0 || !any[n]) continue;
+      const de = Math.hypot(lab[i * 3] - lab[n * 3], lab[i * 3 + 1] - lab[n * 3 + 1], lab[i * 3 + 2] - lab[n * 3 + 2]);
+      const nd = d + 1 + (de > edge ? (de - edge) * steep : 0);
+      if (nd < dist[n]) { dist[n] = nd; own[n] = own[i]; push(nd, n); }
+    }
+  }
+  // Then each patch of one color (a dress, a sleeve, its light side or its shade: grown while it stays near
+  // its own average color) goes all to whoever has the most of it: a dress isn't parted down its middle.
+  const isSeed = new Uint8Array(W * H); for (let j = 0; j < W * H; j++) if (dist[j] === 0) isSeed[j] = 1;
+  // (Each person's colors, by hue more than lightness: satin's light side and its shade are one color.)
+  const binOf = (L, A, B) => { const a = Math.max(0, Math.min(15, Math.floor((A + 64) / 8))); const b = Math.max(0, Math.min(15, Math.floor((B + 64) / 8))); const l = Math.max(0, Math.min(3, Math.floor(L / 25))); return (l * 16 + a) * 16 + b; };
+  const bin = (j) => binOf(lab[j * 3], lab[j * 3 + 1], lab[j * 3 + 2]);
+  const hist = Array.from({ length: N }, () => new Int32Array(4 * 16 * 16)); const tot = new Int32Array(N);
+  for (let j = 0; j < W * H; j++) if (own[j] >= 0) { hist[own[j]][bin(j)]++; tot[own[j]]++; }
+  // (How much of a person's colors are near this one: the bins around it.)
+  const near = (c, b0, minus) => {
+    const l0 = (b0 / 256) | 0; const a0 = ((b0 / 16) | 0) % 16; const bb = b0 % 16; let n = 0;
+    for (let l = Math.max(0, l0 - 1); l <= Math.min(3, l0 + 1); l++) for (let a = Math.max(0, a0 - 1); a <= Math.min(15, a0 + 1); a++) for (let b = Math.max(0, bb - 1); b <= Math.min(15, bb + 1); b++) { const q = (l * 16 + a) * 16 + b; n += hist[c][q] - (minus.get(q) ?? 0); }
+    return n / Math.max(1, tot[c]);
+  };
+  const reg = new Int32Array(W * H);
+  for (let s0 = 0, id = 0; s0 < W * H; s0++) {
+    if (!any[s0] || reg[s0]) continue;
+    id++; const q = [s0]; reg[s0] = id; const sum = [lab[s0 * 3], lab[s0 * 3 + 1], lab[s0 * 3 + 2]];
+    for (let t = 0; t < q.length; t++) {
+      const i = q[t]; const X = i % W; const Y = (i / W) | 0;
+      for (const n of [X > 0 ? i - 1 : -1, X < W - 1 ? i + 1 : -1, Y > 0 ? i - W : -1, Y < H - 1 ? i + W : -1]) {
+        if (n < 0 || !any[n] || reg[n]) continue;
+        const st = Math.hypot(lab[i * 3] - lab[n * 3], lab[i * 3 + 1] - lab[n * 3 + 1], lab[i * 3 + 2] - lab[n * 3 + 2]);
+        const c = q.length; const mn = Math.hypot(sum[0] / c - lab[n * 3], sum[1] / c - lab[n * 3 + 1], sum[2] / c - lab[n * 3 + 2]);
+        if (st > step || mn > mean) continue;
+        reg[n] = id; q.push(n); sum[0] += lab[n * 3]; sum[1] += lab[n * 3 + 1]; sum[2] += lab[n * 3 + 2];
+      }
+    }
+    if (q.length < 30) continue;
+    // (A patch with two people's seeds in it, each a fair share, two people's skin where they touch: left
+    // parted as it was grown, by the nearest.)
+    const sc0 = new Array(N).fill(0); for (const i of q) if (isSeed[i] && own[i] >= 0) sc0[own[i]]++;
+    const ranked = [...sc0].sort((a, b) => b - a);
+    if (ranked[1] >= 4 && ranked[1] >= ranked[0] * 0.25) continue;
+    const votes = new Array(N).fill(0); for (const i of q) if (own[i] >= 0) votes[own[i]]++;
+    let top = votes.indexOf(Math.max(...votes));
+    // (Held by two people: the one whose own colors, elsewhere, are most like it. A person's pose can be
+    // off, and their share of a dress beside theirs with it.)
+    // (Who holds it, and who's next to it.)
+    const next = new Set(votes.map((v, c) => (v >= q.length * 0.1 ? c : -1)).filter((c) => c >= 0));
+    for (const i of q) {
+      const X = i % W; const Y = (i / W) | 0;
+      for (const n of [X > 0 ? i - 1 : -1, X < W - 1 ? i + 1 : -1, Y > 0 ? i - W : -1, Y < H - 1 ? i + W : -1]) if (n >= 0 && reg[n] !== id && own[n] >= 0) next.add(own[n]);
+    }
+    const rivals = [...next];
+    if (rivals.length > 1) {
+      // (The patch's own average color, binned.)
+      const m3 = [0, 0, 0]; for (const i of q) { m3[0] += lab[i * 3]; m3[1] += lab[i * 3 + 1]; m3[2] += lab[i * 3 + 2]; }
+      const meanBin = binOf(m3[0] / q.length, m3[1] / q.length, m3[2] / q.length);
+      let best = -1;
+      for (const c of rivals) {
+        const minus = new Map(); for (const i of q) if (own[i] === c) { const b = bin(i); minus.set(b, (minus.get(b) ?? 0) + 1); }
+        const af = near(c, meanBin, minus); const sc = af * af * (0.25 + votes[c] / q.length);
+        if (sc > best) { best = sc; top = c; }
+      }
+    }
+    for (const i of q) if (!isSeed[i]) own[i] = top;
+  }
+  return people.map((f, who) => {
+    const m = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const Y = Math.min(H - 1, Math.floor(y * k));
+      for (let x = 0; x < w; x++) if (own[Y * W + Math.min(W - 1, Math.floor(x * k))] === who) m[y * w + x] = 1;
+    }
+    const kept = mainParts(m, w, h, { x0: 0, y0: 0, x1: w, y1: h }, 0.2);
+    /** @type {any} */ const q = { w, h };
+    for (const c of ['face', 'hair', 'body', 'clothes', 'others']) { const a = new Uint8Array(w * h); if (kept) for (let i = 0; i < w * h; i++) if (kept.mask[i]) a[i] = p[c][i]; q[c] = a; }
+    const fb = { x0: Math.floor(f.box.x0 / k), y0: Math.floor(f.box.y0 / k), x1: Math.ceil(f.box.x1 / k), y1: Math.ceil(f.box.y1 / k) };
+    return { p: q, box: kept?.box ?? null, face: fb, n: kept?.count ?? 0 };
+  });
 }

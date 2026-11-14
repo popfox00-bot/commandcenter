@@ -135,3 +135,30 @@ test('Settings → Diagnostics: what loaded, how long it took, and problems note
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Home: the version small at the top right; tapped, the version history (this version first); only on Home', async () => {
+  const { VERSION, HISTORY } = await import('../../web/version.js');
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}`);
+  const tag = page.locator('#version');
+  assert.equal(await tag.textContent(), `v${VERSION}`);
+  // At the top right, and small.
+  const box = await tag.boundingBox(); const font = await tag.evaluate((n) => parseFloat(getComputedStyle(n).fontSize));
+  assert.ok(box.x + box.width > 390 - 40 && box.y < 50, `top right: ${JSON.stringify(box)}`);
+  assert.ok(font <= 13, `small: ${font}px`);
+  await tag.click();
+  const dialog = page.getByRole('dialog', { name: 'Version history' });
+  await dialog.waitFor();
+  const items = dialog.locator('.versions-list li');
+  assert.equal(await items.count(), HISTORY.length);
+  assert.match(await items.first().textContent(), new RegExp(`v${VERSION.replace('.', '\\.')}.*This version`));
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  assert.equal(await dialog.isVisible(), false);
+  // Not inside an app.
+  await page.goto(`${origin}${BASE}#/notes`); await page.waitForSelector('#view-app:not([hidden])');
+  assert.equal(await tag.isHidden(), true);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

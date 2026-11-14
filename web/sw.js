@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "594b8ab7de68",
+  "version": "8cf4405f172f",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -208,7 +208,8 @@ const PRECACHE = {
     "vendor/zxing/LICENSE",
     "vendor/zxing/reader/index.js",
     "vendor/zxing/share.js",
-    "vendor/zxing/zxing_reader.wasm"
+    "vendor/zxing/zxing_reader.wasm",
+    "version.js"
   ]
 };
 /* PRECACHE:END */

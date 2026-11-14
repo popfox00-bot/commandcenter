@@ -745,6 +745,13 @@ away** (brushed, with a brush size). One undo step.
 phone (nothing is uploaded). Pick **1 · Base** (the person to dress) and **2 · Piece** (a photo with
 the clothes in it: worn by someone, or on its own).
 
+- **Group photos**: with several people in a photo, each is told apart on the phone (one for each face;
+  each grows out from their face and their pose over everyone's pixels, parting where the color changes,
+  so two people side by side part where one's dress meets the other's, and each patch of one color, a
+  dress's light side or its shade, stays with whoever's colors it matches). **Whose clothes?** (the piece)
+  and **Who to dress?** (the base) show a face for each: tap one, or tap the person in the photo.
+  Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
+  be both: a dress from one person put on another standing beside them.
 - **Pick the piece**: **Found in this photo** lists what's worn there, found by itself (a top, a bottom, a
   dress, a hat, shoes; each with a small picture of it): tap one. Only what can be there is listed (a
   bottom only where the top's end is seen, no shoes when the feet are out of the photo). Or say what it
@@ -758,9 +765,11 @@ the clothes in it: worn by someone, or on its own).
   those seen, a hidden neckline a gentle U). A piece cut off at the bottom of its photo is carried on down
   (its bottom mirrored) to the length it needs.
 - **Body zones**: **🧍 Upper body** (neck to waist), **🦵 Lower body** (waist to ankles) and **Whole outfit** take
-  everything worn there at once (a shirt with the vest over it and the necklace on it, the skin its
-  neckline shows); they're in the found list (where that part of the person is in the photo) and among
-  what it is. Skin and clothing are told apart part by part: the person's pose (shoulders, elbows,
+  all of that part of the body at once, its clothes and its skin (a shirt with the vest over it and the
+  necklace on it, and the bare arms, shoulders or legs: more than the 👕 Top, which is only what's worn);
+  never the face or hair, nor the background seen through the loop of an arm. They're in the found list
+  (marked "clothes + skin", where that part of the person is in the photo) and among what it is. A hand
+  across the body isn't part of it: it's rebuilt from the cloth around it. Skin and clothing are told apart part by part: the person's pose (shoulders, elbows,
   wrists, found on the phone by MediaPipe's Pose Landmarker, `web/lib/pose.js`) tells each arm from the
   torso beside it, and each is covered (a sleeve) or bare. When an arm differs (a tank top put on someone
   in a jacket, or the other way round): a sleeve onto a bare arm is laid over the arm in its shape; a bare
@@ -775,8 +784,10 @@ the clothes in it: worn by someone, or on its own).
   The base's own folds and shadows (read from their clothes only) are laid over it; it goes on under
   their hair, which is laid back over it; their neckline is decided as a whole: their bare skin shows
   unless the piece's own cloth covers most of it (only cloth seen in the piece's photo covers skin, never
-  what was rebuilt or bridged). A jacket keeps its own shape (its long sleeves over bare arms), and a hat
-  and shoes are fitted as they are.
+  what was rebuilt or bridged). A dress is laid in to its hem (a gown's to the feet). What's left of the
+  old garment outside its outline (thin straps, a sliver at its edge) takes the new one's color, keeping
+  its own shading. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  fitted as they are.
 - **Put it on**, fitted for you: **➕ Add**, **🧥 Overlay** or **🔁 Replace**. It's sized by the body: as wide
   across the chest as what it goes on, checked against the two people's faces (when an arm hides a
   shirt's side, the faces win), centered, at the same height under the chin. With nothing worn there, it's
@@ -1134,6 +1145,9 @@ is green and `GET /api/jobs` shows heartbeat with a successful last run.
 GitHub Pages works either way: **deploy from branch** (`main`, root; the root `index.html`
 redirects to `web/`; every merge is live within a minute or two) or **GitHub Actions** (run the
 `cc-pages` workflow by hand; it publishes `web/` and writes the Worker URL into it).
+
+The version is shown small at the top right of the home screen; tap it for the version history (what
+changed in each, newest first: `web/version.js`, an entry added with each update).
 
 Updates: the installed app checks for a new version whenever it is opened or brought back to the
 foreground. If one is ready before you tap anything, it is applied immediately; if it arrives while

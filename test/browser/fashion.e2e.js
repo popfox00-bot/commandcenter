@@ -491,3 +491,64 @@ test('Fashion: an upper body zone onto someone with a hand across their front: t
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+// A finder with hair, and as soft as the real one (its maps blurred): thin strands come out unsure.
+const FAKE_PARTS_HAIR = `
+export async function segmentPeople(img) {
+  const w = img.width, h = img.height; const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, w, h).data;
+  const n = w * h; const out = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  for (let i = 0; i < n; i++) {
+    const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; const y = Math.floor(i / w);
+    const skin = r > 180 && g > 130 && g < 190 && b > 100 && b < 160 && r - b > 50;
+    const hair = r < 110 && r > 40 && g < 80 && b < 60 && r > b + 15;
+    const bg = Math.max(r, g, b) - Math.min(r, g, b) < 40 && r > 170;
+    if (skin) (y < h * 0.3 ? out.face : out.body)[i] = 255; else if (hair) out.hair[i] = 255; else if (r < 30 && g < 30 && b < 30) out.others[i] = 255; else if (!bg) out.clothes[i] = 255;
+  }
+  const sm = (m) => { const o = new Uint8Array(n); for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) { let s = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) s += m[(y + dy) * w + x + dx]; o[y * w + x] = s / 25; } return o; };
+  for (const k of ['face', 'hair', 'body', 'clothes', 'others']) out[k] = sm(out[k]);
+  return out;
+}
+export async function segmentParts() { return null; }`;
+
+test('Fashion: an upper body with long sleeves onto someone bare-armed with long hair: thin strands stay over it, crisp; the sleeves take the arm\'s light; no haze of the piece\'s background', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS_HAIR, headers: { 'content-type': 'text/javascript' } }));
+  await context.route('**/lib/pose.js', (route) => route.fulfill({ body: FAKE_POSE_ONE, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fashion`);
+  await page.waitForSelector('#fa-base', { state: 'attached' });
+  const imgs = await page.evaluate(async () => {
+  const mk = async (draw) => { const c = new OffscreenCanvas(600, 900); const x = c.getContext('2d'); draw(x); return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer())); };
+  const SKIN = '#e0a888';
+  const body = (x) => { x.fillStyle = '#ece6da'; x.fillRect(0, 0, 600, 900); x.fillStyle = SKIN; x.beginPath(); x.ellipse(300, 140, 55, 70, 0, 0, 7); x.fill(); x.fillRect(280, 200, 40, 45); x.fillRect(200, 236, 200, 30); x.fillRect(150, 250, 40, 260); x.fillRect(410, 250, 40, 260);
+    // (Light from the left: the arms lit on their left, shaded on their right.)
+    for (const ax of [150, 410]) for (let i = 0; i < 40; i++) { x.fillStyle = `rgba(80,40,20,${(i / 40) * 0.28})`; x.fillRect(ax + i, 250, 1, 260); }
+    x.fillStyle = '#4a4744'; x.fillRect(205, 528, 190, 292); x.fillStyle = '#111'; x.fillRect(200, 820, 100, 30); x.fillRect(300, 820, 100, 30); };
+  const base = await mk((x) => { body(x); x.fillStyle = '#b8323c'; x.fillRect(215, 262, 170, 266); x.fillRect(240, 236, 18, 30); x.fillRect(342, 236, 18, 30);
+    // Long hair over the shoulders, its ends in thin strands over the top.
+    x.fillStyle = '#5a3420'; x.fillRect(235, 90, 40, 210); x.fillRect(325, 90, 40, 210);
+    x.strokeStyle = '#5a3420'; x.lineWidth = 2; for (let k = 0; k < 6; k++) { x.beginPath(); x.moveTo(240 + k * 6, 300); x.quadraticCurveTo(238 + k * 7, 340, 246 + k * 6, 380); x.stroke(); x.beginPath(); x.moveTo(330 + k * 6, 300); x.quadraticCurveTo(334 + k * 6, 340, 330 + k * 7, 380); x.stroke(); } });
+  const piece = await mk((x) => { body(x); x.fillStyle = '#2c5fb0'; x.fillRect(205, 238, 190, 290); x.fillRect(146, 246, 50, 250); x.fillRect(404, 246, 50, 250); });
+  return { base, piece };
+  });
+  await page.setInputFiles('#fa-base', { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from(imgs.base) }); await page.waitForSelector('img[alt="1 · Base"]');
+  await page.setInputFiles('#fa-piece', { name: 'p.png', mimeType: 'image/png', buffer: Buffer.from(imgs.piece) }); await page.waitForSelector('img[alt="2 · Piece"]');
+  await page.getByRole('button', { name: 'Next: pick the piece' }).click();
+  await page.getByRole('button', { name: '🧍 Upper body' }).last().click(); await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Next: put it on' }).click(); await page.waitForTimeout(1500);
+  const px = await page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const c = document.querySelector('.fa-canvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const W = c.width;
+    const at = (x, y) => [d[(y * W + x) * 4], d[(y * W + x) * 4 + 1], d[(y * W + x) * 4 + 2]];
+    // (A strand's darkest pixel along a row across where the strands fall.)
+    let strand = 255; for (let x = 236; x < 280; x++) strand = Math.min(strand, at(x, 340)[2] + at(x, 340)[0]);
+    return { strand, armL: at(156, 400), armR: at(186, 400), side: at(220, 420), mid: at(300, 420) };
+  });
+  assert.ok(px.strand < 200, `a strand stays over the new top: ${px.strand}`);
+  assert.ok(px.armL[2] > px.armR[2] + 6, `the sleeve lit as the arm under it (left lit, right shaded): ${px.armL} / ${px.armR}`);
+  assert.ok(px.side[2] > px.side[0] + 60 && Math.abs(px.side[2] - px.mid[2]) < 40, `the torso's side is the new top, not a haze: ${px.side} vs ${px.mid}`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

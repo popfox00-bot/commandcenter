@@ -3,7 +3,8 @@
 // turned by hand, finished (light, form, what's kept in front), over the base, with what was worn there
 // taken off where the piece doesn't cover it (Replace).
 
-import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone } from '../../tools/fashion/fashion-core.js';
+import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand } from '../../tools/fashion/fashion-core.js';
+import { boxBlur } from '../../lib/geometry.js';
 import { softenMask } from '../../lib/geometry.js';
 import { rgbToLab } from '../../lib/color-match.js';
 import { cleanUp } from '../../tools/editor/cleanup.js';
@@ -418,11 +419,14 @@ export function finish(layer, S, cache) {
   }
   const gains = lightGains(piece.rgba, piece.people?.face ?? null, base.rgba, ppl?.face ?? null);
   const done = finishLayer(layer, w, { gains, light: tune.light / 100, form: cache.form, fbox, formAmt: trace ? tune.form / 100 : tune.form / 100, front, soft: trace ? 0 : tune.soft, depth: tune.depth ? Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 14)) : 0, round: trace ? tune.form / 300 : tune.form / 100 });
+  // (Its edge as the old garment's was, pixel by pixel: no halo of the old color, no blur.)
+  let L2 = done;
+  if (trace && S.target && ppl && !S.target.body) { const m = replaceEdge(layer, S, front); if (m) { L2 = m; Object.assign(layer, m); } }
   // (As sharp and as grainy as the photo it's in: a crisp piece in a soft photo looks pasted on.)
   if (trace && S.target && ppl) matchGrain(layer, base, clothesOf(S));
   // (A soft shadow on it where hair or an arm lies over it.)
   if (front && kind !== 'shoes' && kind !== 'hat') contactShadow(layer, w, h, front, Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 16)));
-  return done;
+  return L2;
 }
 
 /**
@@ -437,7 +441,7 @@ export function uncovered(target, layer, w, h, front = null, people = null) {
     // (The base's own bare skin isn't taken off: only what was worn.)
     // (Nor their hair, however faint: it stays in front of what's put on.)
     if (!on || (front && front[y * w + x] >= 128) || (people && (people.body[y * w + x] >= 128 || people.face[y * w + x] >= 128 || people.hair[y * w + x] >= 90))) continue;
-    if (layer) { const lx = x - layer.x0; const ly = y - layer.y0; if (lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128) continue; }
+    if (layer) { const lx = x - layer.x0; const ly = y - layer.y0; if (lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && (layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128 || layer.matted?.[ly * layer.pw + lx])) continue; }
     m[y * w + x] = 1; count++;
   }
   const box = count ? boxOf(m, w, h) : null;
@@ -450,9 +454,12 @@ export function uncovered(target, layer, w, h, front = null, people = null) {
  */
 export function fillUncovered(rgba, w, h, unc, target, people = null) {
   const avoid = new Uint8Array(w * h); const b = target.box;
-  // (Only from bare skin or the background: not the face (a neckline filled from it shows an eye), the hair,
-  // or other clothes.)
-  if (people) for (let i = 0; i < w * h; i++) if (Math.max(people.face[i], people.hair[i], people.clothes[i], people.others[i]) >= 110) avoid[i] = 1;
+  // (From bare skin, the background, or their other clothes (the pants a top's hem was over): not the face
+  // (a neckline filled from it shows an eye), the hair, nor anything of the garment's own color.)
+  let lab0 = null;
+  { const m = [0, 0, 0]; let n = 0; for (let y = b.y0; y < b.y1; y += 2) for (let x = b.x0; x < b.x1; x += 2) { const i = y * w + x; if (!target.mask[i]) continue; const q = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); m[0] += q[0]; m[1] += q[1]; m[2] += q[2]; n++; } if (n) lab0 = m.map((v) => v / n); }
+  const likeIt = (i) => { if (!lab0) return true; const q = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); return Math.hypot((q[0] - lab0[0]) * 0.5, q[1] - lab0[1], q[2] - lab0[2]) < 25; };
+  if (people) for (let i = 0; i < w * h; i++) if (Math.max(people.face[i], people.hair[i], people.others[i]) >= 110 || (people.clothes[i] >= 110 && likeIt(i))) avoid[i] = 1;
   for (let y = Math.max(0, b.y0 - 3); y < Math.min(h, b.y1 + 3); y++) for (let x = Math.max(0, b.x0 - 3); x < Math.min(w, b.x1 + 3); x++) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = x + dx; const Y = y + dy; if (X >= 0 && Y >= 0 && X < w && Y < h && target.mask[Y * w + X]) { avoid[y * w + x] = 1; dy = 4; break; } }
   }
@@ -500,7 +507,7 @@ export function leftovers(S, layer) {
   const g = Math.round(base.layout.fw * 0.6); const B = target.box;
   const x0 = Math.max(0, B.x0 - g); const y0 = Math.max(0, B.y0 - g); const x1 = Math.min(w, B.x1 + g); const y1 = Math.min(h, B.y1 + g);
   const pw = x1 - x0; const ph = y1 - y0; const wgt = new Float32Array(pw * ph); let any = 0;
-  const covered = (X, Y) => { const lx = X - layer.x0; const ly = Y - layer.y0; return lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128; };
+  const covered = (X, Y) => { const lx = X - layer.x0; const ly = Y - layer.y0; return lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && (layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128 || !!layer.matted?.[ly * layer.pw + lx]); };
   // (Of their hue: near its color, or its hue at any lightness (its shade); and nearer it than their skin,
   // on them (a strap too thin for the person finder to call clothes), never the leaves behind them.)
   const tone = skinTone(base); const sk = tone ? rgbToLab(tone[0], tone[1], tone[2]) : null;
@@ -673,4 +680,43 @@ function contactShadow(layer, w, h, front, r) {
     const t = 1 - d[k] / r; const f = 1 - 0.16 * t * t;
     layer.rgba[o] *= f; layer.rgba[o + 1] *= f; layer.rgba[o + 2] *= f;
   }
+}
+
+/**
+ * Replace's edge as the photo has it: around the outline of what was worn, each pixel's share of the old
+ * garment (from its color between the old garment's nearby and what's beside it: matteBand) is what the
+ * new piece takes over, and only that share: out = photo + share × (new − old). The edge keeps the photo's
+ * own sharpness or softness (a crisp hem, a fold against an arm, hair), with no rim of the old color and
+ * nothing blurred. What's in front (`front`: hair, hands) stays in front. A layer grown to take in the
+ * band just outside the outline (with `matted`: the pixels decided here), or null.
+ */
+function replaceEdge(layer, S, front) {
+  const { base, target } = S; const { w, h } = base;
+  const fh = base.layout?.fh ?? h / 7;
+  const B = Math.max(2, Math.round(fh / 30)); const R = Math.max(5, Math.round(fh / 10));
+  const mb = matteBand(base.rgba, w, h, target.mask, target.box, B, R);
+  // The layer grown over the band.
+  const x0 = Math.min(layer.x0, mb.x0); const y0 = Math.min(layer.y0, mb.y0);
+  const x1 = Math.max(layer.x0 + layer.pw, mb.x0 + mb.pw); const y1 = Math.max(layer.y0 + layer.ph, mb.y0 + mb.ph);
+  const pw = x1 - x0; const ph = y1 - y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = 0; y < layer.ph; y++) rgba.set(layer.rgba.subarray(y * layer.pw * 4, (y + 1) * layer.pw * 4), ((y + layer.y0 - y0) * pw + layer.x0 - x0) * 4);
+  // (The new piece's color near each band pixel, where it isn't there itself: its local mean.)
+  const ok = new Uint8Array(pw * ph); for (let k = 0; k < pw * ph; k++) ok[k] = rgba[k * 4 + 3] >= 250 ? 1 : 0;
+  const near = [0, 1, 2].map((c) => { const v = new Float32Array(pw * ph); for (let k = 0; k < pw * ph; k++) v[k] = rgba[k * 4 + c]; return boxBlur(v, ok, pw, ph, R); });
+  const anyNear = boxBlur(Float32Array.from(ok), new Uint8Array(pw * ph).fill(1), pw, ph, R);
+  const matted = new Uint8Array(pw * ph); let n = 0;
+  for (let y = 0; y < mb.ph; y++) for (let x = 0; x < mb.pw; x++) {
+    const mk = y * mb.pw + x; const a = mb.alpha[mk]; if (a < 0) continue;
+    const X = mb.x0 + x; const Y = mb.y0 + y; const k = (Y - y0) * pw + X - x0; const i = Y * w + X;
+    if (anyNear[k] < 0.02) continue;
+    const fr = front ? front[i] / 255 : 0;
+    // (Nearly all old garment, inside: the new piece as it is. A part of it: that part swapped.)
+    if (a >= 0.92 && rgba[k * 4 + 3] >= 250) { rgba[k * 4 + 3] = Math.round(255 * (1 - fr)); matted[k] = 1; n++; continue; }
+    for (let c = 0; c < 3; c++) {
+      const N = rgba[k * 4 + 3] >= 250 ? rgba[k * 4 + c] : near[c][k];
+      rgba[k * 4 + c] = N + base.rgba[i * 4 + c] - mb.F[mk * 3 + c];
+    }
+    rgba[k * 4 + 3] = Math.round(255 * a * (1 - fr)); matted[k] = 1; n++;
+  }
+  return n ? { x0, y0, pw, ph, rgba, matted } : null;
 }

@@ -755,6 +755,14 @@ away** (brushed, with a brush size). One undo step.
 phone (nothing is uploaded). Pick **1 · Base** (the person to dress) and **2 · Piece** (a photo with
 the clothes in it: worn by someone, or on its own).
 
+- **Natural edges, placed by itself**: the edge is worked out pixel by pixel from the photo, not blurred. In
+  Replace, each pixel along the old garment's outline gets its share of the old garment from where its
+  color falls between the garment's own color beside it and what's beside that (a wall, an arm, the pants;
+  a pixel that's neither is left alone), and exactly that share is swapped for the new piece: the photo's
+  own crisp or soft edge stays, with no rim of the old color. In Overlay, the piece's own edge is worked
+  out the same way in its photo, and the background it was photographed against is taken out of it. A
+  collar riding up above where a top is looked for is taken off with it, and what a shorter hem uncovers is
+  filled from the person's other clothes (the pants), not their skin.
 - **Realistic finish**: what hid the piece in its photo (hair, a hand) is filled with the cloth's own
   texture (its weave and sheen, from the clean cloth beside it), following the light around it; straps are
   matched (both have them: the base's take the new color; a strapped piece onto bare shoulders: straps

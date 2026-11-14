@@ -745,6 +745,15 @@ away** (brushed, with a brush size). One undo step.
 phone (nothing is uploaded). Pick **1 · Base** (the person to dress) and **2 · Piece** (a photo with
 the clothes in it: worn by someone, or on its own).
 
+- **Realistic finish**: what hid the piece in its photo (hair, a hand) is filled with the cloth's own
+  texture (its weave and sheen, from the clean cloth beside it), following the light around it; straps are
+  matched (both have them: the base's take the new color; a strapped piece onto bare shoulders: straps
+  drawn up over the shoulders, as wide as the piece's, shaded by the skin under them; a strapless piece:
+  the base's straps taken off, filled from the skin); the piece's own neckline is followed (higher: it
+  covers the base's neckline pixel by pixel; lower: the base person's skin shows, shaded as the light on
+  them); it's made as sharp and as grainy as the photo; and hair or an arm over it casts a soft shadow.
+- **Your pieces**: **⭐ Keep this piece** saves it on the phone (its picture, outline and kind); it's under
+  **2 · Piece** next time ("Or one of your pieces"), ✕ to remove it.
 - **Sharp**: saving lays the piece in again at full size from its own photo opened at full size (not the
   preview blown up); a piece stretched taller blends between its rows (no streaks); where two people meet,
   each pixel goes to whoever's color it's nearest (no stair steps).
@@ -753,7 +762,9 @@ the clothes in it: worn by someone, or on its own).
   so two people side by side part where one's dress meets the other's, and each patch of one color, a
   dress's light side or its shade, stays with whoever's colors it matches). **Whose clothes?** (the piece)
   and **Who to dress?** (the base) show a face for each: tap one, or tap the person in the photo.
-  Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
+  Each person's pose is found again on them alone (a group's poses can cross from one person to the next).
+  Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
+  the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.
 - **Pick the piece**: **Found in this photo** lists what's worn there, found by itself (a top, a bottom, a
   dress, a hat, shoes; each with a small picture of it): tap one. Only what can be there is listed (a
@@ -1150,6 +1161,11 @@ is green and `GET /api/jobs` shows heartbeat with a successful last run.
 GitHub Pages works either way: **deploy from branch** (`main`, root; the root `index.html`
 redirects to `web/`; every merge is live within a minute or two) or **GitHub Actions** (run the
 `cc-pages` workflow by hand; it publishes `web/` and writes the Worker URL into it).
+
+**Settings → Storage** shows what the app keeps on the phone, by kind (notes, drawings, Characters,
+Fashion's pieces, work in progress, cached weather and sports, the diagnostics log), with its size; what
+can safely go has a **Clear** button (asked first). Notes, drawings and the calendar are deleted only from
+their own apps.
 
 The version is shown small at the top right of the home screen; tap it for the version history (what
 changed in each, newest first: `web/version.js`, an entry added with each update).

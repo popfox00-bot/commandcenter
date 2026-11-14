@@ -30,4 +30,6 @@ export const idb = {
   get: (key) => run('readonly', (s) => s.get(key)).catch(() => undefined),
   set: (key, value) => run('readwrite', (s) => s.put(value, key)).catch(() => false),
   del: (key) => run('readwrite', (s) => s.delete(key)).catch(() => false),
+  /** Every key stored (for Settings → Storage). */
+  keys: () => run('readonly', (s) => s.getAllKeys()).then((k) => k ?? []).catch(() => []),
 };

@@ -289,7 +289,19 @@ test('Fashion in a group photo: choose whose clothes (a face, or a tap on them) 
   assert.ok(pink(await pixel(330, 600)), 'to its left edge');
   assert.ok(!pink(await pixel(250, 600)), `not the red dress next to it: ${await pixel(250, 600)}`);
   assert.ok(!pink(await pixel(290, 400)), 'not even where they touch');
+  // 🧍 Part of them: brushed over the edge of the red dress, that part is made person 2's (found with theirs).
+  await page.getByRole('button', { name: '🧍 Part of them' }).click();
+  await page.locator('.fa-canvas').scrollIntoViewIfNeeded();
+  const box = await page.locator('.fa-canvas').boundingBox(); const cw = await page.evaluate(() => document.querySelector('.fa-canvas').width);
+  const at = (x, y) => [box.x + (x / cw) * box.width, box.y + (y / cw) * box.width];
+  await page.mouse.move(...at(270, 450)); await page.mouse.down(); await page.mouse.move(...at(270, 520), { steps: 5 }); await page.mouse.up();
+  await page.getByRole('button', { name: '👗 Dress' }).click();
+  await page.waitForTimeout(300);
+  assert.ok(pink(await pixel(270, 480)), `the brushed part is theirs now: ${await pixel(270, 480)}`);
+  assert.ok(!pink(await pixel(200, 480)), 'the rest of the red dress isn\'t');
   // A tap on the other person chooses them instead.
+  await page.getByRole('button', { name: '👆 Tap its color' }).click();
+  await page.locator('.fa-canvas').scrollIntoViewIfNeeded();
   await page.locator('.fa-canvas').click({ position: await page.evaluate(() => { const c = document.querySelector('.fa-canvas'); const r = c.getBoundingClientRect(); return { x: (180 / c.width) * r.width, y: (500 / c.height) * r.height }; }) });
   await page.waitForSelector('.fa-who-item.active >> text=1');
   // Back to the green dress, then dress person 1 in it.
@@ -305,6 +317,62 @@ test('Fashion in a group photo: choose whose clothes (a face, or a tap on them) 
   for (const [x, y] of [[180, 300], [120, 600], [240, 750]]) assert.ok(green(await pixel(x, y)), `person 1 in green at ${x},${y}: ${await pixel(x, y)}`);
   assert.ok(green(await pixel(420, 500)), 'person 2 untouched');
   assert.ok(!red(await pixel(180, 500)), 'no red left');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+// One person, at fixed places in the picture: shoulders at (215, 245) and (385, 245) of a 600×900 figure.
+const FAKE_POSE_ONE = `
+export async function detectPoses(img) { const k = img.width / 600; const P = (x, y) => [x * k, y * k, 1]; return [{ nose: P(300, 150), shoulders: [P(215, 245), P(385, 245)], elbows: [P(167, 380), P(433, 380)], wrists: [P(167, 500), P(433, 500)], hips: [P(250, 520), P(350, 520)], knees: [P(250, 680), P(350, 680)], ankles: [P(250, 820), P(350, 820)] }]; }
+export async function detectPose(img) { return (await detectPoses(img))[0]; }
+export async function detectPoseOf() { return null; }`;
+
+test('Fashion: a top with straps onto a strapless one: straps drawn over the bare shoulders; ⭐ kept, and used again after a reload', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS, headers: { 'content-type': 'text/javascript' } }));
+  await context.route('**/lib/pose.js', (route) => route.fulfill({ body: FAKE_POSE_ONE, headers: { 'content-type': 'text/javascript' } }));
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/fashion`);
+  await page.waitForSelector('#fa-base', { state: 'attached' });
+  const imgs = await page.evaluate(async () => {
+    const mk = async (draw) => { const c = new OffscreenCanvas(600, 900); const x = c.getContext('2d'); draw(x); return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer())); };
+    const SKIN = '#e0a888';
+    const figure = (x, top, straps) => {
+      x.fillStyle = '#ece6da'; x.fillRect(0, 0, 600, 900);
+      x.fillStyle = SKIN; x.beginPath(); x.ellipse(300, 140, 55, 70, 0, 0, 7); x.fill();
+      x.fillRect(280, 200, 40, 45); x.fillRect(205, 238, 190, 70); x.fillRect(150, 250, 34, 260); x.fillRect(416, 250, 34, 260); x.fillRect(184, 245, 30, 40); x.fillRect(386, 245, 30, 40);
+      x.fillStyle = top; x.fillRect(205, 300, 190, 220);
+      if (straps) { x.fillRect(235, 238, 20, 64); x.fillRect(345, 238, 20, 64); }
+      x.fillStyle = '#4a4744'; x.fillRect(210, 520, 85, 300); x.fillRect(305, 520, 85, 300);
+      x.fillStyle = '#111'; x.fillRect(200, 820, 100, 30); x.fillRect(300, 820, 100, 30);
+    };
+    return { base: await mk((x) => figure(x, '#b8323c', false)), piece: await mk((x) => figure(x, '#2c5fb0', true)) };
+  });
+  await page.setInputFiles('#fa-base', { name: 'base.png', mimeType: 'image/png', buffer: Buffer.from(imgs.base) }); await page.waitForSelector('img[alt="1 · Base"]');
+  await page.setInputFiles('#fa-piece', { name: 'piece.png', mimeType: 'image/png', buffer: Buffer.from(imgs.piece) }); await page.waitForSelector('img[alt="2 · Piece"]');
+  await page.getByRole('button', { name: 'Next: pick the piece' }).click();
+  await page.getByRole('button', { name: '👕 Top' }).first().click();
+  await page.waitForSelector('text=/Found ✨|The top/');
+  await page.getByRole('button', { name: '⭐ Keep this piece' }).click();
+  await page.waitForSelector('text=/Kept on this phone/');
+  await page.getByRole('button', { name: 'Next: put it on' }).click();
+  await page.waitForTimeout(800);
+  const pixel = (x, y) => page.evaluate(async ([X, Y]) => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return Array.from(document.querySelector('.fa-canvas').getContext('2d').getImageData(X, Y, 1, 1).data.slice(0, 3));
+  }, [x, y]);
+  const blue = ([r, g, b]) => b > r + 40 && b > g + 20;
+  assert.ok(blue(await pixel(300, 400)), `the top is on: ${await pixel(300, 400)}`);
+  // A strap from the top's edge (a quarter in) up over the left shoulder, where the base was bare.
+  assert.ok(blue(await pixel(240, 275)), `a strap drawn over the bare shoulder: ${await pixel(240, 275)}`);
+  assert.ok(!blue(await pixel(300, 270)), 'not across the chest between them');
+  // Kept: after a reload, among your pieces, and used as the piece again.
+  await page.reload(); await page.waitForSelector('#fa-base', { state: 'attached' });
+  const discard = page.getByRole('button', { name: 'Discard' }); if (await discard.count()) await discard.click();
+  await page.getByRole('button', { name: /^Use Top/ }).click();
+  await page.waitForSelector('img[alt="2 · Piece"]');
+  await page.getByText(/^Top · .*: ready\./).waitFor();
   assert.deepEqual(errors, []);
   await context.close();
 });

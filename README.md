@@ -811,7 +811,13 @@ the clothes in it: worn by someone, or on its own).
   slider on each photo raises or lowers it (the outline shows a moment as you move it). An upper body's
   new hem casts a soft shadow on what's worn below it, cloth over cloth, not a cut. Skin that has to be
   made up (a bare arm where a sleeve was, a lower neckline) takes the person's own skin texture from their
-  clearest patch of skin, not a flat color; their own hand across their front stays in front. They're in the found list
+  clearest patch of skin, not a flat color; their own hand across their front stays in front. Fine strands
+  of their hair stay over the new clothes, crisp: besides the hair the finder is sure of, pixels near it of
+  the hair's own color rather than the clothes' (each with its share of hair, from its color between the
+  two). A sleeve laid over a bare arm takes the arm's own light and shade (its roundness, the side turned
+  from the light), and the new clothes' edges cast a faint shadow on the skin right under them (a sleeve's
+  hem on the arm, a strap on the shoulder). Pixels at the piece's edge that are nearly all its photo's
+  background are left out of it, so no haze comes with it. They're in the found list
   (marked "clothes + skin", where that part of the person is in the photo) and among what it is. A hand
   across the body isn't part of it: it's rebuilt from the cloth around it. Skin and clothing are told apart part by part: the person's pose (shoulders, elbows,
   wrists, found on the phone by MediaPipe's Pose Landmarker, `web/lib/pose.js`) tells each arm from the

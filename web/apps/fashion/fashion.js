@@ -588,6 +588,8 @@ export function mount(host) {
       // (Its own color there: the photo's, less the background's share, where enough of it is the piece.)
       if (a > 0.12 && a < 0.98) for (let c = 0; c < 3; c++) { const g = mb.G[k * 3 + c]; draw[i * 4 + c] = g + (src[i * 4 + c] - g) / a; }
       if (a > 0.12 && !piece.solid[i]) piece.solid[i] = 1;
+      // (Nearly all background, past the piece's real edge (a soft finder's rim, the gap by an arm): not the piece.)
+      if (a <= 0.12 && piece.solid[i] && !piece.rebuilt?.[i]) { piece.solid[i] = 0; piece.alpha[i] = 0; }
       n++;
     }
     if (n) piece.draw = draw;

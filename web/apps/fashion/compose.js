@@ -112,7 +112,7 @@ function neckline(layer, base, w, zone = false, paint = true) {
     }
     // (The neckline's patch, the one reaching up to the neck: the piece's own neckline, pixel by pixel,
     // smoothed; any other patch, a bare shoulder, decided whole.)
-    const neckPatch = !zone && base.layout && q.some((k) => y0 + ((k / pw) | 0) < base.layout.chin + base.layout.fh * 0.35);
+    const neckPatch = base.layout && q.some((k) => y0 + ((k / pw) | 0) < base.layout.chin + base.layout.fh * 0.35);
     if (neckPatch) {
       const keep = new Uint8Array(q.length);
       const inQ = new Map(q.map((k, j) => [k, j]));
@@ -415,6 +415,14 @@ export function finish(layer, S, cache) {
     if (cache.formKey !== `fold${key}` || cache.formBase !== base || cache.formTarget !== S.target) {
       const fh = base.layout?.fh ?? h / 7;
       cache.form = foldMap(base.rgba, w, clothesOf(S), fbox, Math.max(1, Math.round(fh / 45)), Math.max(6, Math.round(fh / 3.5)));
+      // (Where it goes over their bare skin (a sleeve onto a bare arm, a higher neckline): the light and shade
+      // on the body there, the arm's roundness, the shadow where it turns from the light.)
+      if (base.people) {
+        const p = base.people; const T = underHair(S); const sk = new Uint8Array(w * h);
+        for (let y = fbox.y0; y < fbox.y1; y++) for (let x = fbox.x0; x < fbox.x1; x++) { const i = y * w + x; if (T.mask[i] && p.body[i] >= 128 && p.face[i] < 100 && p.clothes[i] < 128) sk[i] = 1; }
+        const sf = foldMap(base.rgba, w, sk, fbox, Math.max(1, Math.round(fh / 30)), Math.max(6, Math.round(fh / 4)));
+        for (let k = 0; k < sf.length; k++) cache.form[k] *= sf[k];
+      }
       cache.formKey = `fold${key}`; cache.formBase = base; cache.formTarget = S.target;
     }
   } else if (cache.formKey !== key || cache.formBase !== base) {
@@ -464,6 +472,41 @@ export function finish(layer, S, cache) {
           for (let x = l; x <= r; x++) { const i = y * w + x; if (ppl.body[i] >= 160 && ppl.face[i] < 100) m[i] = 255; }
         }
       }
+      // (Fine strands of hair over it, where the finder is unsure: each pixel's share of hair from its color,
+      // between the hair's beside it and what's under it, so strands stay over the new piece, crisp.)
+      if (tune.front && kind !== 'hat' && S.target) {
+        const hm = new Uint8Array(w * h); let any = 0; const T = S.target.box;
+        for (let y = Math.max(0, T.y0 - 40); y < Math.min(h, T.y1); y++) for (let x = Math.max(0, T.x0 - 40); x < Math.min(w, T.x1 + 40); x++) { const i = y * w + x; if (ppl.hair[i] >= 120 && ppl.face[i] < 120) { hm[i] = 1; any++; } }
+        if (any > 30) {
+          const hb = boxOf(hm, w, h);
+          const mb = hb && matteBand(base.rgba, w, h, hm, hb, Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 30)), Math.max(4, Math.round((base.layout?.fh ?? h / 7) / 14)));
+          if (mb) for (let y = 0; y < mb.ph; y++) for (let x = 0; x < mb.pw; x++) {
+            const a = mb.alpha[y * mb.pw + x]; if (a <= 0) continue;
+            const i = (mb.y0 + y) * w + mb.x0 + x; if (ppl.face[i] >= 120) continue;
+            const v = Math.round(255 * Math.min(1, a * 1.1)); if (v > m[i]) m[i] = v;
+          }
+        }
+      }
+      // (Strands further out, too thin for the finder to be sure of: on what it goes on, near hair, the pixels
+      // of the hair's own color rather than the clothes': each's share of hair, from its color between the two.)
+      if (tune.front && kind !== 'hat' && S.target) {
+        const H = []; for (let i = 0; i < w * h; i += 3) if (ppl.hair[i] >= 220) H.push(i);
+        if (H.length > 40) {
+          const hc = [0, 1, 2].map((c) => { const v = H.map((i) => base.rgba[i * 4 + c]).sort((a, b) => a - b); return v[v.length >> 1]; });
+          const T = underHair(S); const B2 = T.box; const fh2 = base.layout?.fh ?? h / 7;
+          const worn = new Uint8Array(w * h); for (let y = B2.y0; y < B2.y1; y++) for (let x = B2.x0; x < B2.x1; x++) { const i = y * w + x; if (T.mask[i] && ppl.clothes[i] >= 128 && ppl.hair[i] < 30) worn[i] = 1; }
+          const bw2 = B2.x1 - B2.x0; const bh2 = B2.y1 - B2.y0;
+          const sub = (c) => { const v = new Float32Array(bw2 * bh2); const ok = new Uint8Array(bw2 * bh2); for (let y = 0; y < bh2; y++) for (let x = 0; x < bw2; x++) { const i = (B2.y0 + y) * w + B2.x0 + x; v[y * bw2 + x] = base.rgba[i * 4 + c]; ok[y * bw2 + x] = worn[i]; } return boxBlur(v, ok, bw2, bh2, Math.max(4, Math.round(fh2 / 10))); };
+          const G = [sub(0), sub(1), sub(2)];
+          for (let y = B2.y0; y < B2.y1; y++) for (let x = B2.x0; x < B2.x1; x++) {
+            const i = y * w + x; if (!T.mask[i] || ppl.hair[i] < 25 || ppl.face[i] >= 120 || m[i] >= 250) continue;
+            const k = (y - B2.y0) * bw2 + x - B2.x0; const g = [G[0][k], G[1][k], G[2][k]];
+            const d = [hc[0] - g[0], hc[1] - g[1], hc[2] - g[2]]; const L2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]; if (L2 < 30 * 30) continue;
+            const a = ((base.rgba[i * 4] - g[0]) * d[0] + (base.rgba[i * 4 + 1] - g[1]) * d[1] + (base.rgba[i * 4 + 2] - g[2]) * d[2]) / L2;
+            const v = Math.round(255 * Math.max(0, Math.min(1, (a - 0.15) / 0.7))); if (v > m[i]) m[i] = v;
+          }
+        }
+      }
       cache.front = tune.front || arms ? m : null; cache.frontKey = fkey; cache.frontBase = base;
     }
     front = cache.front;
@@ -477,6 +520,9 @@ export function finish(layer, S, cache) {
   if (trace && S.target && ppl) matchGrain(layer, base, clothesOf(S));
   // (An upper body's hem over what's below it: a soft shadow under it, cloth over cloth, not a cut.)
   if (trace && S.kind === 'upper' && ppl) { const m = hemShadow(layer, S); if (m) { L2 = m; Object.assign(layer, m); } }
+  // (The new piece's own edges casting a faint shadow on the skin just under them: a sleeve's hem on the arm,
+  // a strap on the shoulder, a neckline on the chest.)
+  if (ppl && kind !== 'shoes' && kind !== 'hat') { const m = skinShadow(layer, S, front); if (m) { L2 = m; Object.assign(layer, m); } }
   // (A soft shadow on it where hair or an arm lies over it.)
   if (front && kind !== 'shoes' && kind !== 'hat') contactShadow(layer, w, h, front, Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 16)));
   return L2;
@@ -803,4 +849,41 @@ function hemShadow(layer, S) {
     }
   }
   return n ? { x0, y0, pw, ph: H2, rgba, matted: matted ?? layer.matted } : null;
+}
+
+/**
+ * The new piece's edges casting a soft shadow on the person's skin right under them (light comes mostly from
+ * above: most below an edge, a little beside it): a sleeve's hem on the arm, a strap on the shoulder, a
+ * neckline on the chest. Not on what's in front of it (`front`: hair, a hand), nor on the face. The layer
+ * grown a few pixels to take it in, or null.
+ */
+function skinShadow(layer, S, front) {
+  const { base } = S; const { w, h } = base; const p = base.people;
+  const r = Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 22));
+  const x0 = Math.max(0, layer.x0 - r); const y0 = Math.max(0, layer.y0 - r);
+  const x1 = Math.min(w, layer.x0 + layer.pw + r); const y1 = Math.min(h, layer.y0 + layer.ph + r);
+  const pw = x1 - x0; const ph = y1 - y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = 0; y < layer.ph; y++) rgba.set(layer.rgba.subarray(y * layer.pw * 4, (y + 1) * layer.pw * 4), ((y + layer.y0 - y0) * pw + layer.x0 - x0) * 4);
+  const matted = new Uint8Array(pw * ph);
+  if (layer.matted) for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) matted[(y + layer.y0 - y0) * pw + x + layer.x0 - x0] = layer.matted[y * layer.pw + x];
+  const solid = (x, y) => x >= 0 && y >= 0 && x < pw && y < ph && rgba[(y * pw + x) * 4 + 3] >= 200;
+  let n = 0;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    const o = (y * pw + x) * 4; if (rgba[o + 3] >= 60) continue;
+    const i = (y0 + y) * w + x0 + x;
+    if (p.body[i] < 128 || p.face[i] >= 100 || p.hair[i] >= 100 || (front && front[i] >= 128)) continue;
+    // (How near an edge of the piece is: above it, fully; beside it, a third as much.)
+    let s2 = 0;
+    for (let d = 1; d <= r && !s2; d++) { if (solid(x, y - d) || solid(x - 1, y - d) || solid(x + 1, y - d)) s2 = (1 - (d - 1) / r) ** 2; }
+    if (!s2) for (let d = 1; d <= r && !s2; d++) { if (solid(x - d, y) || solid(x + d, y)) s2 = 0.35 * (1 - (d - 1) / r) ** 2; }
+    if (!s2) continue;
+    const a = Math.round(60 * s2);
+    if (a > rgba[o + 3]) {
+      // (Over what's already there at the layer's own soft edge: darkened, not replaced.)
+      if (rgba[o + 3] > 0) { const k = 1 - a / 255; rgba[o] *= k; rgba[o + 1] *= k; rgba[o + 2] *= k; rgba[o + 3] = Math.max(rgba[o + 3], a); }
+      else { rgba[o] = 0; rgba[o + 1] = 0; rgba[o + 2] = 0; rgba[o + 3] = a; }
+      matted[y * pw + x] = 1; n++;
+    }
+  }
+  return n ? { x0, y0, pw, ph, rgba, matted } : null;
 }

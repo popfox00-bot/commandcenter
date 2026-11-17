@@ -76,7 +76,13 @@ function underHair(S) {
   for (let y = b.y0; y < b.y1; y++) {
     let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (target.mask[y * w + x]) { if (l < 0) l = x; r = x; }
     // (Hair, however faint, and what's faintly clothes there: the old garment between the strands.)
-    for (let x = l + 1; x < r; x++) { const i = y * w + x; if (!m[i] && (p.hair[i] >= 30 || p.clothes[i] >= 40)) m[i] = 1; }
+    for (let x = l + 1; x < r; x++) { const i = y * w + x; if (!m[i] && (p.hair[i] >= 30 || p.clothes[i] >= 40)) m[i] = 2; }
+  }
+  // (Only what's joined to the garment: a thin chain on the bare chest above it isn't part of it.)
+  {
+    const st = []; for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) { const i = y * w + x; if (m[i] === 2 && ((x > 0 && m[i - 1] === 1) || (x < w - 1 && m[i + 1] === 1) || m[i - w] === 1 || m[i + w] === 1)) { m[i] = 1; st.push(i); } }
+    for (let a = 0; a < st.length; a++) { const i = st[a]; for (const t of [i - 1, i + 1, i - w, i + w]) if (t >= 0 && t < m.length && m[t] === 2) { m[t] = 1; st.push(t); } }
+    for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) if (m[y * w + x] === 2) m[y * w + x] = 0;
   }
   // (Its neckline: the bare skin between its sides, row by row, down to the chest; the piece decides, pixel
   // by pixel, what of it it covers (see neckline).)
@@ -692,16 +698,16 @@ export function leftovers(S, layer) {
   if (!isTrace(S) || !layer || !p || !base.layout || isZone(S.kind)) return null;
   const { w, h } = base; const cl = clothesOf(S);
   // The old garment's color (its mean, and its hue) and the piece's where it was laid.
-  const bm = [0, 0, 0]; let nb = 0; let ta = 0; let tb = 0;
+  const bm = [0, 0, 0]; let nb = 0; let ta = 0; let tb = 0; let tL = 0;
   const lm = [0, 0, 0]; let nl = 0;
   for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) {
     const i = (layer.y0 + y) * w + layer.x0 + x; if (!cl[i]) continue;
     for (let c = 0; c < 3; c++) bm[c] += base.rgba[i * 4 + c];
-    const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); ta += q[1]; tb += q[2]; nb++;
+    const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); ta += q[1]; tb += q[2]; tL += q[0]; nb++;
     const o = (y * layer.pw + x) * 4; if (layer.rgba[o + 3] >= 250) { for (let c = 0; c < 3; c++) lm[c] += layer.rgba[o + c]; nl++; }
   }
   if (nb < 50 || nl < 50) return null;
-  ta /= nb; tb /= nb;
+  ta /= nb; tb /= nb; tL /= nb;
   const gain = [0, 1, 2].map((c) => (lm[c] / nl) / Math.max(8, bm[c] / nb));
   // Around it, about half a face's width.
   // (Above it and beside it: its straps, a sliver at its side. Not below its hem: what's there is another
@@ -714,13 +720,22 @@ export function leftovers(S, layer) {
   // on them (a strap too thin for the person finder to call clothes), never the leaves behind them.)
   const tone = skinTone(base); const sk = tone ? rgbToLab(tone[0], tone[1], tone[2]) : null;
   const tc = Math.hypot(ta, tb); const th0 = Math.atan2(tb, ta);
+  // (Each column's own bottom of the garment: a hem that curves (a waistband dipping in the middle) has
+  // the shorts below it in the columns where it's higher.)
+  const colBot = new Int32Array(pw).fill(-1);
+  for (let X = Math.max(x0, B.x0); X < Math.min(x1, B.x1); X++) for (let Y = B.y1 - 1; Y >= B.y0; Y--) if (target.mask[Y * w + X]) { colBot[X - x0] = Y; break; }
   for (let Y = y0; Y < y1; Y++) for (let X = x0; X < x1; X++) {
     const i = Y * w + X;
+    if (colBot[X - x0] >= 0 && Y > colBot[X - x0]) continue;
     if (p.face[i] >= 128 || Math.max(p.clothes[i], p.body[i], p.others[i], p.hair[i]) < 40 || covered(X, Y)) continue;
     const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
     const d = Math.hypot(q[1] - ta, q[2] - tb); const qc = Math.hypot(q[1], q[2]);
     let hd = Math.abs(Math.atan2(q[2], q[1]) - th0); if (hd > Math.PI) hd = 2 * Math.PI - hd; hd *= 180 / Math.PI;
     let v = d < 22 ? Math.min(1, (22 - d) / 10) : 0;
+    // (A garment without a hue (white, grey, black): by its lightness too. A tattoo's ink isn't a white jersey.)
+    // (Where the finder says skin, nearly its lightness: a white strap is as light as the jersey; the light on
+    // someone's skin isn't.)
+    if (tc < 8 && Math.abs(q[0] - tL) > (p.body[i] >= 128 ? 12 : 35)) v = 0;
     if (tc >= 8 && qc >= 8) v = Math.max(v, hd < 20 ? 1 : hd < 35 ? (35 - hd) / 15 : 0);
     if (!v) continue;
     if (sk) {
@@ -731,7 +746,15 @@ export function leftovers(S, layer) {
     if (p.clothes[i] < 90) v *= 0.9;
     wgt[(Y - y0) * pw + X - x0] = v; any++;
   }
-  return any ? { x0, y0, pw, ph, wgt, gain } : null;
+  if (!any) return null;
+  // (Only what's joined to the garment: a strap from it, a sliver along it. A patch off on its own (a mark on
+  // an arm) isn't part of it.)
+  const keep = new Uint8Array(pw * ph); const st = [];
+  const inT = (X, Y) => X >= 0 && Y >= 0 && X < w && Y < h && (!!target.mask[Y * w + X] || covered(X, Y));
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const k = y * pw + x; if (!wgt[k]) continue; const X = x0 + x; const Y = y0 + y; if (inT(X - 1, Y) || inT(X + 1, Y) || inT(X, Y - 1) || inT(X, Y + 1)) { keep[k] = 1; st.push(k); } }
+  for (let a = 0; a < st.length; a++) { const k = st[a]; const x = k % pw; const y = (k / pw) | 0; for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, y > 0 ? k - pw : -1, y < ph - 1 ? k + pw : -1]) if (t >= 0 && wgt[t] && !keep[t]) { keep[t] = 1; st.push(t); } }
+  let kept = 0; for (let k = 0; k < pw * ph; k++) { if (!keep[k]) wgt[k] = 0; else kept++; }
+  return kept ? { x0, y0, pw, ph, wgt, gain } : null;
 }
 
 /** The leftovers (above) recolored on `out` (w wide) from `src` (the base's pixels, the same size). In place. */
@@ -897,9 +920,10 @@ function replaceEdge(layer, S, front) {
   const fh = base.layout?.fh ?? h / 7;
   const B = Math.max(2, Math.round(fh / 30)); const R = Math.max(5, Math.round(fh / 10));
   // (Only where what was worn meets what's beside it: in a body zone, the arms' and hands' own edges, skin
-  // against the background, are theirs and stay as they are.)
+  // against the background, are theirs and stay as they are. What the finder was unsure of inside the
+  // outline (a dark number by an arm) is worn too: it isn't an edge.)
   const p = base.people; const worn = new Uint8Array(w * h);
-  for (let y = target.box.y0; y < target.box.y1; y++) for (let x = target.box.x0; x < target.box.x1; x++) { const i = y * w + x; if (target.mask[i] && p.clothes[i] >= 128 && p.body[i] < 128 && p.face[i] < 128) worn[i] = 1; }
+  for (let y = target.box.y0; y < target.box.y1; y++) for (let x = target.box.x0; x < target.box.x1; x++) { const i = y * w + x; if (target.mask[i] && p.body[i] < 128 && p.face[i] < 128 && p.hair[i] < 128) worn[i] = 1; }
   const mb = matteBand(base.rgba, w, h, worn, target.box, B, R);
   // The layer grown over the band.
   const x0 = Math.min(layer.x0, mb.x0); const y0 = Math.min(layer.y0, mb.y0);

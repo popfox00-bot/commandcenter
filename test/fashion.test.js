@@ -3,7 +3,7 @@
 // the piece placed by the body and bent onto a shape, light, form and compositing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm, splitPeople, skinTexture } from '../web/tools/fashion/fashion-core.js';
+import { boxOf, resample, bodyLayout, kindZone, kindRegion, rowSpans, rigidPlace, renderPiece, lightGains, formMap, finishLayer, composite, fillHoles, splitSleeves, splitPair, armsInFront, mergeLayers, scaleLayout, traceTransfer, foldMap, upperParts, bareArm, splitPeople, skinTexture, armSkin, strayClothes } from '../web/tools/fashion/fashion-core.js';
 
 /**
  * A person w×h: a face (40 wide, 50 tall at the top), a red shirt from the chin to y = 200, blue pants to
@@ -331,4 +331,75 @@ test('fashion: a print (lettering) on the piece keeps its proportions when laid 
   const src = 60 / 16;
   assert.ok(Math.abs(kept.w / kept.h - src) / src < 0.12, `its proportions kept: ${kept.w}×${kept.h} (${(kept.w / kept.h).toFixed(2)} vs ${src.toFixed(2)})`);
   assert.ok(Math.abs(plain.w / plain.h - src) / src > Math.abs(kept.w / kept.h - src) / src, `row by row it would be stretched more: ${plain.w}×${plain.h}`);
+});
+
+test('fashion: tattoos on a bare arm (taken for clothes) are skin; a long sleeve stays a sleeve; the top beside the arm stays clothes', () => {
+  const w = 200; const h = 300; const n = w * h;
+  const mk = () => ({ w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) });
+  const P = (x, y) => [x, y, 1];
+  const pose = { nose: P(100, 40), shoulders: [P(60, 80), P(140, 80)], elbows: [P(40, 160), P(160, 160)], wrists: [P(35, 230), P(165, 230)], hips: [P(75, 200), P(125, 200)] };
+  const segD = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+  // A sleeveless top (x 62..138, y 80..200); bare arms along the pose, 9 px either side; on the left
+  // forearm, a "tattoo" the finder called clothes.
+  const tank = mk();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    const arm = [0, 1].some((sd) => segD(x, y, pose.shoulders[sd], pose.elbows[sd]) < 9 || segD(x, y, pose.elbows[sd], pose.wrists[sd]) < 9);
+    if (x >= 62 && x < 138 && y >= 80 && y < 200) tank.clothes[i] = 255; else if (arm) tank.body[i] = 255;
+  }
+  for (let y = 185; y < 200; y++) for (let x = 33; x < 42; x++) { const i = y * w + x; if (tank.body[i]) { tank.body[i] = 0; tank.clothes[i] = 255; } }
+  const before = tank.clothes.reduce((a, v) => a + (v ? 1 : 0), 0);
+  const changed = armSkin(tank, [pose], 50);
+  assert.ok(changed > 40, `the tattoo made skin: ${changed} px`);
+  assert.ok(tank.body[190 * w + 37] >= 128 && tank.clothes[190 * w + 37] < 128, 'the tattoo is skin');
+  assert.equal(tank.clothes[150 * w + 100], 255, 'the top is clothes');
+  assert.equal(tank.clothes.reduce((a, v) => a + (v ? 1 : 0), 0), before - changed, 'nothing else changed');
+  // Long sleeves: the arm is all clothes: nothing changes.
+  const sleeves = mk();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; if ((x >= 62 && x < 138 && y >= 80 && y < 200) || [0, 1].some((sd) => segD(x, y, pose.shoulders[sd], pose.elbows[sd]) < 9 || segD(x, y, pose.elbows[sd], pose.wrists[sd]) < 9)) sleeves.clothes[i] = 255; }
+  assert.equal(armSkin(sleeves, [pose], 50), 0, 'a long sleeve stays');
+});
+
+test('fashion: a top ends where it really does (a waistband curving below the pose\'s waist), not on a straight line; a piece\'s hem is level', () => {
+  const w = 200; const h = 360; const n = w * h;
+  const p = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(235);
+  // A white top and white shorts, parted by a navy waistband whose top dips from y 200 at the sides to 212
+  // in the middle (x 60..140).
+  const band = (x) => 200 + 12 * (1 - ((x - 100) / 40) ** 2);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; let c = null;
+    if (y >= 20 && y < 70 && Math.abs(x - 100) < 20) { p.face[i] = 255; c = [220, 180, 150]; }
+    else if (y >= 70 && y < 330 && x >= 60 && x < 140) { p.clothes[i] = 255; c = y >= band(x) && y < band(x) + 6 ? [25, 35, 80] : [238 - (y % 7), 238, 240]; }
+    if (c) rgba.set([...c, 255], i * 4);
+  }
+  const L = { face: { x0: 80, y0: 20, x1: 120, y1: 70 }, person: { x0: 60, y0: 20, x1: 140, y1: 330 }, fw: 40, fh: 50, chin: 70, waist: 200, ankle: 330, split: true, byPose: true };
+  const flat = kindRegion('top', p, L);
+  const real = kindRegion('top', p, L, null, { rgba });
+  const bottom = (r, x) => { let y = h - 1; while (y > 0 && !r.mask[y * w + x]) y--; return y; };
+  assert.ok(bottom(flat, 100) <= 201, `a straight line without the photo: ${bottom(flat, 100)}`);
+  assert.ok(Math.abs(bottom(real, 100) - 211) <= 2, `in the middle, down to the band: ${bottom(real, 100)}`);
+  assert.ok(Math.abs(bottom(real, 64) - band(64)) <= 3, `at the side, up with it: ${bottom(real, 64)} vs ${band(64).toFixed(0)}`);
+  assert.ok(!real.mask[(band(100) + 2) * w + 100], 'the band itself isn\'t the top');
+  const level = kindRegion('top', p, L, null, { rgba, straight: true });
+  assert.equal(bottom(level, 70), bottom(level, 100), 'a piece\'s hem: one level line');
+});
+
+test('fashion: in a group, a strip of the next person\'s clothes given to someone, out past their own arm, is the next person\'s', () => {
+  const w = 200; const h = 200; const n = w * h;
+  const mk = () => ({ w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) });
+  const P = (x, y) => [x, y, 1];
+  // Person 0: a top x 30..80, their right arm a column x 84..92 (shoulder x 80, elbow and wrist x 88), and a
+  // strip x 93..97 past it, given to them; person 1's top from x 98 on.
+  const a = mk(); const b = mk();
+  for (let y = 40; y < 180; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (x >= 30 && x < 80) a.clothes[i] = 255; else if (x >= 84 && x < 93) a.body[i] = 255; else if (x >= 93 && x < 98 && y >= 80 && y < 150) a.clothes[i] = 255; else if (x >= 98 && x < 170) b.clothes[i] = 255;
+  }
+  const poseA = { nose: P(55, 20), shoulders: [P(30, 45), P(80, 45)], elbows: [P(26, 110), P(88, 110)], wrists: [P(26, 170), P(88, 170)], hips: [P(40, 150), P(70, 150)] };
+  const poseB = { nose: P(134, 20), shoulders: [P(100, 45), P(168, 45)], elbows: [P(96, 110), P(172, 110)], wrists: [P(96, 170), P(172, 170)], hips: [P(115, 150), P(155, 150)] };
+  const moved = strayClothes([{ p: a, pose: poseA }, { p: b, pose: poseB }], w, h);
+  assert.ok(moved >= 5 * 70, `the strip moved: ${moved}`);
+  assert.ok(b.clothes[100 * w + 95] >= 128 && a.clothes[100 * w + 95] < 128, 'it\'s the next person\'s');
+  assert.equal(a.clothes[100 * w + 50], 255, 'their own top stays theirs');
 });

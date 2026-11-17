@@ -346,6 +346,9 @@ instead of drawing.
 
 - **Saved signature and initials**: draw them once; after that each tap places them (drag to move).
   They're kept on this device only; **Redraw** replaces them and **Forget saved** removes them.
+- **➕ Add**: another PDF (its pages go at the end: two PDFs combined into one), or an image on the page
+  in view (a logo, a stamp, a photo): drag it to move it, drag its corner to size it, Eraser removes it;
+  it's saved into the PDF (PNG transparency kept).
 - **Zoom**: pinch with two fingers, or use Zoom out / Fit width / Zoom in (100–400%). Pages are
   re-rendered sharp at the new size.
 

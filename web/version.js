@@ -4,6 +4,7 @@
 
 /** @type {{ v: string, date: string, notes: string }[]} */
 export const HISTORY = [
+  { v: '1.78', date: '2026-11-17', notes: 'Files → PDF: ➕ Add, another PDF\'s pages added at the end (two PDFs combined into one), or an image laid on a page (a logo, a stamp, a photo), dragged to move it and by its corner to size it, saved into the PDF.' },
   { v: '1.77', date: '2026-11-17', notes: 'Fashion: the old jersey seen past someone\'s arm hanging in front (between their forearm and the person beside) is taken off with the rest, not left showing; a top laid in right down to its hem on a large photo too (no pale band along the bottom); and a strip of the next person\'s jersey beside a shoulder isn\'t taken for theirs.' },
   { v: '1.76', date: '2026-11-17', notes: 'Fashion: an edit continued from before an update is worked out again by the new version (the piece, what it goes on, the waist, the placing; what you picked or brushed by hand is kept), instead of keeping what the old one found. A top\'s real hem is found the same on a large photo as on a small one (a loose jersey over the shorts of the same white too).' },
   { v: '1.75', date: '2026-11-17', notes: 'Fashion, where someone\'s arm is in front of the clothes being replaced: the old jersey right up against the arm is taken off too. Its lettering beside the arm isn\'t mistaken for the arm\'s edge, a strip of it isn\'t given to the person whose arm it is, and a pale jersey the finder took for skin beside the arm is jersey.' },

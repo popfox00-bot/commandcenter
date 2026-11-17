@@ -1,12 +1,14 @@
 // Write on PDF: type text (fill in forms), sign/draw, check and cross marks, boxes, highlight and
-// white-out. Pages are shown with pdf.js; saving writes into the original PDF with pdf-lib, so the
+// white-out. ➕ Add: another PDF's pages at the end (combined into one), or an image laid on a page (moved
+// and sized by hand). Pages are shown with pdf.js; saving writes into the original PDF with pdf-lib, so the
 // existing content is not rasterized. Everything stays on this device.
 import { el, store } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { shareFiles, canShareFiles, downloadBlob, formatBytes, renameExt } from '../../lib/files.js';
 import { openPdf, closePdf } from '../../lib/pdf-reader.js';
 import { createHistory } from '../editor/state.js';
-import { drawPage, hitTest, applyToPdf, displaySize, moveItem, FONT_STACK } from './annotate.js';
+import { drawPage, hitTest, applyToPdf, displaySize, moveItem, FONT_STACK, onImageReady, imageHandle } from './annotate.js';
+import { sniffType, decodeImage, fitSize, drawToCanvas } from '../../lib/image.js';
 import { KINDS, loadSignature, drawSignature, signItem } from './signature.js';
 
 const SAVE_KEY = 'pdfwrite.session';
@@ -74,9 +76,9 @@ export function mount(host, { file: initialFile } = {}) {
     }
   }
 
-  function banner(text) {
+  function banner(text, ok = false) {
     host.querySelector('.pw-banner')?.remove();
-    toolbar.after(el('p', { class: 'pw-banner bad-text small', text }));
+    toolbar.after(el('p', { class: `pw-banner ${ok ? 'muted' : 'bad-text'} small`, text }));
   }
 
   // ---------- layout ----------
@@ -92,7 +94,9 @@ export function mount(host, { file: initialFile } = {}) {
       el('div', { class: 'ed-top' },
         el('button', { class: 'icon-btn', 'aria-label': 'Close PDF', text: '✕', onclick: closeDoc }),
         el('div', { class: 'ed-top-mid' }, undoBtn, redoBtn),
-        el('button', { class: 'btn primary small-btn', text: 'Done', onclick: openExport })),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn small-btn', text: '➕ Add', 'aria-label': 'Add a PDF or an image', onclick: openAdd }),
+          el('button', { class: 'btn primary small-btn', text: 'Done', onclick: openExport }))),
       el('p', { class: 'muted small pw-name', text: `${fileName} · ${doc.numPages} page${doc.numPages === 1 ? '' : 's'}` }),
       toolbar, scroller);
     zoom = 1;
@@ -309,6 +313,18 @@ export function mount(host, { file: initialFile } = {}) {
         p.overlay.setPointerCapture(e.pointerId);
         return;
       }
+      // (An image laid on the page: dragged to move it, or by its corner to size it, whatever the tool.)
+      {
+        const i = hitTest(list, p.index, q.u, q.v, p.info, tolPt(q.r));
+        if (i >= 0 && list[i].type === 'image') {
+          const hd = imageHandle(list[i]);
+          const nearCorner = Math.hypot((q.u - hd.u) * q.r.width, (q.v - hd.v) * q.r.height) < 22;
+          drag = { kind: nearCorner ? 'resize' : 'move', i, start: q, orig: list[i], moved: false, before: list };
+          p.overlay.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          return;
+        }
+      }
       if (tool === 'signature' || tool === 'initials') {
         const i = hitTest(list, p.index, q.u, q.v, p.info, tolPt(q.r));
         if (i >= 0 && list[i].type === 'sign') {
@@ -346,6 +362,14 @@ export function mount(host, { file: initialFile } = {}) {
       const q = pos(e);
       if (drag.kind === 'tap') {
         if (Math.hypot((q.u - drag.start.u) * q.r.width, (q.v - drag.start.v) * q.r.height) > 10) drag.cancelled = true;
+      } else if (drag.kind === 'resize') {
+        // (Its top-left stays; its aspect kept, by how far the corner went across.)
+        const o = drag.orig; const u0 = Math.min(o.u1, o.u2); const v0 = Math.min(o.v1, o.v2);
+        const ow = Math.abs(o.u2 - o.u1); const oh = Math.abs(o.v2 - o.v1);
+        const nw = Math.max(0.03, ow + (q.u - drag.start.u)); const nh = (nw / ow) * oh;
+        drag.moved = true;
+        history.replace(items().map((it, j) => (j === drag.i ? { ...o, u1: u0, v1: v0, u2: u0 + nw, v2: v0 + nh } : it)));
+        drawOverlay(p);
       } else if (drag.kind === 'move') {
         const du = q.u - drag.start.u; const dv = q.v - drag.start.v;
         if (Math.hypot(du * q.r.width, dv * q.r.height) > 4) drag.moved = true;
@@ -365,7 +389,7 @@ export function mount(host, { file: initialFile } = {}) {
       if (!drag) return;
       if (drag.kind === 'tap') {
         if (!drag.cancelled && !pinch) drag.action();
-      } else if (drag.kind === 'move') {
+      } else if (drag.kind === 'move' || drag.kind === 'resize') {
         const next = items();
         history.replace(drag.before);
         if (drag.moved) commit(next);
@@ -406,6 +430,69 @@ export function mount(host, { file: initialFile } = {}) {
     document.body.append(dlg);
     dlg.showModal();
     area.focus();
+  }
+
+  // ---------- add a PDF or an image ----------
+
+  function openAdd() {
+    const pdfIn = el('input', { type: 'file', accept: 'application/pdf,.pdf', class: 'visually-hidden', id: 'pw-add-pdf' });
+    const imgIn = el('input', { type: 'file', accept: 'image/*', class: 'visually-hidden', id: 'pw-add-img' });
+    const dlg = el('dialog', { class: 'ed-dialog' }, el('div', { class: 'sheet' },
+      el('h2', { text: 'Add to this PDF' }),
+      el('label', { class: 'btn block', for: 'pw-add-pdf', text: '📄 Another PDF (its pages go at the end)' }),
+      el('label', { class: 'btn block', for: 'pw-add-img', text: '🖼️ An image on this page' }),
+      el('p', { class: 'muted small', text: 'An image can be dragged to move it, or by its corner to size it; ⌫ Eraser removes it.' }),
+      el('div', { class: 'row end' }, el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => dlg.close() })),
+      pdfIn, imgIn));
+    pdfIn.addEventListener('change', () => { const f = pdfIn.files[0]; dlg.close(); if (f) addPdf(f); });
+    imgIn.addEventListener('change', () => { const f = imgIn.files[0]; dlg.close(); if (f) addImage(f); });
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
+  /** Another PDF's pages appended to this one (what's been added to this one's pages stays where it is). */
+  async function addPdf(f) {
+    banner('Adding its pages…', true);
+    try {
+      const lib = await loadPdfLib();
+      const mine = await lib.PDFDocument.load(bytes);
+      const other = await lib.PDFDocument.load(new Uint8Array(await f.arrayBuffer()));
+      const copied = await mine.copyPages(other, other.getPageIndices());
+      for (const pg of copied) mine.addPage(pg);
+      const out = await mine.save();
+      const keep = items();
+      await open(new File([out], fileName, { type: 'application/pdf' }), fileName, keep);
+      persist(true);
+      banner(`Added ${copied.length} page${copied.length === 1 ? '' : 's'} from ${f.name || 'the PDF'}.`, true);
+    } catch (err) {
+      banner(/encrypt/i.test(err.message) ? 'One of the PDFs is password-protected: remove the password first, then add it.' : `Couldn't add it: ${err.message}`);
+    }
+  }
+
+  /** The page most in view (for placing an image). */
+  function pageInView() {
+    let best = pages[0]; let most = -1;
+    for (const p of pages) { const r = p.node.getBoundingClientRect(); const seen = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0); if (seen > most) { most = seen; best = p; } }
+    return best;
+  }
+
+  /** An image laid on the page in view: centered, 40% of its width, its own proportions. */
+  async function addImage(f) {
+    try {
+      const type = await sniffType(f);
+      const bmp = await decodeImage(f, type);
+      const fit = fitSize(bmp.width, bmp.height, 1800);
+      const c = drawToCanvas(bmp, fit.width, fit.height, null); bmp.close?.();
+      // (PNG keeps transparency (a logo, a stamp); a photo as JPEG, smaller.)
+      const src = type === 'image/png' || type === 'image/gif' || type === 'image/webp' ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9);
+      const p = pageInView(); if (!p) return;
+      const { w, h } = displaySize(p.info);
+      const wu = 0.4; const hu = Math.min(0.8, (wu * w * (fit.height / fit.width)) / h); const wu2 = (hu * h * (fit.width / fit.height)) / w;
+      commit([...items(), { page: p.index, type: 'image', u1: 0.5 - wu2 / 2, v1: 0.5 - hu / 2, u2: 0.5 + wu2 / 2, v2: 0.5 + hu / 2, src }]);
+    } catch (err) {
+      banner(`Couldn't add the image: ${err.message}`);
+    }
   }
 
   // ---------- close / save ----------
@@ -455,6 +542,7 @@ export function mount(host, { file: initialFile } = {}) {
     pages = [];
   }
 
+  onImageReady(() => { for (const p of pages) if (p.rendered) drawOverlay(p); });
   const onResize = () => { for (const p of pages) if (p.rendered) renderPage(p); };
   window.addEventListener('resize', onResize);
 

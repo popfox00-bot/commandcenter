@@ -73,7 +73,7 @@ test('type, sign and check on a PDF, then save a real PDF with the original text
   await page.getByRole('button', { name: /Text/ }).click();
   await page.mouse.click(b.x + b.w * 0.45, b.y + b.h * 0.11);
   await page.fill('.ed-textarea', 'Pat Example');
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
 
   await page.getByRole('button', { name: '✍ Draw', exact: true }).click();
   b = await pageBox(page, 0);
@@ -227,6 +227,39 @@ test('zoom: buttons and a two-finger pinch enlarge pages and re-render them shar
   await t('touchStart', 30); for (let d = 40; d <= 90; d += 10) await t('touchMove', d); await t('touchEnd', 0);
   await page.waitForTimeout(300);
   assert.equal(await page.$$eval('.ed-dialog', (d) => d.length), 0, 'pinching with the Text tool does not open the text box');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('➕ Add: a second PDF\'s pages combined at the end, and an image laid on a page, moved and saved into it', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const { page, errors } = await openPdfTab(context);
+  // A second PDF of one page.
+  const other = await lib.PDFDocument.create(); const font = await other.embedFont(lib.StandardFonts.Helvetica);
+  other.addPage([612, 792]).drawText('Appendix page', { x: 72, y: 700, size: 14, font });
+  const otherPath = join(await mkdtemp(join(tmpdir(), 'cc-pdfw2-')), 'appendix.pdf'); await writeFile(otherPath, await other.save());
+  await page.getByRole('button', { name: 'Add a PDF or an image' }).click();
+  await page.setInputFiles('#pw-add-pdf', otherPath);
+  await page.waitForFunction(() => document.querySelectorAll('.pw-page').length === 3);
+  await page.waitForSelector('text=Added 1 page from appendix.pdf.');
+  // An image (a red square PNG) on the first page, dragged a little.
+  const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 60; c.height = 60; const x = c.getContext('2d'); x.fillStyle = '#e00'; x.fillRect(0, 0, 60, 60); return c.toDataURL('image/png').split(',')[1]; });
+  await page.getByRole('button', { name: 'Add a PDF or an image' }).click();
+  await page.setInputFiles('#pw-add-img', { name: 'stamp.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  const cb = await pageBox(page, 0);
+  await page.mouse.move(cb.x + cb.w * 0.5, cb.y + cb.h * 0.5); await page.mouse.down();
+  await page.mouse.move(cb.x + cb.w * 0.6, cb.y + cb.h * 0.4, { steps: 5 }); await page.mouse.up();
+  await page.getByRole('button', { name: 'Done' }).click();
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const file = await dl;
+  const out = await readFile(await file.path());
+  const { text, pages } = await textOf(out);
+  assert.equal(pages, 3, 'combined: 2 + 1 pages');
+  assert.match(text, /Form page 1/); assert.match(text, /Appendix page/);
+  const saved = await lib.PDFDocument.load(out);
+  const xobj = saved.getPages()[0].node.Resources().lookup(lib.PDFName.of('XObject'));
+  assert.ok(xobj && xobj.keys().length >= 1, 'the image is in the first page');
   assert.deepEqual(errors, []);
   await context.close();
 });

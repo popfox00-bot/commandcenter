@@ -467,11 +467,11 @@ test('Fashion: an upper body zone onto someone with a hand across their front: t
   assert.ok(blue(await pixel(300, 330)), `the zone is on: ${await pixel(300, 330)}`);
   assert.ok(skin(await pixel(260, 436)), `their own hand stays in front: ${await pixel(260, 436)}`);
   // The waist line raised: the zone ends higher (the bottom of the old top shows again under it).
-  const before = await pixel(300, 400);
+  const before = await pixel(370, 470);
   const slider = page.getByRole('slider', { name: 'Waist line' });
   await slider.fill('-40'); await slider.dispatchEvent('change');
   await page.waitForTimeout(600);
-  const after = await pixel(300, 400);
+  const after = await pixel(370, 470);
   assert.ok(blue(before) && !blue(after), `raised: ${before} → ${after}`);
   await slider.fill('0'); await slider.dispatchEvent('change'); await page.waitForTimeout(400);
   // Save: the check points at the stray bit of the old top first; Show me marks it and picks the brush.

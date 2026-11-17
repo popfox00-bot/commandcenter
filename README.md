@@ -803,7 +803,8 @@ the clothes in it: worn by someone, or on its own).
 - **Where a top really ends**: from the pose's waist, the hem is found in the photo itself, column by
   column: the first clear change going down from the top's colors (a waistband curving, the shadow of a
   loose jersey on the shorts), followed smoothly across. The piece's own hem is one level line (its
-  waistband's stripes aren't the jersey). What the finder wasn't sure was cloth inside the garment (a dark
+  waistband's stripes aren't the jersey). Measured by the face's size, so a large photo finds the same line
+  as a small one. What the finder wasn't sure was cloth inside the garment (a dark
   number beside an arm in front) is taken off with it; the old garment's color carried onto what's left of
   it (straps, a sliver) only where it's joined to it, never on the skin, an arm, or below the hem.
 - **Group photos**: with several people in a photo, each is told apart on the phone (one for each face;
@@ -893,7 +894,8 @@ the clothes in it: worn by someone, or on its own).
   ankle lines to drag), **Size**, **Width**, **Length**, **Turn**, **Fit to body**, **Form**, **Light**,
   **Edge**, edge shading, and what's kept in front. Drag it to move it and pinch to size and turn it at
   any time; **↶ / ↷** undo and redo; **◑ Before** (held) shows the photo as it was. Your work is kept on the
-  phone: come back and **Continue**.
+  phone: come back and **Continue** (after an update, what was found by itself is found again by the new
+  version; what you picked or brushed by hand is kept).
 - **💾 Save** works it out again at full size (up to 2560 px, about 6 MP) and shares or downloads it.
 
 The workings are in `web/tools/fashion/fashion-core.js` (tested in `test/fashion.test.js`); the app

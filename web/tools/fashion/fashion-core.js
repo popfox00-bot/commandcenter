@@ -252,6 +252,8 @@ function hemLine(p, rgba, L, z) {
   const { w, h } = p; const fh = L.fh; const W0 = L.waist;
   const ya = Math.max(z.y0 + 4, Math.round(W0 - fh * 0.3)); const yb = Math.min(h - 4, Math.round(W0 + fh * 0.55));
   const nx = z.x1 - z.x0; const ny = yb - ya; if (nx < 8 || ny < 6) return null;
+  // (By the face's size, so a larger photo finds the same line: the rows looked at above and below.)
+  const ra = Math.max(3, Math.round(fh / 24)); const rb = Math.max(1, Math.round(fh / 70));
   const mine = (i) => Math.max(p.clothes[i], p.body[i], p.others[i]) >= 128 && p.face[i] < 128;
   // The top's color: its median just above the waist.
   const v = [[], [], []];
@@ -260,19 +262,21 @@ function hemLine(p, rgba, L, z) {
   const med = v.map((a) => { a.sort((q, r) => q - r); return a[a.length >> 1]; });
   // Each column's score for each row: the change from above to below, by how like the top it is above.
   const E = new Float32Array(nx * ny); const valid = new Uint8Array(nx);
-  const col = (x, y0, y1) => { const s = [0, 0, 0]; let n = 0; for (let y = y0; y < y1; y++) for (let xx = x - 1; xx <= x + 1; xx++) { if (xx < 0 || xx >= w) continue; const i = y * w + xx; if (!mine(i)) return null; for (let c = 0; c < 3; c++) s[c] += rgba[i * 4 + c]; n++; } return n ? s.map((t) => t / n) : null; };
+  // (Above the line, their own cloth (most of it: a speck that isn't theirs doesn't count); below it,
+  // whatever's there: their shorts can be given to the person beside them.)
+  const col = (x, y0, y1, own = true) => { const s = [0, 0, 0]; let n = 0; let off = 0; for (let y = y0; y < y1; y++) for (let xx = x - 1; xx <= x + 1; xx++) { if (xx < 0 || xx >= w || y < 0 || y >= h) continue; const i = y * w + xx; if (own && !mine(i)) { off++; continue; } for (let c = 0; c < 3; c++) s[c] += rgba[i * 4 + c]; n++; } return n && off <= (n + off) * 0.3 ? s.map((t) => t / n) : null; };
   for (let k = 0; k < nx; k++) {
     const x = z.x0 + k; let any = false;
     for (let y = ya; y < Math.min(yb, Math.round(W0)); y++) if (p.clothes[y * w + x] >= 128) { any = true; break; }
     if (!any) continue; valid[k] = 1;
     for (let j = 0; j < ny; j++) {
       // (Below: the row itself, so a thin rim (a waistband's edge) counts as much as a broad change.)
-      const y = ya + j; const a = col(x, y - 3, y); const b = col(x, y, y + 1); if (!a || !b) continue;
+      const y = ya + j; const a = col(x, y - ra, y); const b = col(x, y, y + rb, false); if (!a || !b) continue;
       const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
       const sim = Math.max(0.2, 1 - Math.hypot(a[0] - med[0], a[1] - med[1], a[2] - med[2]) / 110);
       // (The first such line going down, of two alike (a waistband's own stripes below the hem): a little
-      // less for each row deeper.)
-      E[k * ny + j] = d * sim - j * 0.6;
+      // less the deeper it is, by its share of the way down.)
+      E[k * ny + j] = d * sim * (1 - 0.35 * (j / ny));
     }
   }
   let nv = 0; for (let k = 0; k < nx; k++) nv += valid[k]; if (nv < nx * 0.3 || nv < 8) return null;
@@ -281,7 +285,7 @@ function hemLine(p, rgba, L, z) {
   for (let k = 0; k < nx; k++) {
     if (!valid[k]) continue;
     let mx = 0; for (let j2 = 0; j2 < ny; j2++) mx = Math.max(mx, E[k * ny + j2]);
-    if (mx < 40) continue;
+    if (mx < 20) continue;
     let first = -1; for (let j2 = 0; j2 < ny && first < 0; j2++) { const v2 = E[k * ny + j2]; if (v2 >= mx * 0.4 && v2 >= (E[k * ny + j2 + 1] ?? 0) && (j2 === 0 || v2 >= E[k * ny + j2 - 1])) first = j2; }
     if (first < 0) continue;
     for (let j2 = 0; j2 < ny; j2++) E[k * ny + j2] = Math.abs(j2 - first) <= 1 ? mx * (j2 === first ? 1 : 0.6) : Math.min(E[k * ny + j2], mx * 0.2);
@@ -296,9 +300,9 @@ function hemLine(p, rgba, L, z) {
   }
   let j = 0; for (let t = 1; t < ny; t++) if (acc[(nx - 1) * ny + t] > acc[(nx - 1) * ny + j]) j = t;
   const out = new Float32Array(nx); let sum = 0;
-  for (let k = nx - 1; k >= 0; k--) { out[k] = ya + j; if (valid[k]) sum += E[k * ny + j] + j * 0.6; j += from[k * ny + j]; j = Math.max(0, Math.min(ny - 1, j)); }
+  for (let k = nx - 1; k >= 0; k--) { out[k] = ya + j; if (valid[k]) sum += E[k * ny + j] / (1 - 0.35 * (j / ny)); j += from[k * ny + j]; j = Math.max(0, Math.min(ny - 1, j)); }
   // (Too faint a line on average: none found; the pose's waist stands.)
-  if (sum / nv < 28) return null;
+  if (sum / nv < 12) return null;
   // (Smoothed a little: a hem doesn't zigzag.)
   const r = Math.max(1, Math.round(fh / 12)); const sm = new Float32Array(nx);
   for (let k = 0; k < nx; k++) { let s2 = 0; let n = 0; for (let d = -r; d <= r; d++) { const kk = k + d; if (kk >= 0 && kk < nx) { s2 += out[kk]; n++; } } sm[k] = s2 / n; }

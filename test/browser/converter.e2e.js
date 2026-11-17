@@ -75,6 +75,7 @@ test('home screen of apps: Files and Magic hold the others (each back to where i
   await page.waitForFunction(() => location.hash === '#/files');
   // Scan has documents and QR codes.
   await page.click('.studio-hub .app-tile >> text=Scan');
+  await page.waitForSelector('.studio-sub:not([hidden]) [role=tab]');
   assert.deepEqual(await page.$$eval('.studio-sub:not([hidden]) [role=tab]', (els) => els.map((e) => e.textContent)), ['📄 Documents', '▦ QR codes']);
   await page.click('.studio-sub >> text=▦ QR codes');
   await page.waitForSelector('#view-app:not([hidden]) >> text=QR & Barcode');

@@ -9,6 +9,7 @@
 //   { page, type: 'sign', strokes: [[[u,v]...]...], width, color }   saved signature / initials
 //   { page, type: 'check' | 'cross', u, v, size, color }      u,v = top-left of the mark's box
 //   { page, type: 'box' | 'highlight' | 'whiteout', u1, v1, u2, v2, color, width }
+//   { page, type: 'image', u1, v1, u2, v2, src }               src = a data: URL (PNG or JPEG)
 
 export const LINE_HEIGHT = 1.2;
 const ASCENT = 0.78; // Helvetica-ish ascent as a fraction of font size
@@ -74,6 +75,18 @@ const RECT_STYLE = {
 
 // ---------- preview ----------
 
+// (Images decoded once for the preview; `onImageReady` is told when one has loaded, to draw again.)
+const images = new Map(); let imageReady = null;
+export function onImageReady(fn) { imageReady = fn; }
+function imageOf(src) {
+  let im = images.get(src);
+  if (!im) { im = new Image(); im.onload = () => imageReady?.(); im.src = src; images.set(src, im); }
+  return im.complete && im.naturalWidth ? im : null;
+}
+
+/** An image item's resize handle: its bottom-right corner (display-normalized). */
+export function imageHandle(it) { return { u: Math.max(it.u1, it.u2), v: Math.max(it.v1, it.v2) }; }
+
 /** Draw items of one page onto a 2D context sized pxW×pxH showing that page. */
 export function drawPage(ctx, items, info, pxW, pxH) {
   const { w } = displaySize(info);
@@ -99,6 +112,14 @@ export function drawPage(ctx, items, info, pxW, pxH) {
         for (const [u, v] of pts.slice(1)) ctx.lineTo(X(u), Y(v));
         ctx.stroke();
       }
+    } else if (it.type === 'image') {
+      const x = X(Math.min(it.u1, it.u2)); const y = Y(Math.min(it.v1, it.v2));
+      const rw = Math.abs(X(it.u2) - X(it.u1)); const rh = Math.abs(Y(it.v2) - Y(it.v1));
+      const im = imageOf(it.src);
+      if (im) ctx.drawImage(im, x, y, rw, rh);
+      // (A thin dashed frame and a corner to drag to resize: on screen only, not saved.)
+      ctx.setLineDash([4, 3]); ctx.strokeStyle = 'rgba(10,63,209,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, rw - 1, rh - 1);
+      ctx.setLineDash([]); ctx.fillStyle = '#0a3fd1'; const hs = 9; ctx.fillRect(x + rw - hs, y + rh - hs, hs, hs);
     } else if (RECT_STYLE[it.type]) {
       const s = RECT_STYLE[it.type](it);
       const x = X(Math.min(it.u1, it.u2)); const y = Y(Math.min(it.v1, it.v2));
@@ -143,7 +164,7 @@ export function hitTest(items, page, u, v, info, tolPt = 8) {
         if (q.length === 1 && Math.hypot(px - q[0][0], py - q[0][1]) <= tolPt) return i;
         for (let j = 1; j < q.length; j++) if (distSeg(px, py, ...q[j - 1], ...q[j]) <= tolPt + (it.width ?? 2)) return i;
       }
-    } else if (RECT_STYLE[it.type]) {
+    } else if (RECT_STYLE[it.type] || it.type === 'image') {
       const [ax, ay] = P(Math.min(it.u1, it.u2), Math.min(it.v1, it.v2));
       const [bx, by] = P(Math.max(it.u1, it.u2), Math.max(it.v1, it.v2));
       if (px >= ax - tolPt && px <= bx + tolPt && py >= ay - tolPt && py <= by + tolPt) return i;
@@ -184,6 +205,15 @@ export async function applyToPdf(lib, bytes, items) {
   const font = await doc.embedFont(lib.StandardFonts.Helvetica);
   const pages = doc.getPages();
   let replacedChars = 0;
+  // (Each image embedded once, however many times it's placed.)
+  const embedded = new Map();
+  const embed = async (src) => {
+    if (!embedded.has(src)) {
+      const bin = Uint8Array.from(atob(src.slice(src.indexOf(',') + 1)), (c) => c.charCodeAt(0));
+      embedded.set(src, await (/^data:image\/png/.test(src) ? doc.embedPng(bin) : doc.embedJpg(bin)));
+    }
+    return embedded.get(src);
+  };
   for (const it of items) {
     const page = pages[it.page];
     if (!page) continue;
@@ -209,6 +239,12 @@ export async function applyToPdf(lib, bytes, items) {
           page.drawLine({ start: q[j - 1], end: q[j], thickness, color, lineCap: lib.LineCapStyle.Round });
         }
       }
+    } else if (it.type === 'image') {
+      // (Its display bottom-left corner, turned with the page, as text is.)
+      const { w, h } = displaySize(info);
+      const u0 = Math.min(it.u1, it.u2); const v1 = Math.max(it.v1, it.v2);
+      const at = toPdf(info, u0, v1);
+      page.drawImage(await embed(it.src), { x: at.x, y: at.y, width: Math.abs(it.u2 - it.u1) * w, height: Math.abs(it.v2 - it.v1) * h, rotate: rot });
     } else if (RECT_STYLE[it.type]) {
       const s = RECT_STYLE[it.type](it);
       const a = toPdf(info, it.u1, it.v1); const b = toPdf(info, it.u2, it.v2);

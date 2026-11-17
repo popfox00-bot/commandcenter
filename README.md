@@ -346,6 +346,9 @@ instead of drawing.
 
 - **Saved signature and initials**: draw them once; after that each tap places them (drag to move).
   They're kept on this device only; **Redraw** replaces them and **Forget saved** removes them.
+- **➕ Add**: another PDF (its pages go at the end: two PDFs combined into one), or an image on the page
+  in view (a logo, a stamp, a photo): drag it to move it, drag its corner to size it, Eraser removes it;
+  it's saved into the PDF (PNG transparency kept).
 - **Zoom**: pinch with two fingers, or use Zoom out / Fit width / Zoom in (100–400%). Pages are
   re-rendered sharp at the new size.
 
@@ -803,7 +806,8 @@ the clothes in it: worn by someone, or on its own).
 - **Where a top really ends**: from the pose's waist, the hem is found in the photo itself, column by
   column: the first clear change going down from the top's colors (a waistband curving, the shadow of a
   loose jersey on the shorts), followed smoothly across. The piece's own hem is one level line (its
-  waistband's stripes aren't the jersey). What the finder wasn't sure was cloth inside the garment (a dark
+  waistband's stripes aren't the jersey). Measured by the face's size, so a large photo finds the same line
+  as a small one. What the finder wasn't sure was cloth inside the garment (a dark
   number beside an arm in front) is taken off with it; the old garment's color carried onto what's left of
   it (straps, a sliver) only where it's joined to it, never on the skin, an arm, or below the hem.
 - **Group photos**: with several people in a photo, each is told apart on the phone (one for each face;
@@ -825,6 +829,9 @@ the clothes in it: worn by someone, or on its own).
   Beside an arm in front, the garment's edge is the person finder's, not judged by color (a dark letter
   next to the arm looks like the arm); "skin" just past someone's clothes where their own arm isn't (it's
   hidden behind the next person) is checked against their clothes' color like any inside them.
+  What the finder wasn't sure of, seen past an arm in front of the garment (between the forearm and the
+  body), is the garment too, taken off with it (below the shoulders only; joined to it directly, only when
+  it's within their torso by the pose).
   Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
   the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.
@@ -893,7 +900,8 @@ the clothes in it: worn by someone, or on its own).
   ankle lines to drag), **Size**, **Width**, **Length**, **Turn**, **Fit to body**, **Form**, **Light**,
   **Edge**, edge shading, and what's kept in front. Drag it to move it and pinch to size and turn it at
   any time; **↶ / ↷** undo and redo; **◑ Before** (held) shows the photo as it was. Your work is kept on the
-  phone: come back and **Continue**.
+  phone: come back and **Continue** (after an update, what was found by itself is found again by the new
+  version; what you picked or brushed by hand is kept).
 - **💾 Save** works it out again at full size (up to 2560 px, about 6 MP) and shares or downloads it.
 
 The workings are in `web/tools/fashion/fashion-core.js` (tested in `test/fashion.test.js`); the app

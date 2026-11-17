@@ -153,9 +153,9 @@ export function kindRegion(kind, p, L, pose = null, { all = null, rgba = null, s
   // (A top that ends where it really does, by the photo: tucked in at a curved waistband, or hanging loose
   // over the shorts, past where the pose puts the waist.)
   // (`straight`: the piece's photo: its hem as one level line, by most of its columns (a waistband's stripes
-  // under it pull some of them down).)
-  let hem = (kind === 'top' || kind === 'jacket') && rgba && L.byPose && !L.waistShift ? hemLine(p, rgba, L, z) : null;
-  if (hem && straight) { const cols = []; for (let k = 0; k < hem.length; k++) { const x = z.x0 + k; let on = false; for (let y = Math.round(L.waist - L.fh * 0.3); y < L.waist; y++) if (y >= 0 && y < h && p.clothes[y * w + x] >= 128) { on = true; break; } if (on) cols.push(hem[k]); } if (cols.length) { cols.sort((a, b) => a - b); const v = cols[Math.floor(cols.length * 0.25)]; hem = hem.map(() => v); } }
+  // under it pull some of them down), just above its soft rim (laid in stretched, a rim shows as a band).)
+  let hem = (kind === 'top' || kind === 'jacket') && rgba && L.byPose && !L.waistShift ? hemLine(p, rgba, L, z, straight) : null;
+  if (hem && straight) { const cols = []; for (let k = 0; k < hem.length; k++) { const x = z.x0 + k; let on = false; for (let y = Math.round(L.waist - L.fh * 0.3); y < L.waist; y++) if (y >= 0 && y < h && p.clothes[y * w + x] >= 128) { on = true; break; } if (on) cols.push(hem[k]); } if (cols.length) { cols.sort((a, b) => a - b); const v = cols[Math.floor(cols.length * 0.15)] - L.fh * 0.03; hem = hem.map(() => v); } }
   if (hem) z = { ...z, y1: Math.min(h, Math.max(z.y1, Math.ceil(Math.max(...hem)) + 1)) };
   const m = new Uint8Array(w * h);
   for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
@@ -192,7 +192,7 @@ export function kindRegion(kind, p, L, pose = null, { all = null, rgba = null, s
   }
   // (What the finder wasn't sure was cloth (a dark number by someone's arm in front), joined to it and walled
   // in by people, never touching the background: part of it.)
-  if (all && !['shoes', 'hat'].includes(kind)) weakCloth(kept, p, all, w, h, z, hem);
+  if (all && !['shoes', 'hat'].includes(kind)) weakCloth(kept, p, all, w, h, z, hem, Math.round(L.fh * 0.9), ['top', 'jacket', 'dress'].includes(kind) ? pose : null);
   // (Thin cracks closed first, a fold's shadow the finder wasn't sure was cloth: one reaching its edge
   // isn't a hole, and would show what was worn through the new piece as specks.)
   if (!['shoes', 'hat'].includes(kind)) closeMask(kept.mask, w, h, kept.box, Math.max(1, Math.round(L.fh / 30)));
@@ -205,13 +205,23 @@ export function kindRegion(kind, p, L, pose = null, { all = null, rgba = null, s
 }
 
 /** kindRegion's: the weak cloth joined to `kept` (partly theirs, or clothes over 20 and no one's for sure), walled in by people (`all`'s anyone). */
-function weakCloth(kept, p, all, w, h, z, hem) {
+function weakCloth(kept, p, all, w, h, z, hem, reach = 0, pose = null) {
   const anyone = (i) => Math.max(all.body[i], all.clothes[i], all.face[i], all.hair[i], all.others[i]) >= 128;
   const notSkin = (i) => all.face[i] < 128 && all.hair[i] < 128 && p.body[i] < 128;
   // (Two passes: what no one's for sure (clothes over 20), then what's theirs in part where they meet
   // someone (clothes over 64 of theirs, someone's for sure).)
   const passes = [(i) => notSkin(i) && !anyone(i) && all.clothes[i] >= 20, (i) => notSkin(i) && anyone(i) && p.clothes[i] >= 64 && p.clothes[i] < 128];
   const m = kept.mask; let added = false; const R = 3;
+  // (How big a patch can be: by the face's size, as many pixels on a large photo as the same patch has.)
+  const cap = Math.max(6000, Math.round(6000 * (reach / 64) ** 2));
+  const okv = (v) => v && v[2] >= 0.3;
+  let inTorso = null; let shY = -Infinity;
+  if (pose && okv(pose.shoulders?.[0]) && okv(pose.shoulders?.[1])) shY = Math.max(pose.shoulders[0][1], pose.shoulders[1][1]);
+  if (pose && okv(pose.shoulders?.[0]) && okv(pose.shoulders?.[1]) && okv(pose.hips?.[0]) && okv(pose.hips?.[1])) {
+    const quad = [pose.shoulders[0], pose.shoulders[1], pose.hips[1], pose.hips[0]]; const cq = [quad.reduce((a, v) => a + v[0], 0) / 4, quad.reduce((a, v) => a + v[1], 0) / 4];
+    const wq = quad.map((v) => [cq[0] + (v[0] - cq[0]) * 1.15, cq[1] + (v[1] - cq[1]) * 1.05]);
+    inTorso = (x, y) => { let c = false; for (let a = 0, b = 3; a < 4; b = a++) { const [xi, yi] = wq[a]; const [xj, yj] = wq[b]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) c = !c; } return c; };
+  }
   for (const weak of passes) {
     const seen = new Uint8Array(w * h);
     for (let y = z.y0; y < z.y1; y++) for (let x = z.x0; x < z.x1; x++) {
@@ -220,7 +230,7 @@ function weakCloth(kept, p, all, w, h, z, hem) {
       // left out, the rest (walled in by people) taken.
       const st = [s0]; seen[s0] = 1; let touches = false; const rim = [];
       const inZ = (XX, YY) => !(XX < z.x0 || YY < z.y0 || XX >= z.x1 || YY >= z.y1 || (hem && YY >= hem[XX - z.x0]));
-      for (let a = 0; a < st.length && st.length < 6000; a++) {
+      for (let a = 0; a < st.length && st.length < cap; a++) {
         const i = st[a]; const X = i % w; const Y = (i / w) | 0; let atRim = false;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const XX = X + dx; const YY = Y + dy; if (!inZ(XX, YY)) continue;
@@ -231,11 +241,30 @@ function weakCloth(kept, p, all, w, h, z, hem) {
         }
         if (atRim) rim.push(i);
       }
-      if (!touches || st.length >= 6000) continue;
+      // (Or seen past someone's arm in front of it: across their skin, row by row, the garment again.)
+      const direct = touches;
+      // (Across an arm only below the shoulders: above them, past an arm is the background or someone's head.)
+      let belowShoulders = pose != null; if (pose) for (let a = 0; a < st.length; a += 4) if (((st[a] / w) | 0) < shY) { belowShoulders = false; break; }
+      if (!touches && reach && weak === passes[0] && belowShoulders) {
+        const other = (i) => all.body[i] >= 64 && p.body[i] < 128;
+        for (let a = 0; a < st.length && !touches; a += 3) {
+          const i = st[a]; const X = i % w; const Y = (i / w) | 0;
+          for (const dir of [-1, 1]) {
+            // (Across their skin, and a few soft pixels at its edges, to the garment.)
+            let x = X + dir; let n = 0; let skin = 0; let soft = 0;
+            while (x >= 0 && x < w && n < reach && !m[Y * w + x]) { if (other(Y * w + x)) skin++; else if (++soft > 4) break; x += dir; n++; }
+            if (skin >= 2 && x >= 0 && x < w && m[Y * w + x]) { touches = true; break; }
+          }
+        }
+      }
+      if (!touches || st.length >= cap) continue;
       const far = new Map(); for (const i of st) far.set(i, Infinity);
       for (const i of rim) far.set(i, 0);
       const q = [...rim];
       for (let a = 0; a < q.length; a++) { const i = q[a]; const d = far.get(i); if (d >= R) continue; for (const t of [i - 1, i + 1, i - w, i + w]) if (far.has(t) && far.get(t) > d + 1) { far.set(t, d + 1); q.push(t); } }
+      // (Joined to it directly, but mostly outside their torso by the pose (the next person's jersey seen
+      // beside them): not theirs. Seen across an arm in front, it is.)
+      if (inTorso && direct) { let inside = 0; for (let a = 0; a < st.length; a += 2) { const i = st[a]; if (inTorso(i % w, (i / w) | 0)) inside++; } if (inside * 2 < Math.ceil(st.length / 2)) continue; }
       for (const i of st) if (far.get(i) >= R) { m[i] = 1; added = true; }
     }
   }
@@ -248,10 +277,12 @@ function weakCloth(kept, p, all, w, h, z, hem) {
  * as the strongest change of color going down, from the top's colors to another, followed smoothly from
  * one column to the next. Its rows by column from z.x0, or null when there's no clear line.
  */
-function hemLine(p, rgba, L, z) {
+function hemLine(p, rgba, L, z, first = false) {
   const { w, h } = p; const fh = L.fh; const W0 = L.waist;
   const ya = Math.max(z.y0 + 4, Math.round(W0 - fh * 0.3)); const yb = Math.min(h - 4, Math.round(W0 + fh * 0.55));
   const nx = z.x1 - z.x0; const ny = yb - ya; if (nx < 8 || ny < 6) return null;
+  // (By the face's size, so a larger photo finds the same line: the rows looked at above and below.)
+  const ra = Math.max(3, Math.round(fh / 24)); const rb = Math.max(1, Math.round(fh / 70));
   const mine = (i) => Math.max(p.clothes[i], p.body[i], p.others[i]) >= 128 && p.face[i] < 128;
   // The top's color: its median just above the waist.
   const v = [[], [], []];
@@ -260,28 +291,31 @@ function hemLine(p, rgba, L, z) {
   const med = v.map((a) => { a.sort((q, r) => q - r); return a[a.length >> 1]; });
   // Each column's score for each row: the change from above to below, by how like the top it is above.
   const E = new Float32Array(nx * ny); const valid = new Uint8Array(nx);
-  const col = (x, y0, y1) => { const s = [0, 0, 0]; let n = 0; for (let y = y0; y < y1; y++) for (let xx = x - 1; xx <= x + 1; xx++) { if (xx < 0 || xx >= w) continue; const i = y * w + xx; if (!mine(i)) return null; for (let c = 0; c < 3; c++) s[c] += rgba[i * 4 + c]; n++; } return n ? s.map((t) => t / n) : null; };
+  // (Above the line, their own cloth (most of it: a speck that isn't theirs doesn't count); below it,
+  // whatever's there: their shorts can be given to the person beside them.)
+  const col = (x, y0, y1, own = true) => { const s = [0, 0, 0]; let n = 0; let off = 0; for (let y = y0; y < y1; y++) for (let xx = x - 1; xx <= x + 1; xx++) { if (xx < 0 || xx >= w || y < 0 || y >= h) continue; const i = y * w + xx; if (own && !mine(i)) { off++; continue; } for (let c = 0; c < 3; c++) s[c] += rgba[i * 4 + c]; n++; } return n && off <= (n + off) * 0.3 ? s.map((t) => t / n) : null; };
   for (let k = 0; k < nx; k++) {
     const x = z.x0 + k; let any = false;
     for (let y = ya; y < Math.min(yb, Math.round(W0)); y++) if (p.clothes[y * w + x] >= 128) { any = true; break; }
     if (!any) continue; valid[k] = 1;
     for (let j = 0; j < ny; j++) {
       // (Below: the row itself, so a thin rim (a waistband's edge) counts as much as a broad change.)
-      const y = ya + j; const a = col(x, y - 3, y); const b = col(x, y, y + 1); if (!a || !b) continue;
+      const y = ya + j; const a = col(x, y - ra, y); const b = col(x, y, y + rb, false); if (!a || !b) continue;
       const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
       const sim = Math.max(0.2, 1 - Math.hypot(a[0] - med[0], a[1] - med[1], a[2] - med[2]) / 110);
       // (The first such line going down, of two alike (a waistband's own stripes below the hem): a little
-      // less for each row deeper.)
-      E[k * ny + j] = d * sim - j * 0.6;
+      // less the deeper it is, by its share of the way down.)
+      E[k * ny + j] = d * sim * (1 - 0.35 * (j / ny));
     }
   }
   let nv = 0; for (let k = 0; k < nx; k++) nv += valid[k]; if (nv < nx * 0.3 || nv < 8) return null;
-  // (In each column, the first clear line going down (at least 40% of its strongest), not the strongest:
-  // below a hem, a waistband's crisp stripes are stronger lines than the hem's own soft edge.)
-  for (let k = 0; k < nx; k++) {
+  // (`first`, a piece's photo: in each column, the first clear line going down (at least 40% of its
+  // strongest), not the strongest: below its hem, a waistband's crisp stripes are stronger lines than the
+  // hem's own soft edge. On the base, the line followed across: a fold above a loose hem isn't it.)
+  if (first) for (let k = 0; k < nx; k++) {
     if (!valid[k]) continue;
     let mx = 0; for (let j2 = 0; j2 < ny; j2++) mx = Math.max(mx, E[k * ny + j2]);
-    if (mx < 40) continue;
+    if (mx < 20) continue;
     let first = -1; for (let j2 = 0; j2 < ny && first < 0; j2++) { const v2 = E[k * ny + j2]; if (v2 >= mx * 0.4 && v2 >= (E[k * ny + j2 + 1] ?? 0) && (j2 === 0 || v2 >= E[k * ny + j2 - 1])) first = j2; }
     if (first < 0) continue;
     for (let j2 = 0; j2 < ny; j2++) E[k * ny + j2] = Math.abs(j2 - first) <= 1 ? mx * (j2 === first ? 1 : 0.6) : Math.min(E[k * ny + j2], mx * 0.2);
@@ -296,9 +330,9 @@ function hemLine(p, rgba, L, z) {
   }
   let j = 0; for (let t = 1; t < ny; t++) if (acc[(nx - 1) * ny + t] > acc[(nx - 1) * ny + j]) j = t;
   const out = new Float32Array(nx); let sum = 0;
-  for (let k = nx - 1; k >= 0; k--) { out[k] = ya + j; if (valid[k]) sum += E[k * ny + j] + j * 0.6; j += from[k * ny + j]; j = Math.max(0, Math.min(ny - 1, j)); }
+  for (let k = nx - 1; k >= 0; k--) { out[k] = ya + j; if (valid[k]) sum += E[k * ny + j] / (1 - 0.35 * (j / ny)); j += from[k * ny + j]; j = Math.max(0, Math.min(ny - 1, j)); }
   // (Too faint a line on average: none found; the pose's waist stands.)
-  if (sum / nv < 28) return null;
+  if (sum / nv < 12) return null;
   // (Smoothed a little: a hem doesn't zigzag.)
   const r = Math.max(1, Math.round(fh / 12)); const sm = new Float32Array(nx);
   for (let k = 0; k < nx; k++) { let s2 = 0; let n = 0; for (let d = -r; d <= r; d++) { const kk = k + d; if (kk >= 0 && kk < nx) { s2 += out[kk]; n++; } } sm[k] = s2 / n; }
@@ -1051,7 +1085,8 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   // (Where in the piece each pixel laid in came from: for placing its prints.)
   const srcX = pr ? new Float32Array(tw * th).fill(-1) : null; const srcY = pr ? new Float32Array(tw * th) : null;
   for (let y = T.y0; y < T.y1; y++) {
-    const ky = y - T.y0; if (tspans[ky * 2] < 0) continue;
+    // (No row there: its right end isn't set. Its left end can be below 0, a side running off the photo.)
+    const ky = y - T.y0; if (tspans[ky * 2 + 1] < 0) continue;
     const tl = tspans[ky * 2]; const tr = tspans[ky * 2 + 1];
     const ry = rowOf(y); if (ry < 0) continue;
     const fr = rowAt(y); const ra = nearRow(Math.floor(fr)); const rb = nearRow(Math.floor(fr) + 1);
@@ -1071,7 +1106,12 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, fx - xa));
       return fill[(r * pbw + xa) * 3 + c] * (1 - t) + fill[(r * pbw + xb) * 3 + c] * t;
     };
-    for (let x = Math.max(T.x0, Math.floor(tl)); x < Math.min(T.x1, Math.ceil(tr)); x++) {
+    // (The whole row of the outline, also where it reaches past its smoothed ends (a hem curving down at
+    // one side): the piece's edge carried on there, not left out.)
+    let ax0 = Math.max(T.x0, Math.floor(tl)); let ax1 = Math.min(T.x1, Math.ceil(tr));
+    for (let x = T.x0; x < ax0; x++) if (target.mask[y * w + x]) { ax0 = x; break; }
+    for (let x = T.x1 - 1; x >= ax1; x--) if (target.mask[y * w + x]) { ax1 = x + 1; break; }
+    for (let x = ax0; x < ax1; x++) {
       if (!target.mask[y * w + x]) continue;
       const u = 0.5 + (across(x + 0.5) - 0.5 - A.dx / tw) / zx;
       const fx = Math.max(pl, Math.min(pr - 1, pieceX(ry, u) - 0.5)) - pb.x0;
@@ -1741,8 +1781,9 @@ function placePrints(pr, rgba, srcX, srcY, tw, th, tex, pw, pb) {
 /**
  * In a group, clothes given to someone on the far side of their own bare arm (a strip of the next person's
  * jersey beside it): a patch of their clothes apart from the rest of their clothes, out past their arm
- * from their body's middle, touching someone else's clothes, is that person's. `persons`: [{ p, pose }],
- * the maps changed in place. Returns how many pixels moved.
+ * from their body's middle, touching someone else's clothes, is that person's; and so are their clothes
+ * beside a bare forearm, off their body and legs (seen between an arm hanging down and the body).
+ * `persons`: [{ p, pose }], the maps changed in place. Returns how many pixels moved.
  */
 export function strayClothes(persons, w, h) {
   const ok = (v) => v && v[2] >= 0.3; let moved = 0;
@@ -1763,8 +1804,7 @@ export function strayClothes(persons, w, h) {
       for (let a = 0; a < st.length; a++) { const i = st[a]; const x = i % w; const y = (i / w) | 0; sx += x; sy += y; for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (t >= 0 && own[t] && !lab[t]) { lab[t] = parts.length + 1; st.push(t); } }
       parts.push({ px: st, cx: sx / st.length, cy: sy / st.length });
     }
-    if (parts.length < 2) return;
-    const main = parts.reduce((a, b) => (b.px.length > a.px.length ? b : a));
+    const main = parts.length ? parts.reduce((a, b) => (b.px.length > a.px.length ? b : a)) : null;
     // (The body's middle and each arm's line, row by row, from the pose.)
     const ms = [(P.shoulders[0][0] + P.shoulders[1][0]) / 2, (P.shoulders[0][1] + P.shoulders[1][1]) / 2];
     const mh = ok(P.hips[0]) && ok(P.hips[1]) ? [(P.hips[0][0] + P.hips[1][0]) / 2, (P.hips[0][1] + P.hips[1][1]) / 2] : [ms[0], ms[1] + 200];
@@ -1774,15 +1814,11 @@ export function strayClothes(persons, w, h) {
       for (let t = 1; t < pts.length; t++) { const a = pts[t - 1]; const b = pts[t]; if ((y - a[1]) * (y - b[1]) <= 0 && a[1] !== b[1]) return a[0] + ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]); }
       return null;
     };
-    for (const part of parts) {
-      if (part === main || part.px.length > main.px.length * 0.25) continue;
-      const sp = spine(part.cy);
-      // (Which arm is on that side: the one whose line is that side of the middle.)
-      const ax = [armX(0, part.cy), armX(1, part.cy)].filter((v) => v != null && (v - sp) * (part.cx - sp) > 0)[0];
-      if (ax == null || Math.abs(part.cx - sp) <= Math.abs(ax - sp)) continue;
-      // Whose clothes it touches most (or comes within a few pixels of, where the two meet softly).
+    // A patch of theirs given to whose clothes it touches most (or comes within a few pixels of, where the
+    // two meet softly), with its soft rim.
+    const give = (px) => {
       const touch = new Map();
-      for (const i of part.px) {
+      for (const i of px) {
         const x = i % w; const y = (i / w) | 0;
         for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
           const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const t = Y * w + X;
@@ -1790,13 +1826,50 @@ export function strayClothes(persons, w, h) {
         }
       }
       const best = [...touch.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (!best || best[1] < 3) continue;
+      if (!best || best[1] < 3) return;
       const to = persons[best[0]].p;
-      // (With the soft rim around it, what's partly clothes of theirs there: it goes too.)
       const rim = new Set();
-      for (const i of part.px) { const x = i % w; const y = (i / w) | 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const t = Y * w + X; if (!C[k][t] && q.p.clothes[t] >= 40 && q.p.body[t] < 128 && q.p.face[t] < 128) rim.add(t); } }
+      for (const i of px) { const x = i % w; const y = (i / w) | 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const t = Y * w + X; if (!C[k][t] && q.p.clothes[t] >= 40 && q.p.body[t] < 128 && q.p.face[t] < 128) rim.add(t); } }
       for (const t of rim) { to.clothes[t] = Math.max(to.clothes[t], q.p.clothes[t]); q.p.clothes[t] = 0; q.p.others[t] = 0; moved++; }
-      for (const i of part.px) { to.clothes[i] = q.p.clothes[i]; for (const key of ['body', 'clothes', 'face', 'hair', 'others']) q.p[key][i] = 0; C[k][i] = 0; C[best[0]][i] = 1; moved++; }
+      for (const i of px) { to.clothes[i] = q.p.clothes[i]; for (const key of ['body', 'clothes', 'face', 'hair', 'others']) q.p[key][i] = 0; C[k][i] = 0; C[best[0]][i] = 1; moved++; }
+    };
+    for (const part of parts) {
+      if (!main || part === main || part.px.length > main.px.length * 0.25) continue;
+      const sp = spine(part.cy);
+      // (Which arm is on that side: the one whose line is that side of the middle.)
+      const ax = [armX(0, part.cy), armX(1, part.cy)].filter((v) => v != null && (v - sp) * (part.cx - sp) > 0)[0];
+      if (ax == null || Math.abs(part.cx - sp) <= Math.abs(ax - sp)) continue;
+      give(part.px);
+    }
+    // Beside a bare forearm, above the hips and off their body (the next person's jersey seen between an
+    // arm hanging down and the body): clothes there aren't theirs, a bare arm wears none.
+    const hipsOk = ok(P.hips[0]) && ok(P.hips[1]);
+    if (!hipsOk) return;
+    const quad = [P.shoulders[0], P.shoulders[1], P.hips[1], P.hips[0]]; const cq = [quad.reduce((a, v) => a + v[0], 0) / 4, quad.reduce((a, v) => a + v[1], 0) / 4];
+    const wq = quad.map((v) => [cq[0] + (v[0] - cq[0]) * 1.12, cq[1] + (v[1] - cq[1]) * 1.05]);
+    const inQuad = (x, y) => { let c = false; for (let a = 0, b = 3; a < 4; b = a++) { const [xi, yi] = wq[a]; const [xj, yj] = wq[b]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) c = !c; } return c; };
+    const hc = (P.hips[0][0] + P.hips[1][0]) / 2; const hh = (Math.abs(P.hips[1][0] - P.hips[0][0]) / 2) * 1.3;
+    const onLegs = (x, y) => y > Math.min(P.hips[0][1], P.hips[1][1]) && Math.abs(x - hc) < hh;
+    for (let sd = 0; sd < 2; sd++) {
+      if (!ok(P.elbows[sd]) || !ok(P.wrists[sd])) continue;
+      const e = P.elbows[sd]; const wr = P.wrists[sd]; const hand = [wr[0] + (wr[0] - e[0]) * 0.35, wr[1] + (wr[1] - e[1]) * 0.35];
+      // (Bare: its line mostly skin.)
+      let sk = 0; let all = 0; const n2 = Math.ceil(Math.hypot(wr[0] - e[0], wr[1] - e[1]));
+      for (let t = 0; t <= n2; t++) { const X = Math.round(e[0] + ((wr[0] - e[0]) * t) / n2); const Y = Math.round(e[1] + ((wr[1] - e[1]) * t) / n2); if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const i = Y * w + X; all++; if (q.p.body[i] >= 128) sk++; }
+      if (!all || sk < all * 0.6) continue;
+      const R = sw * 0.35; const near = (x, y) => segD(x, y, e, wr) < R || segD(x, y, wr, hand) < R;
+      const x0 = Math.max(0, Math.floor(Math.min(e[0], hand[0]) - R)); const x1 = Math.min(w, Math.ceil(Math.max(e[0], hand[0]) + R));
+      const y0 = Math.max(0, Math.floor(e[1])); const y1 = Math.min(h, Math.ceil(Math.min(Math.max(wr[1], hand[1]) + R, Math.min(P.hips[0][1], P.hips[1][1]))));
+      const cand = new Uint8Array(w * h); let any = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (C[k][i] && near(x, y) && !inQuad(x, y) && !onLegs(x, y)) { cand[i] = 1; any++; } }
+      if (any < 12) continue;
+      const seen = new Uint8Array(w * h);
+      for (let s0 = 0; s0 < w * h; s0++) {
+        if (!cand[s0] || seen[s0]) continue;
+        const st = [s0]; seen[s0] = 1;
+        for (let a = 0; a < st.length; a++) { const i = st[a]; const x = i % w; const y = (i / w) | 0; for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (t >= 0 && cand[t] && !seen[t]) { seen[t] = 1; st.push(t); } }
+        if (st.length >= 12) give(st);
+      }
     }
   });
   return moved;

@@ -312,7 +312,7 @@ function zoneLayer(S) {
     const tO = { mask: tC, box: tCb, spans: rowSpans(tC, w, tCb, Math.max(8, Math.round((tCb.y1 - tCb.y0) / 14))) };
     // (A side running off the photo: as far past its edge as the whole outline's goes.)
     for (let y = tCb.y0; y < tCb.y1; y++) {
-      const ky = y - tCb.y0; const ku = y - under.box.y0; if (tO.spans[ky * 2] < 0 || ku < 0 || ku >= under.box.y1 - under.box.y0 || under.spans[ku * 2] < 0) continue;
+      const ky = y - tCb.y0; const ku = y - under.box.y0; if (tO.spans[ky * 2 + 1] < 0 || ku < 0 || ku >= under.box.y1 - under.box.y0 || under.spans[ku * 2 + 1] < 0) continue;
       if (under.spans[ku * 2] < 0.5 && tO.spans[ky * 2] <= 2) tO.spans[ky * 2] = Math.min(tO.spans[ky * 2], under.spans[ku * 2]);
       if (under.spans[ku * 2 + 1] > w - 0.5 && tO.spans[ky * 2 + 1] >= w - 2) tO.spans[ky * 2 + 1] = Math.max(tO.spans[ky * 2 + 1], under.spans[ku * 2 + 1]);
     }
@@ -941,6 +941,9 @@ function replaceEdge(layer, S, front) {
     const mk = y * mb.pw + x; const a = mb.alpha[mk]; if (a < 0) continue;
     const X = mb.x0 + x; const Y = mb.y0 + y; const k = (Y - y0) * pw + X - x0; const i = Y * w + X;
     if (anyNear[k] < 0.02) continue;
+    // (Outside it, their other clothes (the shorts below a top's hem, maybe of one white with it): the line
+    // between the two is the hem found, not a soft edge; nothing of the new color spills onto them.)
+    if (!worn[i] && p.clothes[i] >= 128 && p.body[i] < 128 && !target.mask[i]) continue;
     const fr = front ? front[i] / 255 : 0;
     // (Inside, against someone's skin (an arm in front, their own arm): the outline is the person finder's,
     // not a soft edge to judge by color; a dark print beside the arm looks more like the arm than the cloth.)

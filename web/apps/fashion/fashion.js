@@ -19,6 +19,7 @@ import { drawLoupe } from '../../lib/loupe.js';
 import { fillPolygon, softenMask, boxBlur } from '../../lib/geometry.js';
 import { noteError } from '../../lib/diag.js';
 import { idb } from '../../lib/idb.js';
+import { VERSION } from '../../version.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { rgbToLab } from '../../lib/color-match.js';
@@ -111,7 +112,9 @@ export function mount(host) {
       img.finding = false;
       if (!alive) return;
       if (img === piece && step === 'pick' && !piece.sel) autoPick(true);
-      if (img === base && step === 'put') { if (!target) autoTarget(); if (!place) placeIt(); }
+      // (Continued from an older version: what it had found by itself found again now, by this one.)
+      if (img === piece && step === 'put' && !piece.sel) { autoPick(true); if (piece.sel) { prepPiece(); if (base && !base.finding) { if (!target) autoTarget(); placeIt(); } } }
+      if (img === base && step === 'put' && (piece?.sel || !piece?.finding)) { if (!target) autoTarget(); if (!place) placeIt(); }
       render();
     })();
     return img;
@@ -386,11 +389,18 @@ export function mount(host) {
     keepTimer = setTimeout(() => {
       if (!base || !piece) return;
       const s = snap();
-      idb.set(SESSION_KEY, { ...s, baseFile: base.file, pieceFile: piece.file, savedAt: Date.now() }).catch(() => {});
+      idb.set(SESSION_KEY, { ...s, baseFile: base.file, pieceFile: piece.file, savedAt: Date.now(), v: VERSION }).catch(() => {});
     }, 600);
   }
   async function restore(saved) {
     note = 'Opening…'; render();
+    // (Kept by an older version: what it found by itself (the piece, what it goes on, where each person's
+    // waist is, its placing) is found again by this one; what was picked or brushed by hand is kept.)
+    if (saved.v !== VERSION) {
+      const pk = saved.picks; const handPicked = pk && (pk.add?.length || pk.del?.length || pk.edits?.length || pk.loop);
+      const handTarget = saved.target && (!saved.target.auto || saved.target.taps?.length || saved.target.edits?.length);
+      saved = { ...saved, baseLayout: null, pieceLayout: null, place: null, sel: handPicked ? saved.sel : null, picks: handPicked ? pk : undefined, target: handTarget ? saved.target : null };
+    }
     try {
       base = await load(saved.baseFile); piece = await load(saved.pieceFile);
       if (saved.baseLayout) base.savedLayout = saved.baseLayout;

@@ -34,7 +34,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     root.replaceChildren(el('div', { class: 'card sv-setup' },
       el('h2', { text: '☁️ Saved Files' }),
       el('p', { class: 'small', text: 'Keep files in your own Google Drive folder. Connect it once in Settings → Saved Files, with the web app URL and access key of the script in your Saved Files spreadsheet.' }),
-      el('a', { class: 'btn primary', href: '#/settings', text: 'Open Settings' })));
+      el('a', { class: 'btn primary', href: '#/settings/saved', text: 'Open Settings' })));
   }
 
   async function show(note = '') {
@@ -205,7 +205,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
         el('div', { class: 'row' },
           vault && unlockedNow ? el('button', { class: 'btn small-btn ghost', text: '🔒 Lock', onclick: () => { lock(); show(); } }) : null,
           el('button', { class: 'btn small-btn ghost', text: '⟳', 'aria-label': 'Refresh', disabled: !!busy, onclick: () => show() }),
-          el('a', { class: 'btn small-btn ghost', href: '#/settings', text: 'Settings' }))),
+          el('a', { class: 'btn small-btn ghost', href: '#/settings/saved', text: 'Settings' }))),
       vault && !unlockedNow ? unlockForm(() => show('Unlocked until the app is closed or reloaded.')) : null,
       crumbs,
       vault && !unlockedNow ? null : el('label', { class: `btn primary block${busy ? ' disabled' : ''}`, for: 'sv-file', text: `+ Save files ${here ? 'here' : 'to Drive'}${vault ? ' (encrypted)' : ''}` }), picker,

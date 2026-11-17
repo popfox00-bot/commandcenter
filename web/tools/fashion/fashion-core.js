@@ -1189,6 +1189,7 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
   // tone than anyone else's: two poses can both claim an arm hidden from one of them.)
   const tones = people.map((f) => { const v = [[], [], []]; for (const j of f.px) for (let c = 0; c < 3; c++) v[c].push(lab[j * 3 + c]); return v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }); });
   const toneDist = (j, t) => Math.hypot((lab[j * 3] - t[0]) * 0.6, lab[j * 3 + 1] - t[1], lab[j * 3 + 2] - t[2]);
+  const posesOf = [];
   people.forEach((f, who) => {
     for (const j of f.px) seed(j, who);
     const B = f.box; const fw = B.x1 - B.x0; const fh = B.y1 - B.y0;
@@ -1197,6 +1198,7 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
     const pose = (poses ?? []).filter((q, n) => !used.has(n) && q.nose[2] >= 0.3 && q.nose[0] * k >= B.x0 - fw * 0.15 && q.nose[0] * k <= B.x1 + fw * 0.15 && q.nose[1] * k >= B.y0 - fh * 0.15 && q.nose[1] * k <= B.y1 + fh * 0.15)
       .sort((a, b) => Math.hypot(a.nose[0] * k - cx0, a.nose[1] * k - cy0) - Math.hypot(b.nose[0] * k - cx0, b.nose[1] * k - cy0))[0];
     if (pose) used.add(poses.indexOf(pose));
+    posesOf[who] = pose ?? null;
     // (Their own color: what's straight below their face at the chest. A pose's line over a color far from
     // it has crossed onto the person beside them there, and seeds nothing.)
     const ref = (() => { const cx = Math.round((B.x0 + B.x1) / 2); const v = [[], [], []]; for (let Y = Math.round(B.y1 + fh * 1.2); Y < Math.min(H, B.y1 + fh * 2.5); Y++) { const j = Y * W + cx; if (any[j]) for (let c = 0; c < 3; c++) v[c].push(lab[j * 3 + c]); } return v[0].length >= 3 ? v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }) : null; })();
@@ -1248,14 +1250,54 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
     }
   });
   for (let j = 0; j < W * H; j++) { if (own[j] === -2) { own[j] = -1; dist[j] = Infinity; } else if (own[j] >= 0) push(0, j); }
-  // Grown out over everyone, each step costing more for a change of color.
+  // Each person's body by their pose, roughly: the torso between their shoulders and hips, a capsule along
+  // each arm and leg, a circle for the head. Growing out past one's own body costs more: two people side by
+  // side in the same white part where their bodies do, even with no edge of color to go by.
+  const env = posesOf.map((q, who) => {
+    if (!q) return null;
+    const ok = (v) => v && v[2] >= 0.3;
+    if (!ok(q.shoulders[0]) || !ok(q.shoulders[1])) return null;
+    const sw = Math.max(4, Math.hypot(q.shoulders[1][0] - q.shoulders[0][0], q.shoulders[1][1] - q.shoulders[0][1]));
+    const e = new Uint8Array(W * H);
+    /** @type {[number[], number[], number][]} */
+    const caps = []; // [a, b, r] in grid px
+    const P = (v) => [v[0] * k, v[1] * k];
+    const hipsOk = ok(q.hips[0]) && ok(q.hips[1]);
+    const hips = hipsOk ? [P(q.hips[0]), P(q.hips[1])] : [P([q.shoulders[0][0], q.shoulders[0][1] + sw * 1.6]), P([q.shoulders[1][0], q.shoulders[1][1] + sw * 1.6])];
+    const shs = [P(q.shoulders[0]), P(q.shoulders[1])];
+    // (The torso: the quadrilateral of the shoulders and hips, widened a little.)
+    const quad = [shs[0], shs[1], hips[1], hips[0]]; const cxq = quad.reduce((a, v) => a + v[0], 0) / 4; const cyq = quad.reduce((a, v) => a + v[1], 0) / 4;
+    const wq = quad.map(([x, y]) => [cxq + (x - cxq) * 1.18, cyq + (y - cyq) * 1.06]);
+    const inQuad = (x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = wq[i]; const [xj, yj] = wq[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) c = !c; } return c; };
+    const rArm = sw * 0.17 * k; const rLeg = sw * 0.24 * k;
+    for (let sd = 0; sd < 2; sd++) {
+      if (ok(q.elbows[sd])) { caps.push([P(q.shoulders[sd]), P(q.elbows[sd]), rArm]); if (ok(q.wrists[sd])) { const wr = P(q.wrists[sd]); const el = P(q.elbows[sd]); caps.push([el, wr, rArm * 0.85]); caps.push([wr, [wr[0] + (wr[0] - el[0]) * 0.35, wr[1] + (wr[1] - el[1]) * 0.35], rArm * 0.9]); } }
+      if (hipsOk && ok(q.knees?.[sd])) { caps.push([P(q.hips[sd]), P(q.knees[sd]), rLeg]); if (ok(q.ankles?.[sd])) caps.push([P(q.knees[sd]), P(q.ankles[sd]), rLeg * 0.8]); }
+    }
+    const fb = people[who].box; const hc = [(fb.x0 + fb.x1) / 2, (fb.y0 + fb.y1) / 2]; const hr = Math.max(fb.x1 - fb.x0, fb.y1 - fb.y0) * 0.95;
+    const segD = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+    // (Only around them: their body's box, a little past it.)
+    const xs = [...quad.map((v) => v[0]), ...caps.flatMap(([a, b]) => [a[0], b[0]]), hc[0] - hr, hc[0] + hr]; const ys = [...quad.map((v) => v[1]), ...caps.flatMap(([a, b]) => [a[1], b[1]]), hc[1] - hr, hc[1] + hr];
+    const bx0 = Math.max(0, Math.floor(Math.min(...xs) - rLeg)); const bx1 = Math.min(W, Math.ceil(Math.max(...xs) + rLeg)); const by0 = Math.max(0, Math.floor(Math.min(...ys) - rLeg)); const by1 = Math.min(H, Math.ceil(Math.max(...ys) + rLeg));
+    for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) {
+      if (inQuad(x, y) || Math.hypot(x - hc[0], y - hc[1]) < hr || caps.some(([a, b, r]) => segD(x, y, a, b) < r)) e[y * W + x] = 1;
+    }
+    // (Below the hips with no legs found (a dress, the photo's bottom): as wide as the hips, straight down.)
+    if (!caps.some(([a]) => a[1] > Math.min(hips[0][1], hips[1][1]) + 1)) {
+      const l = Math.min(hips[0][0], hips[1][0]) - rLeg; const r = Math.max(hips[0][0], hips[1][0]) + rLeg; const y0 = Math.floor(Math.min(hips[0][1], hips[1][1]));
+      for (let y = Math.max(0, y0); y < H; y++) for (let x = Math.max(0, Math.floor(l)); x < Math.min(W, Math.ceil(r)); x++) e[y * W + x] = 1;
+    }
+    return e;
+  });
+  // Grown out over everyone, each step costing more for a change of color, and for leaving one's own body.
   while (heap.length) {
     const [d, i] = pop(); if (d > dist[i]) continue;
     const X = i % W; const Y = (i / W) | 0;
     for (const n of [X > 0 ? i - 1 : -1, X < W - 1 ? i + 1 : -1, Y > 0 ? i - W : -1, Y < H - 1 ? i + W : -1]) {
       if (n < 0 || !any[n]) continue;
       const de = Math.hypot(lab[i * 3] - lab[n * 3], lab[i * 3 + 1] - lab[n * 3 + 1], lab[i * 3 + 2] - lab[n * 3 + 2]);
-      const nd = d + 1 + (de > edge ? (de - edge) * steep : 0);
+      const E = env[own[i]];
+      const nd = d + 1 + (de > edge ? (de - edge) * steep : 0) + (E && !E[n] ? 6 : 0);
       if (nd < dist[n]) { dist[n] = nd; own[n] = own[i]; push(nd, n); }
     }
   }
@@ -1557,4 +1599,45 @@ function placePrints(pr, rgba, srcX, srcY, tw, th, tex, pw, pb) {
       for (let c = 0; c < 3; c++) rgba[o + c] = rgba[o + c] * (1 - al) + texAt(sx, sy, c) * al;
     }
   }
+}
+
+/**
+ * A person's outline snapped to the photo's own edges (`p`: their maps at the photo's size; `taken`: what's
+ * someone else's, never taken): along the outline, a few pixels either way, each pixel goes in or out by
+ * whether its color is nearer theirs just inside or what's just outside (matteBand); where the two are too
+ * alike to tell, it stays as it was. Pixels it adds take the classes of the nearest of theirs. A copy of the
+ * maps, or `p` itself when nothing moved.
+ * @param {People} p @returns {People}
+ */
+export function refineOutline(p, rgba, taken = null, fh = 60) {
+  const { w, h } = p; const n = w * h;
+  const on = new Uint8Array(n); for (let i = 0; i < n; i++) on[i] = Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i], p.others[i]) >= 128 ? 1 : 0;
+  const box = boxOf(on, w, h); if (!box) return p;
+  const B = Math.max(2, Math.round(fh / 30)); const R = Math.max(4, Math.round(fh / 9));
+  const out = { ...p }; for (const c of ['face', 'hair', 'body', 'clothes', 'others']) out[c] = Uint8Array.from(p[c]);
+  let moved = 0;
+  // (Its inner gaps first, where two of its parts meet (cloth and skin, the finder unsure of both): closed,
+  // and given the classes beside them. Only its outer outline is snapped.)
+  const filled = Uint8Array.from(on); fillHoles(filled, w, h, box, 1);
+  const nearest = (X, Y, mask, r) => { for (let d = 1; d <= r; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d], [d, d], [-d, -d], [d, -d], [-d, d]]) { const XX = X + dx; const YY = Y + dy; if (XX >= 0 && YY >= 0 && XX < w && YY < h && mask[YY * w + XX]) return YY * w + XX; } return -1; };
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) {
+    const i = y * w + x; if (!filled[i] || on[i] || (taken && taken[i])) continue;
+    const src = nearest(x, y, on, 6); if (src < 0) continue;
+    for (const c of ['face', 'hair', 'body', 'clothes', 'others']) out[c][i] = p[c][src];
+    moved++;
+  }
+  const mb = matteBand(rgba, w, h, filled, box, B, R);
+  for (let y = 0; y < mb.ph; y++) for (let x = 0; x < mb.pw; x++) {
+    const a = mb.alpha[y * mb.pw + x]; if (a < 0) continue;
+    const X = mb.x0 + x; const Y = mb.y0 + y; const i = Y * w + X;
+    if (filled[i] && a < 0.35) { for (const c of ['face', 'hair', 'body', 'clothes', 'others']) out[c][i] = Math.min(out[c][i], 100); moved++; }
+    else if (!filled[i] && a > 0.65 && !(taken && taken[i])) {
+      // (The classes of the nearest of theirs, a few pixels around.)
+      const src = nearest(X, Y, on, B + 2);
+      if (src < 0) continue;
+      for (const c of ['face', 'hair', 'body', 'clothes', 'others']) out[c][i] = p[c][src];
+      moved++;
+    }
+  }
+  return moved ? out : p;
 }

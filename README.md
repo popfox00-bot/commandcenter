@@ -808,6 +808,10 @@ the clothes in it: worn by someone, or on its own).
   Each person's pose is found again on them alone (a group's poses can cross from one person to the next).
   An arm two poses both claim (one person's arm hidden behind the next person's) goes to the one it hangs
   outward from, not the one it would cross in front of, and is seeded along its skin only.
+  Each person's pose also gives where their body can be (torso, arms, legs, head, with room for loose
+  clothes), and growing past it costs more, so a neighbour's jersey, shorts or shoulder beside them isn't
+  taken in; the outline is then snapped to the photo's own edges (holes filled, each edge pixel judged by
+  the colors on either side), so it's tight around the person.
   Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
   the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.
@@ -1223,7 +1227,10 @@ redirects to `web/`; every merge is live within a minute or two) or **GitHub Act
 `cc-pages` workflow by hand; it publishes `web/` and writes the Worker URL into it).
 
 **Settings** opens with **Update to Latest Version** (checks for a new version now, and if there is one,
-installs it and reloads; nothing kept on the phone is lost); **Edit Home Screen** stays folded until tapped.
+installs it and reloads; nothing kept on the phone is lost), always first and open. Every card after it
+(Edit Home Screen, Background, Saved Files, Storage, Diagnostics, Jobs) stays folded until tapped, and
+their order is yours: ↑ / ↓ on each card (kept on this phone). A link to a card (`#/settings/saved`,
+from Saved Files or Draw) opens it.
 
 **Settings → Storage** shows what the app keeps on the phone, by kind (notes, drawings, Characters,
 Fashion's pieces, work in progress, cached weather and sports, the diagnostics log), with its size; what

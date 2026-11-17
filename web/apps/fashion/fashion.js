@@ -1088,7 +1088,9 @@ export function mount(host) {
         W = B.w; H = B.h; const k = W / base.w;
         // (A 0/1 mask brought up smoothly, then 0/1 again: no stair steps.)
         const up = (m, w, h, W2, H2) => { const r = resample(Uint8Array.from(m, (v) => (v ? 255 : 0)), w, h, W2, H2); for (let i = 0; i < r.length; i++) r[i] = r[i] >= 128 ? 1 : 0; return r; };
-        const bBig = { w: W, h: H, rgba: B.rgba, layout: base.layout && scaleLayout(base.layout, k), people: base.people && peopleAt(base.people, W, H), sil: base.sil ? up(base.sil, base.w, base.h, W, H) : null };
+        const scaleP = (q, f) => q && Object.fromEntries(Object.entries(q).map(([key, v]) => [key, Array.isArray(v[0]) ? v.map((pt) => [pt[0] * f, pt[1] * f, pt[2]]) : [v[0] * f, v[1] * f, v[2]]]));
+        // (Everyone in the photo too, and this person's pose: what's in front of them is kept in front at full size.)
+        const bBig = { w: W, h: H, rgba: B.rgba, layout: base.layout && scaleLayout(base.layout, k), people: base.people && peopleAt(base.people, W, H), allPeople: base.allPeople && base.allPeople !== base.people ? peopleAt(base.allPeople, W, H) : null, pose: scaleP(base.pose, k), sil: base.sil ? up(base.sil, base.w, base.h, W, H) : null };
         let tBig = null;
         if (target) {
           const tm = up(target.mask, base.w, base.h, W, H); const tb = boxOf(tm, W, H);

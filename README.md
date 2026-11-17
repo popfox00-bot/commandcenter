@@ -763,6 +763,13 @@ the clothes in it: worn by someone, or on its own).
   out the same way in its photo, and the background it was photographed against is taken out of it. A
   collar riding up above where a top is looked for is taken off with it, and what a shorter hem uncovers is
   filled from the person's other clothes (the pants), not their skin.
+- **Depth**: what's in front of the garment it goes on (in a group photo, the next person's arm across a
+  jersey) is taken as hiding it, not as its edge: row by row, where one side is clearly shorter than the
+  other (measured from the body's middle, by the pose) and right past it is someone else, the garment goes
+  on behind them as far as the other side reaches; it's laid in at its full width there and they're kept in
+  front of it, with a soft shadow where they meet it. A side running off the photo is laid in as going on
+  past the edge (as far as the body does), and a body turned a little is laid in about its front middle
+  (where the old garment's prints say it is), each half onto its own half: the number lands on the chest.
 - **Text and logos kept**: prints on the piece (lettering, a number, a brand mark: marks that stand out from
   the cloth around them by color, more than a fold's shade) are found and taken out of the cloth (filled
   with its own color) before it's laid in row by row, then put back each as one rigid piece: one scale,
@@ -1214,6 +1221,9 @@ is green and `GET /api/jobs` shows heartbeat with a successful last run.
 GitHub Pages works either way: **deploy from branch** (`main`, root; the root `index.html`
 redirects to `web/`; every merge is live within a minute or two) or **GitHub Actions** (run the
 `cc-pages` workflow by hand; it publishes `web/` and writes the Worker URL into it).
+
+**Settings** opens with **Update to Latest Version** (checks for a new version now, and if there is one,
+installs it and reloads; nothing kept on the phone is lost); **Edit Home Screen** stays folded until tapped.
 
 **Settings → Storage** shows what the app keeps on the phone, by kind (notes, drawings, Characters,
 Fashion's pieces, work in progress, cached weather and sports, the diagnostics log), with its size; what

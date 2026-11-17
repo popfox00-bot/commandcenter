@@ -1125,3 +1125,10 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .fa-check-item { display: grid; grid-template-columns: 80px 1fr; gap: 10px; align-items: center; margin: 8px 0; }
 .fa-check-item img { width: 80px; height: 80px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border); }
 .fa-check-item p { margin: 0 0 6px; }
+
+/* Settings: a card folded until tapped (Edit Home Screen). */
+.st-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
+.st-fold > summary::-webkit-details-marker { display: none; }
+.st-fold > summary h2 { margin: 0; }
+.st-fold > summary::after { content: '›'; font-size: 1.4rem; color: var(--muted); transition: transform 0.15s; }
+.st-fold[open] > summary::after { transform: rotate(90deg); }

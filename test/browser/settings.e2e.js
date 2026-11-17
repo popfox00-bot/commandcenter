@@ -87,6 +87,10 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.waitForSelector('.app-tile');
   assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Settings']);
   await page.click('.app-tile >> text=Settings');
+  await page.waitForSelector('.st-home', { state: 'attached' });
+  // Folded until tapped.
+  assert.equal(await page.locator('.st-home').isVisible(), false, 'the reorder list starts folded');
+  await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.waitForSelector('.st-home');
   assert.equal(await page.isDisabled('[aria-label="Move Calendar up"]'), true);
   await page.click('[aria-label="Move Draw up"]');
@@ -101,6 +105,7 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.waitForSelector('.app-tile');
   assert.deepEqual((await home()).slice(0, 6), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files'], 'kept after a reload');
   await page.click('.app-tile >> text=Settings');
+  await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
@@ -216,6 +221,23 @@ test('Home: today\'s weather and a live game at a glance (from what Weather and 
   await page.waitForFunction(() => location.hash === '#/files/photo');
   await page.waitForSelector('text=Continue editing beach.jpg?');
   assert.deepEqual(external, []);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Settings: Update to Latest Version at the top: checks now, and says when this is already the latest', async () => {
+  const { VERSION } = await import('../../web/version.js');
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/settings`);
+  const btn = page.getByRole('button', { name: 'Update to Latest Version' });
+  await btn.waitFor();
+  // The first card in Settings.
+  assert.equal(await page.locator('.st > .card').first().locator('button', { hasText: 'Update to Latest Version' }).count(), 1);
+  await page.waitForFunction(() => navigator.serviceWorker?.controller || navigator.serviceWorker?.getRegistration().then((r) => !!r));
+  await btn.click();
+  await page.waitForSelector(`text=/latest version \\(v${VERSION.replace('.', '\\.')}\\)|Updating|Reloading/`);
   assert.deepEqual(errors, []);
   await context.close();
 });

@@ -217,6 +217,20 @@ function zoneLayer(S) {
   const bothBare = bare(pp.left) && bare(pp.right) && (pp.left || pp.right) && ['left', 'right'].every((k) => !(bp[k] && pp[k]) || bare(bp[k]));
   if (!differs && !bothBare) return null;
   const under = underHair(S);
+  // Both bare-armed (a tank top onto someone in a tank top): only the clothes change. The piece's clothes
+  // laid into the base's, and every bit of the base person's own skin (their arms, shoulders, an arm cut
+  // off by the photo's edge) left exactly as it is.
+  if (bothBare && !differs) {
+    const tC = new Uint8Array(w * h); for (let i = 0; i < tC.length; i++) if (under.mask[i] && base.people.clothes[i] >= 110 && base.people.body[i] < 160) tC[i] = 1;
+    const pC = new Uint8Array(piece.w * piece.h); const pm0 = piece.solid ?? piece.sel; for (let i = 0; i < pC.length; i++) if (pm0[i] && (piece.people.clothes[i] >= 110 || piece.rebuilt?.[i]) && piece.people.body[i] < 160) pC[i] = 1;
+    const tCb = boxOf(tC, w, h); const pCb = boxOf(pC, piece.w, piece.h);
+    if (!tCb || !pCb) return null;
+    const tO = { mask: tC, box: tCb, spans: rowSpans(tC, w, tCb, Math.max(8, Math.round((tCb.y1 - tCb.y0) / 14))) };
+    const open = tCb.y1 >= h - 2 || pCb.y1 >= piece.h - 2;
+    const L = traceTransfer(piece.draw ?? piece.rgba, pC, piece.w, piece.h, pCb, tO, w, h, { s: place.s, open, adj: tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S) });
+    neckline(L, base, w, false, false); softEdge(L, tO, w, h);
+    return L;
+  }
   const pm = piece.solid ?? piece.sel; const tex = piece.draw ?? piece.rgba; const sk = pieceSkin(piece);
   const layers = [];
   // The torso.
@@ -603,8 +617,10 @@ export function leftovers(S, layer) {
   ta /= nb; tb /= nb;
   const gain = [0, 1, 2].map((c) => (lm[c] / nl) / Math.max(8, bm[c] / nb));
   // Around it, about half a face's width.
+  // (Above it and beside it: its straps, a sliver at its side. Not below its hem: what's there is another
+  // garment (the shorts under a jersey), however alike in color.)
   const g = Math.round(base.layout.fw * 0.6); const B = target.box;
-  const x0 = Math.max(0, B.x0 - g); const y0 = Math.max(0, B.y0 - g); const x1 = Math.min(w, B.x1 + g); const y1 = Math.min(h, B.y1 + g);
+  const x0 = Math.max(0, B.x0 - g); const y0 = Math.max(0, B.y0 - g); const x1 = Math.min(w, B.x1 + g); const y1 = Math.min(h, B.y1);
   const pw = x1 - x0; const ph = y1 - y0; const wgt = new Float32Array(pw * ph); let any = 0;
   const covered = (X, Y) => { const lx = X - layer.x0; const ly = Y - layer.y0; return lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && (layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128 || !!layer.matted?.[ly * layer.pw + lx]); };
   // (Of their hue: near its color, or its hue at any lightness (its shade); and nearer it than their skin,

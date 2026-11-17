@@ -25,7 +25,7 @@ export const isZone = (kind) => ZONES.some((z) => z[0] === kind);
 
 /** @typedef {{ x0: number, y0: number, x1: number, y1: number }} Box */
 /** @typedef {{ w: number, h: number, face: Uint8Array, hair: Uint8Array, body: Uint8Array, clothes: Uint8Array, others: Uint8Array }} People */
-/** @typedef {{ face: Box|null, person: Box|null, fw: number, fh: number, chin: number, waist: number, ankle: number, split: boolean, waistShift?: number }} Layout */
+/** @typedef {{ face: Box|null, person: Box|null, fw: number, fh: number, chin: number, waist: number, ankle: number, split: boolean, waistShift?: number, byPose?: boolean }} Layout */
 
 /** The box of a mask's set pixels (at least `thr`), or null. @param {ArrayLike<number>} m @returns {Box|null} */
 export function boxOf(m, w, h, thr = 1) {
@@ -63,7 +63,7 @@ export function peopleAt(p, w, h) {
  * the clothes changes from a top's to a bottom's). Null when no person is found.
  * @param {People} p @param {Uint8ClampedArray|null} rgba @returns {Layout|null}
  */
-export function bodyLayout(p, rgba = null) {
+export function bodyLayout(p, rgba = null, pose = null) {
   const { w, h } = p;
   const any = new Uint8Array(w * h);
   // (Shoes and what's worn or carried count too: they're `others`.)
@@ -77,6 +77,16 @@ export function bodyLayout(p, rgba = null) {
   const chin = face ? face.y1 : person.y0;
   const ankle = Math.max(chin + fh * 2, person.y1 - fh * 0.55);
   const guess = Math.min(chin + fh * 2.6, (chin + ankle) / 2);
+  // (With the pose: the waist by the body itself, where a top's hem sits just above the hips. A jersey's
+  // big lettering or a top and shorts of one color don't fool it, as they fool the color change.)
+  const seen = (q) => q && q[2] >= 0.5;
+  if (pose && seen(pose.hips[0]) && seen(pose.hips[1]) && seen(pose.shoulders[0]) && seen(pose.shoulders[1])) {
+    const hy = (pose.hips[0][1] + pose.hips[1][1]) / 2; const sy = (pose.shoulders[0][1] + pose.shoulders[1][1]) / 2;
+    // (A photo cut off at the legs: the ankles worked out from the face are a guess; the hips only need to
+    // be in the picture.)
+    const cut = person.y1 >= h - 3;
+    if (hy > sy + fh * 0.8 && (cut ? hy < h + fh * 0.3 : hy < ankle)) return { face, person, fw, fh, chin, waist: Math.min(h, hy - (hy - sy) * 0.12), ankle: cut ? Math.max(ankle, hy + fh) : ankle, split: true, byPose: true };
+  }
   const waist = rgba ? splitWaist(rgba, p, chin, fh, guess, ankle) : guess;
   // (`split`: the waist is where the clothes change color, so a top ends and a bottom starts right there.)
   return { face, person, fw, fh, chin, waist, ankle, split: waist !== guess };
@@ -206,6 +216,8 @@ function zoneRegion(kind, p, L, z, pose) {
       const hy = (pose.hips[0][1] + pose.hips[1][1]) / 2; const sy = (pose.shoulders[0][1] + pose.shoulders[1][1]) / 2;
       waist = hy > sy ? hy - (hy - sy) * 0.3 : null;
     }
+    // (The layout's own waist, by the pose (where a top's hem sits): the zone ends where the top does.)
+    if (L.byPose) waist = L.waist;
     waist ??= Math.max(L.chin + L.fh * 2.6, L.chin + (L.ankle - L.chin) * 0.29);
     waist = Math.round(Math.min(h, waist + (L.waistShift ?? 0)));
     // (Tilted as the hips are: someone leaning, their weight on one leg.)
@@ -1009,7 +1021,9 @@ export function upperParts(p, L, w, h, kind = 'upper', pose = null) {
       return [s2, e, wr, hand];
     };
     // (An arm whose elbow the pose can't see is behind something (the person beside them): not made up.)
-    const arms = [seen(pose.elbows[0]) ? arm(0) : null, seen(pose.elbows[1]) ? arm(1) : null]; const reach = sw * 0.21;
+    // (Nor one running along the photo's edge, mostly out of the picture: what's beside it there is their side.)
+    const offEdge = (k) => { const q = [pose.elbows[k], pose.wrists[k]].filter(seen); return q.some((v) => v[0] < sw * 0.15 || v[0] > w - sw * 0.15); };
+    const arms = [seen(pose.elbows[0]) && !offEdge(0) ? arm(0) : null, seen(pose.elbows[1]) && !offEdge(1) ? arm(1) : null]; const reach = sw * 0.21;
     // (What's at a point: skin 1, clothes 2, nothing 0.)
     const matAt = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= w || Y >= h) return 0; const i = Y * w + X; return p.body[i] >= 128 ? 1 : Math.max(p.clothes[i], p.others[i]) >= 128 ? 2 : 0; };
     const nearest = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return [a[0] + t * dx, a[1] + t * dy]; };
@@ -1135,6 +1149,30 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
   const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let c = 0; for (;;) { const l = 2 * c + 1; const r = l + 1; let m = c; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; c = m; } } return top; };
   const seed = (j, who) => { if (own[j] === -2) return; if (own[j] >= 0 && own[j] !== who) { own[j] = -2; dist[j] = 0; return; } own[j] = who; dist[j] = 0; };
   const used = new Set();
+  // (One arm claimed by two poses (hidden from one person, their pose found the next person's arm instead):
+  // it's the one whose arm hangs outward from their own shoulder, not in across their own chest. The other
+  // pose loses that arm (its elbow and wrist marked unseen); the winner's arm is seeded whatever its color.)
+  const won = new Set();
+  {
+    const P = (poses ?? []).filter(Boolean);
+    const sw = (q) => Math.max(4, Math.abs(q.shoulders[1][0] - q.shoulders[0][0]));
+    // (A claim however faint: the pose that can't see an arm well still says where it would be.)
+    const ok = (v) => v && v[2] >= 0.15;
+    for (let a = 0; a < P.length; a++) for (let b = a + 1; b < P.length; b++) for (let sa = 0; sa < 2; sa++) for (let sb = 0; sb < 2; sb++) {
+      const A = P[a]; const B = P[b];
+      if (!ok(A.elbows[sa]) || !ok(B.elbows[sb]) || !ok(A.wrists[sa]) || !ok(B.wrists[sb])) continue;
+      const tol = 0.3 * Math.min(sw(A), sw(B));
+      if (Math.hypot(A.elbows[sa][0] - B.elbows[sb][0], A.elbows[sa][1] - B.elbows[sb][1]) > tol || Math.hypot(A.wrists[sa][0] - B.wrists[sb][0], A.wrists[sa][1] - B.wrists[sb][1]) > tol) continue;
+      const out = (q, sd) => (q.wrists[sd][0] - q.shoulders[sd][0]) * (sd ? 1 : -1) + (q.elbows[sd][0] - q.shoulders[sd][0]) * (sd ? 1 : -1);
+      const [wq, ws, lq, ls] = out(A, sa) >= out(B, sb) ? [A, sa, B, sb] : [B, sb, A, sa];
+      lq.elbows[ls] = [...lq.elbows[ls].slice(0, 2), 0]; lq.wrists[ls] = [...lq.wrists[ls].slice(0, 2), 0];
+      won.add(`${P.indexOf(wq)}:${ws}`);
+    }
+  }
+  // (Each person's skin tone: their face's median color. An arm is theirs where its skin is nearer their own
+  // tone than anyone else's: two poses can both claim an arm hidden from one of them.)
+  const tones = people.map((f) => { const v = [[], [], []]; for (const j of f.px) for (let c = 0; c < 3; c++) v[c].push(lab[j * 3 + c]); return v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }); });
+  const toneDist = (j, t) => Math.hypot((lab[j * 3] - t[0]) * 0.6, lab[j * 3 + 1] - t[1], lab[j * 3 + 2] - t[2]);
   people.forEach((f, who) => {
     for (const j of f.px) seed(j, who);
     const B = f.box; const fw = B.x1 - B.x0; const fh = B.y1 - B.y0;
@@ -1159,6 +1197,23 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
       const ms = m(pose.shoulders[0], pose.shoulders[1]); const mh = m(pose.hips[0], pose.hips[1]);
       line(ms, mh);
       line(m(pose.hips[0], pose.hips[1], 0.3), m(pose.hips[0], pose.hips[1], 0.7));
+      // (Each arm, along its bones: where it's skin of their own tone (nearer it than anyone else's), or the
+      // color of what they wear (a sleeve). An arm another person's pose claimed (hidden from them) isn't.)
+      const armLine = (a, b, sure = false) => {
+        if (!a || !b || a[2] < (sure ? 0.15 : 0.3) || b[2] < (sure ? 0.15 : 0.3)) return;
+        const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * k) + 1;
+        for (let t = 0; t <= n; t++) {
+          const X = Math.round((a[0] + ((b[0] - a[0]) * t) / n) * k); const Y = Math.round((a[1] + ((b[1] - a[1]) * t) / n) * k);
+          if (X < 0 || Y < 0 || X >= W || Y >= H) continue; const j = Y * W + X; if (!any[j]) continue;
+          const mine = toneDist(j, tones[who]); const others = Math.min(Infinity, ...tones.map((tt, q) => (q === who ? Infinity : toneDist(j, tt))));
+          // (A won arm: along it where it's skin. A line from the shoulder to the elbow can cross someone else's
+          // clothes before it reaches the arm.)
+          const isSkin = p.body[at(X, Y)] >= 128 && p.clothes[at(X, Y)] < 128;
+          if ((sure && isSkin) || (mine < 22 && mine < others - 4) || (ref && mineColor(j) && Math.hypot((lab[j * 3] - ref[0]) * 0.5, lab[j * 3 + 1] - ref[1], lab[j * 3 + 2] - ref[2]) < 12)) seed(j, who);
+        }
+      };
+      const pi = (poses ?? []).filter(Boolean).indexOf(pose);
+      for (let sd = 0; sd < 2; sd++) { const sure = won.has(`${pi}:${sd}`); armLine(pose.shoulders[sd], pose.elbows[sd], sure); armLine(pose.elbows[sd], pose.wrists[sd], sure); }
       // (And each shoulder that's nearer their own face than anyone else's: theirs, not the next person's.)
       const fc = (g) => [((g.box.x0 + g.box.x1) / 2) / k, ((g.box.y0 + g.box.y1) / 2) / k];
       const mine = fc(f);
@@ -1222,13 +1277,17 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
     const sc0 = new Array(N).fill(0); for (const i of q) if (isSeed[i] && own[i] >= 0) sc0[own[i]]++;
     const ranked = [...sc0].sort((a, b) => b - a);
     if (ranked[1] >= 4 && ranked[1] >= ranked[0] * 0.25) continue;
+    // (Only one person's seeds in it: theirs, whatever else is near.)
+    const seededBy = sc0.reduce((a, v, c) => (v > 0 ? [...a, c] : a), []);
+    if (seededBy.length === 1) { for (const i of q) if (!isSeed[i]) own[i] = seededBy[0]; continue; }
     const votes = new Array(N).fill(0); for (const i of q) if (own[i] >= 0) votes[own[i]]++;
     let top = votes.indexOf(Math.max(...votes));
     // (Held by two people: the one whose own colors, elsewhere, are most like it. A person's pose can be
     // off, and their share of a dress beside theirs with it.)
     // (Who holds it, and who's next to it.)
     const next = new Set(votes.map((v, c) => (v >= q.length * 0.1 ? c : -1)).filter((c) => c >= 0));
-    for (const i of q) {
+    // (Neighbours only count for a patch nobody's seeds are in.)
+    if (!seededBy.length) for (const i of q) {
       const X = i % W; const Y = (i / W) | 0;
       for (const n of [X > 0 ? i - 1 : -1, X < W - 1 ? i + 1 : -1, Y > 0 ? i - W : -1, Y < H - 1 ? i + W : -1]) if (n >= 0 && reg[n] !== id && own[n] >= 0) next.add(own[n]);
     }
@@ -1266,8 +1325,12 @@ export function splitPeople(p, rgba, poses = [], T = {}) {
       lbl[i] = best; continue;
     }
     const q = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
-    let best = -1; let bd = Infinity;
-    for (const c of cand) { const mm = localMean(Xn, Yn, c); if (!mm) continue; const d = (q[0] - mm[0]) ** 2 * 0.5 + (q[1] - mm[1]) ** 2 + (q[2] - mm[2]) ** 2; if (d < bd) { bd = d; best = c; } }
+    // (The nearest cell's person, unless the color plainly belongs to another's beside it: a red letter's
+    // edge on a white jersey isn't the dark arm next to it just because red is nearer dark than white.)
+    const near0 = own[Math.max(0, Math.min(H - 1, Yn)) * W + Math.max(0, Math.min(W - 1, Xn))];
+    const dOf = (c) => { const mm = localMean(Xn, Yn, c); return mm ? (q[0] - mm[0]) ** 2 * 0.5 + (q[1] - mm[1]) ** 2 + (q[2] - mm[2]) ** 2 : Infinity; };
+    let best = cand.has(near0) ? near0 : -1; let bd = best >= 0 ? dOf(best) * 0.36 : Infinity;
+    for (const c of cand) { if (c === near0) continue; const d = dOf(c); if (d < bd) { bd = d; best = c; } }
     lbl[i] = best;
   }
   return people.map((f, who) => {

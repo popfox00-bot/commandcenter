@@ -138,8 +138,67 @@ export function mount(host) {
       if (!first && img.who === k) return;
       img.who = k; img.people = P[k].p; img.pose = P[k].pose;
     }
-    img.layout = first && img.savedLayout ? img.savedLayout : bodyLayout(img.people, img.rgba);
+    img.people = fixSkin(img, img.people);
+    img.layout = first && img.savedLayout ? img.savedLayout : bodyLayout(img.people, img.rgba, img.pose);
     img.sil = null;
+  }
+  /**
+   * What the person finder took for skin inside someone's clothes that isn't (a white jersey in warm light,
+   * its lettering): within each row's span of their clothes, a pixel said to be skin whose color is nearer
+   * the clothes' around it than their own skin's is clothes. (A real hand across them is the color of their
+   * skin, and stays skin.) A copy of the maps, or the maps as they are.
+   */
+  function fixSkin(img, p) {
+    if (!p) return p;
+    const { w, h, rgba } = img; const n = w * h;
+    const tone = (sel) => { const v = [[], [], []]; for (let i = 0; i < n; i += 2) if (sel(i)) { const q = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); for (let c = 0; c < 3; c++) v[c].push(q[c]); } return v[0].length > 30 ? v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }) : null; };
+    const skin = tone((i) => p.face[i] >= 200) ?? tone((i) => p.body[i] >= 230);
+    if (!skin) return p;
+    const body = Uint8Array.from(p.body); const clothes = Uint8Array.from(p.clothes); let changed = 0;
+    const fh = Math.max(20, (boxOf(Uint8Array.from(p.face, (v) => (v >= 128 ? 1 : 0)), w, h)?.y1 ?? 0) - (boxOf(Uint8Array.from(p.face, (v) => (v >= 128 ? 1 : 0)), w, h)?.y0 ?? 0)) || 40;
+    const R = Math.max(3, Math.round(fh * 0.25));
+    const ends = new Int32Array(h * 2).fill(-1);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p.clothes[y * w + x] >= 128) { if (ends[y * 2] < 0) ends[y * 2] = x; ends[y * 2 + 1] = x; }
+    for (let y = 0; y < h; y++) {
+      const l = ends[y * 2]; const r = ends[y * 2 + 1]; if (l < 0 || r - l < 4) continue;
+      for (let x = l + 1; x < r; x++) {
+        const i = y * w + x; if (p.body[i] < 128 || p.face[i] >= 100 || p.hair[i] >= 100) continue;
+        // (The clothes' color around it: their pixels within a little way, averaged.)
+        const m = [0, 0, 0]; let k = 0;
+        for (let yy = Math.max(0, y - R); yy < Math.min(h, y + R); yy += 2) for (let xx = Math.max(0, x - R); xx < Math.min(w, x + R); xx += 2) { const j = yy * w + xx; if (p.clothes[j] >= 200) { const q = rgbToLab(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]); m[0] += q[0]; m[1] += q[1]; m[2] += q[2]; k++; } }
+        if (k < 6) continue;
+        const c = m.map((v) => v / k); const q = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+        const dS = Math.hypot((q[0] - skin[0]) * 0.5, q[1] - skin[1], q[2] - skin[2]); const dC = Math.hypot((q[0] - c[0]) * 0.5, q[1] - c[1], q[2] - c[2]);
+        if (dC < dS * 0.8) { body[i] = 0; clothes[i] = 255; changed++; }
+      }
+    }
+    // (And a patch of "skin" wholly inside their clothes, not reaching the clothes' edge nor the neck: a
+    // print on it (a number's skin-toned trim), not skin. A hand or an arm across them comes in from outside.)
+    {
+      const lab = new Int32Array(n); let id = 0;
+      for (let y = 0; y < h; y++) {
+        const l = ends[y * 2]; const r = ends[y * 2 + 1]; if (l < 0) continue;
+        for (let x = l + 1; x < r; x++) {
+          const s0 = y * w + x; if (lab[s0] || body[s0] < 128 || p.face[s0] >= 100) continue;
+          id++; const q = [s0]; lab[s0] = id; let open = false;
+          for (let t = 0; t < q.length && q.length < fh * fh; t++) {
+            const i = q[t]; const X = i % w; const Y = (i / w) | 0;
+            const le = ends[Y * 2]; const re = ends[Y * 2 + 1];
+            if (le < 0 || X <= le + 2 || X >= re - 2 || p.face[i] >= 60) open = true;
+            for (const u of [X > 0 ? i - 1 : -1, X < w - 1 ? i + 1 : -1, Y > 0 ? i - w : -1, Y < h - 1 ? i + w : -1]) {
+              if (u < 0) continue;
+              if (p.face[u] >= 60) open = true; // (joined to the face: the neck, a neckline)
+              if (!lab[u] && body[u] >= 128) { lab[u] = id; q.push(u); }
+            }
+          }
+          // (And not the color of their skin: a hand is; a print's trim isn't quite.)
+          let farFromSkin = false;
+          if (!open && q.length < fh * fh * 0.35) { const v = [[], [], []]; for (let t = 0; t < q.length; t += 2) { const i = q[t]; const c = rgbToLab(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); for (let k = 0; k < 3; k++) v[k].push(c[k]); } const md = v.map((a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; }); farFromSkin = Math.hypot((md[0] - skin[0]) * 0.5, md[1] - skin[1], md[2] - skin[2]) > 10; }
+          if (!open && farFromSkin && q.length < fh * fh * 0.35) for (const i of q) { body[i] = 0; clothes[i] = 255; changed++; }
+        }
+      }
+    }
+    return changed ? { ...p, body, clothes } : p;
   }
   /** Someone else in a group photo chosen: what was picked on them, or found on them, starts over. */
   function switchTo(img, k) {
@@ -160,7 +219,7 @@ export function mount(host) {
       const i = y * img.w + x; if (!mask[i]) continue;
       for (const c of ['face', 'hair', 'body', 'clothes', 'others']) { me.p[c][i] = A[c][i]; for (const q of img.persons) if (q !== me) q.p[c][i] = 0; }
     }
-    img.layout = bodyLayout(img.people, img.rgba); img.sil = null; img.parts = null; img.zparts = null;
+    img.layout = bodyLayout(img.people, img.rgba, img.pose); img.sil = null; img.parts = null; img.zparts = null;
     if (img === piece) {
       piece.found = null; piece.parts = null;
       // (What was found by itself is found again; what was picked by hand stays.)

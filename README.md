@@ -779,12 +779,21 @@ the clothes in it: worn by someone, or on its own).
 - **Sharp**: saving lays the piece in again at full size from its own photo opened at full size (not the
   preview blown up); a piece stretched taller blends between its rows (no streaks); where two people meet,
   each pixel goes to whoever's color it's nearest (no stair steps).
+- **The waist by the body**: with the person's pose found, the waist (where a top ends and a bottom starts)
+  is taken from their hips, not from where the clothes change color: a jersey's big lettering, or a top and
+  shorts of one color, don't fool it, so the whole top is taken and it ends at the waistband. What the
+  person finder takes for skin inside someone's clothes (a white jersey in warm light, a number's
+  skin-toned trim) is treated as clothes. An arm running along the photo's edge, mostly out of the picture,
+  isn't taken for a sleeve; with both people bare-armed, an upper body swaps only the clothes and leaves
+  all of their skin as it is.
 - **Group photos**: with several people in a photo, each is told apart on the phone (one for each face;
   each grows out from their face and their pose over everyone's pixels, parting where the color changes,
   so two people side by side part where one's dress meets the other's, and each patch of one color, a
   dress's light side or its shade, stays with whoever's colors it matches). **Whose clothes?** (the piece)
   and **Who to dress?** (the base) show a face for each: tap one, or tap the person in the photo.
   Each person's pose is found again on them alone (a group's poses can cross from one person to the next).
+  An arm two poses both claim (one person's arm hidden behind the next person's) goes to the one it hangs
+  outward from, not the one it would cross in front of, and is seeded along its skin only.
   Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
   the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.

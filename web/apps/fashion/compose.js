@@ -935,13 +935,18 @@ function replaceEdge(layer, S, front) {
   const near = [0, 1, 2].map((c) => { const v = new Float32Array(pw * ph); for (let k = 0; k < pw * ph; k++) v[k] = rgba[k * 4 + c]; return boxBlur(v, ok, pw, ph, R); });
   const anyNear = boxBlur(Float32Array.from(ok), new Uint8Array(pw * ph).fill(1), pw, ph, R);
   const matted = new Uint8Array(pw * ph); let n = 0;
+  const A = base.allPeople ?? p;
+  const nearSkin = (X, Y) => { for (let dy = -B - 1; dy <= B + 1; dy++) for (let dx = -B - 1; dx <= B + 1; dx++) { const XX = X + dx; const YY = Y + dy; if (XX >= 0 && YY >= 0 && XX < w && YY < h && A.body[YY * w + XX] >= 128 && !worn[YY * w + XX]) return true; } return false; };
   for (let y = 0; y < mb.ph; y++) for (let x = 0; x < mb.pw; x++) {
     const mk = y * mb.pw + x; const a = mb.alpha[mk]; if (a < 0) continue;
     const X = mb.x0 + x; const Y = mb.y0 + y; const k = (Y - y0) * pw + X - x0; const i = Y * w + X;
     if (anyNear[k] < 0.02) continue;
     const fr = front ? front[i] / 255 : 0;
+    // (Inside, against someone's skin (an arm in front, their own arm): the outline is the person finder's,
+    // not a soft edge to judge by color; a dark print beside the arm looks more like the arm than the cloth.)
+    const bySkin = worn[i] && rgba[k * 4 + 3] >= 250 && nearSkin(X, Y);
     // (Nearly all old garment, inside: the new piece as it is. A part of it: that part swapped.)
-    if (a >= 0.92 && rgba[k * 4 + 3] >= 250) { rgba[k * 4 + 3] = Math.round(255 * (1 - fr)); matted[k] = 1; n++; continue; }
+    if ((a >= 0.92 || bySkin) && rgba[k * 4 + 3] >= 250) { rgba[k * 4 + 3] = Math.round(255 * (1 - fr)); matted[k] = 1; n++; continue; }
     for (let c = 0; c < 3; c++) {
       const N = rgba[k * 4 + 3] >= 250 ? rgba[k * 4 + c] : near[c][k];
       rgba[k * 4 + c] = N + base.rgba[i * 4 + c] - mb.F[mk * 3 + c];

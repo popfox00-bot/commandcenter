@@ -390,16 +390,16 @@ test('fashion: in a group, a strip of the next person\'s clothes given to someon
   const mk = () => ({ w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) });
   const P = (x, y) => [x, y, 1];
   // Person 0: a top x 30..80, their right arm a column x 84..92 (shoulder x 80, elbow and wrist x 88), and a
-  // strip x 93..97 past it, given to them; person 1's top from x 98 on.
+  // strip x 93..101 past it, given to them; person 1's top from x 102 on.
   const a = mk(); const b = mk();
   for (let y = 40; y < 180; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
-    if (x >= 30 && x < 80) a.clothes[i] = 255; else if (x >= 84 && x < 93) a.body[i] = 255; else if (x >= 93 && x < 98 && y >= 80 && y < 150) a.clothes[i] = 255; else if (x >= 98 && x < 170) b.clothes[i] = 255;
+    if (x >= 30 && x < 80) a.clothes[i] = 255; else if (x >= 84 && x < 93) a.body[i] = 255; else if (x >= 93 && x < 97 && y >= 80 && y < 150) a.clothes[i] = 255; else if (x >= 97 && x < 102 && y >= 80 && y < 150) a.clothes[i] = 255; else if (x >= 102 && x < 170) b.clothes[i] = 255;
   }
   const poseA = { nose: P(55, 20), shoulders: [P(30, 45), P(80, 45)], elbows: [P(26, 110), P(88, 110)], wrists: [P(26, 170), P(88, 170)], hips: [P(40, 150), P(70, 150)] };
   const poseB = { nose: P(134, 20), shoulders: [P(100, 45), P(168, 45)], elbows: [P(96, 110), P(172, 110)], wrists: [P(96, 170), P(172, 170)], hips: [P(115, 150), P(155, 150)] };
   const moved = strayClothes([{ p: a, pose: poseA }, { p: b, pose: poseB }], w, h);
   assert.ok(moved >= 5 * 70, `the strip moved: ${moved}`);
-  assert.ok(b.clothes[100 * w + 95] >= 128 && a.clothes[100 * w + 95] < 128, 'it\'s the next person\'s');
+  assert.ok(b.clothes[100 * w + 99] >= 128 && a.clothes[100 * w + 99] < 128, 'it\'s the next person\'s');
   assert.equal(a.clothes[100 * w + 50], 255, 'their own top stays theirs');
 });

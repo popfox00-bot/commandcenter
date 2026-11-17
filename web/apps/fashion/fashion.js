@@ -99,7 +99,7 @@ export function mount(host) {
             if (better.length) { const again = splitPeople(img.allPeople, img.rgba, better); if (again.length === split.length) split = again; }
             // (Each one's outline snapped to the photo's own edges, never into anyone else.)
             const ons = split.map((q) => { const o = new Uint8Array(img.w * img.h); for (let i = 0; i < o.length; i++) o[i] = Math.max(q.p.body[i], q.p.clothes[i], q.p.face[i], q.p.hair[i], q.p.others[i]) >= 128 ? 1 : 0; return o; });
-            split = split.map((q, k) => { const taken = new Uint8Array(img.w * img.h); ons.forEach((o, j) => { if (j !== k) for (let i = 0; i < o.length; i++) if (o[i]) taken[i] = 1; }); const fhq = q.face ? q.face.y1 - q.face.y0 : 60; return { ...q, p: refineOutline(q.p, img.rgba, taken, fhq) }; });
+            split = split.map((q, k) => { const taken = new Uint8Array(img.w * img.h); ons.forEach((o, j) => { if (j !== k) for (let i = 0; i < o.length; i++) if (o[i]) taken[i] = 1; }); const fhq = q.face ? q.face.y1 - q.face.y0 : 60; return { ...q, p: refineOutline(q.p, img.rgba, taken, fhq, img.allPeople) }; });
             img.persons = split.map((q) => ({ ...q, pose: poseIn(q.face, better.length ? better : poses), thumb: faceThumb(img, q.face) }));
             // (A strip of the next person's clothes given to someone, past their own arm: the next person's.)
             strayClothes(img.persons, img.w, img.h);
@@ -167,10 +167,18 @@ export function mount(host) {
     const R = Math.max(3, Math.round(fh * 0.25));
     const ends = new Int32Array(h * 2).fill(-1);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p.clothes[y * w + x] >= 128) { if (ends[y * 2] < 0) ends[y * 2] = x; ends[y * 2 + 1] = x; }
+    // (Their own arms, by the pose: skin just past their clothes' edge there is the arm. Elsewhere (an arm
+    // hidden behind someone in front), "skin" just past the edge is their clothes beside the other's arm.)
+    const q0 = img.pose; const okv = (v) => v && v[2] >= 0.3;
+    const sw = q0 && okv(q0.shoulders[0]) && okv(q0.shoulders[1]) ? Math.hypot(q0.shoulders[1][0] - q0.shoulders[0][0], q0.shoulders[1][1] - q0.shoulders[0][1]) : 0;
+    const bones = []; if (sw) for (let sd = 0; sd < 2; sd++) { if (okv(q0.elbows[sd])) { bones.push([q0.shoulders[sd], q0.elbows[sd]]); if (okv(q0.wrists[sd])) bones.push([q0.elbows[sd], q0.wrists[sd]]); } }
+    const segD = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+    const onArm = (x, y) => !sw || bones.some(([a, b]) => segD(x, y, a, b) < sw * 0.22);
     for (let y = 0; y < h; y++) {
       const l = ends[y * 2]; const r = ends[y * 2 + 1]; if (l < 0 || r - l < 4) continue;
-      for (let x = l + 1; x < r; x++) {
+      for (let x = Math.max(0, l - R); x < Math.min(w, r + R); x++) {
         const i = y * w + x; if (p.body[i] < 128 || p.face[i] >= 100 || p.hair[i] >= 100) continue;
+        if ((x <= l || x >= r) && onArm(x, y)) continue;
         // (The clothes' color around it: their pixels within a little way, averaged.)
         const m = [0, 0, 0]; let k = 0;
         for (let yy = Math.max(0, y - R); yy < Math.min(h, y + R); yy += 2) for (let xx = Math.max(0, x - R); xx < Math.min(w, x + R); xx += 2) { const j = yy * w + xx; if (p.clothes[j] >= 200) { const q = rgbToLab(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]); m[0] += q[0]; m[1] += q[1]; m[2] += q[2]; k++; } }

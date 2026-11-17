@@ -1749,11 +1749,18 @@ export function strayClothes(persons, w, h) {
   const C = persons.map((q) => { const m = new Uint8Array(w * h); for (let i = 0; i < m.length; i++) if (q.p.clothes[i] >= 128 && q.p.body[i] < 128 && q.p.face[i] < 128) m[i] = 1; return m; });
   persons.forEach((q, k) => {
     const P = q.pose; if (!P || !ok(P.shoulders[0]) || !ok(P.shoulders[1])) return;
+    // (Their clothes apart from what's on their own arms: marks on an arm (tattoos taken for clothes) don't
+    // join a strip beside the arm to their top.)
+    const sw = Math.hypot(P.shoulders[1][0] - P.shoulders[0][0], P.shoulders[1][1] - P.shoulders[0][1]);
+    const bones = []; for (let sd = 0; sd < 2; sd++) if (ok(P.elbows[sd])) { bones.push([P.shoulders[sd], P.elbows[sd]]); if (ok(P.wrists[sd])) bones.push([P.elbows[sd], P.wrists[sd]]); }
+    const segD = (x, y, a, b) => { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+    const own = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) if (C[k][i]) { const x = i % w; const y = (i / w) | 0; if (!bones.some(([a, b]) => segD(x, y, a, b) < sw * 0.15)) own[i] = 1; }
     const lab = new Int32Array(w * h); const parts = [];
     for (let s0 = 0; s0 < w * h; s0++) {
-      if (!C[k][s0] || lab[s0]) continue;
+      if (!own[s0] || lab[s0]) continue;
       const st = [s0]; lab[s0] = parts.length + 1; let sx = 0; let sy = 0;
-      for (let a = 0; a < st.length; a++) { const i = st[a]; const x = i % w; const y = (i / w) | 0; sx += x; sy += y; for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (t >= 0 && C[k][t] && !lab[t]) { lab[t] = parts.length + 1; st.push(t); } }
+      for (let a = 0; a < st.length; a++) { const i = st[a]; const x = i % w; const y = (i / w) | 0; sx += x; sy += y; for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (t >= 0 && own[t] && !lab[t]) { lab[t] = parts.length + 1; st.push(t); } }
       parts.push({ px: st, cx: sx / st.length, cy: sy / st.length });
     }
     if (parts.length < 2) return;
@@ -1773,12 +1780,22 @@ export function strayClothes(persons, w, h) {
       // (Which arm is on that side: the one whose line is that side of the middle.)
       const ax = [armX(0, part.cy), armX(1, part.cy)].filter((v) => v != null && (v - sp) * (part.cx - sp) > 0)[0];
       if (ax == null || Math.abs(part.cx - sp) <= Math.abs(ax - sp)) continue;
-      // Whose clothes it touches most.
+      // Whose clothes it touches most (or comes within a few pixels of, where the two meet softly).
       const touch = new Map();
-      for (const i of part.px) { const x = i % w; const y = (i / w) | 0; for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (t >= 0) persons.forEach((_, j) => { if (j !== k && C[j][t]) touch.set(j, (touch.get(j) ?? 0) + 1); }); }
+      for (const i of part.px) {
+        const x = i % w; const y = (i / w) | 0;
+        for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+          const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const t = Y * w + X;
+          persons.forEach((o, j) => { if (j !== k && (C[j][t] || o.p.clothes[t] >= 64)) touch.set(j, (touch.get(j) ?? 0) + 1); });
+        }
+      }
       const best = [...touch.entries()].sort((a, b) => b[1] - a[1])[0];
       if (!best || best[1] < 3) continue;
       const to = persons[best[0]].p;
+      // (With the soft rim around it, what's partly clothes of theirs there: it goes too.)
+      const rim = new Set();
+      for (const i of part.px) { const x = i % w; const y = (i / w) | 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const t = Y * w + X; if (!C[k][t] && q.p.clothes[t] >= 40 && q.p.body[t] < 128 && q.p.face[t] < 128) rim.add(t); } }
+      for (const t of rim) { to.clothes[t] = Math.max(to.clothes[t], q.p.clothes[t]); q.p.clothes[t] = 0; q.p.others[t] = 0; moved++; }
       for (const i of part.px) { to.clothes[i] = q.p.clothes[i]; for (const key of ['body', 'clothes', 'face', 'hair', 'others']) q.p[key][i] = 0; C[k][i] = 0; C[best[0]][i] = 1; moved++; }
     }
   });
@@ -1869,10 +1886,10 @@ export function armSkin(p, poses, fh = null) {
  * someone else's, never taken): along the outline, a few pixels either way, each pixel goes in or out by
  * whether its color is nearer theirs just inside or what's just outside (matteBand); where the two are too
  * alike to tell, it stays as it was. Pixels it adds take the classes of the nearest of theirs. A copy of the
- * maps, or `p` itself when nothing moved.
+ * maps, or `p` itself when nothing moved. `all`: everyone's maps (the finder's own), when known.
  * @param {People} p @returns {People}
  */
-export function refineOutline(p, rgba, taken = null, fh = 60) {
+export function refineOutline(p, rgba, taken = null, fh = 60, all = null) {
   const { w, h } = p; const n = w * h;
   const on = new Uint8Array(n); for (let i = 0; i < n; i++) on[i] = Math.max(p.body[i], p.clothes[i], p.face[i], p.hair[i], p.others[i]) >= 128 ? 1 : 0;
   const box = boxOf(on, w, h); if (!box) return p;
@@ -1898,6 +1915,9 @@ export function refineOutline(p, rgba, taken = null, fh = 60) {
       // (The classes of the nearest of theirs, a few pixels around.)
       const src = nearest(X, Y, on, B + 2);
       if (src < 0) continue;
+      // (Not someone's clothes taken as their skin, the edge of an arm against the next person's
+      // lettering: where the finder says clothes there, and their nearest is skin, it stays out.)
+      if (all && p.body[src] >= 128 && all.clothes[i] >= 128 && all.clothes[i] > all.body[i]) continue;
       for (const c of ['face', 'hair', 'body', 'clothes', 'others']) out[c][i] = p[c][src];
       moved++;
     }

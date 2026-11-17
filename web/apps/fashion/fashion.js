@@ -22,7 +22,7 @@ import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { rgbToLab } from '../../lib/color-match.js';
-import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand, refineOutline } from '../../tools/fashion/fashion-core.js';
+import { armSkin, strayClothes, KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand, refineOutline } from '../../tools/fashion/fashion-core.js';
 import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps } from './compose.js';
 
 const WORK_MAX = 1024;
@@ -85,6 +85,8 @@ export function mount(host) {
         try { const { detectPoses } = await import('../../lib/pose.js'); poses = await detectPoses(c); } catch (e) { noteError('Fashion: finding the pose', e); }
         img.poses = poses;
         try {
+          // (Tattoos on bare arms aren't clothes.)
+          armSkin(img.allPeople, poses);
           let split = splitPeople(img.allPeople, img.rgba, poses);
           if (split.length > 1) {
             // Each person's pose found again on them alone (a group's poses can cross from one to the next),
@@ -93,11 +95,14 @@ export function mount(host) {
             const own = [];
             for (const q of split) { let ps = null; try { ps = q.face ? await detectPoseOf(c, q.face) : null; } catch { ps = null; } own.push(ps ?? poseIn(q.face, poses)); }
             const better = own.filter(Boolean);
+            if (better.length) armSkin(img.allPeople, better);
             if (better.length) { const again = splitPeople(img.allPeople, img.rgba, better); if (again.length === split.length) split = again; }
             // (Each one's outline snapped to the photo's own edges, never into anyone else.)
             const ons = split.map((q) => { const o = new Uint8Array(img.w * img.h); for (let i = 0; i < o.length; i++) o[i] = Math.max(q.p.body[i], q.p.clothes[i], q.p.face[i], q.p.hair[i], q.p.others[i]) >= 128 ? 1 : 0; return o; });
             split = split.map((q, k) => { const taken = new Uint8Array(img.w * img.h); ons.forEach((o, j) => { if (j !== k) for (let i = 0; i < o.length; i++) if (o[i]) taken[i] = 1; }); const fhq = q.face ? q.face.y1 - q.face.y0 : 60; return { ...q, p: refineOutline(q.p, img.rgba, taken, fhq) }; });
             img.persons = split.map((q) => ({ ...q, pose: poseIn(q.face, better.length ? better : poses), thumb: faceThumb(img, q.face) }));
+            // (A strip of the next person's clothes given to someone, past their own arm: the next person's.)
+            strayClothes(img.persons, img.w, img.h);
           }
         } catch (e) { noteError('Fashion: telling the people apart', e); }
         const biggest = img.persons ? img.persons.reduce((a, q, k) => (q.n > img.persons[a].n ? k : a), 0) : 0;
@@ -396,7 +401,7 @@ export function mount(host) {
   function autoPick(quiet = false) {
     if (!piece) return;
     if (piece.finding) { if (!quiet) note = 'Still finding the person…'; return; }
-    const r = piece.people && piece.layout ? kindRegion(kind, piece.people, piece.layout, piece.pose) : null;
+    const r = piece.people && piece.layout ? kindRegion(kind, piece.people, piece.layout, piece.pose, { rgba: piece.rgba, straight: true }) : null;
     if (!r) { if (!quiet) note = 'Couldn\'t find one by itself: tap its color, or trace around it.'; return; }
     setSel(r.mask); note = 'Found ✨ (pink). Tap more of it, 🧽 take colors away, 🖌 brush, or ✏️ trace to keep only what\'s inside.';
   }
@@ -688,7 +693,7 @@ export function mount(host) {
     if (piece.found) return piece.found;
     const { w, h } = piece; const out = [];
     for (const id of ['top', 'bottom', 'dress', 'hat', 'shoes']) {
-      const r = kindRegion(id, piece.people, piece.layout, piece.pose); if (!r) continue;
+      const r = kindRegion(id, piece.people, piece.layout, piece.pose, { rgba: piece.rgba, straight: true }); if (!r) continue;
       const n = r.mask.reduce((a, v) => a + v, 0); if (n < w * h * 0.01) continue;
       // (What can't be there: a bottom only where a top's end was seen (the clothes change color); a dress only
       // where they don't and it runs well past the waist, the photo not cut off there; shoes only with the
@@ -716,7 +721,7 @@ export function mount(host) {
       // (Lower body and the whole outfit when the legs are in the photo: by the body, whatever's worn.)
       const legs = (L.person?.y1 ?? h) - L.chin >= L.fh * 4.5;
       if ((id === 'lower' || id === 'outfit') && !legs) continue;
-      const r = kindRegion(id, piece.people, L, piece.pose); if (!r) continue;
+      const r = kindRegion(id, piece.people, L, piece.pose, { rgba: piece.rgba, straight: true }); if (!r) continue;
       const b = r.box; const side = Math.max(b.x1 - b.x0, b.y1 - b.y0); const cx = (b.x0 + b.x1) / 2; const cy = (b.y0 + b.y1) / 2;
       const c = document.createElement('canvas'); c.width = 72; c.height = 72; const x = c.getContext('2d');
       const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
@@ -787,7 +792,7 @@ export function mount(host) {
    */
   function autoTarget() {
     if (!base?.people || !base.layout || kind === 'other') return;
-    const r = kind === 'hat' ? null : kindRegion(kind, base.people, base.layout, base.pose);
+    const r = kind === 'hat' ? null : kindRegion(kind, base.people, base.layout, base.pose, { all: base.allPeople, rgba: base.rgba });
     const b = r ? null : bodyRegion(kind, base.people, base.layout);
     // (A body zone's outline takes in the hair over the shoulders; what the piece goes on doesn't: the hair
     // stays in front of it.)

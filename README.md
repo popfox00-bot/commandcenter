@@ -800,6 +800,12 @@ the clothes in it: worn by someone, or on its own).
   skin-toned trim) is treated as clothes. An arm running along the photo's edge, mostly out of the picture,
   isn't taken for a sleeve; with both people bare-armed, an upper body swaps only the clothes and leaves
   all of their skin as it is.
+- **Where a top really ends**: from the pose's waist, the hem is found in the photo itself, column by
+  column: the first clear change going down from the top's colors (a waistband curving, the shadow of a
+  loose jersey on the shorts), followed smoothly across. The piece's own hem is one level line (its
+  waistband's stripes aren't the jersey). What the finder wasn't sure was cloth inside the garment (a dark
+  number beside an arm in front) is taken off with it; the old garment's color carried onto what's left of
+  it (straps, a sliver) only where it's joined to it, never on the skin, an arm, or below the hem.
 - **Group photos**: with several people in a photo, each is told apart on the phone (one for each face;
   each grows out from their face and their pose over everyone's pixels, parting where the color changes,
   so two people side by side part where one's dress meets the other's, and each patch of one color, a
@@ -812,6 +818,10 @@ the clothes in it: worn by someone, or on its own).
   clothes), and growing past it costs more, so a neighbour's jersey, shorts or shoulder beside them isn't
   taken in; the outline is then snapped to the photo's own edges (holes filled, each edge pixel judged by
   the colors on either side), so it's tight around the person.
+  Tattoos on a bare arm (the finder can take them for clothes) are skin: past where a sleeve ends, a sleeve
+  doesn't start again. A shoulder hidden behind the next person's arm (the pose puts it on that arm) gives
+  the arm to its owner; clothes given to someone out past their own bare arm, touching the next person's,
+  are the next person's.
   Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
   the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.

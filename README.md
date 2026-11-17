@@ -826,6 +826,9 @@ the clothes in it: worn by someone, or on its own).
   Beside an arm in front, the garment's edge is the person finder's, not judged by color (a dark letter
   next to the arm looks like the arm); "skin" just past someone's clothes where their own arm isn't (it's
   hidden behind the next person) is checked against their clothes' color like any inside them.
+  What the finder wasn't sure of, seen past an arm in front of the garment (between the forearm and the
+  body), is the garment too, taken off with it (below the shoulders only; joined to it directly, only when
+  it's within their torso by the pose).
   Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
   the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.

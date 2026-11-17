@@ -2,7 +2,7 @@
 // background color (a preset or any color; text, cards and borders follow it so everything stays
 // readable, see web/theme.js), the Saved Files connection (Google Drive), Storage (what's kept on the
 // phone, how much room it takes, and clearing what can go), Diagnostics, and the way into Jobs.
-// Route: #/settings.
+// Route: #/settings (#/settings/saved and the like: that card opened).
 
 import { el, store } from '../../lib/dom.js';
 import { homeApps, HOME_ORDER_KEY } from '../index.js';
@@ -119,34 +119,65 @@ export function mount(host) {
     updBtn.disabled = false;
   });
 
-  // (Edit Home Screen: folded until tapped.)
-  const homeCard = el('details', { class: 'card st-fold' },
-    el('summary', {}, el('h2', { text: 'Edit Home Screen' })),
+  // Every card after App version: folded until tapped, in the order you set (↑ / ↓ on each), kept on this
+  // phone. App version stays first and open.
+  const ORDER_KEY = 'cc.settings.order';
+  const homeBody = el('div', {},
     el('p', { class: 'small muted', text: 'The order of the apps on the home screen. Saved on this phone only.' }),
     homeList,
     el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default order', onclick: () => { try { localStorage.removeItem(HOME_ORDER_KEY); } catch { /* private mode */ } drawHome(); } })));
+  const bgBody = el('div', {},
+    el('p', { class: 'small muted', text: 'Used across the whole app. Saved on this phone only.' }),
+    grid,
+    el('label', { class: 'st-custom' }, 'Custom color', custom),
+    status,
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default', onclick: () => { theme.save(null); render(); } })));
+  const inner = (section) => { section.classList.remove('card'); section.classList.add('st-inner'); return section; };
+  const diagSection = el('div', {},
+    el('p', { class: 'small muted', text: 'What\'s loaded, how long things took, and anything that went wrong. Kept on this phone only; Copy report to share it.' }),
+    diagBody);
+  const jobsLink = () => el('a', { class: 'st-link st-link-inner', href: '#/jobs' },
+    el('span', { class: 'app-icon st-home-icon tint-slate', 'aria-hidden': 'true', text: '⏱' }),
+    el('span', { class: 'st-link-text' }, el('strong', { text: 'Jobs' }), el('span', { class: 'small muted', text: 'Background runs, push notifications and their setup' })),
+    el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+  const SECTIONS = [
+    { id: 'home', title: 'Edit Home Screen', body: () => homeBody },
+    { id: 'background', title: 'Background', body: () => bgBody },
+    { id: 'saved', title: 'Saved Files', body: () => inner(savedFilesSettings()) },
+    { id: 'storage', title: 'Storage', body: () => inner(storageSettings()) },
+    { id: 'diagnostics', title: 'Diagnostics', body: () => diagSection },
+    { id: 'jobs', title: 'Jobs', link: true },
+  ];
+  // (#/settings/<card>, from a link elsewhere: that card opened.)
+  const built = new Map(); const openNow = new Set([(location.hash || '').split('/')[2] ?? ''].filter(Boolean));
+  const orderNow = () => { const saved = store.json(ORDER_KEY, null); const ids = SECTIONS.map((q) => q.id); const o = Array.isArray(saved) ? saved.filter((id) => ids.includes(id)) : []; return [...o, ...ids.filter((id) => !o.includes(id))]; };
+  const list = el('div', { class: 'st-sections' });
+  function drawSections(focusId = null, dir = 0) {
+    const order = orderNow();
+    const move = (id, d) => { const o = orderNow(); const i = o.indexOf(id); const j = i + d; if (j < 0 || j >= o.length) return; [o[i], o[j]] = [o[j], o[i]]; store.set(ORDER_KEY, JSON.stringify(o)); drawSections(id, d); };
+    const arrows = (q, i) => el('span', { class: 'st-move' },
+      el('button', { type: 'button', class: 'icon-btn st-move-btn', 'aria-label': `Move ${q.title} up`, 'data-dir': '-1', text: '↑', disabled: i === 0, onclick: (e) => { e.preventDefault(); e.stopPropagation(); move(q.id, -1); } }),
+      el('button', { type: 'button', class: 'icon-btn st-move-btn', 'aria-label': `Move ${q.title} down`, 'data-dir': '1', text: '↓', disabled: i === order.length - 1, onclick: (e) => { e.preventDefault(); e.stopPropagation(); move(q.id, 1); } }));
+    list.replaceChildren(...order.map((id, i) => {
+      const q = SECTIONS.find((x) => x.id === id);
+      if (q.link) return el('div', { class: 'card st-fold st-linkcard', 'data-id': id }, jobsLink(), arrows(q, i));
+      // (Each card's contents built once and moved, not rebuilt: what's typed in it stays.)
+      if (!built.has(id)) built.set(id, q.body());
+      const d = el('details', { class: 'card st-fold', 'data-id': id, open: openNow.has(id) ? true : null },
+        el('summary', {}, el('h2', { text: q.title }), arrows(q, i)), built.get(id));
+      d.addEventListener('toggle', () => { if (d.open) openNow.add(id); else openNow.delete(id); });
+      return d;
+    }));
+    if (focusId) list.querySelector(`[data-id="${focusId}"] button[data-dir="${dir}"]`)?.focus();
+  }
+  drawSections();
 
   host.append(el('div', { class: 'st' },
     el('section', { class: 'card' },
       el('h2', { text: 'App version' }),
       updBtn, updNote),
-    homeCard,
-    el('section', { class: 'card' },
-      el('h2', { text: 'Background' }),
-      el('p', { class: 'small muted', text: 'Used across the whole app. Saved on this phone only.' }),
-      grid,
-      el('label', { class: 'st-custom' }, 'Custom color', custom),
-      status,
-      el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default', onclick: () => { theme.save(null); render(); } }))),
-    savedFilesSettings(),
-    storageSettings(),
-    el('section', { class: 'card' },
-      el('h2', { text: 'Diagnostics' }),
-      el('p', { class: 'small muted', text: 'What\'s loaded, how long things took, and anything that went wrong. Kept on this phone only; Copy report to share it.' }),
-      diagBody),
-    el('a', { class: 'card st-link', href: '#/jobs' },
-      el('span', { class: 'app-icon st-home-icon tint-slate', 'aria-hidden': 'true', text: '⏱' }),
-      el('span', { class: 'st-link-text' }, el('strong', { text: 'Jobs' }), el('span', { class: 'small muted', text: 'Background runs, push notifications and their setup' })),
-      el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }))));
+    list));
+  const linked = list.querySelector('details[open]');
+  if (linked) requestAnimationFrame(() => linked.scrollIntoView({ block: 'start' }));
   render();
 }

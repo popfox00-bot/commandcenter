@@ -39,6 +39,7 @@ test('a background color picked in Settings is used everywhere, readable, and ke
 
   await page.click('.app-tile >> text=Settings');
   await page.waitForSelector('.st h2');
+  await page.locator('summary', { hasText: 'Background' }).click();
   await page.click('[aria-label="Background Midnight"]');
   assert.equal(await page.getAttribute('[aria-label="Background Midnight"]', 'aria-pressed'), 'true');
   assert.equal((await colors(page, '.st h2')).bg, 'rgb(11, 16, 32)');
@@ -58,6 +59,7 @@ test('a background color picked in Settings is used everywhere, readable, and ke
 
   // A light custom color: dark text.
   await page.goto(`${origin}${BASE}#/settings`);
+  await page.locator('summary', { hasText: 'Background' }).click();
   await page.waitForSelector('.st-color');
   await page.fill('.st-color', '#f4ecdc');
   assert.equal((await colors(page, '.st h2')).bg, 'rgb(244, 236, 220)');
@@ -68,7 +70,7 @@ test('a background color picked in Settings is used everywhere, readable, and ke
   await page.getByRole('button', { name: 'Reset to default', exact: true }).click();
   assert.equal((await colors(page, '.st h2')).bg, 'rgb(246, 247, 249)');
   await page.reload();
-  await page.waitForSelector('.st-color');
+  await page.waitForSelector('.st-color', { state: 'attached' });
   assert.equal(await page.evaluate(() => localStorage.getItem('cc.theme.v1')), null);
   assert.equal(await page.getAttribute('[aria-label="Background System"]', 'aria-pressed'), 'true');
 
@@ -114,13 +116,43 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await context.close();
 });
 
+test('Settings: every card after App version folded until tapped; their order moved up and down and kept', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/settings`);
+  await page.waitForSelector('.st-sections .st-fold');
+  const order = () => page.$$eval('.st-sections > [data-id]', (n) => n.map((x) => x.dataset.id));
+  assert.deepEqual(await order(), ['home', 'background', 'saved', 'storage', 'diagnostics', 'jobs']);
+  assert.equal(await page.locator('.st > section.card h2').first().textContent(), 'App version', 'App version first');
+  assert.ok(await page.getByRole('button', { name: 'Update to Latest Version' }).isVisible(), 'and open');
+  assert.equal(await page.locator('details.st-fold[open]').count(), 0, 'the rest folded');
+  // (An arrow moves the card without opening it.)
+  await page.getByRole('button', { name: 'Move Storage up' }).click();
+  await page.getByRole('button', { name: 'Move Storage up' }).click();
+  await page.getByRole('button', { name: 'Move Jobs up' }).click();
+  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'jobs', 'diagnostics']);
+  assert.equal(await page.locator('details.st-fold[open]').count(), 0);
+  assert.ok(await page.getByRole('button', { name: 'Move Edit Home Screen up' }).isDisabled());
+  await page.reload();
+  await page.waitForSelector('.st-sections .st-fold');
+  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'jobs', 'diagnostics'], 'kept after a reload');
+  // (An open card stays open when it's moved.)
+  await page.locator('summary', { hasText: 'Background' }).click();
+  await page.getByRole('button', { name: 'Move Background up' }).click();
+  assert.equal(await page.locator('details.st-fold[data-id="background"]').getAttribute('open'), '');
+  assert.ok(await page.locator('[aria-label="Background Midnight"]').isVisible());
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('Settings → Diagnostics: what loaded, how long it took, and problems noted (kept after a reload, cleared)', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${origin}${BASE}#/settings`);
-  await page.waitForSelector('h2:text("Diagnostics")');
+  await page.locator('summary', { hasText: 'Diagnostics' }).click();
   await page.waitForSelector('.st-diag >> text=Nothing yet');
   // Something loaded, a step timed and a problem noted (as the face tools do), shown as they happen.
   await page.evaluate(async () => {
@@ -134,6 +166,7 @@ test('Settings → Diagnostics: what loaded, how long it took, and problems note
   await page.waitForSelector('.st-diag >> text=/Doing a thing: it broke/');
   // Problems are kept on the phone: still there after a reload.
   await page.reload();
+  await page.locator('summary', { hasText: 'Diagnostics' }).click();
   await page.waitForSelector('.st-diag >> text=/Doing a thing: it broke/');
   await page.getByRole('button', { name: 'Clear problems' }).click();
   await page.waitForSelector('.st-diag >> text=None.');
@@ -175,7 +208,8 @@ test('Settings → Storage: what\'s kept on the phone by kind, with its size; wh
   await page.goto(`${origin}${BASE}`);
   await page.evaluate(async () => { const { idb } = await import('./lib/idb.js'); await idb.set('fashion.session', { x: new Uint8Array(300000) }); await idb.set('notes.v1', [{ t: 'kept' }]); });
   await page.goto(`${origin}${BASE}#/settings`);
-  const card = page.locator('section.card', { has: page.locator('h2', { hasText: 'Storage' }) });
+  await page.locator('summary', { hasText: 'Storage' }).click();
+  const card = page.locator('details.st-fold[data-id="storage"]');
   const row = (name) => card.locator('.st-storage-row', { hasText: name });
   await row('Work in progress').waitFor();
   assert.match(await row('Work in progress').textContent(), /29\d KB/);

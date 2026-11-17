@@ -22,7 +22,7 @@ import { idb } from '../../lib/idb.js';
 import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { rgbToLab } from '../../lib/color-match.js';
-import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand } from '../../tools/fashion/fashion-core.js';
+import { KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand, refineOutline } from '../../tools/fashion/fashion-core.js';
 import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps } from './compose.js';
 
 const WORK_MAX = 1024;
@@ -94,6 +94,9 @@ export function mount(host) {
             for (const q of split) { let ps = null; try { ps = q.face ? await detectPoseOf(c, q.face) : null; } catch { ps = null; } own.push(ps ?? poseIn(q.face, poses)); }
             const better = own.filter(Boolean);
             if (better.length) { const again = splitPeople(img.allPeople, img.rgba, better); if (again.length === split.length) split = again; }
+            // (Each one's outline snapped to the photo's own edges, never into anyone else.)
+            const ons = split.map((q) => { const o = new Uint8Array(img.w * img.h); for (let i = 0; i < o.length; i++) o[i] = Math.max(q.p.body[i], q.p.clothes[i], q.p.face[i], q.p.hair[i], q.p.others[i]) >= 128 ? 1 : 0; return o; });
+            split = split.map((q, k) => { const taken = new Uint8Array(img.w * img.h); ons.forEach((o, j) => { if (j !== k) for (let i = 0; i < o.length; i++) if (o[i]) taken[i] = 1; }); const fhq = q.face ? q.face.y1 - q.face.y0 : 60; return { ...q, p: refineOutline(q.p, img.rgba, taken, fhq) }; });
             img.persons = split.map((q) => ({ ...q, pose: poseIn(q.face, better.length ? better : poses), thumb: faceThumb(img, q.face) }));
           }
         } catch (e) { noteError('Fashion: telling the people apart', e); }

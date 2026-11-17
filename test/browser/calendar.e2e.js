@@ -308,7 +308,7 @@ test('Draw → Save to Files before Saved Files is connected: offers to connect 
   await page.getByRole('button', { name: '+ New drawing' }).click();
   await page.waitForSelector('.dr-canvas');
   await page.getByRole('button', { name: '☁️ Save to Files' }).click(); // the confirm is accepted
-  await page.waitForFunction(() => location.hash === '#/settings');
+  await page.waitForFunction(() => location.hash === '#/settings/saved');
   await page.waitForSelector('#saved-files >> text=Not connected.');
   assert.deepEqual(errors, []);
   await context.close();
@@ -320,7 +320,7 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   // An older file, saved before encryption.
   script.files.push({ id: 'old1', name: 'old.txt', type: 'text/plain', size: 9, updated: NOW - 1000, data: Buffer.from('old plain').toString('base64'), from: 'Files' });
   await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
-  const { page, errors } = await open(context, '#/settings');
+  const { page, errors } = await open(context, '#/settings/saved');
   await page.waitForSelector('text=🔒 Turn on encryption');
   await page.fill('[aria-label="Choose a password"]', 'short');
   await page.fill('[aria-label="The same again"]', 'short');
@@ -378,7 +378,7 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   assert.match(await page.textContent('ul.sv-list:last-of-type'), /old\.txt/);
 
   // Open anywhere: the downloaded encrypted file, with the password, in Settings.
-  await page.goto(`${origin}${BASE}#/settings`);
+  await page.goto(`${origin}${BASE}#/settings/saved`);
   await page.click('summary >> text=Open an encrypted file');
   await page.setInputFiles('[aria-label="Encrypted file"]', { name: stored.name, mimeType: 'application/octet-stream', buffer: Buffer.from(stored.data, 'base64') });
   await page.fill('[aria-label="Password or recovery key for the file"]', 'maple river candle orbit');

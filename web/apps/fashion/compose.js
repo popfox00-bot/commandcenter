@@ -3,7 +3,7 @@
 // turned by hand, finished (light, form, what's kept in front), over the base, with what was worn there
 // taken off where the piece doesn't cover it (Replace).
 
-import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture, fillHoles } from '../../tools/fashion/fashion-core.js';
+import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture, fillHoles, findPrints } from '../../tools/fashion/fashion-core.js';
 import { boxBlur } from '../../lib/geometry.js';
 import { softenMask } from '../../lib/geometry.js';
 import { rgbToLab } from '../../lib/color-match.js';
@@ -13,6 +13,61 @@ import { cleanUp } from '../../tools/editor/cleanup.js';
  * What's worn there and what of it the hair hides (long hair over a shirt): the garment goes on under the
  * hair, and the hair is laid back over it (what's kept in front). The target with that added, once.
  */
+/**
+ * Where someone in front hides part of what's worn (a group photo: the next person's arm across their side):
+ * row by row, the garment's two sides measured from the body's middle (from the pose: the line from between
+ * the shoulders to between the hips); where one side is clearly shorter and right past its edge is someone
+ * else, it's taken to go on behind them as far as the other side reaches (never past what's someone else
+ * there, and not beyond the photo). A mask of those pixels (to lay in and keep them in front of), or null.
+ */
+function behindOthers(S, m) {
+  const { base, target } = S; const A = base.allPeople; const p = base.people; const q = base.pose;
+  if (!p || !q) return null;
+  const seen = (v) => v && v[2] >= 0.3;
+  if (!seen(q.shoulders[0]) || !seen(q.shoulders[1])) return null;
+  const { w, h } = base; const b = target.box;
+  const ms = [(q.shoulders[0][0] + q.shoulders[1][0]) / 2, (q.shoulders[0][1] + q.shoulders[1][1]) / 2];
+  const mh = seen(q.hips[0]) && seen(q.hips[1]) ? [(q.hips[0][0] + q.hips[1][0]) / 2, (q.hips[0][1] + q.hips[1][1]) / 2] : [ms[0], ms[1] + Math.abs(q.shoulders[1][0] - q.shoulders[0][0]) * 1.6];
+  const cxAt = (y) => ms[0] + ((mh[0] - ms[0]) * (y - ms[1])) / Math.max(1, mh[1] - ms[1]);
+  // (Half the body's width there, from the pose: about half the shoulders' at the top, the hips' lower down.)
+  const shHalf = Math.abs(q.shoulders[1][0] - q.shoulders[0][0]) / 2;
+  const hipHalf = seen(q.hips[0]) && seen(q.hips[1]) ? Math.abs(q.hips[1][0] - q.hips[0][0]) / 2 * 1.35 : shHalf * 0.85;
+  const halfAt = (y) => { const t = Math.max(0, Math.min(1, (y - ms[1]) / Math.max(1, mh[1] - ms[1]))); return shHalf * 1.05 * (1 - t) + hipHalf * t; };
+  const other = (i) => !!A && A !== p && Math.max(A.body[i], A.clothes[i], A.hair[i], A.face[i], A.others[i]) >= 128 && Math.max(p.body[i], p.clothes[i], p.hair[i], p.face[i], p.others[i]) < 128;
+  const occ = new Uint8Array(w * h); let n = 0;
+  // (Where a side runs off the photo: where its edge would be, past the photo's own edge, row by row.)
+  const reach = new Float32Array((b.y1 - b.y0) * 2).fill(NaN);
+  for (let y = b.y0; y < b.y1; y++) {
+    let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (m[y * w + x]) { if (l < 0) l = x; r = x; }
+    if (l < 0) continue;
+    const cx = cxAt(y); const hl = cx - l; const hr = r - cx;
+    const cutL = l <= 1; const cutR = r >= w - 2;
+    // (What's past each side: someone else (in front of it), right there.)
+    const blocked = (side, edge) => { let x = edge + side; let t = 0; let k = 0; while (k < 6 && x >= 0 && x < w) { if (other(y * w + x)) t++; k++; x += side; } return k > 0 && t >= Math.min(k, 3); };
+    const occL = !cutL && blocked(-1, l); const occR = !cutR && blocked(1, r);
+    // (Each side's true reach: what's seen of it, unless it's hidden or cut off; then the other side's, if
+    // that one's whole, or the body's half-width.)
+    const full = halfAt(y);
+    const trueL = occL || cutL ? Math.max(hl, !(occR || cutR) ? hr : full) : hl;
+    const trueR = occR || cutR ? Math.max(hr, !(occL || cutL) ? hl : full) : hr;
+    for (const [side, edge, seenHalf, want, isOcc] of [[-1, l, hl, trueL, occL], [1, r, hr, trueR, occR]]) {
+      if (!isOcc || want < seenHalf * 1.05) continue;
+      const goal = Math.round(cx + side * want);
+      let x = edge + side; let gap = 0;
+      while (side < 0 ? x >= Math.max(0, goal) : x <= Math.min(w - 1, goal)) {
+        const i = y * w + x;
+        if (other(i)) gap = 0; else if (++gap > 2) break;
+        if (!m[i]) { occ[i] = 1; n++; }
+        x += side;
+      }
+    }
+    if (cutL && trueL > hl + 1) reach[(y - b.y0) * 2] = cx - trueL;
+    if (cutR && trueR > hr + 1) reach[(y - b.y0) * 2 + 1] = cx + trueR;
+  }
+  const anyReach = reach.some((v) => !Number.isNaN(v));
+  return n > 20 || anyReach ? { occ: n > 20 ? occ : null, reach: anyReach ? reach : null, y0: b.y0 } : null;
+}
+
 function underHair(S) {
   const { base, target } = S; const p = base.people;
   if (!p) return target;
@@ -41,13 +96,32 @@ function underHair(S) {
     for (let a = 0; a < st.length; a++) { const i = st[a]; for (const t of [i - 1, i + 1, i - w, i + w]) if (t >= 0 && t < w * H0 && !seen[t] && cand[t]) { seen[t] = 1; neckSkin[t] = 1; st.push(t); } }
     for (let i = 0; i < w * H0; i++) if (neckSkin[i]) m[i] = 1;
   }
+  // (What of it someone in front hides (the arm of the person beside them, across their side): the garment
+  // goes on behind them, as wide as its other side, mirrored about the body's middle. It's laid in there at
+  // its full width, so it isn't squeezed into what's seen; and they stay in front of it (`occ`).)
+  const hidden = behindOthers(S, m); const occ = hidden?.occ ?? null;
   // (And a pixel past its outline: the old garment's soft rim is covered too, no outline of it left.)
   const g = Uint8Array.from(m); const H = base.h;
   for (let y = Math.max(1, b.y0 - 1); y < Math.min(H - 1, b.y1 + 1); y++) for (let x = Math.max(1, b.x0 - 1); x < Math.min(w - 1, b.x1 + 1); x++) { const i = y * w + x; if (!m[i] && (m[i - 1] || m[i + 1] || m[i - w] || m[i + w]) && p.face[i] < 128 && p.hair[i] < 128) g[i] = 1; }
   const gb = { x0: Math.max(0, b.x0 - 1), y0: Math.max(0, b.y0 - 1), x1: Math.min(w, b.x1 + 1), y1: Math.min(H, b.y1 + 1) };
   // (Its edges smoothed over many rows for laying the design in: an arm cutting into its side doesn't make
   // the design jump from row to row.)
-  const under = { ...target, mask: g, box: gb, spans: rowSpans(g, w, gb, Math.max(14, Math.round((gb.y1 - gb.y0) / 14))), of: target, under: null, soft: null, neckSkin };
+  if (occ) for (let i = 0; i < g.length; i++) if (occ[i]) g[i] = 1;
+  const gb2 = occ ? (boxOf(g, w, H) ?? gb) : gb;
+  const spans = rowSpans(g, w, gb2, Math.max(14, Math.round((gb2.y1 - gb2.y0) / 14)));
+  // (A side running off the photo: laid in as if it went on past the edge, as far as the body does, so the
+  // design keeps its place on the body (a number on the chest stays in the chest's middle).)
+  if (hidden?.reach) {
+    const R = hidden.reach; const rows = R.length / 2; const raw = new Float32Array(R.length);
+    // (Smoothed over a few rows: the edges of the guess don't jump.)
+    for (let k = 0; k < rows; k++) for (const s2 of [0, 1]) { let sm = 0; let c = 0; for (let d = -6; d <= 6; d++) { const v = R[(k + d) * 2 + s2]; if (k + d >= 0 && k + d < rows && !Number.isNaN(v)) { sm += v; c++; } } raw[k * 2 + s2] = c && !Number.isNaN(R[k * 2 + s2]) ? sm / c : NaN; }
+    for (let k = 0; k < rows; k++) {
+      const y = hidden.y0 + k; const ky = y - gb2.y0; if (ky < 0 || ky >= gb2.y1 - gb2.y0 || spans[ky * 2] < 0) continue;
+      if (!Number.isNaN(raw[k * 2])) spans[ky * 2] = Math.min(spans[ky * 2], raw[k * 2]);
+      if (!Number.isNaN(raw[k * 2 + 1])) spans[ky * 2 + 1] = Math.max(spans[ky * 2 + 1], raw[k * 2 + 1]);
+    }
+  }
+  const under = { ...target, mask: g, box: gb2, spans, of: target, under: null, soft: null, neckSkin, occ };
   target.under = under;
   return under;
 }
@@ -221,7 +295,7 @@ function zoneLayer(S) {
   // laid into the base's, and every bit of the base person's own skin (their arms, shoulders, an arm cut
   // off by the photo's edge) left exactly as it is.
   if (bothBare && !differs) {
-    const tC = new Uint8Array(w * h); for (let i = 0; i < tC.length; i++) if (under.mask[i] && base.people.clothes[i] >= 110 && base.people.body[i] < 160) tC[i] = 1;
+    const tC = new Uint8Array(w * h); for (let i = 0; i < tC.length; i++) if ((under.mask[i] && base.people.clothes[i] >= 110 && base.people.body[i] < 160) || under.occ?.[i]) tC[i] = 1;
     const pC = new Uint8Array(piece.w * piece.h); const pm0 = piece.solid ?? piece.sel; for (let i = 0; i < pC.length; i++) if (pm0[i] && (piece.people.clothes[i] >= 110 || piece.rebuilt?.[i]) && piece.people.body[i] < 160) pC[i] = 1;
     let tCb = boxOf(tC, w, h); let pCb = boxOf(pC, piece.w, piece.h);
     if (!tCb || !pCb) return null;
@@ -230,8 +304,14 @@ function zoneLayer(S) {
     fillHoles(tC, w, h, tCb, 0.3); fillHoles(pC, piece.w, piece.h, pCb, 0.3);
     tCb = boxOf(tC, w, h); pCb = boxOf(pC, piece.w, piece.h);
     const tO = { mask: tC, box: tCb, spans: rowSpans(tC, w, tCb, Math.max(8, Math.round((tCb.y1 - tCb.y0) / 14))) };
+    // (A side running off the photo: as far past its edge as the whole outline's goes.)
+    for (let y = tCb.y0; y < tCb.y1; y++) {
+      const ky = y - tCb.y0; const ku = y - under.box.y0; if (tO.spans[ky * 2] < 0 || ku < 0 || ku >= under.box.y1 - under.box.y0 || under.spans[ku * 2] < 0) continue;
+      if (under.spans[ku * 2] < 0.5 && tO.spans[ky * 2] <= 2) tO.spans[ky * 2] = Math.min(tO.spans[ky * 2], under.spans[ku * 2]);
+      if (under.spans[ku * 2 + 1] > w - 0.5 && tO.spans[ky * 2 + 1] >= w - 2) tO.spans[ky * 2 + 1] = Math.max(tO.spans[ky * 2 + 1], under.spans[ku * 2 + 1]);
+    }
     const open = tCb.y1 >= h - 2 || pCb.y1 >= piece.h - 2;
-    const L = traceTransfer(piece.draw ?? piece.rgba, pC, piece.w, piece.h, pCb, tO, w, h, { s: place.s, open, adj: tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S) });
+    const L = traceTransfer(piece.draw ?? piece.rgba, pC, piece.w, piece.h, pCb, tO, w, h, { s: place.s, open, adj: tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers: frontCenters(S) });
     neckline(L, base, w, false, false); softEdge(L, tO, w, h);
     return L;
   }
@@ -361,7 +441,7 @@ export function buildLayer(S) {
     }
     const open = target.box.y1 >= h - 2 || piece.box.y1 >= piece.h - 2;
     const under = underHair(S);
-    const layer = traceTransfer(piece.draw ?? piece.rgba, piece.solid ?? piece.sel, piece.w, piece.h, piece.box, under, w, h, { s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S) });
+    const layer = traceTransfer(piece.draw ?? piece.rgba, piece.solid ?? piece.sel, piece.w, piece.h, piece.box, under, w, h, { s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers: frontCenters(S) });
     neckline(layer, base, w);
     softEdge(layer, under, w, h);
     return transformLayer(layer, tune, w, h);
@@ -528,6 +608,9 @@ export function finish(layer, S, cache) {
       cache.front = tune.front || arms ? m : null; cache.frontKey = fkey; cache.frontBase = base;
     }
     front = cache.front;
+    // (And whoever's in front of what it covers (the next person's arm): they stay in front of it.)
+    const oc = trace && S.target ? underHair(S).occ : null;
+    if (oc) { if (cache.frontOcc?.of !== front || cache.frontOcc.occ !== oc) { const f2 = front ? Uint8Array.from(front) : new Uint8Array(w * h); for (let i = 0; i < f2.length; i++) if (oc[i]) f2[i] = 255; cache.frontOcc = { of: front, occ: oc, f: f2 }; } front = cache.frontOcc.f; }
   }
   const gains = lightGains(piece.rgba, piece.people?.face ?? null, base.rgba, ppl?.face ?? null);
   const done = finishLayer(layer, w, { gains, light: tune.light / 100, form: cache.form, fbox, formAmt: trace ? tune.form / 100 : tune.form / 100, front, soft: trace ? 0 : tune.soft, depth: tune.depth ? Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 14)) : 0, round: trace ? tune.form / 300 : tune.form / 100 });
@@ -906,4 +989,41 @@ function skinShadow(layer, S, front) {
     }
   }
   return n ? { x0, y0, pw, ph, rgba, matted } : null;
+}
+
+/**
+ * Where a garment's prints sit (a number, lettering: findPrints on it), the middle of them all, weighted by
+ * size: { x, y } in the photo, or null. What it's printed on tells where the front of the body is.
+ */
+function printCenter(rgba, w, mask, box) {
+  if (!mask || !box) return null;
+  const bw = box.x1 - box.x0; const bh = box.y1 - box.y0; if (bw < 20 || bh < 20) return null;
+  const fill = new Float32Array(bw * bh * 3); const has = new Uint8Array(bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = (box.y0 + y) * w + box.x0 + x; for (let c = 0; c < 3; c++) fill[(y * bw + x) * 3 + c] = rgba[i * 4 + c]; if (mask[i]) has[y] = 1; }
+  // (Holes in it count as it: a print the person finder didn't call clothes.)
+  const m2 = Uint8Array.from(mask); fillHoles(m2, w, Math.ceil(mask.length / w), box, 0.3);
+  const pr = findPrints(fill, rgba, m2, w, box, has, new Uint8Array(bw * bh), null);
+  if (!pr) return null;
+  let sx = 0; let sy = 0; let sw = 0;
+  for (const b of pr.blocks) { const a = (b.x1 - b.x0) * (b.y1 - b.y0); sx += ((b.x0 + b.x1) / 2) * a; sy += ((b.y0 + b.y1) / 2) * a; sw += a; }
+  return sw ? { x: box.x0 + sx / sw, y: box.y0 + sy / sw } : null;
+}
+
+/**
+ * The body's front middle, row by row, on the base and on the piece (for traceTransfer's `centers`): the
+ * line from between the shoulders to between the hips, moved over to where the garment's prints say the
+ * front is (a body turned a little has the middle of its chest off the shoulders' middle). Null without both
+ * poses.
+ */
+function frontCenters(S) {
+  const { base, piece, target } = S; const seen = (v) => v && v[2] >= 0.3;
+  const line = (q) => { if (!q || !seen(q.shoulders[0]) || !seen(q.shoulders[1])) return null; const ms = [(q.shoulders[0][0] + q.shoulders[1][0]) / 2, (q.shoulders[0][1] + q.shoulders[1][1]) / 2]; const mh = seen(q.hips[0]) && seen(q.hips[1]) ? [(q.hips[0][0] + q.hips[1][0]) / 2, (q.hips[0][1] + q.hips[1][1]) / 2] : [ms[0], ms[1] + 100]; return (y) => ms[0] + ((mh[0] - ms[0]) * (y - ms[1])) / Math.max(1, mh[1] - ms[1]); };
+  const lt = line(base.pose); const lp = line(piece.pose);
+  if (!lt || !lp) return null;
+  if (target.printsAt === undefined) target.printsAt = printCenter(base.rgba, base.w, target.mask, target.box);
+  if (piece.printsAt === undefined || piece.printsOf !== piece.solid) { piece.printsAt = printCenter(piece.draw ?? piece.rgba, piece.w, piece.solid ?? piece.sel, piece.box); piece.printsOf = piece.solid; }
+  // (Moved by the prints only when both have them: else the shoulders' middle on both.)
+  const dt = target.printsAt && piece.printsAt ? target.printsAt.x - lt(target.printsAt.y) : 0;
+  const dp = target.printsAt && piece.printsAt ? piece.printsAt.x - lp(piece.printsAt.y) : 0;
+  return { t: (y) => lt(y) + dt, p: (y) => lp(y) + dp };
 }

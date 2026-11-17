@@ -822,7 +822,7 @@ export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'repla
  * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt;
  * `bare`: 1 where it's the piece's bare skin itself).
  */
-export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null, prints = true } = {}) {
+export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null, prints = true, centers = null } = {}) {
   const T = target.box; const tw = T.x1 - T.x0; const th = T.y1 - T.y0;
   const pbh = pb.y1 - pb.y0; const pbw = pb.x1 - pb.x0;
   const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
@@ -945,17 +945,24 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
     const fr = rowAt(y); const ra = nearRow(Math.floor(fr)); const rb = nearRow(Math.floor(fr) + 1);
     const tv = ra >= 0 && rb >= 0 && ra !== rb ? Math.max(0, Math.min(1, fr - Math.floor(fr))) : 0;
     const pl = pspans[ry * 2]; const pr = pspans[ry * 2 + 1];
+    // (`centers`: the body's front middle, on the base (t: y → x) and on the piece (p: y → x): each half of a
+    // row laid onto its own half. A body turned a little has its near side wider than its far side; the
+    // middle of the chest (where a number goes) stays where it is.)
+    const tc = centers ? centers.t(y) : NaN;
+    const okT = Number.isFinite(tc) && tc > tl + 3 && tc < tr - 3;
+    const across = (x2) => (okT ? (x2 < tc ? ((x2 - tl) / (tc - tl)) * 0.5 : 0.5 + ((x2 - tc) / (tr - tc)) * 0.5) : (x2 - tl) / Math.max(1, tr - tl));
+    const pieceX = (r, u) => { const l = pspans[r * 2]; const rr = pspans[r * 2 + 1]; const pc = okT ? centers.p(pb.y0 + r) : NaN; if (Number.isFinite(pc) && pc > l + 3 && pc < rr - 3) return u < 0.5 ? l + (u / 0.5) * (pc - l) : pc + ((u - 0.5) / 0.5) * (rr - pc); return l + u * (rr - l); };
     // (The color at u across the piece's row r: its two nearest pixels, blended.)
     const sample = (r, u, c) => {
       const l = pspans[r * 2]; const rr = pspans[r * 2 + 1];
-      const fx = Math.max(l, Math.min(rr - 1, l + u * (rr - l) - 0.5)) - pb.x0;
+      const fx = Math.max(l, Math.min(rr - 1, pieceX(r, u) - 0.5)) - pb.x0;
       const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, fx - xa));
       return fill[(r * pbw + xa) * 3 + c] * (1 - t) + fill[(r * pbw + xb) * 3 + c] * t;
     };
     for (let x = Math.max(T.x0, Math.floor(tl)); x < Math.min(T.x1, Math.ceil(tr)); x++) {
       if (!target.mask[y * w + x]) continue;
-      const u = 0.5 + ((x + 0.5 - tl) / Math.max(1, tr - tl) - 0.5 - A.dx / tw) / zx;
-      const fx = Math.max(pl, Math.min(pr - 1, pl + u * (pr - pl) - 0.5)) - pb.x0;
+      const u = 0.5 + (across(x + 0.5) - 0.5 - A.dx / tw) / zx;
+      const fx = Math.max(pl, Math.min(pr - 1, pieceX(ry, u) - 0.5)) - pb.x0;
       const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx)));
       const o = (ky * tw + x - T.x0) * 4; const k = ry * pbw;
       if (tv > 0) for (let c = 0; c < 3; c++) rgba[o + c] = sample(ra, u, c) * (1 - tv) + sample(rb, u, c) * tv;
@@ -1439,7 +1446,7 @@ export function skinTexture(rgba, w, h, people, fh = 60) {
  * letter's gap apart are one block). Neither tiny specks nor most of the garment. { mask (Float32, 0..1,
  * pbw × pbh), blocks: [{ x0, y0, x1, y1 }] } or null.
  */
-function findPrints(fill, tex, pm, pw, pb, has, isSkin, rebuilt) {
+export function findPrints(fill, tex, pm, pw, pb, has, isSkin, rebuilt) {
   const pbw = pb.x1 - pb.x0; const pbh = pb.y1 - pb.y0; const n = pbw * pbh;
   const inG = new Uint8Array(n); let area = 0;
   for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) { const k = y * pbw + x; const i = (pb.y0 + y) * pw + pb.x0 + x; if (has[y] && pm[i] && !isSkin[k] && !(rebuilt && rebuilt[i])) { inG[k] = 1; area++; } }

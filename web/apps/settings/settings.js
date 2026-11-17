@@ -9,6 +9,7 @@ import { homeApps, HOME_ORDER_KEY } from '../index.js';
 import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 import { storageSettings } from '../../lib/storage-usage.js';
+import { VERSION } from '../../version.js';
 
 export function mount(host) {
   const theme = globalThis.ccTheme;
@@ -86,12 +87,50 @@ export function mount(host) {
   const gone = new MutationObserver(() => { if (!host.isConnected || !host.contains(diagBody)) { stop(); gone.disconnect(); } });
   gone.observe(document.body, { childList: true, subtree: true });
 
+  // ---------- Update to the latest version ----------
+  // Asks for the newest version now (instead of waiting for the app to notice by itself); when there is
+  // one, it's put in and the app reloads on it. Nothing on the phone (notes, edits, settings) is lost.
+  const updNote = el('p', { class: 'small muted', 'aria-live': 'polite', text: `This is v${VERSION}.` });
+  const updBtn = el('button', { type: 'button', class: 'btn primary block', text: 'Update to Latest Version' });
+  updBtn.addEventListener('click', async () => {
+    updBtn.disabled = true; updNote.textContent = 'Checking for a new version…';
+    try {
+      const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+      if (!reg) { updNote.textContent = 'Reloading…'; location.reload(); return; }
+      const apply = (worker) => {
+        updNote.textContent = 'Updating…';
+        navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+        worker.postMessage('skip-waiting');
+        // (If it doesn't take over within a few seconds, reload anyway.)
+        setTimeout(() => location.reload(), 4000);
+      };
+      await reg.update();
+      if (reg.waiting) { apply(reg.waiting); return; }
+      if (reg.installing) {
+        updNote.textContent = 'Downloading the new version…';
+        const next = reg.installing;
+        next.addEventListener('statechange', () => { if (next.state === 'installed' && reg.waiting) apply(reg.waiting); });
+        return;
+      }
+      updNote.textContent = `You're on the latest version (v${VERSION}).`;
+    } catch (e) {
+      updNote.textContent = navigator.onLine === false ? 'No connection: connect to the internet and try again.' : `Couldn't check for a new version: ${e.message}`;
+    }
+    updBtn.disabled = false;
+  });
+
+  // (Edit Home Screen: folded until tapped.)
+  const homeCard = el('details', { class: 'card st-fold' },
+    el('summary', {}, el('h2', { text: 'Edit Home Screen' })),
+    el('p', { class: 'small muted', text: 'The order of the apps on the home screen. Saved on this phone only.' }),
+    homeList,
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default order', onclick: () => { try { localStorage.removeItem(HOME_ORDER_KEY); } catch { /* private mode */ } drawHome(); } })));
+
   host.append(el('div', { class: 'st' },
     el('section', { class: 'card' },
-      el('h2', { text: 'Edit Home Screen' }),
-      el('p', { class: 'small muted', text: 'The order of the apps on the home screen. Saved on this phone only.' }),
-      homeList,
-      el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default order', onclick: () => { try { localStorage.removeItem(HOME_ORDER_KEY); } catch { /* private mode */ } drawHome(); } }))),
+      el('h2', { text: 'App version' }),
+      updBtn, updNote),
+    homeCard,
     el('section', { class: 'card' },
       el('h2', { text: 'Background' }),
       el('p', { class: 'small muted', text: 'Used across the whole app. Saved on this phone only.' }),

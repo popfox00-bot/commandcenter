@@ -822,7 +822,7 @@ export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'repla
  * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt;
  * `bare`: 1 where it's the piece's bare skin itself).
  */
-export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null } = {}) {
+export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null, prints = true } = {}) {
   const T = target.box; const tw = T.x1 - T.x0; const th = T.y1 - T.y0;
   const pbh = pb.y1 - pb.y0; const pbw = pb.x1 - pb.x0;
   const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
@@ -908,6 +908,11 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       }
     }
   }
+  // Its prints (lettering, a number, a logo): marks on it that stand out from the cloth around them. They're
+  // taken out of the cloth (filled with the cloth's own color) before it's laid in row by row, and put back
+  // after, each as one rigid piece: its own shape and proportions kept, sized, turned and placed to follow
+  // how the cloth around it was laid onto the body. A word isn't stretched, squeezed or bent row by row.
+  const pr = prints ? findPrints(fill, tex, pm, pw, pb, has, isSkin, rebuilt) : null;
   const tspans = target.spans;
   const A = adj ?? { scale: 100, wide: 100, long: 100, dx: 0, dy: 0 };
   const zx = (A.scale / 100) * (A.wide / 100); const zy = (A.scale / 100) * (A.long / 100);
@@ -931,6 +936,8 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   };
   const rowOf = (y) => nearRow(Math.round(rowAt(y)));
   const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null; const neckOut = skin ? new Uint8Array(tw * th) : null;
+  // (Where in the piece each pixel laid in came from: for placing its prints.)
+  const srcX = pr ? new Float32Array(tw * th).fill(-1) : null; const srcY = pr ? new Float32Array(tw * th) : null;
   for (let y = T.y0; y < T.y1; y++) {
     const ky = y - T.y0; if (tspans[ky * 2] < 0) continue;
     const tl = tspans[ky * 2]; const tr = tspans[ky * 2 + 1];
@@ -954,11 +961,13 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
       if (tv > 0) for (let c = 0; c < 3; c++) rgba[o + c] = sample(ra, u, c) * (1 - tv) + sample(rb, u, c) * tv;
       else for (let c = 0; c < 3; c++) rgba[o + c] = sample(ry, u, c);
       rgba[o + 3] = 255;
+      if (srcX) { srcX[ky * tw + x - T.x0] = fx; srcY[ky * tw + x - T.x0] = fr; }
       if (skinOut && isSkin[k + xa]) skinOut[ky * tw + x - T.x0] = 1;
       if (bareOut && isBare[k + xa]) bareOut[ky * tw + x - T.x0] = 1;
       if (neckOut && isNeck[k + xa]) neckOut[ky * tw + x - T.x0] = 1;
     }
   }
+  if (pr) placePrints(pr, rgba, srcX, srcY, tw, th, tex, pw, pb);
   return { x0: T.x0, y0: T.y0, pw: tw, ph: th, rgba, skin: skinOut, bare: bareOut, neck: neckOut };
 }
 
@@ -1421,4 +1430,124 @@ export function skinTexture(rgba, w, h, people, fh = 60) {
   }
   const mir = (t) => { const m = ((t % (2 * S)) + 2 * S) % (2 * S); return m < S ? m : 2 * S - 1 - m; };
   return (x, y) => { const k = mir(Math.round(y)) * S + mir(Math.round(x)); return [D[k * 3], D[k * 3 + 1], D[k * 3 + 2]]; };
+}
+
+/**
+ * A garment's prints, within its box (`fill`: its colors there, row by row, pbw × pbh × 3, cleaned in place
+ * of its prints; `tex` the piece's pixels): marks that stand out from the cloth around them (more than a
+ * fold's shade: by color, not only lightness), joined into blocks (a word, a number, a logo: letters a
+ * letter's gap apart are one block). Neither tiny specks nor most of the garment. { mask (Float32, 0..1,
+ * pbw × pbh), blocks: [{ x0, y0, x1, y1 }] } or null.
+ */
+function findPrints(fill, tex, pm, pw, pb, has, isSkin, rebuilt) {
+  const pbw = pb.x1 - pb.x0; const pbh = pb.y1 - pb.y0; const n = pbw * pbh;
+  const inG = new Uint8Array(n); let area = 0;
+  for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) { const k = y * pbw + x; const i = (pb.y0 + y) * pw + pb.x0 + x; if (has[y] && pm[i] && !isSkin[k] && !(rebuilt && rebuilt[i])) { inG[k] = 1; area++; } }
+  if (area < 400) return null;
+  const R = Math.max(4, Math.round(Math.min(pbw, pbh) / 7));
+  // (In Lab: a change of hue or of how colorful counts in full, of lightness (a fold, a shadow) for less.)
+  const C = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let k = 0; k < n; k++) { const q = rgbToLab(fill[k * 3], fill[k * 3 + 1], fill[k * 3 + 2]); C[0][k] = q[0]; C[1][k] = q[1]; C[2][k] = q[2]; }
+  // (The cloth's own color around each pixel: twice, the second time without what stood out the first.)
+  let ok = Uint8Array.from(inG); let base = C.map((v) => boxBlur(v, ok, pbw, pbh, R));
+  const off = (k, b) => Math.hypot((C[0][k] - b[0][k]) * 0.45, C[1][k] - b[1][k], C[2][k] - b[2][k]);
+  ok = Uint8Array.from(inG); for (let k = 0; k < n; k++) if (inG[k] && off(k, base) > 18) ok[k] = 0;
+  base = C.map((v) => boxBlur(v, ok, pbw, pbh, R));
+  const mk = new Uint8Array(n); let np = 0;
+  for (let k = 0; k < n; k++) if (inG[k] && off(k, base) > 22) { mk[k] = 1; np++; }
+  if (np < 20 || np > area * 0.45) return null;
+  // (First, what stands out along the garment's own edge, its trims (a collar, an armhole's binding): not
+  // prints, and they'd join the prints near them into one.)
+  {
+    const edgeNear0 = (k) => { const x = k % pbw; const y = (k / pbw) | 0; for (let d = -3; d <= 3; d++) for (const [X, Y] of [[x + d, y], [x, y + d]]) if (X < 0 || Y < 0 || X >= pbw || Y >= pbh || !inG[Y * pbw + X]) return true; return false; };
+    const seen = new Uint8Array(n);
+    for (let s0 = 0; s0 < n; s0++) {
+      if (!mk[s0] || seen[s0]) continue;
+      const q = [s0]; seen[s0] = 1; let e = 0;
+      for (let t = 0; t < q.length; t++) { const k = q[t]; if (edgeNear0(k)) e++; const x = k % pbw; const y = (k / pbw) | 0; for (const u of [x > 0 ? k - 1 : -1, x < pbw - 1 ? k + 1 : -1, y > 0 ? k - pbw : -1, y < pbh - 1 ? k + pbw : -1]) if (u >= 0 && mk[u] && !seen[u]) { seen[u] = 1; q.push(u); } }
+      if (e > q.length * 0.3) for (const k of q) { mk[k] = 0; np--; }
+    }
+    // (And what's left of them pixel by pixel: whatever stands out within a trim's width of the edge.)
+    const tw0 = Math.max(3, Math.round(Math.min(pbw, pbh) / 18));
+    for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) {
+      const k = y * pbw + x; if (!mk[k]) continue;
+      let near = false;
+      for (let d = -tw0; d <= tw0 && !near; d++) for (const [X, Y] of [[x + d, y], [x, y + d]]) if (X < 0 || Y < 0 || X >= pbw || Y >= pbh || !inG[Y * pbw + X]) { near = true; break; }
+      if (near) { mk[k] = 0; np--; }
+    }
+  }
+  // Blocks: what stands out, grown by a letter's gap, joined; each kept if it's neither a speck nor huge, and
+  // not hugging the garment's edge all along (a contrasting trim, a collar, a side panel isn't a print).
+  const gap = Math.max(2, Math.round(Math.min(pbw, pbh) / 40));
+  const grown = new Uint8Array(n);
+  for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) if (mk[y * pbw + x]) for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) { const X = x + dx; const Y = y + dy; if (X >= 0 && Y >= 0 && X < pbw && Y < pbh) grown[Y * pbw + X] = 1; }
+  const lab = new Int32Array(n); const blocks = []; const keep = new Uint8Array(n);
+  const edgeNear = (k) => { const x = k % pbw; const y = (k / pbw) | 0; for (let d = -3; d <= 3; d++) for (const [X, Y] of [[x + d, y], [x, y + d]]) if (X < 0 || Y < 0 || X >= pbw || Y >= pbh || !inG[Y * pbw + X]) return true; return false; };
+  for (let s0 = 0; s0 < n; s0++) {
+    if (!grown[s0] || lab[s0]) continue;
+    const q = [s0]; lab[s0] = blocks.length + 1; let x0 = pbw; let y0 = pbh; let x1 = 0; let y1 = 0;
+    for (let t = 0; t < q.length; t++) { const k = q[t]; const x = k % pbw; const y = (k / pbw) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); for (const u of [x > 0 ? k - 1 : -1, x < pbw - 1 ? k + 1 : -1, y > 0 ? k - pbw : -1, y < pbh - 1 ? k + pbw : -1]) if (u >= 0 && grown[u] && !lab[u]) { lab[u] = lab[s0]; q.push(u); } }
+    let cnt = 0; let edge = 0; for (const k of q) if (mk[k]) { cnt++; if (edgeNear(k)) edge++; }
+    const bw = x1 - x0; const bh = y1 - y0;
+    // (Trims were taken out above: a print can still come near an edge where the garment narrows.)
+    const fine = cnt >= 25 && cnt <= area * 0.3 && bw < pbw * 0.96 && bh < pbh * 0.8 && edge < cnt * 0.5;
+    blocks.push(fine ? { x0, y0, x1, y1 } : null);
+    if (fine) for (const k of q) if (mk[k]) keep[k] = 1;
+  }
+  const out = blocks.filter(Boolean); if (!out.length) return null;
+  // Its mask, a pixel past the marks (their soft, blended edge), and the cloth cleaned of them: filled with
+  // its own color from around them.
+  const mask = new Float32Array(n); const clean = new Uint8Array(n);
+  for (let y = 0; y < pbh; y++) for (let x = 0; x < pbw; x++) { const k = y * pbw + x; if (!keep[k]) continue; mask[k] = 1; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx; const Y = y + dy; if (X >= 0 && Y >= 0 && X < pbw && Y < pbh) { const u = Y * pbw + X; clean[u] = 1; if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && !keep[u]) mask[u] = Math.max(mask[u], 0.5); } } }
+  const okC = Uint8Array.from(inG); for (let k = 0; k < n; k++) if (clean[k]) okC[k] = 0;
+  const baseRGB = [0, 1, 2].map((c) => { const v = new Float32Array(n); for (let k = 0; k < n; k++) v[k] = fill[k * 3 + c]; return boxBlur(v, okC, pbw, pbh, R); });
+  const val = new Float32Array(n * 3); const free = new Uint8Array(n);
+  for (let k = 0; k < n; k++) { for (let c = 0; c < 3; c++) val[k * 3 + c] = clean[k] ? baseRGB[c][k] : fill[k * 3 + c]; free[k] = clean[k] && inG[k] ? 1 : 0; }
+  membrane(val, free, pbw, pbh);
+  let seed = 17;
+  for (let k = 0; k < n; k++) if (free[k]) { seed = (seed * 1103515245 + 12345) >>> 0; const g = ((seed / 4294967296) - 0.5) * 3; for (let c = 0; c < 3; c++) fill[k * 3 + c] = val[k * 3 + c] + g; }
+  return { mask, blocks: out, pbw, pbh };
+}
+
+/**
+ * The prints put back on what was laid in (`rgba`, tw × th; `srcX`, `srcY`: where in the piece's box each of
+ * its pixels came from), each as one rigid piece: the similarity (one scale, one turn, a shift) that best
+ * matches where the cloth around it went is fitted, and the print drawn through it, from the piece's own
+ * pixels. Only on what was laid in (it's printed on the cloth). In place.
+ */
+function placePrints(pr, rgba, srcX, srcY, tw, th, tex, pw, pb) {
+  const { mask, blocks, pbw, pbh } = pr;
+  const at = (sx, sy) => { const X = Math.floor(sx); const Y = Math.floor(sy); if (X < 0 || Y < 0 || X >= pbw - 1 || Y >= pbh - 1) return 0; const tx = sx - X; const ty = sy - Y; const k = Y * pbw + X; return mask[k] * (1 - tx) * (1 - ty) + mask[k + 1] * tx * (1 - ty) + mask[k + pbw] * (1 - tx) * ty + mask[k + pbw + 1] * tx * ty; };
+  const texAt = (sx, sy, c) => { const X = Math.max(0, Math.min(pw - 2, Math.floor(sx + pb.x0))); const Y = Math.floor(sy + pb.y0); const tx = Math.max(0, Math.min(1, sx + pb.x0 - X)); const ty = Math.max(0, Math.min(1, sy + pb.y0 - Y)); const i = (Y * pw + X) * 4; return tex[i + c] * (1 - tx) * (1 - ty) + tex[i + 4 + c] * tx * (1 - ty) + tex[i + pw * 4 + c] * (1 - tx) * ty + tex[i + pw * 4 + 4 + c] * tx * ty; };
+  for (const b of blocks) {
+    // (The cloth around it, a little past it: where it went.)
+    const m = Math.max(3, Math.round(Math.max(b.x1 - b.x0, b.y1 - b.y0) * 0.15));
+    const bx0 = b.x0 - m; const by0 = b.y0 - m; const bx1 = b.x1 + m; const by1 = b.y1 + m;
+    let n = 0; let msx = 0; let msy = 0; let mtx = 0; let mty = 0; const S = []; const Tg = [];
+    for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
+      const k = y * tw + x; const sx = srcX[k]; if (sx < 0) continue; const sy = srcY[k];
+      if (sx < bx0 || sx >= bx1 || sy < by0 || sy >= by1) continue;
+      S.push(sx, sy); Tg.push(x, y); msx += sx; msy += sy; mtx += x; mty += y; n++;
+    }
+    if (n < 30) continue;
+    msx /= n; msy /= n; mtx /= n; mty /= n;
+    let a = 0; let bb = 0; let ss = 0;
+    for (let i = 0; i < n; i++) { const dsx = S[i * 2] - msx; const dsy = S[i * 2 + 1] - msy; const dtx = Tg[i * 2] - mtx; const dty = Tg[i * 2 + 1] - mty; a += dsx * dtx + dsy * dty; bb += dsx * dty - dsy * dtx; ss += dsx * dsx + dsy * dsy; }
+    if (ss <= 0) continue;
+    let th0 = Math.atan2(bb, a); th0 = Math.max(-0.45, Math.min(0.45, th0));
+    const sc = Math.hypot(a, bb) / ss; if (!(sc > 0.05 && sc < 20)) continue;
+    const cs = Math.cos(th0); const sn = Math.sin(th0);
+    // (The print's centre where the cloth's centre went, its corners through the fit.)
+    const fwd = (sx, sy) => { const dx = (sx - msx) * sc; const dy = (sy - msy) * sc; return [mtx + dx * cs - dy * sn, mty + dx * sn + dy * cs]; };
+    const corners = [[b.x0 - 1, b.y0 - 1], [b.x1 + 1, b.y0 - 1], [b.x1 + 1, b.y1 + 1], [b.x0 - 1, b.y1 + 1]].map(([x, y]) => fwd(x, y));
+    const X0 = Math.max(0, Math.floor(Math.min(...corners.map((q) => q[0])))); const X1 = Math.min(tw, Math.ceil(Math.max(...corners.map((q) => q[0]))));
+    const Y0 = Math.max(0, Math.floor(Math.min(...corners.map((q) => q[1])))); const Y1 = Math.min(th, Math.ceil(Math.max(...corners.map((q) => q[1]))));
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
+      const o = (y * tw + x) * 4; if (rgba[o + 3] < 250) continue;
+      const dx = x - mtx; const dy = y - mty; const sx = msx + (dx * cs + dy * sn) / sc; const sy = msy + (-dx * sn + dy * cs) / sc;
+      if (sx < b.x0 - 1 || sx > b.x1 || sy < b.y0 - 1 || sy > b.y1) continue;
+      const al = at(sx, sy); if (al <= 0) continue;
+      for (let c = 0; c < 3; c++) rgba[o + c] = rgba[o + c] * (1 - al) + texAt(sx, sy, c) * al;
+    }
+  }
 }

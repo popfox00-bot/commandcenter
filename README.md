@@ -821,7 +821,10 @@ the clothes in it: worn by someone, or on its own).
   Tattoos on a bare arm (the finder can take them for clothes) are skin: past where a sleeve ends, a sleeve
   doesn't start again. A shoulder hidden behind the next person's arm (the pose puts it on that arm) gives
   the arm to its owner; clothes given to someone out past their own bare arm, touching the next person's,
-  are the next person's.
+  are the next person's (marks on their own arm don't join it to their top, and its soft rim goes with it).
+  Beside an arm in front, the garment's edge is the person finder's, not judged by color (a dark letter
+  next to the arm looks like the arm); "skin" just past someone's clothes where their own arm isn't (it's
+  hidden behind the next person) is checked against their clothes' color like any inside them.
   Told apart wrongly (two people's shoulders where they hug)? **🧍 Part of them** brushes what belongs to
   the chosen person. Everything after (what's found, taps, the zones, the fit) is about that person only. The same photo can
   be both: a dress from one person put on another standing beside them.

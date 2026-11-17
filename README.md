@@ -763,6 +763,13 @@ the clothes in it: worn by someone, or on its own).
   out the same way in its photo, and the background it was photographed against is taken out of it. A
   collar riding up above where a top is looked for is taken off with it, and what a shorter hem uncovers is
   filled from the person's other clothes (the pants), not their skin.
+- **Text and logos kept**: prints on the piece (lettering, a number, a brand mark: marks that stand out from
+  the cloth around them by color, more than a fold's shade) are found and taken out of the cloth (filled
+  with its own color) before it's laid in row by row, then put back each as one rigid piece: one scale,
+  one turn and a shift, fitted to where the cloth around it went, so a word keeps its shape and
+  proportions but still follows the body's orientation (tilted with the torso, sized to the chest). Trims
+  along the garment's edges (a collar, an armhole's binding) aren't taken for prints; the photo's folds and
+  light are laid over the prints as over the cloth.
 - **Realistic finish**: what hid the piece in its photo (hair, a hand) is filled with the cloth's own
   texture (its weave and sheen, from the clean cloth beside it), following the light around it; straps are
   matched (both have them: the base's take the new color; a strapped piece onto bare shoulders: straps

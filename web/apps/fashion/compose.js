@@ -3,7 +3,7 @@
 // turned by hand, finished (light, form, what's kept in front), over the base, with what was worn there
 // taken off where the piece doesn't cover it (Replace).
 
-import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture } from '../../tools/fashion/fashion-core.js';
+import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture, fillHoles } from '../../tools/fashion/fashion-core.js';
 import { boxBlur } from '../../lib/geometry.js';
 import { softenMask } from '../../lib/geometry.js';
 import { rgbToLab } from '../../lib/color-match.js';
@@ -223,8 +223,12 @@ function zoneLayer(S) {
   if (bothBare && !differs) {
     const tC = new Uint8Array(w * h); for (let i = 0; i < tC.length; i++) if (under.mask[i] && base.people.clothes[i] >= 110 && base.people.body[i] < 160) tC[i] = 1;
     const pC = new Uint8Array(piece.w * piece.h); const pm0 = piece.solid ?? piece.sel; for (let i = 0; i < pC.length; i++) if (pm0[i] && (piece.people.clothes[i] >= 110 || piece.rebuilt?.[i]) && piece.people.body[i] < 160) pC[i] = 1;
-    const tCb = boxOf(tC, w, h); const pCb = boxOf(pC, piece.w, piece.h);
+    let tCb = boxOf(tC, w, h); let pCb = boxOf(pC, piece.w, piece.h);
     if (!tCb || !pCb) return null;
+    // (Holes inside the clothes, prints the finder didn't call clothes (a white number, yellow lettering):
+    // part of them.)
+    fillHoles(tC, w, h, tCb, 0.3); fillHoles(pC, piece.w, piece.h, pCb, 0.3);
+    tCb = boxOf(tC, w, h); pCb = boxOf(pC, piece.w, piece.h);
     const tO = { mask: tC, box: tCb, spans: rowSpans(tC, w, tCb, Math.max(8, Math.round((tCb.y1 - tCb.y0) / 14))) };
     const open = tCb.y1 >= h - 2 || pCb.y1 >= piece.h - 2;
     const L = traceTransfer(piece.draw ?? piece.rgba, pC, piece.w, piece.h, pCb, tO, w, h, { s: place.s, open, adj: tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S) });

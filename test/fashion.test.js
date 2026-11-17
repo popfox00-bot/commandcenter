@@ -290,9 +290,9 @@ test('fashion: laid in by the poses: the piece\'s shoulders and waist rows land 
   const w = 40; const h = 100; const mask = new Uint8Array(w * h).fill(1); const box = { x0: 0, y0: 0, x1: w, y1: h };
   const target = { mask, box, spans: rowSpans(mask, w, box, 1) };
   const dark = (L) => { const ys = []; for (let y = 0; y < L.ph; y++) if (L.rgba[(y * L.pw + 20) * 4] < 100) ys.push(y); return ys.length ? ys.reduce((a, b) => a + b) / ys.length : -1; };
-  const even = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h);
+  const even = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h, { prints: false });
   assert.ok(Math.abs(dark(even) - 30) < 3, `evenly: the mark stays at 30 (${dark(even)})`);
-  const posed = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h, { rows: [[20, 10], [60, 30]] });
+  const posed = traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h, { rows: [[20, 10], [60, 30]], prints: false });
   assert.ok(Math.abs(dark(posed) - 60) < 3, `by the poses: the waist mark lands on the base's waist row (${dark(posed)})`);
 });
 
@@ -314,4 +314,21 @@ test('fashion: an upper body zone ends at a waist tilted as the hips are; a pers
   const t = skinTexture(rgba, w, h, p, 60);
   assert.ok(t, 'found');
   assert.ok(Math.abs(t(0, 0)[0] - t(1, 0)[0]) > 8 && Math.abs(t(0, 0)[1]) < 2, `its fine detail: ${t(0, 0)} / ${t(1, 0)}`);
+});
+
+test('fashion: a print (lettering) on the piece keeps its proportions when laid onto an outline that widens: rigid, not stretched row by row', () => {
+  // A navy garment 120 × 160 with a yellow word block 60 × 16 in its upper middle.
+  const pw = 120; const ph = 160; const tex = new Uint8ClampedArray(pw * ph * 4); const pm = new Uint8Array(pw * ph).fill(1);
+  for (let i = 0; i < pw * ph; i++) tex.set([30, 45, 95, 255], i * 4);
+  for (let y = 40; y < 56; y++) for (let x = 30; x < 90; x++) if ((x - 30) % 12 < 8) tex.set([240, 200, 40, 255], (y * pw + x) * 4);
+  // The outline: as tall, narrow at its top (80) and wide at its bottom (200): rows stretched more and more.
+  const w = 220; const h = 160; const mask = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) { const half = 20 + (100 * y) / h; for (let x = Math.round(110 - half); x < Math.round(110 + half); x++) mask[y * w + x] = 1; }
+  const box = { x0: 10, y0: 0, x1: 210, y1: h }; const target = { mask, box, spans: rowSpans(mask, w, box, 1) };
+  const word = (L) => { let x0 = 1e9; let x1 = -1; let y0 = 1e9; let y1 = -1; for (let y = 0; y < L.ph; y++) for (let x = 0; x < L.pw; x++) { const o = (y * L.pw + x) * 4; if (L.rgba[o + 3] && L.rgba[o] > 150 && L.rgba[o + 2] < 120) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } } return { w: x1 - x0 + 1, h: y1 - y0 + 1 }; };
+  const plain = word(traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h, { prints: false }));
+  const kept = word(traceTransfer(tex, pm, pw, ph, { x0: 0, y0: 0, x1: pw, y1: ph }, target, w, h));
+  const src = 60 / 16;
+  assert.ok(Math.abs(kept.w / kept.h - src) / src < 0.12, `its proportions kept: ${kept.w}×${kept.h} (${(kept.w / kept.h).toFixed(2)} vs ${src.toFixed(2)})`);
+  assert.ok(Math.abs(plain.w / plain.h - src) / src > Math.abs(kept.w / kept.h - src) / src, `row by row it would be stretched more: ${plain.w}×${plain.h}`);
 });

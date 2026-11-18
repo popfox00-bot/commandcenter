@@ -37,7 +37,7 @@ test('a background color picked in Settings is used everywhere, readable, and ke
   await page.goto(`${origin}${BASE}`);
   assert.equal((await colors(page, '.app-name')).bg, 'rgb(246, 247, 249)', 'the default light background');
 
-  await page.click('.app-tile >> text=Settings');
+  await page.click('#home-settings');
   await page.waitForSelector('.st h2');
   await page.locator('summary', { hasText: 'Background' }).click();
   await page.click('[aria-label="Background Midnight"]');
@@ -87,31 +87,33 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.goto(`${origin}${BASE}`);
   const home = () => page.$$eval('.app-name', (els) => els.map((e) => e.textContent));
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk', 'Settings']);
-  await page.click('.app-tile >> text=Settings');
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk']);
+  await page.click('#home-settings');
   await page.waitForSelector('.st-home', { state: 'attached' });
   // Folded until tapped.
   assert.equal(await page.locator('.st-home').isVisible(), false, 'the reorder list starts folded');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.waitForSelector('.st-home');
-  assert.equal(await page.isDisabled('[aria-label="Move Calendar up"]'), true);
+  assert.equal(await page.isDisabled('[aria-label="Move Notes up"]'), true);
   await page.click('[aria-label="Move Draw up"]');
   await page.click('[aria-label="Move Draw up"]');
-  await page.click('[aria-label="Move Draw up"]');
-  await page.click('[aria-label="Move Calendar down"]');
-  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Trade Desk', 'Settings']);
+  await page.click('[aria-label="Move Notes down"]');
+  await page.click('[aria-label="Move Trade Desk up"]');
+  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Trade Desk', 'Games']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Trade Desk', 'Settings']);
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Trade Desk', 'Games']);
+  // Each in its category, in that order: Productivity, then Creativity.
+  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Magic', 'Creativity: Rap, Trade Desk, Games']);
   await page.reload();
   await page.waitForSelector('.app-tile');
-  assert.deepEqual((await home()).slice(0, 6), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files'], 'kept after a reload');
-  await page.click('.app-tile >> text=Settings');
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Trade Desk', 'Games'], 'kept after a reload');
+  await page.click('#home-settings');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk', 'Settings']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk']);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -184,7 +186,10 @@ test('Home: the version small at the top right; tapped, the version history (thi
   assert.equal(await tag.textContent(), `v${VERSION}`);
   // At the top right, and small.
   const box = await tag.boundingBox(); const font = await tag.evaluate((n) => parseFloat(getComputedStyle(n).fontSize));
-  assert.ok(box.x + box.width > 390 - 40 && box.y < 50, `top right: ${JSON.stringify(box)}`);
+  // (Just left of the ⚙ Settings, which is at the very right.)
+  const gear = await page.locator('#home-settings').boundingBox();
+  assert.ok(box.x + box.width > 390 - 100 && box.y < 50, `top right: ${JSON.stringify(box)}`);
+  assert.ok(gear.x >= box.x + box.width - 1 && gear.x + gear.width > 390 - 30, `⚙ to its right, at the edge: ${JSON.stringify(gear)}`);
   assert.ok(font <= 13, `small: ${font}px`);
   await tag.click();
   const dialog = page.getByRole('dialog', { name: 'Version history' });
@@ -192,11 +197,14 @@ test('Home: the version small at the top right; tapped, the version history (thi
   const items = dialog.locator('.versions-list li');
   assert.equal(await items.count(), HISTORY.length);
   assert.match(await items.first().textContent(), new RegExp(`v${VERSION.replace('.', '\\.')}.*This version`));
+  // An Update button in it too.
+  assert.ok(await dialog.getByRole('button', { name: 'Update to Latest Version' }).isVisible());
   await dialog.getByRole('button', { name: 'Close' }).click();
   assert.equal(await dialog.isVisible(), false);
   // Not inside an app.
   await page.goto(`${origin}${BASE}#/notes`); await page.waitForSelector('#view-app:not([hidden])');
   assert.equal(await tag.isHidden(), true);
+  assert.equal(await page.locator('#home-settings').isHidden(), true);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -223,16 +231,16 @@ test('Settings → Storage: what\'s kept on the phone by kind, with its size; wh
   await context.close();
 });
 
-test('Home: today\'s weather and a live game at a glance (from what Weather and Sports kept: no requests), and Recent edits in the apps they belong to (not on Home)', async () => {
+test('Home: the Updates card (the next event, today\'s weather, a live game: from what each kept, no requests) opening the Updates page; Recent edits in the apps they belong to (not on Home)', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   const errors = []; const external = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('request', (r) => { if (!r.url().startsWith(origin) && !/^(blob|data):/.test(r.url())) external.push(r.url()); });
   await page.goto(`${origin}${BASE}`);
-  // Nothing kept yet: the cards say where to start; no Recent edits.
-  await page.waitForSelector('.glance');
-  assert.match(await page.locator('.glance[href="#/weather"]').textContent(), /Open Weather/);
+  // Nothing kept yet: the card says where to start; no Recent edits.
+  await page.waitForSelector('.updates-card');
+  assert.match(await page.locator('.updates-card').textContent(), /Calendar\s*Nothing coming up[\s\S]*Weather\s*Open to see your forecast[\s\S]*Sports\s*Open to see your teams/);
   assert.equal(await page.locator('.recent').count(), 0);
   await page.evaluate(async () => {
     const now = Date.now(); const iso = (ms) => new Date(now + ms).toISOString();
@@ -243,13 +251,20 @@ test('Home: today\'s weather and a live game at a glance (from what Weather and 
     await idb.set('editor.session', { name: 'beach.jpg', blob: await c.convertToBlob({ type: 'image/png' }), state: {}, savedAt: now - 3600000 });
     await idb.set('scan.session', { pages: [], savedAt: now - 60000 });
     await idb.set('collage.session', { images: [{ blob: await c.convertToBlob({ type: 'image/png' }) }], savedAt: now - 120000 });
+    const d = new Date(now + 86400000); const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await idb.set('calendar.events', [{ id: 'e1', title: 'Dentist', date: k, start: '09:30', end: '10:30', allDay: false }]);
   });
   await page.reload();
-  await page.waitForSelector('.glance-main');
-  const w = await page.locator('.glance[href="#/weather"]').textContent();
-  assert.match(w, /47°/); assert.match(w, /Mostly Sunny/); assert.match(w, /H 54°/); assert.match(w, /Wind Advisory/);
-  const s = await page.locator('.glance[href="#/sports"]').textContent();
-  assert.match(s, /LAL 98\s+@\s+DEN 102/, 'the live game, not the one tomorrow'); assert.match(s, /Q4 2:31/);
+  await page.waitForSelector('.updates-card >> text=Dentist');
+  const rows = await page.$$eval('.upd-prev', (r) => r.map((x) => x.textContent));
+  assert.match(rows[0], /Calendar\s*Dentist\s*Tomorrow · 9:30 AM – 10:30 AM/);
+  assert.match(rows[1], /47° Mostly Sunny/); assert.match(rows[1], /H 54°/); assert.match(rows[1], /Wind Advisory/);
+  assert.match(rows[2], /LAL 98 @ DEN 102/, 'the live game, not the one tomorrow'); assert.match(rows[2], /Q4 2:31/);
+  // The card opens the Updates page (Calendar, Weather, Sports).
+  await page.click('.updates-card');
+  await page.waitForSelector('.upd-hub-tabs');
+  assert.deepEqual(await page.$$eval('.upd-hub-tabs .seg', (t) => t.map((x) => x.textContent)), ['📅 Calendar', '⛅ Weather', '🏆 Sports']);
+  await page.goto(`${origin}${BASE}#/`); await page.waitForSelector('.updates-card');
   // Not on Home.
   assert.equal(await page.locator('.recent-item').count(), 0, 'no Recent edits on Home');
   // In Files: its own, newest first (Scan a minute ago, Collage, then the Photo Editor an hour ago).

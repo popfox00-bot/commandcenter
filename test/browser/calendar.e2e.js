@@ -41,9 +41,11 @@ async function open(context, hash = '') {
 test('Calendar: week view with today highlighted; add, repeat, month and day views, edit, delete; kept after a reload', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
   const { page, errors, external } = await open(context);
-  await page.click('.app-tile >> text=Calendar');
+  // From the home screen's Updates card: the Updates page, Calendar first.
+  await page.click('.updates-card');
   await page.waitForSelector('.cal');
-  assert.equal(await page.textContent('#title'), 'Calendar');
+  assert.equal(await page.textContent('#title'), 'Updates');
+  assert.equal(await page.textContent('.upd-hub-tabs [aria-selected=true]'), '📅 Calendar');
   assert.equal(await page.textContent('.cal-views [aria-selected=true]'), 'Week');
   assert.equal(await page.textContent('.cal-title'), 'Oct 25 – 31, 2026');
   assert.match(await page.textContent('.cal-day.cal-today'), /Fri\s*30\s*Today/);

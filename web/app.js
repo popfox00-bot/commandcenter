@@ -2,27 +2,32 @@
 // No build step; every module is plain ES modules served from this folder.
 
 import { $, el, store } from './lib/dom.js';
-import { APPS, FILES_APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
+import { APPS, FILES_APPS, CATEGORIES, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
 import { VERSION, HISTORY } from './version.js';
-import { glanceCards } from './lib/home-extras.js';
+import { updatesCard } from './lib/home-extras.js';
+import { updateToLatest } from './lib/update.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
 
-// Above the apps: today's weather and your games at a glance. (Recent edits are shown in the apps they
-// belong to: Files, its Photo Editor, Magic.)
-function renderExtras() {
-  let cards = null; try { cards = glanceCards(); } catch { cards = null; }
-  $('#home-extras').replaceChildren(...[cards].filter(Boolean));
-}
-
+// The home screen, in three parts: Updates (one card of previews: the next event, the weather, your
+// game; it opens the Updates page), then Productivity and Creativity (tiles, in the order set in Settings).
+// (Recent edits are shown in the apps they belong to: Files, its Photo Editor, Magic.)
 function renderHome() {
-  renderExtras();
-  $('#app-grid').replaceChildren(...homeApps(store.json(HOME_ORDER_KEY, null)).map((a) => el('a', { class: 'app-tile', href: a.href },
+  let card = null; try { card = updatesCard(); } catch { card = null; }
+  $('#home-extras').replaceChildren(...[card].filter(Boolean));
+  const apps = homeApps(store.json(HOME_ORDER_KEY, null));
+  const tile = (a) => el('a', { class: 'app-tile', href: a.href },
     el('span', { class: `app-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
     el('span', { class: 'app-name', text: a.name }),
-    el('span', { class: 'app-note muted', text: a.note }))));
+    el('span', { class: 'app-note muted', text: a.note }));
+  $('#app-grid').replaceChildren(...CATEGORIES.filter((c) => c.id !== 'updates').map((c) => {
+    const mine = apps.filter((a) => (a.cat ?? 'productivity') === c.id);
+    return mine.length ? el('section', { class: 'home-cat', 'aria-label': c.name },
+      el('h2', { class: 'home-cat-title', text: c.name }),
+      el('div', { class: 'app-grid' }, ...mine.map(tile))) : null;
+  }).filter(Boolean));
 }
 
 async function route() {
@@ -43,6 +48,7 @@ async function route() {
   $('#title').textContent = { home: 'Command Center', jobs: 'Jobs', app: inFiles?.name ?? app?.name }[view];
   $('#jobs-actions').hidden = view !== 'jobs';
   $('#version').hidden = view !== 'home';
+  $('#home-settings').hidden = view !== 'home';
   setJobsActive(view === 'jobs');
 
   if (mountedApp && (view !== 'app' || mountedApp.id !== app.id)) {
@@ -74,9 +80,13 @@ $('#version').textContent = `v${VERSION}`;
 $('#version').setAttribute('aria-label', `Version ${VERSION}: what's new`);
 $('#version').addEventListener('click', () => {
   const d = $('#versions');
+  // (Update to Latest Version, here too: checks now and installs a new one if there is.)
+  const note = el('p', { class: 'small muted', 'aria-live': 'polite', text: `This is v${VERSION}.` });
+  const upd = el('button', { type: 'button', class: 'btn primary block', text: 'Update to Latest Version', onclick: async () => { upd.disabled = true; await updateToLatest((t) => { note.textContent = t; }); upd.disabled = false; } });
   d.replaceChildren(
     el('div', { class: 'versions-head' }, el('h2', { id: 'versions-title', text: 'Version history' }),
       el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', text: '✕', onclick: () => d.close() })),
+    el('div', { class: 'versions-update' }, upd, note),
     el('ol', { class: 'versions-list' }, ...HISTORY.map((h) => el('li', { class: h.v === VERSION ? 'current' : '' },
       el('div', { class: 'versions-row' }, el('strong', { text: `v${h.v}` }), el('span', { class: 'small muted', text: new Date(`${h.date}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) }), h.v === VERSION ? el('span', { class: 'small versions-now', text: 'This version' }) : null),
       el('p', { class: 'small', text: h.notes })))));

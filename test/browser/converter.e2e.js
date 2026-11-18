@@ -59,7 +59,7 @@ test('home screen of apps: Files and Magic hold the others (each back to where i
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk', 'Settings']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   // Files: a page of its apps; each opens with its own name, back to Files.
   await page.click('.app-tile >> text=Files');
@@ -96,7 +96,7 @@ test('home screen of apps: Files and Magic hold the others (each back to where i
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
   // Jobs lives in Settings now, and goes back there.
-  await page.click('.app-tile >> text=Settings');
+  await page.click('#home-settings');
   await page.click('.st-link >> text=Jobs');
   await page.waitForSelector('#view-jobs:not([hidden])');
   assert.equal(await page.isVisible('#jobs-actions'), true);

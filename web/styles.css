@@ -1163,3 +1163,23 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .upd-lead-val { font-variant-numeric: tabular-nums; font-size: .82rem; line-height: 1.35; }
 .upd-lead-val strong { font-size: 1rem; }
 .upd-lead-val .muted { font-size: .78rem; }
+
+/* Home, by category: the Updates card (a line each of Calendar, Weather, Sports), then Productivity and
+   Creativity, each a heading over its tiles. The ⚙ Settings beside the version at the top right. */
+.home-settings { display: inline-grid; place-items: center; text-decoration: none; color: var(--text); margin-left: 2px; }
+.home-cats { display: grid; gap: 4px; max-width: 520px; margin: 0 auto; padding-bottom: 20px; }
+.home-cat-title { margin: 14px 16px 0; font-size: .82rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.home-cat .app-grid { padding: 12px 16px 8px; }
+.updates-card { display: grid; gap: 2px; padding: 12px 14px; color: var(--text); text-decoration: none; max-width: 520px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.updates-head { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.updates-head strong { font-weight: 700; }
+.updates-head .chev { font-size: 1.4rem; line-height: 1; }
+.upd-prev { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px; padding: 7px 0; }
+.upd-prev + .upd-prev { border-top: 1px solid var(--border); }
+.upd-prev-icon { font-size: 1.35rem; text-align: center; }
+.upd-prev-text { display: grid; min-width: 0; }
+.upd-prev-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-prev.live .upd-prev-main { color: #dc2626; }
+.upd-prev.alert .small:last-child { color: #b45309; }
+.upd-hub-tabs { margin: 0 auto 12px; max-width: 520px; }
+.versions-update { display: grid; gap: 6px; margin: 4px 0 12px; padding: 0 16px; }

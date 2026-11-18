@@ -42,7 +42,7 @@ test('Calendar: week view with today highlighted; add, repeat, month and day vie
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
   const { page, errors, external } = await open(context);
   // From the home screen's Updates card: the Updates page, Calendar first.
-  await page.click('.updates-card');
+  await page.click('.updates-head');
   await page.waitForSelector('.cal');
   assert.equal(await page.textContent('#title'), 'Updates');
   assert.equal(await page.textContent('.upd-hub-tabs [aria-selected=true]'), '📅 Calendar');

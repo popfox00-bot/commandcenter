@@ -55,7 +55,7 @@ test('Weather (its own app): alerts, heads-ups (freeze, wind, air quality), hour
   const seen = await mockApis(context);
   const { page, errors } = await openApp(context);
   // The Updates card on the home screen, then its Weather tab.
-  await page.click('.updates-card');
+  await page.click('.updates-head');
   await page.click('.upd-hub-tabs >> text=Weather');
   await page.waitForSelector('.upd-now');
   assert.equal(await page.textContent('#title'), 'Updates');

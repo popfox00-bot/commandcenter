@@ -12,17 +12,19 @@ export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', cat: 'updates', home: false, parent: 'updates', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', cat: 'updates', home: false, parent: 'updates', load: () => import('./weather/weather.js') },
   { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', cat: 'updates', home: false, parent: 'updates', load: () => import('./sports/sports.js') },
+  { id: 'packages', name: 'Packages', icon: '📦', tint: 'amber', note: 'Tracking numbers · Live status', href: '#/packages', cat: 'updates', home: false, parent: 'updates', load: () => import('./packages/packages.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', cat: 'productivity', load: () => import('./notes/notes.js') },
   { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Convert · PDF · Scan', href: '#/files', cat: 'productivity', load: () => import('../tools/studio/studio.js') },
   { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Fashion · Saved Files', href: '#/magic', cat: 'productivity', load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
+  { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },
   { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html', cat: 'creativity' },
   { id: 'tradedesk', name: 'Trade Desk', icon: '🏈', tint: 'blue', note: 'LHS fantasy trades', href: 'apps/tradedesk/index.html', cat: 'creativity' },
   // Settings: the ⚙ at the top right of the home screen, not a tile.
   { id: 'settings', name: 'Settings', icon: '⚙️', tint: 'gray', note: 'Home screen · Colors · Jobs', href: '#/settings', home: false, load: () => import('./settings/settings.js') },
   // Updates: Calendar, Weather and Sports together (the home screen's Updates card opens it).
-  { id: 'updates', name: 'Updates', icon: '📰', tint: 'amber', note: 'Calendar · Weather · Sports', href: '#/updates', home: false, load: () => import('./updates-hub/updates-hub.js') },
+  { id: 'updates', name: 'Updates', icon: '📰', tint: 'amber', note: 'Calendar · Weather · Sports · Packages', href: '#/updates', home: false, load: () => import('./updates-hub/updates-hub.js') },
   // In Magic (its own apps, opened from it).
   { id: 'downloads', name: 'Downloads', icon: '⬇️', tint: 'blue', note: 'Video links · Queue · History', href: '#/downloads', parent: 'magic', home: false, load: () => import('./downloads/downloads.js') },
   { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', parent: 'magic', home: false, load: () => import('./fm/fm.js') },

@@ -11,6 +11,7 @@ import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 import { storageSettings } from '../../lib/storage-usage.js';
 import { VERSION } from '../../version.js';
 import { updateToLatest } from '../../lib/update.js';
+import { dragHandle, sortable, moved } from '../../lib/drag-sort.js';
 
 export function mount(host) {
   const theme = globalThis.ccTheme;
@@ -44,18 +45,16 @@ export function mount(host) {
   const homeList = el('ol', { class: 'st-home', 'aria-label': 'Home screen order' });
   function drawHome() {
     const apps = homeApps(store.json(HOME_ORDER_KEY, null));
-    const move = (i, d) => {
-      const ids = apps.map((a) => a.id);
-      [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
-      store.set(HOME_ORDER_KEY, JSON.stringify(ids));
-      drawHome();
-      homeList.querySelector(`[data-id="${ids[i + d]}"] button[data-dir="${d}"]`)?.focus();
-    };
-    homeList.replaceChildren(...apps.map((a, i) => el('li', { class: 'st-home-row', 'data-id': a.id },
+    // (Drag a row by its ☰ to move it; each app stays in its part of the home screen.)
+    homeList.replaceChildren(...apps.map((a) => el('li', { class: 'st-home-row', 'data-id': a.id },
       el('span', { class: `app-icon st-home-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
       el('strong', { class: 'st-home-name', text: a.name }),
-      el('button', { type: 'button', class: 'icon-btn', 'data-dir': '-1', 'aria-label': `Move ${a.name} up`, text: '↑', disabled: i === 0, onclick: () => move(i, -1) }),
-      el('button', { type: 'button', class: 'icon-btn', 'data-dir': '1', 'aria-label': `Move ${a.name} down`, text: '↓', disabled: i === apps.length - 1, onclick: () => move(i, 1) }))));
+      dragHandle(a.name))));
+    sortable(homeList, (from, to) => {
+      const ids = moved(homeApps(store.json(HOME_ORDER_KEY, null)).map((a) => a.id), from, to);
+      store.set(HOME_ORDER_KEY, JSON.stringify(ids));
+      drawHome();
+    });
   }
   drawHome();
 
@@ -99,8 +98,8 @@ export function mount(host) {
     updBtn.disabled = false;
   });
 
-  // Every card after App version: folded until tapped, in the order you set (↑ / ↓ on each), kept on this
-  // phone. App version stays first and open.
+  // Every card after App version: folded until tapped, in the order you set (drag one by its ☰), kept on
+  // this phone. App version stays first and open.
   const ORDER_KEY = 'cc.settings.order';
   const homeBody = el('div', {},
     el('p', { class: 'small muted', text: 'The order of the apps on the home screen. Saved on this phone only.' }),
@@ -120,35 +119,67 @@ export function mount(host) {
     el('span', { class: 'app-icon st-home-icon tint-slate', 'aria-hidden': 'true', text: '⏱' }),
     el('span', { class: 'st-link-text' }, el('strong', { text: 'Jobs' }), el('span', { class: 'small muted', text: 'Background runs, push notifications and their setup' })),
     el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+  // ---------- Suggest Improvements ----------
+  // Notes for future updates, written any time (offline too), kept on this phone, and copied to your Drive
+  // (Saved Files) as one plain file when it's connected and there's a connection.
+  const sugBox = el('textarea', { class: 'st-sug-text', rows: '3', placeholder: 'What would make the app better?', 'aria-label': 'Suggestion' });
+  const sugList = el('ul', { class: 'st-sug-list' });
+  const sugNote = el('p', { class: 'small muted', 'aria-live': 'polite' });
+  async function syncSuggestions() {
+    const S = await import('../../lib/suggestions.js');
+    const { getConfig, savedFiles } = await import('../../lib/saved-files.js');
+    const cfg = getConfig();
+    if (!cfg) { sugNote.textContent = 'Kept on this phone. Connect Saved Files (below) to have them copied to your Drive.'; return; }
+    if (!S.needsSync()) { sugNote.textContent = `All copied to your Drive (${S.DRIVE_FOLDER}/${S.DRIVE_FILE}).`; return; }
+    if (navigator.onLine === false) { sugNote.textContent = 'Kept on this phone; copied to your Drive when you\'re back online.'; return; }
+    sugNote.textContent = 'Copying to your Drive…';
+    try { await S.sync(savedFiles(cfg)); sugNote.textContent = `Copied to your Drive (${S.DRIVE_FOLDER}/${S.DRIVE_FILE}).`; } catch (e) { sugNote.textContent = `Kept on this phone; not copied yet: ${e.message}`; }
+    drawSuggestions();
+  }
+  async function drawSuggestions() {
+    const S = await import('../../lib/suggestions.js');
+    const items = S.list();
+    sugList.replaceChildren(...[...items].reverse().map((q) => el('li', { class: 'st-sug-row' },
+      el('span', { class: 'st-sug-body' }, el('span', { text: q.text }), el('span', { class: 'small muted', text: `${new Date(q.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${q.synced ? 'on your Drive' : 'on this phone'}` })),
+      el('button', { type: 'button', class: 'icon-btn', 'aria-label': `Delete suggestion: ${q.text.slice(0, 40)}`, text: '✕', onclick: async () => { S.remove(q.id); await drawSuggestions(); syncSuggestions(); } }))));
+    if (!items.length) sugList.replaceChildren(el('li', { class: 'small muted', text: 'None yet.' }));
+  }
+  const sugBody = el('div', {},
+    el('p', { class: 'small muted', text: 'Ideas and fixes for future updates. Saved on this phone (works offline) and copied to your Drive when Saved Files is connected, for the next time the app is worked on.' }),
+    sugBox,
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', text: 'Save suggestion', onclick: async () => { const S = await import('../../lib/suggestions.js'); if (!sugBox.value.trim()) return; S.add(sugBox.value); sugBox.value = ''; await drawSuggestions(); syncSuggestions(); } })),
+    sugNote, sugList);
+  drawSuggestions(); syncSuggestions();
+  // (Back online: copied then; not once Settings is closed.)
+  const onOnline = () => { if (!host.isConnected) { window.removeEventListener('online', onOnline); return; } syncSuggestions(); };
+  window.addEventListener('online', onOnline);
+
   const SECTIONS = [
     { id: 'home', title: 'Edit Home Screen', body: () => homeBody },
     { id: 'background', title: 'Background', body: () => bgBody },
     { id: 'saved', title: 'Saved Files', body: () => inner(savedFilesSettings()) },
     { id: 'storage', title: 'Storage', body: () => inner(storageSettings()) },
     { id: 'diagnostics', title: 'Diagnostics', body: () => diagSection },
+    { id: 'suggest', title: 'Suggest Improvements', body: () => sugBody },
     { id: 'jobs', title: 'Jobs', link: true },
   ];
   // (#/settings/<card>, from a link elsewhere: that card opened.)
   const built = new Map(); const openNow = new Set([(location.hash || '').split('/')[2] ?? ''].filter(Boolean));
   const orderNow = () => { const saved = store.json(ORDER_KEY, null); const ids = SECTIONS.map((q) => q.id); const o = Array.isArray(saved) ? saved.filter((id) => ids.includes(id)) : []; return [...o, ...ids.filter((id) => !o.includes(id))]; };
   const list = el('div', { class: 'st-sections' });
-  function drawSections(focusId = null, dir = 0) {
+  function drawSections() {
     const order = orderNow();
-    const move = (id, d) => { const o = orderNow(); const i = o.indexOf(id); const j = i + d; if (j < 0 || j >= o.length) return; [o[i], o[j]] = [o[j], o[i]]; store.set(ORDER_KEY, JSON.stringify(o)); drawSections(id, d); };
-    const arrows = (q, i) => el('span', { class: 'st-move' },
-      el('button', { type: 'button', class: 'icon-btn st-move-btn', 'aria-label': `Move ${q.title} up`, 'data-dir': '-1', text: '↑', disabled: i === 0, onclick: (e) => { e.preventDefault(); e.stopPropagation(); move(q.id, -1); } }),
-      el('button', { type: 'button', class: 'icon-btn st-move-btn', 'aria-label': `Move ${q.title} down`, 'data-dir': '1', text: '↓', disabled: i === order.length - 1, onclick: (e) => { e.preventDefault(); e.stopPropagation(); move(q.id, 1); } }));
-    list.replaceChildren(...order.map((id, i) => {
+    list.replaceChildren(...order.map((id) => {
       const q = SECTIONS.find((x) => x.id === id);
-      if (q.link) return el('div', { class: 'card st-fold st-linkcard', 'data-id': id }, jobsLink(), arrows(q, i));
+      if (q.link) return el('div', { class: 'card st-fold st-linkcard', 'data-id': id }, jobsLink(), dragHandle(q.title));
       // (Each card's contents built once and moved, not rebuilt: what's typed in it stays.)
       if (!built.has(id)) built.set(id, q.body());
       const d = el('details', { class: 'card st-fold', 'data-id': id, open: openNow.has(id) ? true : null },
-        el('summary', {}, el('h2', { text: q.title }), arrows(q, i)), built.get(id));
+        el('summary', {}, el('h2', { text: q.title }), dragHandle(q.title)), built.get(id));
       d.addEventListener('toggle', () => { if (d.open) openNow.add(id); else openNow.delete(id); });
       return d;
     }));
-    if (focusId) list.querySelector(`[data-id="${focusId}"] button[data-dir="${dir}"]`)?.focus();
+    sortable(list, (from, to) => { store.set(ORDER_KEY, JSON.stringify(moved(orderNow(), from, to))); drawSections(); });
   }
   drawSections();
 

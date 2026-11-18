@@ -1171,10 +1171,10 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .home-cat-title { margin: 14px 16px 0; font-size: .82rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .home-cat .app-grid { padding: 12px 16px 8px; }
 .updates-card { display: grid; gap: 2px; padding: 12px 14px; color: var(--text); text-decoration: none; max-width: 520px; width: 100%; margin: 0 auto; box-sizing: border-box; }
-.updates-head { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.updates-head { text-decoration: none; display: flex; justify-content: space-between; align-items: center; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 .updates-head strong { font-weight: 700; }
 .updates-head .chev { font-size: 1.4rem; line-height: 1; }
-.upd-prev { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px; padding: 7px 0; }
+.upd-prev { color: var(--text); text-decoration: none; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px; padding: 7px 0; }
 .upd-prev + .upd-prev { border-top: 1px solid var(--border); }
 .upd-prev-icon { font-size: 1.35rem; text-align: center; }
 .upd-prev-text { display: grid; min-width: 0; }
@@ -1183,3 +1183,72 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .upd-prev.alert .small:last-child { color: #b45309; }
 .upd-hub-tabs { margin: 0 auto 12px; max-width: 520px; }
 .versions-update { display: grid; gap: 6px; margin: 4px 0 12px; padding: 0 16px; }
+
+/* A ☰ drag handle (Settings' cards, Edit Home Screen): a row follows the finger while dragged. */
+.drag-handle { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--muted); font-size: 1.25rem; cursor: grab; touch-action: none; border-radius: 10px; }
+.drag-handle:focus-visible { outline: 2px solid var(--primary); }
+.dragging { position: relative; z-index: 5; box-shadow: 0 8px 24px rgba(0,0,0,.18); opacity: .96; }
+.st-sections > *, .st-home > li { transition: transform .15s ease; }
+.st-sections > .dragging, .st-home > li.dragging { transition: none; }
+.st-linkcard .drag-handle { flex: none; }
+
+/* Settings → Suggest Improvements. */
+.st-sug-text { width: 100%; box-sizing: border-box; font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); resize: vertical; }
+.st-sug-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
+.st-sug-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.st-sug-body { flex: 1; display: grid; gap: 2px; white-space: pre-wrap; }
+.tint-teal { background: linear-gradient(160deg, #5eead4, #0f766e); }
+
+/* Units: kinds as chips, then the converter card (Amount, From, ⇅, To, the answer), then other units. */
+.un { display: grid; gap: 12px; max-width: 560px; margin: 0 auto; }
+.un-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.un-card { display: grid; gap: 8px; }
+.un-row { display: grid; gap: 4px; }
+.un-amount, .un-select { font: inherit; font-size: 1.05rem; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); min-height: 44px; }
+.un-swap-row { display: flex; justify-content: center; }
+.un-result { display: grid; gap: 2px; padding-top: 6px; border-top: 1px solid var(--border); }
+.un-big { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.un-all { list-style: none; padding: 0; margin: 0; display: grid; }
+.un-all li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+
+/* Packages (an Updates tab): add a number, then a card each with its progress bar and its updates. */
+.pk { display: grid; gap: 12px; max-width: 560px; margin: 0 auto; }
+.pk-add { display: grid; gap: 8px; }
+.pk-add h2 { margin: 0; }
+.pk-num, .pk-name, .pk-carrier { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); min-height: 44px; }
+.pk-num { font-variant-numeric: tabular-nums; letter-spacing: .03em; }
+.pk-list { display: grid; gap: 10px; }
+.pk-card { display: grid; gap: 8px; }
+.pk-card.pk-problem { border-color: color-mix(in srgb, #dc2626 50%, var(--border)); }
+.pk-card.pk-done { opacity: .85; }
+.pk-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.pk-title { display: grid; min-width: 0; }
+.pk-numtext { overflow-wrap: anywhere; }
+.pk-status { margin: 0; }
+.pk-bar { display: grid; grid-template-columns: repeat(4, 1fr); position: relative; }
+.pk-step { display: grid; justify-items: center; gap: 4px; position: relative; text-align: center; }
+.pk-step::before { content: ''; position: absolute; top: 6px; left: -50%; width: 100%; height: 3px; background: var(--border); z-index: 0; }
+.pk-step:first-child::before { display: none; }
+.pk-step.on::before { background: #16a34a; }
+.pk-dot { width: 15px; height: 15px; border-radius: 50%; background: var(--surface); border: 2px solid var(--border); position: relative; z-index: 1; box-sizing: border-box; }
+.pk-step.on .pk-dot { background: #16a34a; border-color: #16a34a; }
+.pk-step.now .pk-dot { box-shadow: 0 0 0 4px color-mix(in srgb, #16a34a 25%, transparent); }
+.pk-label { font-size: .68rem; color: var(--muted); line-height: 1.2; }
+.pk-step.on .pk-label { color: var(--text); }
+.pk-last { margin: 0; }
+.pk-events { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 8px; }
+.pk-events li { display: grid; gap: 1px; padding-left: 12px; border-left: 2px solid var(--border); }
+
+/* The Updates card's games today: a line each, live ones in red; two columns when there are many. */
+.upd-prev-games { align-items: start; }
+.upd-prev-games .upd-prev-icon, .upd-prev-label { text-decoration: none; color: inherit; }
+.upd-prev-games .upd-prev-icon { padding-top: 2px; }
+.upd-games { display: grid; gap: 4px; margin-top: 2px; }
+.upd-games.many { grid-template-columns: 1fr 1fr; column-gap: 10px; }
+.upd-game-line { display: grid; color: var(--text); text-decoration: none; padding: 3px 0; min-width: 0; }
+.upd-game-line + .upd-game-line { border-top: 1px dashed var(--border); }
+.upd-games.many .upd-game-line + .upd-game-line { border-top: 0; }
+.upd-game-line.live .upd-game-teams { color: #dc2626; }
+.upd-game-teams, .upd-game-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.upd-focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+.upd-hub-tabs .seg { white-space: nowrap; font-size: .8rem; padding-left: 2px; padding-right: 2px; }

@@ -3,14 +3,15 @@
 A personal, phone-first app. Its home screen is in three parts:
 
 - **Updates**: one card with a line each of **Calendar** (what's next), **Weather** (now, high and low,
-  any alert) and **Sports** (your next or live game), from what each last loaded (Home itself goes online
-  for nothing). Tapping it opens the **Updates** page: Calendar, Weather and Sports together, as tabs.
-- **Productivity**: **Notes**, **Files**, **Magic** and **Draw**.
+  any alert) and **Sports** (every game today, a line each, live ones in red; the card grows with them),
+  from what each last loaded (Home itself goes online for nothing). Each line opens its own tab of the
+  **Updates** page (Calendar, Weather, Sports and **Packages**), and a game opens Sports on that game.
+- **Productivity**: **Notes**, **Files**, **Magic**, **Draw** and **Units**.
 - **Creativity**: **Rap**, **Games** and **Trade Desk**.
 
 **⚙ Settings** is at the top right, beside the version (tap the version for what changed in each, and
-**Update to Latest Version**). The order of the tiles can be changed in Settings → Edit Home Screen (each
-stays in its part); **Jobs** is opened from Settings. **Recent edits** (unfinished work, newest first: tap
+**Update to Latest Version**). The order of the tiles can be changed in Settings → Edit Home Screen (drag a row
+by its ☰; each stays in its part); **Jobs** is opened from Settings. **Recent edits** (unfinished work, newest first: tap
 to continue) are shown in the apps they belong to: Files (all of its own), the Photo Editor (its other
 parts': a collage in progress, seen from Edit), and Magic (FM, Reverse Fill, Fashion).
 
@@ -1068,6 +1069,31 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
   endings like "watch me ___"); notices in `DATA-LICENSES.md`. Words it doesn't know ("stuntin'") are
   worked out from their stem or ending. Suggestions learn from `rap-corpus.js` (lines written for this
   app) and your songs.
+
+## Packages
+
+**Packages** (a tab of Updates; not in the home screen's card) follows tracking numbers you add: USPS, UPS,
+FedEx, DHL, Amazon and OnTrac, the carrier told from the number (or picked). Each shows its live status: a
+progress bar (label created → in transit → out for delivery → delivered), where it is now and when it's
+expected, and all its updates; checked when the tab opens, every 10 minutes while it's open, and with ↻.
+Live status comes through your own Worker (the Jobs setup: `POST /api/track`), which asks
+[17TRACK](https://api.17track.net) with a key kept as the Worker secret `TRACK17_KEY`
+(`npx wrangler secret put TRACK17_KEY`); the key never reaches the phone. Without it, each package has a
+button to its carrier's own tracking page. Kept on this phone.
+
+## Units
+
+**Units** converts lengths, weights, temperatures, volumes, areas, speeds, times and data sizes, and money:
+type an amount, pick From and To (⇅ swaps them); the answer, and the amount in every other unit under it.
+Currency by the day's rates (the European Central Bank's, from frankfurter.app, else open.er-api.com),
+kept on the phone so it works offline with the last ones loaded.
+
+## Suggest Improvements
+
+Settings → **Suggest Improvements** keeps ideas for future updates: written any time (offline too), kept on
+the phone, and copied to your Google Drive when Saved Files is connected, as one plain file,
+`Command Center/Suggested improvements.md` (not encrypted, so it can be read when the app is next worked
+on; `CLAUDE.md` says to read it at the start of each session and to ask before acting on it).
 
 ## Trade Desk
 

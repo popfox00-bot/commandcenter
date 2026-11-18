@@ -35,6 +35,7 @@ RETAIN_ITEM_DAYS = "120"
 # Secrets (never in this file). Set each with `npx wrangler secret put <NAME>`:
 #   CC_API_TOKEN       bearer token the PWA sends (24+ random chars)
 #   CC_INGEST_SECRET   HMAC secret shared with the GitHub Actions runner (different value!)
+#   TRACK17_KEY        (optional) a 17TRACK API key, for Packages' live status (api.17track.net)
 #   GH_DISPATCH_TOKEN  fine-grained PAT: this repo only, Actions: Read and write
 #   NTFY_TOPIC         your private ntfy topic (watchdog alerts)
 #   NTFY_TOKEN         optional, only for protected topics

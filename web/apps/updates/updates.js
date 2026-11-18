@@ -330,15 +330,30 @@ export function mount(host, { only = 'weather' } = {}) {
       const sport = S.LEAGUES[t.league]?.sport;
       const rows = S.statRows(st.teams ?? [], sport, 4);
       const awayAbbr = g.away?.abbr ?? ''; const homeAbbr = g.home?.abbr ?? '';
+      const lead = S.leaderRows(st.leaders, awayAbbr, homeAbbr, sport);
+      const line = S.lineScore(st.teams, sport);
+      // (A leader: the value big, the name under it; a dash where that team has none.)
+      const cell = (v, side) => el('div', { class: `upd-lead-cell ${side}` }, v ? el('strong', { class: 'upd-lead-val', text: v.value }) : el('span', { class: 'muted', text: '—' }), v ? el('span', { class: 'upd-lead-who small', text: v.who }) : null);
       return el('div', { class: 'upd-stats' },
         st.situation?.text || st.situation?.possession ? el('p', { class: 'small', text: [st.situation.possession && `🏈 ${st.situation.possession} ball`, st.situation.text].filter(Boolean).join(' · ') }) : null,
         st.situation?.lastPlay ? el('p', { class: 'small muted', text: `Last play: ${st.situation.lastPlay}` }) : null,
         st.winProb ? el('p', { class: 'small', text: `Win chance: ${awayAbbr} ${st.winProb.away}% · ${homeAbbr} ${st.winProb.home}%` }) : null,
-        st.leaders?.length ? el('div', { class: 'upd-leaders' }, ...st.leaders.slice(0, 6).map((l) => el('span', { class: 'chip upd-leader', text: `${l.team ? `${l.team} ` : ''}${l.stat}: ${l.who} ${l.value}` }))) : null,
+        // The score by period (a box score's line), then the game's leaders side by side, then team stats.
+        line ? el('table', { class: 'upd-line small', 'aria-label': 'Score by period' },
+          el('thead', {}, el('tr', {}, el('th', { text: '' }), ...line.periods.map((p) => el('th', { text: p })), el('th', { class: 'upd-line-t', text: 'T' }))),
+          el('tbody', {}, ...[line.away, line.home].map((side) => el('tr', {}, el('th', { text: side.abbr }), ...line.periods.map((_, i) => el('td', { text: side.lines[i] ?? '' })), el('td', { class: 'upd-line-t', text: side.score ?? '' }))))) : null,
+        lead.length ? el('div', { class: 'upd-lead' },
+          el('div', { class: 'upd-lead-head small muted' }, el('span', { text: awayAbbr }), el('span', { text: g.completed ? 'Game leaders' : 'Leaders' }), el('span', { text: homeAbbr })),
+          ...lead.map((r) => r.overall
+            ? el('div', { class: 'upd-lead-row upd-lead-one' }, el('span', { class: 'upd-lead-stat small muted', text: r.label }), el('span', { class: 'upd-lead-who', text: `${r.overall.team ? `${r.overall.team} ` : ''}${r.overall.who}` }), el('strong', { class: 'upd-lead-val', text: r.overall.value }))
+            : el('div', { class: 'upd-lead-row' },
+              cell(r.away, 'away'),
+              el('span', { class: 'upd-lead-stat small muted', text: r.label }),
+              cell(r.home, 'home')))) : null,
         rows.length ? el('table', { class: 'upd-stat-table small' },
-          el('thead', {}, el('tr', {}, el('th', { text: '' }), el('th', { text: awayAbbr }), el('th', { text: homeAbbr }))),
+          el('thead', {}, el('tr', {}, el('th', { text: 'Team stats' }), el('th', { text: awayAbbr }), el('th', { text: homeAbbr }))),
           el('tbody', {}, ...rows.map((r) => el('tr', {}, el('th', { text: r.label }), el('td', { text: r.away }), el('td', { text: r.home }))))) : null,
-        !st.situation?.text && !st.leaders?.length && !rows.length && !st.winProb ? el('p', { class: 'small muted', text: 'No stats for this game yet.' }) : null,
+        !st.situation?.text && !lead.length && !rows.length && !st.winProb && !line ? el('p', { class: 'small muted', text: 'No stats for this game yet.' }) : null,
         el('p', { class: 'muted small', text: `Stats as of ${new Date(st.at ?? Date.now()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }));
     }
 

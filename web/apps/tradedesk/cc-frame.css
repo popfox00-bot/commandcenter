@@ -1,0 +1,7 @@
+/* Command Center additions to Trade Desk (copied from the tradedesk repository; its page otherwise
+   unchanged): a way back Home. */
+.cc-home {
+  display: block; max-width: 1180px; margin: 0 auto; padding: 12px 24px 0;
+  color: #e8a33d; font-weight: 700; font-size: 15px; text-decoration: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}

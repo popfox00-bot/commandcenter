@@ -215,3 +215,20 @@ test('sports live stats: a scoreboard\'s live game (score, clock, situation, lea
   // Nothing there (a game ESPN has no box score for yet): empty, not an error.
   assert.deepEqual(S.parseSummary({}), { situation: null, leaders: [], teams: [], winProb: null, at: S.parseSummary({}).at });
 });
+
+test('sports, a game\'s leaders side by side (Points, Rebounds, Assists: each team\'s), and its score by period', () => {
+  const L = (team, stat, who, value) => ({ team, stat, who, value });
+  const rows = S.leaderRows([L('LAL', 'AST', 'L. James', '9'), L('DEN', 'PTS', 'N. Jokic', '31'), L('LAL', 'PTS', 'A. Davis', '28'), L('DEN', 'REB', 'N. Jokic', '14'), L('LAL', 'REB', 'A. Davis', '12'), L('DEN', 'AST', 'J. Murray', '8'), L('DEN', 'PTS', 'J. Murray', '20')], 'LAL', 'DEN', 'basketball');
+  assert.deepEqual(rows.map((r) => [r.label, r.away?.who, r.away?.value, r.home?.who, r.home?.value]), [
+    ['Points', 'A. Davis', '28', 'N. Jokic', '31'],
+    ['Rebounds', 'A. Davis', '12', 'N. Jokic', '14'],
+    ['Assists', 'L. James', '9', 'J. Murray', '8'],
+  ]);
+  // A game's overall leader with no team: a row of its own.
+  const one = S.leaderRows([L('', 'PASS', 'B. Nix', '181 YDS')], 'KC', 'DEN', 'football');
+  assert.deepEqual(one, [{ stat: 'PASS', label: 'Passing', away: null, home: null, overall: { who: 'B. Nix', value: '181 YDS', team: '' } }]);
+  const line = S.lineScore([{ abbr: 'LAL', home: false, lines: ['25', '30', '22', '28', '10'], score: '115' }, { abbr: 'DEN', home: true, lines: ['28', '27', '25', '25', '12'], score: '117' }], 'basketball');
+  assert.deepEqual(line.periods, ['1', '2', '3', '4', 'OT']);
+  assert.equal(line.home.score, '117');
+  assert.equal(S.lineScore([], 'basketball'), null);
+});

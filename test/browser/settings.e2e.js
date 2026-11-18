@@ -87,7 +87,7 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.goto(`${origin}${BASE}`);
   const home = () => page.$$eval('.app-name', (els) => els.map((e) => e.textContent));
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk', 'Settings']);
   await page.click('.app-tile >> text=Settings');
   await page.waitForSelector('.st-home', { state: 'attached' });
   // Folded until tapped.
@@ -99,10 +99,10 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.click('[aria-label="Move Draw up"]');
   await page.click('[aria-label="Move Draw up"]');
   await page.click('[aria-label="Move Calendar down"]');
-  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Trade Desk', 'Settings']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await home(), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Games', 'Trade Desk', 'Settings']);
   await page.reload();
   await page.waitForSelector('.app-tile');
   assert.deepEqual((await home()).slice(0, 6), ['Weather', 'Calendar', 'Sports', 'Draw', 'Notes', 'Files'], 'kept after a reload');
@@ -111,7 +111,7 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Settings']);
+  assert.deepEqual(await home(), ['Calendar', 'Weather', 'Sports', 'Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk', 'Settings']);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -223,7 +223,7 @@ test('Settings → Storage: what\'s kept on the phone by kind, with its size; wh
   await context.close();
 });
 
-test('Home: today\'s weather and a live game at a glance (from what Weather and Sports kept: no requests), and Recent edits opening their apps', async () => {
+test('Home: today\'s weather and a live game at a glance (from what Weather and Sports kept: no requests), and Recent edits in the apps they belong to (not on Home)', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   const errors = []; const external = [];
@@ -242,16 +242,26 @@ test('Home: today\'s weather and a live game at a glance (from what Weather and 
     const c = new OffscreenCanvas(40, 40); c.getContext('2d').fillRect(0, 0, 40, 40);
     await idb.set('editor.session', { name: 'beach.jpg', blob: await c.convertToBlob({ type: 'image/png' }), state: {}, savedAt: now - 3600000 });
     await idb.set('scan.session', { pages: [], savedAt: now - 60000 });
+    await idb.set('collage.session', { images: [{ blob: await c.convertToBlob({ type: 'image/png' }) }], savedAt: now - 120000 });
   });
   await page.reload();
-  await page.waitForSelector('.recent-item');
+  await page.waitForSelector('.glance-main');
   const w = await page.locator('.glance[href="#/weather"]').textContent();
   assert.match(w, /47°/); assert.match(w, /Mostly Sunny/); assert.match(w, /H 54°/); assert.match(w, /Wind Advisory/);
   const s = await page.locator('.glance[href="#/sports"]').textContent();
   assert.match(s, /LAL 98\s+@\s+DEN 102/, 'the live game, not the one tomorrow'); assert.match(s, /Q4 2:31/);
-  // Recent edits: newest first (Scan a minute ago, then the Photo Editor an hour ago), each opening its app.
-  assert.deepEqual(await page.locator('.recent-name').allTextContents(), ['📷 Scan', '🖼️ Photo Editor']);
-  await page.locator('.recent-item', { hasText: 'Photo Editor' }).click();
+  // Not on Home.
+  assert.equal(await page.locator('.recent-item').count(), 0, 'no Recent edits on Home');
+  // In Files: its own, newest first (Scan a minute ago, Collage, then the Photo Editor an hour ago).
+  await page.click('.app-tile >> text=Files');
+  await page.waitForSelector('.studio-hub .recent-item');
+  assert.deepEqual(await page.locator('.studio-hub .recent-name').allTextContents(), ['📷 Scan', '🧩 Collage', '🖼️ Photo Editor']);
+  // In the Photo Editor: its other parts' (the collage in progress), not its own.
+  await page.click('.studio-hub .app-tile >> text=Photo Editor');
+  await page.waitForSelector('.studio-recent .recent-item');
+  assert.deepEqual(await page.locator('.studio-recent .recent-name').allTextContents(), ['🧩 Collage']);
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.locator('.studio-hub .recent-item', { hasText: 'Photo Editor' }).click();
   await page.waitForFunction(() => location.hash === '#/files/photo');
   await page.waitForSelector('text=Continue editing beach.jpg?');
   assert.deepEqual(external, []);

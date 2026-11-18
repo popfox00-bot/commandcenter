@@ -10,6 +10,7 @@ import { el } from '../../lib/dom.js';
 import { handoff } from '../../lib/handoff.js';
 import { FILES_APPS } from '../../apps/index.js';
 import { renderHub } from '../../apps/hub.js';
+import { recentIn } from '../../lib/home-extras.js';
 
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
@@ -35,7 +36,12 @@ export function mount(host) {
   renderHub(hub, FILES_APPS.map((a) => ({ ...a, href: hashFor(a.id) })));
   const sub = el('div', { class: 'segmented studio-sub', role: 'tablist' });
   const body = el('div', { class: 'studio-body' });
-  host.append(hub, sub, body);
+  // Recent edits: on its page, all of Files'; in the Photo Editor, its other parts' (a collage in
+  // progress, seen from Edit), each opening where it was left.
+  const hubRecent = recentIn(hub, (href) => href.startsWith('#/files/'));
+  const near = el('div', { class: 'studio-recent' });
+  let nearOnly = () => false; const nearRecent = recentIn(near, (href) => nearOnly(href));
+  host.append(hub, sub, near, body);
   let shown = null;    // the tab on screen
   const handed = {};   // the editor photo (its key) last handed to Collage / Cutout
 
@@ -56,8 +62,13 @@ export function mount(host) {
 
   async function show(id) {
     // Its page of apps.
-    hub.hidden = id !== 'hub'; body.hidden = id === 'hub';
-    if (id === 'hub') { sub.hidden = true; return; }
+    hub.hidden = id !== 'hub'; body.hidden = id === 'hub'; near.hidden = id === 'hub' || !inPhoto(id);
+    if (id === 'hub') { sub.hidden = true; hubRecent.refresh(); return; }
+    if (inPhoto(id)) {
+      const others = PHOTO.filter(([t]) => t !== id).map(([t]) => hashFor(t));
+      nearOnly = (href) => others.includes(href);
+      nearRecent.refresh();
+    }
     const from = shown; shown = id;
     const sw = switchesOf(id);
     sub.hidden = !sw;

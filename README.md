@@ -2,9 +2,11 @@
 
 A personal, phone-first app. It opens on a home screen with today's weather and your teams' next (or
 live) game at a glance (from what Weather and Sports last loaded: Home itself goes online for nothing),
-**Recent edits** (unfinished work in any editor, newest first: tap to continue), and app icons: **Calendar**, **Weather**,
-**Sports**, **Notes**, **Files**, **FM**, **Draw**, **QR**, **Rap**, **Games** and **Settings** (the order can be changed in
-Settings → Edit Home Screen; **Jobs** is opened from Settings).
+and app icons: **Calendar**, **Weather**, **Sports**, **Notes**, **Files**, **Magic**, **Draw**, **Rap**, **Games**,
+**Trade Desk** and **Settings** (the order can be changed in Settings → Edit Home Screen; **Jobs** is opened
+from Settings). **Recent edits** (unfinished work, newest first: tap to continue) are shown in the apps they
+belong to: Files (all of its own), the Photo Editor (its other parts': a collage in progress, seen from
+Edit), and Magic (FM, Reverse Fill, Fashion).
 
 - **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
   Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
@@ -31,6 +33,7 @@ Settings → Edit Home Screen; **Jobs** is opened from Settings).
   store section with an icon per food, remembering the exact brand (with a photo) of what you buy.
 - **[Games](#games)**: Fox Games (Best Move, Checkers, That One Ad, Spelling Bee, Daily Word,
   Solitaire, Tile Match, Blackjack, Basketball Draft).
+- **[Trade Desk](#trade-desk)**: the LHS Fantasy Football trade analyzer.
 - **[Settings](#settings)**: the app's background color, a preset or any color.
 - **Look:** every button is clearly outlined from the background (on any background color), its text
   and icon centered; explanations that aren't needed to use something (how it works, privacy,
@@ -958,7 +961,10 @@ so the teams keep their room in the middle. In Month view a live game's chip is 
 leagues with a game on today (fresh score and clock, the situation such as down and distance or the
 count and runners, the last play, top performers, team stats), and for each live game its box score
 and win probability. A live game's stats open under it; any live or finished game's **📊** opens or
-folds its stats. Where ESPN's game summary can't be read, the scoreboard's stats are shown instead.
+folds its stats, laid out like a box score: the score by period (quarters, then OT), the game's
+leaders side by side (a row a stat, in the sport's order: Points, Rebounds, Assists; Passing, Rushing,
+Receiving; each team's leader under its name, the value large), then the key team stats. Where ESPN's
+game summary can't be read, the scoreboard's stats are shown instead.
 
 Under it, your teams: starts with the Broncos, Nuggets, Avalanche and Rockies, each with its record
 and standing, a **live** score while a game is on, the **next game** and the **last result**.
@@ -1055,6 +1061,15 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
   endings like "watch me ___"); notices in `DATA-LICENSES.md`. Words it doesn't know ("stuntin'") are
   worked out from their stem or ending. Suggestions learn from `rap-corpus.js` (lines written for this
   app) and your songs.
+
+## Trade Desk
+
+**Trade Desk** opens the LHS Fantasy Football trade analyzer (position-adjusted trade values, suggested
+trades, rosters, free agents, power rankings; its data from Sleeper) as its own page, with a **‹ Home** link
+back. Its code is in `web/apps/tradedesk/`, copied from the `tradedesk` repository (`index.html` and its
+icons): the only changes are the Home link (`cc-frame.css`) and its own manifest and service worker left
+out (Command Center's keeps it offline). To bring in a newer Trade Desk, copy its `index.html` again and
+make the same three changes.
 
 ## Games
 

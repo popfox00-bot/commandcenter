@@ -1112,6 +1112,8 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .glance-game { font-size: 1.02rem; font-variant-numeric: tabular-nums; }
 .glance.live { border-color: #e5484d; }
 .glance-alert { color: #b54708; font-weight: 600; }
+.recent-in:not(:empty), .studio-recent:not(:empty) { margin: 14px 0 6px; }
+.studio-recent:not(:empty) { margin: 0 0 12px; }
 .recent-title { margin: 0 0 6px; font-weight: 600; text-transform: none; }
 .recent-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
 .recent-item { flex: none; width: 104px; display: grid; gap: 3px; color: var(--text); text-decoration: none; }
@@ -1140,3 +1142,19 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .st-inner > h2:first-child, .st-inner > .sv-head > h2 { display: none; }
 .st-linkcard { display: flex; align-items: center; gap: 8px; }
 .st-link-inner { flex: 1; display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; min-height: 44px; }
+
+/* Sports, a game's stats: the line score, then the game's leaders side by side (away · stat · home). */
+.upd-line { width: 100%; border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.upd-line th, .upd-line td { padding: 4px 2px; text-align: center; border-bottom: 1px solid var(--border); }
+.upd-line th:first-child { text-align: left; }
+.upd-line .upd-line-t { font-weight: 700; }
+.upd-lead { display: grid; gap: 0; margin: 10px 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.upd-lead-head { display: grid; grid-template-columns: 1fr auto 1fr; padding: 6px 10px; background: var(--surface); font-weight: 600; }
+.upd-lead-head span:last-child { text-align: right; }
+.upd-lead-row { display: grid; grid-template-columns: 1fr 5.5em 1fr; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); }
+.upd-lead-one { grid-template-columns: 5.5em 1fr auto; gap: 8px; }
+.upd-lead-stat { text-align: center; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
+.upd-lead-cell { display: grid; min-width: 0; }
+.upd-lead-cell.home { text-align: right; }
+.upd-lead-val { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.upd-lead-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

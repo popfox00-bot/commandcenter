@@ -2,3 +2,6 @@
 # Trade Desk's storage key name ('lhsTradeDeskRosters_v1'), in the commit that first added the page; the
 # line is marked gitleaks:allow since.
 b267c660b2579bfa4debeea9990b3bf0be74240d:web/apps/tradedesk/index.html:generic-api-key:1558
+# A made-up Worker token in a browser test (packages-units.e2e.js), in the commit that first added it; the
+# test makes its stand-in token at run time since.
+fed077065c021219fd91fb050ce781a26991d046:test/browser/packages-units.e2e.js:generic-api-key:42

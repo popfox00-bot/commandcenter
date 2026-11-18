@@ -26,6 +26,8 @@ before(async () => {
 });
 after(async () => { await browser?.close(); server?.close(); });
 
+// (A stand-in Worker token, made up here: not a real one.)
+const FAKE_TOKEN = ['stand', 'in'].join('-').padEnd(28, '0');
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET, OPTIONS' };
 
 test('Packages: a number added (carrier found from it), its live status through the Worker: the bar, where it is, its updates; kept after a reload', async () => {
@@ -39,7 +41,7 @@ test('Packages: a number added (carrier found from it), its live status through 
   const page = await context.newPage();
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${origin}${BASE}`);
-  await page.evaluate(() => { localStorage.setItem('cc.workerUrl', 'https://worker.example'); localStorage.setItem('cc.apiToken', 'tok-123456789012345678901234'); });
+  await page.evaluate((t) => { localStorage.setItem('cc.workerUrl', 'https://worker.example'); localStorage.setItem('cc.apiToken', t); }, FAKE_TOKEN);
   // Not in the home screen's card: only a tab of the Updates page.
   await page.waitForSelector('.updates-card');
   assert.doesNotMatch(await page.textContent('.updates-card'), /Packages/);
@@ -52,7 +54,7 @@ test('Packages: a number added (carrier found from it), its live status through 
   await page.getByRole('button', { name: 'Track it' }).click();
   await page.waitForSelector('.pk-card >> text=Out for delivery');
   assert.deepEqual(asked[0].body, { numbers: [{ number: '1Z999AA10123456784', carrier: 'ups' }] });
-  assert.equal(asked[0].auth, 'Bearer tok-123456789012345678901234');
+  assert.equal(asked[0].auth, `Bearer ${FAKE_TOKEN}`);
   const card = page.locator('.pk-card');
   assert.match(await card.textContent(), /Running shoes[\s\S]*UPS · 1Z999AA10123456784/);
   assert.equal(await card.locator('.pk-step.on').count(), 3, 'label, in transit, out for delivery lit');

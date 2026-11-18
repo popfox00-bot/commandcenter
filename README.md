@@ -684,7 +684,12 @@ step.
    that exact (`web/lib/face-parts.js`: MediaPipe's multiclass selfie segmenter, vendored in
    `web/vendor/mediapipe`, Apache 2.0, telling hair from face skin pixel by pixel): the Character keeps
    only its face skin and features, and that face's own hair (bangs, a strand across the forehead or
-   cheek) stays in front of the new face. Where that face's own eyes, brows or mouth aren't all covered
+   cheek) stays in front of the new face. **Bangs** (`web/tools/editor/fit-bangs.js`): a face whose eyes
+   are under bangs isn't found by the face finders, so its shape is worked out from the skin that shows
+   (a generic face's 68 points laid on its cheeks and chin); inside that shape, what's the color of their
+   own hair around it (and not their skin), joined to it, is bangs as well as what the maps call hair. The
+   Character goes on behind them, and the face's colors and light are worked out with the bangs filled in
+   from its skin, so the hair over it isn't taken for its skin tone. Where that face's own eyes, brows or mouth aren't all covered
    by the new face (at its soft edge, on a turned head: the corner of the old mouth beside the new one),
    they're first filled in with that face's skin around them, so nothing of the old face shows past it. A Character looking
    the other way from the face is **⇋ flipped** to look the same way (tap ⇋ Flip to flip it by hand).

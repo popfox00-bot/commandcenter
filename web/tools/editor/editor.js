@@ -883,11 +883,11 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
     fm.busy = true; fm.note = 'Looking for faces…'; renderPanel();
     try {
       const { detectFaces } = await import('../../lib/face.js');
-      fm.faces = (await detectFaces(applyPatches(source, state().patches ?? []))).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+      fm.faces = await facesOrSkin(detectFaces);
       fm.sel = 0;
-      const n = fm.faces.length;
+      const n = fm.faces.length; const est = fm.faces.some((f) => f.estimated);
       fm.note = !n ? 'No face found in this photo. You can still insert a Character and place it by hand.'
-        : n === 1 ? 'Found 1 face.' : `Found ${n} faces. Tap a number on the photo (or below) to pick one.`;
+        : (n === 1 ? 'Found 1 face.' : `Found ${n} faces. Tap a number on the photo (or below) to pick one.`) + (est ? ' (Its eyes are hidden, by bangs or hair: its shape worked out from the skin that shows.)' : '');
     } catch (err) { fm.note = `Couldn't look for faces: ${err.message}`; }
     finally { fm.busy = false; renderPanel(); schedule(); }
   }
@@ -1274,7 +1274,7 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
       c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(p.full.rgba), c.width, c.height), 0, 0);
       const own = await segmentParts(c);
       if (own && placing === p) { p.full = keepOwnFace(p.full, own, p.charFace); p.small = keepOwnFace(p.small, own, p.charFace); p.mirror = {}; renderShown(); }
-      const photo = await segmentParts(applyPatches(source, state().patches ?? []), 1024);
+      const photo = photoParts?.of === source && photoParts.patches === state().patches ? photoParts.parts : await segmentParts(applyPatches(source, state().patches ?? []), 1024);
       if (photo && placing === p) p.parts = photo;
     } catch (err) { noteError('Face-part maps (FM went on without them)', err); }
   }
@@ -1309,9 +1309,26 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
    * The faces in the photo (biggest first), and the Character's own face if it has one (a face cut out
    * in Cutout), found once per placing.
    */
+  /**
+   * The faces in the photo, biggest first; when the face finders find none (its eyes under bangs), the faces
+   * seen by their skin (fit-bangs.js facesFromParts, by the face-part maps, kept for the fit as `photoParts`).
+   */
+  let photoParts = null;
+  async function facesOrSkin(detectFaces) {
+    const img = applyPatches(source, state().patches ?? []);
+    const found = (await detectFaces(img)).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+    if (found.length || !faceApp) return found;
+    try {
+      const { segmentParts } = await import('../../lib/face-parts.js');
+      const { facesFromParts } = await import('./fit-bangs.js');
+      const parts = await segmentParts(img, 1024);
+      photoParts = parts && { of: source, patches: state().patches, parts };
+      return parts ? facesFromParts(parts) : [];
+    } catch (err) { noteError('Finding a face by its skin', err); return []; }
+  }
   async function findFaces() {
     const { detectFaces } = await import('../../lib/face.js');
-    if (!placing.faces) { placing.faces = (await detectFaces(applyPatches(source, state().patches ?? []))).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h); fm.faces = placing.faces; }
+    if (!placing.faces) { placing.faces = await facesOrSkin(detectFaces); fm.faces = placing.faces; }
     if (!placing.faces.length || placing.charFace !== undefined) return;
     const c = document.createElement('canvas'); c.width = placing.full.w; c.height = placing.full.h;
     c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(placing.full.rgba), c.width, c.height), 0, 0);

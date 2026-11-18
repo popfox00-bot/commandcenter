@@ -5,6 +5,7 @@
 // page's thread (fit-worker.js) as well as on it.
 
 import { keepForehead, evenBlotches } from './fit-finish.js';
+import { bangsMap, debang } from './fit-bangs.js';
 import { fitPatch, blendIn, recolor, relight, shadeByShape, keepSkinTexture, matchTexture, hairInFront, targetOutline, skinModel } from './facefit.js';
 import { membrane } from './cleanup.js';
 import { inPolygon, convexHull, scalePolygon } from '../../lib/geometry.js';
@@ -117,6 +118,13 @@ export function buildFitted(photo, W, H, img, charFace, face, { trim = true, ble
   /** @type {Record<string, number>} */
   const timings = {};
   const step = (name, fn) => { const t0 = performance.now(); const r = fn(); timings[name] = (timings[name] ?? 0) + performance.now() - t0; return r; };
+  // (Bangs over that face: its colors and light worked out from its skin only, the bangs filled in from the
+  // skin around them; the Character goes on behind them.)
+  if (parts && face.bangs === undefined) face.bangs = step('bangs', () => bangsMap(photo, W, H, face, parts));
+  const bangs = face.bangs ?? null;
+  const real = photo;
+  if (bangs) photo = (face.debanged ??= step('bangs', () => debang(real, W, H, bangs, face)));
+  if (bangs && !face.outlineDebanged) { face.outline = null; face.skin = null; face.outlineDebanged = true; }
   step('outline', () => { face.outline ??= targetOutline(photo, W, H, face); face.skin ??= skinModel(photo, W, H, face); });
   const outline = face.outline; const s = blend / 100;
   const patch = step('fit', () => fitPatch(img.rgba, img.w, img.h, charFace, face, W, H, { trim, outline: trim ? outline : null, bend: 0.35, photo, tune, paint, turn3d, mouth, keepShape }));
@@ -142,7 +150,7 @@ export function buildFitted(photo, W, H, img, charFace, face, { trim = true, ble
   // Color blotches on its skin evened out (last: after the blend, which can carry tints in too).
   if (outline) step('blotches', () => evenBlotches(patch, photo, W, H, face, outline, s));
   // That face's hair (bangs, a strand across it) kept in front.
-  if (parts) step('hair', () => hairInFront(patch, parts, W, H));
+  if (parts) step('hair', () => hairInFront(patch, parts, W, H, bangs));
   patch.timings = timings;
   return patch;
 }

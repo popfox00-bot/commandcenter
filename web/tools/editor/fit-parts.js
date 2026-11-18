@@ -34,14 +34,17 @@ export function keepOwnFace(img, parts, charFace = null) {
 /**
  * The hair of the face it goes on kept in front of the Character (bangs, a strand across the forehead or
  * cheek), by that photo's face-part map (`parts`, of the W×H photo): the patch see-through there, as sure
- * as the map is. In place; returns the patch.
+ * as the map is; and `bangs` (fit-bangs.js bangsMap, W×H), when found. In place; returns the patch.
  */
-export function hairInFront(patch, parts, W, H) {
+export function hairInFront(patch, parts, W, H, bangs = null) {
   const { x0, y0, pw, ph, rgba } = patch;
   for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
     const k = y * pw + x; if (!rgba[k * 4 + 3]) continue;
     const hair = partAt(parts, 'hair', (x0 + x + 0.5) / W, (y0 + y + 0.5) / H);
     if (hair > 0.25) rgba[k * 4 + 3] = Math.round(rgba[k * 4 + 3] * Math.max(0, 1 - (hair - 0.25) / 0.45));
+    // (And the bangs found by their color (fit-bangs.js): in front too.)
+    const X = x0 + x; const Y = y0 + y;
+    if (bangs && X >= 0 && Y >= 0 && X < W && Y < H && bangs[Y * W + X]) rgba[k * 4 + 3] = Math.round(rgba[k * 4 + 3] * (1 - bangs[Y * W + X] / 255));
   }
   return patch;
 }

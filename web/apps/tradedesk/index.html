@@ -1555,7 +1555,7 @@ const LEAGUE3_ROSTERS = JSON.parse(document.getElementById('league3-rosters-data
 const DEFAULT_TEAM_NAMES = Object.keys(INITIAL_ROSTERS);
 let TEAM_NAMES = DEFAULT_TEAM_NAMES;
 const MAX_PER_TEAM = 6;
-const OLD_STORAGE_KEY = 'lhsTradeDeskRosters_v1'; // single-league format, migrated below
+const OLD_STORAGE_KEY = 'lhsTradeDeskRosters_v1'; // single-league format, migrated below // gitleaks:allow secret-scan:allow (a storage key's name)
 const STORAGE_KEY = 'lhsTradeDeskLeagues_v1';     // multi-league format
 
 let LEAGUE = {};        // team -> mutable array of player objects (live roster state)
@@ -3363,7 +3363,7 @@ function moveSignature(moves){
 let suggestionBuildToken = 0;
 let suggestionBuildPromise = null;
 function buildSuggestionsAsync(onProgress){
-  const token = ++suggestionBuildToken;
+  const token = ++suggestionBuildToken; // gitleaks:allow secret-scan:allow (a counter)
   const pairs = [];
   for(let i=0;i<TEAM_NAMES.length;i++) for(let j=i+1;j<TEAM_NAMES.length;j++) pairs.push([TEAM_NAMES[i], TEAM_NAMES[j]]);
   const steps = [

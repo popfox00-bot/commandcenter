@@ -124,7 +124,9 @@ function readLeaders(groups, abbr = '') {
     const who = top.athlete?.shortName ?? top.athlete?.displayName ?? '';
     const value = top.displayValue ?? (top.value != null ? String(top.value) : '');
     if (!who && !value) continue;
-    out.push({ team: abbr, stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value });
+    // (Their headshot, when ESPN has one: an https link, for the leaders' view.)
+    const h = top.athlete?.headshot; const photo = typeof h === 'string' ? h : h?.href ?? null;
+    out.push({ team: abbr, stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value, ...(photo && /^https:\/\//.test(photo) ? { photo } : {}) });
   }
   return out;
 }
@@ -178,7 +180,8 @@ export function parseSummary(json) {
   for (const c of comp?.competitors ?? []) {
     const t = teams.find((x) => x.abbr === (c.team?.abbreviation ?? ''));
     const lines = (c.linescores ?? []).map((l) => num(l.displayValue ?? l.value)).filter((v) => v != null);
-    if (t) { t.lines = lines; t.score = num(c.score); } else teams.push({ abbr: c.team?.abbreviation ?? '', home: c.homeAway === 'home', stats: [], lines, score: num(c.score) });
+    const score = num(typeof c.score === 'object' ? c.score?.displayValue ?? c.score?.value : c.score);
+    if (t) { t.lines = lines; t.score = score; } else teams.push({ abbr: c.team?.abbreviation ?? '', home: c.homeAway === 'home', stats: [], lines, score });
   }
   const wp = json?.winprobability?.at?.(-1);
   const winProb = wp?.homeWinPercentage != null ? { home: Math.round(wp.homeWinPercentage * 100), away: Math.round((1 - wp.homeWinPercentage) * 100) } : null;
@@ -301,7 +304,7 @@ export function leaderRows(leaders, awayAbbr, homeAbbr, sport = '') {
   for (const l of leaders ?? []) {
     const k = norm(l.stat); if (!k) continue;
     if (!by.has(k)) by.set(k, { stat: k, label: LEADER_NAMES[k] ?? l.stat, away: null, home: null, any: null });
-    const r = by.get(k); const v = { who: l.who, value: l.value };
+    const r = by.get(k); const v = { who: l.who, value: l.value, ...(l.photo ? { photo: l.photo } : {}) };
     if (l.team && l.team === awayAbbr) r.away ??= v; else if (l.team && l.team === homeAbbr) r.home ??= v; else r.any ??= { ...v, team: l.team };
   }
   // (Overall leaders with no side: shown on neither side, as a row of their own, unless the row has sides.)
@@ -321,4 +324,15 @@ export function lineScore(teams, sport = '') {
   const reg = sport === 'basketball' || sport === 'football' ? 4 : sport === 'hockey' ? 3 : sport === 'baseball' ? 9 : n;
   const periods = Array.from({ length: n }, (_, i) => (i < reg ? String(i + 1) : n - reg > 1 ? `OT${i - reg + 1}` : 'OT'));
   return { periods, away: { abbr: a?.abbr ?? '', lines: a?.lines ?? [], score: a?.score ?? null }, home: { abbr: h?.abbr ?? '', lines: h?.lines ?? [], score: h?.score ?? null } };
+}
+
+/**
+ * A leader's value in parts, its numbers apart from their words ("16 TOT, 6 OFF, 10 DEF" →
+ * [['16', ' TOT, '], ['6', ' OFF, '], ['10', ' DEF']]), for the numbers bold and the words light.
+ */
+export function valueParts(v) {
+  const bits = String(v ?? '').split(/(\d[\d./:%]*)/);
+  const out = bits[0] ? [['', bits[0]]] : [];
+  for (let i = 1; i < bits.length; i += 2) out.push([bits[i], bits[i + 1] ?? '']);
+  return out;
 }

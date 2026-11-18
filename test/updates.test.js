@@ -232,3 +232,13 @@ test('sports, a game\'s leaders side by side (Points, Rebounds, Assists: each te
   assert.equal(line.home.score, '117');
   assert.equal(S.lineScore([], 'basketball'), null);
 });
+
+test('sports, a leader\'s value: its numbers apart from their words (bold and light), and their headshot kept', () => {
+  assert.deepEqual(S.valueParts('16 TOT, 6 OFF, 10 DEF'), [['16', ' TOT, '], ['6', ' OFF, '], ['10', ' DEF']]);
+  assert.deepEqual(S.valueParts('14/20, 181 YDS, 1 TD'), [['14/20', ', '], ['181', ' YDS, '], ['1', ' TD']]);
+  assert.deepEqual(S.valueParts('31'), [['31', '']]);
+  assert.deepEqual(S.valueParts('DNP'), [['', 'DNP']]);
+  const sum = S.parseSummary({ leaders: [{ team: { abbreviation: 'NY' }, leaders: [{ shortDisplayName: 'PTS', leaders: [{ displayValue: '31 PTS', athlete: { shortName: 'J. Brunson', headshot: { href: 'https://a.espncdn.com/i/headshots/nba/players/full/1.png' } } }] }] }] });
+  assert.equal(sum.leaders[0].photo, 'https://a.espncdn.com/i/headshots/nba/players/full/1.png');
+  assert.equal(S.leaderRows(sum.leaders, 'NY', 'TOR', 'basketball')[0].away.photo, sum.leaders[0].photo);
+});

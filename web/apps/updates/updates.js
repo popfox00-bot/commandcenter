@@ -333,7 +333,12 @@ export function mount(host, { only = 'weather' } = {}) {
       const lead = S.leaderRows(st.leaders, awayAbbr, homeAbbr, sport);
       const line = S.lineScore(st.teams, sport);
       // (A leader: the value big, the name under it; a dash where that team has none.)
-      const cell = (v, side) => el('div', { class: `upd-lead-cell ${side}` }, v ? el('strong', { class: 'upd-lead-val', text: v.value }) : el('span', { class: 'muted', text: '—' }), v ? el('span', { class: 'upd-lead-who small', text: v.who }) : null);
+      // (A leader: their headshot (or their initials), their name, and the value with its numbers bold.)
+      const initials = (who) => String(who ?? '').split(/[\s.]+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+      const cell = (v, side) => el('div', { class: `upd-lead-cell ${side}` },
+        v ? (v.photo ? el('img', { class: 'upd-lead-pic', src: v.photo, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.replaceWith(el('span', { class: 'upd-lead-pic upd-lead-init', 'aria-hidden': 'true', text: initials(v.who) })) }) : el('span', { class: 'upd-lead-pic upd-lead-init', 'aria-hidden': 'true', text: initials(v.who) })) : null,
+        v ? el('span', { class: 'upd-lead-who', text: v.who }) : el('span', { class: 'muted', text: '—' }),
+        v ? el('span', { class: 'upd-lead-val' }, ...S.valueParts(v.value).flatMap(([n, w]) => [n ? el('strong', { text: n }) : null, w ? el('span', { class: 'muted', text: w }) : null]).filter(Boolean)) : null);
       return el('div', { class: 'upd-stats' },
         st.situation?.text || st.situation?.possession ? el('p', { class: 'small', text: [st.situation.possession && `🏈 ${st.situation.possession} ball`, st.situation.text].filter(Boolean).join(' · ') }) : null,
         st.situation?.lastPlay ? el('p', { class: 'small muted', text: `Last play: ${st.situation.lastPlay}` }) : null,
@@ -342,14 +347,11 @@ export function mount(host, { only = 'weather' } = {}) {
         line ? el('table', { class: 'upd-line small', 'aria-label': 'Score by period' },
           el('thead', {}, el('tr', {}, el('th', { text: '' }), ...line.periods.map((p) => el('th', { text: p })), el('th', { class: 'upd-line-t', text: 'T' }))),
           el('tbody', {}, ...[line.away, line.home].map((side) => el('tr', {}, el('th', { text: side.abbr }), ...line.periods.map((_, i) => el('td', { text: side.lines[i] ?? '' })), el('td', { class: 'upd-line-t', text: side.score ?? '' }))))) : null,
-        lead.length ? el('div', { class: 'upd-lead' },
-          el('div', { class: 'upd-lead-head small muted' }, el('span', { text: awayAbbr }), el('span', { text: g.completed ? 'Game leaders' : 'Leaders' }), el('span', { text: homeAbbr })),
-          ...lead.map((r) => r.overall
-            ? el('div', { class: 'upd-lead-row upd-lead-one' }, el('span', { class: 'upd-lead-stat small muted', text: r.label }), el('span', { class: 'upd-lead-who', text: `${r.overall.team ? `${r.overall.team} ` : ''}${r.overall.who}` }), el('strong', { class: 'upd-lead-val', text: r.overall.value }))
-            : el('div', { class: 'upd-lead-row' },
-              cell(r.away, 'away'),
-              el('span', { class: 'upd-lead-stat small muted', text: r.label }),
-              cell(r.home, 'home')))) : null,
+        lead.length ? el('div', { class: 'upd-lead', 'aria-label': g.completed ? 'Game leaders' : 'Leaders' },
+          el('div', { class: 'upd-lead-head small muted' }, el('span', { text: awayAbbr }), el('span', { text: homeAbbr })),
+          ...lead.map((r) => el('div', { class: `upd-lead-row${r.overall ? ' upd-lead-one' : ''}` },
+            el('div', { class: 'upd-lead-stat', text: r.label }),
+            el('div', { class: 'upd-lead-pair' }, ...(r.overall ? [cell({ ...r.overall, who: `${r.overall.team ? `${r.overall.team} ` : ''}${r.overall.who}` }, 'one')] : [cell(r.away, 'away'), cell(r.home, 'home')]))))) : null,
         rows.length ? el('table', { class: 'upd-stat-table small' },
           el('thead', {}, el('tr', {}, el('th', { text: 'Team stats' }), el('th', { text: awayAbbr }), el('th', { text: homeAbbr }))),
           el('tbody', {}, ...rows.map((r) => el('tr', {}, el('th', { text: r.label }), el('td', { text: r.away }), el('td', { text: r.home }))))) : null,

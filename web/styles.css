@@ -1148,13 +1148,18 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .upd-line th, .upd-line td { padding: 4px 2px; text-align: center; border-bottom: 1px solid var(--border); }
 .upd-line th:first-child { text-align: left; }
 .upd-line .upd-line-t { font-weight: 700; }
-.upd-lead { display: grid; gap: 0; margin: 10px 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-.upd-lead-head { display: grid; grid-template-columns: 1fr auto 1fr; padding: 6px 10px; background: var(--surface); font-weight: 600; }
-.upd-lead-head span:last-child { text-align: right; }
-.upd-lead-row { display: grid; grid-template-columns: 1fr 5.5em 1fr; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); }
-.upd-lead-one { grid-template-columns: 5.5em 1fr auto; gap: 8px; }
-.upd-lead-stat { text-align: center; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
-.upd-lead-cell { display: grid; min-width: 0; }
-.upd-lead-cell.home { text-align: right; }
-.upd-lead-val { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
-.upd-lead-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-lead { display: grid; margin: 10px 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.upd-lead-head { display: grid; grid-template-columns: 1fr 1fr; padding: 6px 10px 0; font-weight: 600; text-align: center; }
+.upd-lead-row { display: grid; gap: 6px; padding: 10px 6px 12px; }
+.upd-lead-row + .upd-lead-row { border-top: 1px solid var(--border); }
+.upd-lead-stat { text-align: center; color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+.upd-lead-pair { display: grid; grid-template-columns: 1fr 1fr; }
+.upd-lead-one .upd-lead-pair { grid-template-columns: 1fr; }
+.upd-lead-cell { display: grid; justify-items: center; gap: 3px; min-width: 0; padding: 0 6px; text-align: center; }
+.upd-lead-cell.home { border-left: 1px solid var(--border); }
+.upd-lead-pic { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: var(--surface); border: 1px solid var(--border); }
+.upd-lead-init { display: grid; place-items: center; font-weight: 700; color: var(--muted); }
+.upd-lead-who { font-weight: 700; font-size: .98rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-lead-val { font-variant-numeric: tabular-nums; font-size: .82rem; line-height: 1.35; }
+.upd-lead-val strong { font-size: 1rem; }
+.upd-lead-val .muted { font-size: .78rem; }

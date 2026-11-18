@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "bcb13d421d09",
+  "version": "07df5cf34bda",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",

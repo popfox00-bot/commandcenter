@@ -1,0 +1,4 @@
+# False positives gitleaks reported, by fingerprint (commit:file:rule:line). Each is checked by hand.
+# Trade Desk's storage key name ('lhsTradeDeskRosters_v1'), in the commit that first added the page; the
+# line is marked gitleaks:allow since.
+b267c660b2579bfa4debeea9990b3bf0be74240d:web/apps/tradedesk/index.html:generic-api-key:1558

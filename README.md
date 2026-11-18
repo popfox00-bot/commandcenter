@@ -963,7 +963,8 @@ count and runners, the last play, top performers, team stats), and for each live
 and win probability. A live game's stats open under it; any live or finished game's **📊** opens or
 folds its stats, laid out like a box score: the score by period (quarters, then OT), the game's
 leaders side by side (a row a stat, in the sport's order: Points, Rebounds, Assists; Passing, Rushing,
-Receiving; each team's leader under its name, the value large), then the key team stats. Where ESPN's
+Receiving; each team's leader side by side, with their headshot (or initials), name and line, its numbers
+bold and its words light: "16 TOT, 6 OFF, 10 DEF"), then the key team stats. Where ESPN's
 game summary can't be read, the scoreboard's stats are shown instead.
 
 Under it, your teams: starts with the Broncos, Nuggets, Avalanche and Rockies, each with its record
@@ -1067,9 +1068,10 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
 **Trade Desk** opens the LHS Fantasy Football trade analyzer (position-adjusted trade values, suggested
 trades, rosters, free agents, power rankings; its data from Sleeper) as its own page, with a **‹ Home** link
 back. Its code is in `web/apps/tradedesk/`, copied from the `tradedesk` repository (`index.html` and its
-icons): the only changes are the Home link (`cc-frame.css`) and its own manifest and service worker left
-out (Command Center's keeps it offline). To bring in a newer Trade Desk, copy its `index.html` again and
-make the same three changes.
+icons): the only changes are the Home link (`cc-frame.css`), its own manifest and service worker left
+out (Command Center's keeps it offline), and two lines the secret scanners mistook for keys (a storage
+key's name, a counter) marked as fine. To bring in a newer Trade Desk, copy its `index.html` again and
+make the same changes.
 
 ## Games
 

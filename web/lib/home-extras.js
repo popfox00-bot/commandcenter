@@ -79,6 +79,43 @@ export function glanceCards() {
   return el('div', { class: 'glance-row' }, weather, sports);
 }
 
+/** The next thing on the calendar (today first, then the coming two weeks): { title, when, day } or null. */
+export async function nextEvent(now = new Date()) {
+  const { normalizeEvent, upcoming, when } = await import('../apps/calendar/calendar-core.js');
+  const { dayKey } = await import('./calendar.js');
+  const list = ((await idb.get('calendar.events')) ?? []).map(normalizeEvent).filter(Boolean);
+  if (!list.length) return null;
+  const today = dayKey(now); const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  // (Today's that are over aren't next: all-day ones, and timed ones still to come or going on.)
+  const next = upcoming(list, today, 14).find(({ event, date }) => date > today || event.allDay || (event.end || event.start || '') >= hhmm);
+  if (!next) return null;
+  return { title: next.event.title || 'Untitled', when: when(next.event), day: dayOf(`${next.date}T12:00:00`) };
+}
+
+/**
+ * The home screen's Updates card: one card with a line of each of Calendar, Weather and Sports (the next
+ * event, the weather now, your next or live game), all of it opening the Updates page.
+ */
+export function updatesCard() {
+  const w = weatherSummary(); const g = gameSummary();
+  const row = (icon, name, main, sub, cls = '') => el('span', { class: `upd-prev ${cls}` },
+    el('span', { class: 'upd-prev-icon', 'aria-hidden': 'true', text: icon }),
+    el('span', { class: 'upd-prev-text' }, el('span', { class: 'small muted', text: name }), el('strong', { class: 'upd-prev-main', text: main }), sub ? el('span', { class: 'small muted', text: sub }) : null));
+  const cal = row('📅', 'Calendar', 'Nothing coming up', 'Tap to add an event');
+  const weather = row('⛅', w ? `Weather · ${w.place}` : 'Weather',
+    w ? `${w.now != null ? `${w.now}° ` : ''}${w.sky}`.trim() || '—' : 'Open to see your forecast',
+    w ? [w.high != null ? `H ${w.high}°` : null, w.low != null ? `L ${w.low}°` : null, w.alerts ? `⚠️ ${w.alert ?? 'Alert'}` : null].filter(Boolean).join(' · ') : '', w?.alerts ? 'alert' : '');
+  const side = (x) => (x ? `${x.abbr || x.short}${x.score != null ? ` ${x.score}` : ''}` : '');
+  let line = 'Open to see your teams'; let sub = '';
+  if (g) { const { game } = g; line = `${side(game.away)} @ ${side(game.home)}`; sub = g.live ? `🔴 ${game.detail || 'Live'}` : game.completed ? `Final · ${dayOf(game.date)}` : `${dayOf(game.date)} ${timeOf(game.date)}`; }
+  const sports = row('🏆', g?.live ? 'Sports · Live' : 'Sports', line, sub, g?.live ? 'live' : '');
+  const card = el('a', { class: 'card updates-card', href: '#/updates', 'aria-label': 'Updates: Calendar, Weather and Sports' },
+    el('span', { class: 'updates-head' }, el('strong', { text: 'Updates' }), el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' })),
+    cal, weather, sports);
+  nextEvent().then((e) => { if (e) cal.replaceWith(row('📅', 'Calendar', e.title, `${e.day} · ${e.when}`)); }).catch(() => {});
+  return card;
+}
+
 /** Unfinished work kept by the editors: [{ key, name, icon, href, at, blob? }] newest first. */
 export async function recentEdits() {
   const SESSIONS = [

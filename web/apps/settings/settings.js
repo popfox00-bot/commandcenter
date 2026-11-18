@@ -10,6 +10,7 @@ import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 import { storageSettings } from '../../lib/storage-usage.js';
 import { VERSION } from '../../version.js';
+import { updateToLatest } from '../../lib/update.js';
 
 export function mount(host) {
   const theme = globalThis.ccTheme;
@@ -93,29 +94,8 @@ export function mount(host) {
   const updNote = el('p', { class: 'small muted', 'aria-live': 'polite', text: `This is v${VERSION}.` });
   const updBtn = el('button', { type: 'button', class: 'btn primary block', text: 'Update to Latest Version' });
   updBtn.addEventListener('click', async () => {
-    updBtn.disabled = true; updNote.textContent = 'Checking for a new version…';
-    try {
-      const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
-      if (!reg) { updNote.textContent = 'Reloading…'; location.reload(); return; }
-      const apply = (worker) => {
-        updNote.textContent = 'Updating…';
-        navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
-        worker.postMessage('skip-waiting');
-        // (If it doesn't take over within a few seconds, reload anyway.)
-        setTimeout(() => location.reload(), 4000);
-      };
-      await reg.update();
-      if (reg.waiting) { apply(reg.waiting); return; }
-      if (reg.installing) {
-        updNote.textContent = 'Downloading the new version…';
-        const next = reg.installing;
-        next.addEventListener('statechange', () => { if (next.state === 'installed' && reg.waiting) apply(reg.waiting); });
-        return;
-      }
-      updNote.textContent = `You're on the latest version (v${VERSION}).`;
-    } catch (e) {
-      updNote.textContent = navigator.onLine === false ? 'No connection: connect to the internet and try again.' : `Couldn't check for a new version: ${e.message}`;
-    }
+    updBtn.disabled = true;
+    await updateToLatest((t) => { updNote.textContent = t; });
     updBtn.disabled = false;
   });
 

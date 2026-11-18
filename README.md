@@ -1,12 +1,18 @@
 # Command Center
 
-A personal, phone-first app. It opens on a home screen with today's weather and your teams' next (or
-live) game at a glance (from what Weather and Sports last loaded: Home itself goes online for nothing),
-and app icons: **Calendar**, **Weather**, **Sports**, **Notes**, **Files**, **Magic**, **Draw**, **Rap**, **Games**,
-**Trade Desk** and **Settings** (the order can be changed in Settings → Edit Home Screen; **Jobs** is opened
-from Settings). **Recent edits** (unfinished work, newest first: tap to continue) are shown in the apps they
-belong to: Files (all of its own), the Photo Editor (its other parts': a collage in progress, seen from
-Edit), and Magic (FM, Reverse Fill, Fashion).
+A personal, phone-first app. Its home screen is in three parts:
+
+- **Updates**: one card with a line each of **Calendar** (what's next), **Weather** (now, high and low,
+  any alert) and **Sports** (your next or live game), from what each last loaded (Home itself goes online
+  for nothing). Tapping it opens the **Updates** page: Calendar, Weather and Sports together, as tabs.
+- **Productivity**: **Notes**, **Files**, **Magic** and **Draw**.
+- **Creativity**: **Rap**, **Games** and **Trade Desk**.
+
+**⚙ Settings** is at the top right, beside the version (tap the version for what changed in each, and
+**Update to Latest Version**). The order of the tiles can be changed in Settings → Edit Home Screen (each
+stays in its part); **Jobs** is opened from Settings. **Recent edits** (unfinished work, newest first: tap
+to continue) are shown in the apps they belong to: Files (all of its own), the Photo Editor (its other
+parts': a collage in progress, seen from Edit), and Magic (FM, Reverse Fill, Fashion).
 
 - **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
   Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each

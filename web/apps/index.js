@@ -1,4 +1,5 @@
-// Apps on the home screen (their order can be changed in Settings). Jobs is built into the shell and
+// Apps on the home screen, by category (Updates, Productivity, Creativity; their order can be changed in
+// Settings). Jobs is built into the shell and
 // opened from Settings; other apps load on first open. Two apps hold others:
 // - Files: Photo Editor (with Collage and Cutout), Convert, PDF and Scan (documents, and QR codes):
 //   all on this phone, offline.
@@ -8,17 +9,20 @@
 // fantasy football trade analyzer, likewise a page of its own (web/apps/tradedesk/, copied from the
 // tradedesk repository with a ‹ Home link added and its own service worker left out).
 export const APPS = [
-  { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', load: () => import('./calendar/calendar.js') },
-  { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', load: () => import('./weather/weather.js') },
-  { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', load: () => import('./sports/sports.js') },
-  { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', load: () => import('./notes/notes.js') },
-  { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Convert · PDF · Scan', href: '#/files', load: () => import('../tools/studio/studio.js') },
-  { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Fashion · Saved Files', href: '#/magic', load: () => import('./magic/magic.js') },
-  { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', load: () => import('../tools/draw/draw.js') },
-  { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', load: () => import('./rap/rap.js') },
-  { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html' },
-  { id: 'tradedesk', name: 'Trade Desk', icon: '🏈', tint: 'blue', note: 'LHS fantasy trades', href: 'apps/tradedesk/index.html' },
-  { id: 'settings', name: 'Settings', icon: '⚙️', tint: 'gray', note: 'Home screen · Colors · Jobs', href: '#/settings', load: () => import('./settings/settings.js') },
+  { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', cat: 'updates', home: false, parent: 'updates', load: () => import('./calendar/calendar.js') },
+  { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', cat: 'updates', home: false, parent: 'updates', load: () => import('./weather/weather.js') },
+  { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', cat: 'updates', home: false, parent: 'updates', load: () => import('./sports/sports.js') },
+  { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', cat: 'productivity', load: () => import('./notes/notes.js') },
+  { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Convert · PDF · Scan', href: '#/files', cat: 'productivity', load: () => import('../tools/studio/studio.js') },
+  { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Fashion · Saved Files', href: '#/magic', cat: 'productivity', load: () => import('./magic/magic.js') },
+  { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
+  { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },
+  { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html', cat: 'creativity' },
+  { id: 'tradedesk', name: 'Trade Desk', icon: '🏈', tint: 'blue', note: 'LHS fantasy trades', href: 'apps/tradedesk/index.html', cat: 'creativity' },
+  // Settings: the ⚙ at the top right of the home screen, not a tile.
+  { id: 'settings', name: 'Settings', icon: '⚙️', tint: 'gray', note: 'Home screen · Colors · Jobs', href: '#/settings', home: false, load: () => import('./settings/settings.js') },
+  // Updates: Calendar, Weather and Sports together (the home screen's Updates card opens it).
+  { id: 'updates', name: 'Updates', icon: '📰', tint: 'amber', note: 'Calendar · Weather · Sports', href: '#/updates', home: false, load: () => import('./updates-hub/updates-hub.js') },
   // In Magic (its own apps, opened from it).
   { id: 'downloads', name: 'Downloads', icon: '⬇️', tint: 'blue', note: 'Video links · Queue · History', href: '#/downloads', parent: 'magic', home: false, load: () => import('./downloads/downloads.js') },
   { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', parent: 'magic', home: false, load: () => import('./fm/fm.js') },
@@ -27,6 +31,16 @@ export const APPS = [
   { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'magic', home: false, load: () => import('./saved/saved-app.js') },
   // Not on the home screen: opened from Settings.
   { id: 'jobs', name: 'Jobs', icon: '⏱', tint: 'slate', note: 'Background runs & settings', href: '#/jobs', home: false },
+];
+
+/**
+ * The home screen's categories, in order: Updates (one card of previews, opening the Updates page),
+ * Productivity and Creativity (tiles).
+ */
+export const CATEGORIES = [
+  { id: 'updates', name: 'Updates' },
+  { id: 'productivity', name: 'Productivity' },
+  { id: 'creativity', name: 'Creativity' },
 ];
 
 /** Files' own apps (routes #/files/<tab>; each lists the tabs that are part of it). */
@@ -66,9 +80,7 @@ export function redirect(hash) {
   if (hash === '#/files/saved') return '#/saved';
   // QR was an app of its own; it's part of Files → Scan now.
   if (/^#\/(tools\/)?qr(\/.*)?$/.test(hash)) return '#/files/qr';
-  // Updates was one app with Weather and Sports tabs; they're apps of their own now.
-  if (hash === '#/updates' || hash === '#/updates/') return '#/weather';
-  if (/^#\/updates\/sports(\/.*)?$/.test(hash)) return '#/sports';
+  // (#/updates is the Updates page again: Calendar, Weather and Sports together.)
   // FaceMask was a tab of Files' photo editor; it's the FM app now.
   if (/^#\/files\/facemask(\/.*)?$/.test(hash)) return '#/fm';
   // The Editor became Files (its photo editor: Files → Photo Editor).

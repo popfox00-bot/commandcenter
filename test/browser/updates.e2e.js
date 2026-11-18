@@ -54,9 +54,11 @@ test('Weather (its own app): alerts, heads-ups (freeze, wind, air quality), hour
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
   const seen = await mockApis(context);
   const { page, errors } = await openApp(context);
-  await page.click('.app-tile >> text=Weather');
+  // The Updates card on the home screen, then its Weather tab.
+  await page.click('.updates-card');
+  await page.click('.upd-hub-tabs >> text=Weather');
   await page.waitForSelector('.upd-now');
-  assert.equal(await page.textContent('#title'), 'Weather');
+  assert.equal(await page.textContent('#title'), 'Updates');
   assert.equal(await page.locator('.upd-tabs').count(), 0, 'no tabs: Sports is an app of its own');
   assert.match(await page.textContent('.upd-loc strong'), /Lakewood, CO · 80214/);
   assert.match(await page.textContent('.upd-now'), /45°[\s\S]*Mostly Cloudy[\s\S]*Air quality 62 · Moderate/);
@@ -106,12 +108,14 @@ test('Sports (its own app): Denver teams by default with next game, line, last r
   await page.getByRole('button', { name: 'Remove' }).first().click();
   assert.equal(await page.locator('.upd-team').count(), 4);
 
-  // Weather is its own app now (and an old link to the Sports tab opens Sports).
+  // Sports still opens on its own (#/sports, back to Updates), and as the Updates page's tab.
   assert.equal(await page.textContent('#title'), 'Sports');
+  assert.equal(await page.getAttribute('#view-app .back', 'href'), '#/updates');
   await page.goto(`${origin}${BASE}#/updates/sports`);
-  await page.waitForFunction(() => location.hash === '#/sports');
-  await page.goto(`${origin}${BASE}#/updates`);
-  await page.waitForFunction(() => location.hash === '#/weather');
+  await page.waitForSelector('.upd-hub-tabs [aria-selected=true] >> text=Sports');
+  await page.waitForSelector('.upd-team');
+  await page.click('.upd-hub-tabs >> text=Weather');
+  await page.waitForFunction(() => location.hash === '#/updates/weather');
   await page.waitForSelector('.upd-now');
   assert.deepEqual(errors, []);
   await context.close();

@@ -4,7 +4,9 @@
 //   all on this phone, offline.
 // - Magic: Downloads (a video from a link: needs a connection), FM (FaceMask), Reverse Fill, Fashion
 //   and Saved Files (your own Google Drive folder).
-// Games is Fox Games, a self-contained page of its own (web/apps/games/fox/).
+// Games is Fox Games, a self-contained page of its own (web/apps/games/fox/). Trade Desk is the LHS
+// fantasy football trade analyzer, likewise a page of its own (web/apps/tradedesk/, copied from the
+// tradedesk repository with a ‹ Home link added and its own service worker left out).
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', load: () => import('./weather/weather.js') },
@@ -15,6 +17,7 @@ export const APPS = [
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', load: () => import('../tools/draw/draw.js') },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', load: () => import('./rap/rap.js') },
   { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html' },
+  { id: 'tradedesk', name: 'Trade Desk', icon: '🏈', tint: 'blue', note: 'LHS fantasy trades', href: 'apps/tradedesk/index.html' },
   { id: 'settings', name: 'Settings', icon: '⚙️', tint: 'gray', note: 'Home screen · Colors · Jobs', href: '#/settings', load: () => import('./settings/settings.js') },
   // In Magic (its own apps, opened from it).
   { id: 'downloads', name: 'Downloads', icon: '⬇️', tint: 'blue', note: 'Video links · Queue · History', href: '#/downloads', parent: 'magic', home: false, load: () => import('./downloads/downloads.js') },

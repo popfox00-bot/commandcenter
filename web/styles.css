@@ -1112,6 +1112,8 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .glance-game { font-size: 1.02rem; font-variant-numeric: tabular-nums; }
 .glance.live { border-color: #e5484d; }
 .glance-alert { color: #b54708; font-weight: 600; }
+.recent-in:not(:empty), .studio-recent:not(:empty) { margin: 14px 0 6px; }
+.studio-recent:not(:empty) { margin: 0 0 12px; }
 .recent-title { margin: 0 0 6px; font-weight: 600; text-transform: none; }
 .recent-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
 .recent-item { flex: none; width: 104px; display: grid; gap: 3px; color: var(--text); text-decoration: none; }
@@ -1140,3 +1142,24 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .st-inner > h2:first-child, .st-inner > .sv-head > h2 { display: none; }
 .st-linkcard { display: flex; align-items: center; gap: 8px; }
 .st-link-inner { flex: 1; display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; min-height: 44px; }
+
+/* Sports, a game's stats: the line score, then the game's leaders side by side (away · stat · home). */
+.upd-line { width: 100%; border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.upd-line th, .upd-line td { padding: 4px 2px; text-align: center; border-bottom: 1px solid var(--border); }
+.upd-line th:first-child { text-align: left; }
+.upd-line .upd-line-t { font-weight: 700; }
+.upd-lead { display: grid; margin: 10px 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.upd-lead-head { display: grid; grid-template-columns: 1fr 1fr; padding: 6px 10px 0; font-weight: 600; text-align: center; }
+.upd-lead-row { display: grid; gap: 6px; padding: 10px 6px 12px; }
+.upd-lead-row + .upd-lead-row { border-top: 1px solid var(--border); }
+.upd-lead-stat { text-align: center; color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+.upd-lead-pair { display: grid; grid-template-columns: 1fr 1fr; }
+.upd-lead-one .upd-lead-pair { grid-template-columns: 1fr; }
+.upd-lead-cell { display: grid; justify-items: center; gap: 3px; min-width: 0; padding: 0 6px; text-align: center; }
+.upd-lead-cell.home { border-left: 1px solid var(--border); }
+.upd-lead-pic { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: var(--surface); border: 1px solid var(--border); }
+.upd-lead-init { display: grid; place-items: center; font-weight: 700; color: var(--muted); }
+.upd-lead-who { font-weight: 700; font-size: .98rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-lead-val { font-variant-numeric: tabular-nums; font-size: .82rem; line-height: 1.35; }
+.upd-lead-val strong { font-size: 1rem; }
+.upd-lead-val .muted { font-size: .78rem; }

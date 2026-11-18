@@ -220,7 +220,11 @@ test('Sports (its own app): 📊 Update stats pulls live scores and stats on req
   assert.match(st, /DEN ball · 3rd & 4 at KC 38/);
   assert.match(st, /Last play: B\.Nix pass short right/);
   assert.match(st, /Win chance: KC 32% · DEN 68%/);
-  assert.match(st, /DEN PASS: B\. Nix 181 YDS/);
+  // Leaders side by side: each team's under its own name, a row a stat.
+  const passing = card.locator('.upd-lead-row', { hasText: 'Passing' });
+  assert.match(await passing.locator('.upd-lead-cell.away').textContent(), /P\. Mahomes\s*150 YDS/);
+  assert.match(await passing.locator('.upd-lead-cell.home').textContent(), /B\. Nix\s*181 YDS/);
+  assert.match(await card.locator('.upd-lead-row', { hasText: 'Rushing' }).locator('.upd-lead-cell.home').textContent(), /J\. Williams/);
   assert.match(st, /Total Yards\s*214\s*261/);
   // Color-coded: a red-tinted card with a red edge.
   const look = await card.evaluate((e) => { const cs = getComputedStyle(e); return { bg: cs.backgroundColor, edge: cs.borderLeftColor }; });

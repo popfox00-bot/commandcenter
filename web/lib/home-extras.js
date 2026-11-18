@@ -1,6 +1,7 @@
 // What sits on the home screen above the apps: today's weather and your teams' games at a glance (from
-// what Weather and Sports last loaded, kept on the phone: Home makes no requests of its own), and Recent
-// edits (unfinished work in any editor, newest first, each opening its app, which offers to continue).
+// what Weather and Sports last loaded, kept on the phone: Home makes no requests of its own). And Recent
+// edits (unfinished work, newest first, each opening its app, which offers to continue), shown in the
+// apps they belong to (Files, its Photo Editor, Magic), not on the home screen.
 
 import { el, store } from './dom.js';
 import { idb } from './idb.js';
@@ -106,9 +107,12 @@ export async function recentEdits() {
   return out.filter((r) => Date.now() - r.at < 30 * 86_400_000).sort((a, b) => b.at - a.at).slice(0, 6);
 }
 
-/** The Recent edits strip (empty when there's nothing unfinished). URLs made for its pictures are kept in `urls` to free later. */
-export async function recentStrip(urls) {
-  const list = await recentEdits();
+/**
+ * The Recent edits strip (null when there's nothing unfinished), of the editors whose link `only` accepts
+ * (all without it). URLs made for its pictures are kept in `urls` to free later.
+ */
+export async function recentStrip(urls, only = null) {
+  const list = (await recentEdits()).filter((r) => !only || only(r.href));
   if (!list.length) return null;
   return el('section', { class: 'recent', 'aria-label': 'Recent edits' },
     el('h2', { class: 'small muted recent-title', text: 'Recent edits' }),
@@ -120,4 +124,23 @@ export async function recentStrip(urls) {
         el('span', { class: 'recent-name small', text: `${r.icon} ${r.name}` }),
         el('span', { class: 'recent-when small muted', text: ago(r.at) }));
     })));
+}
+
+/**
+ * A Recent edits strip kept in `host` (an app's page), of the editors whose link `only` accepts: drawn now
+ * and again with refresh(); its pictures' URLs freed each time.
+ */
+export function recentIn(host, only) {
+  let urls = []; let run = 0;
+  const box = el('div', { class: 'recent-in' });
+  host.append(box);
+  async function refresh() {
+    const me = ++run; const fresh = [];
+    let strip = null; try { strip = await recentStrip(fresh, only); } catch { strip = null; }
+    if (me !== run) { for (const u of fresh) URL.revokeObjectURL(u); return; }
+    for (const u of urls) URL.revokeObjectURL(u);
+    urls = fresh; box.replaceChildren(...(strip ? [strip] : []));
+  }
+  refresh();
+  return { box, refresh };
 }

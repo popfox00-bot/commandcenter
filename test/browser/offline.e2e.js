@@ -94,6 +94,9 @@ test('offline: every app and tool works with no connection after the first visit
   // Games: its own page, from the cache.
   await page.goto(`${origin}${BASE}apps/games/fox/index.html`);
   await page.waitForSelector('.game-tile, .tab-btn');
+  // Trade Desk: its own page too, from the cache, with a way back Home.
+  await page.goto(`${origin}${BASE}apps/tradedesk/index.html`);
+  await page.waitForSelector('a.cc-home');
 
   assert.deepEqual(missing, [], 'every file of the app is in the offline cache');
   assert.deepEqual(errors, []);

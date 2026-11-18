@@ -124,7 +124,9 @@ function readLeaders(groups, abbr = '') {
     const who = top.athlete?.shortName ?? top.athlete?.displayName ?? '';
     const value = top.displayValue ?? (top.value != null ? String(top.value) : '');
     if (!who && !value) continue;
-    out.push({ team: abbr, stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value });
+    // (Their headshot, when ESPN has one: an https link, for the leaders' view.)
+    const h = top.athlete?.headshot; const photo = typeof h === 'string' ? h : h?.href ?? null;
+    out.push({ team: abbr, stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value, ...(photo && /^https:\/\//.test(photo) ? { photo } : {}) });
   }
   return out;
 }
@@ -174,6 +176,13 @@ export function parseSummary(json) {
     stats: (t.statistics ?? []).map((st) => ({ label: st.label ?? st.abbreviation ?? st.name ?? '', value: num(st.displayValue) })).filter((st) => st.label && st.value != null),
   }));
   const leaders = (json?.leaders ?? []).flatMap((block) => readLeaders(block.leaders, block.team?.abbreviation ?? ''));
+  // (The score by period, each team's, from the header: for the line score.)
+  for (const c of comp?.competitors ?? []) {
+    const t = teams.find((x) => x.abbr === (c.team?.abbreviation ?? ''));
+    const lines = (c.linescores ?? []).map((l) => num(l.displayValue ?? l.value)).filter((v) => v != null);
+    const score = num(typeof c.score === 'object' ? c.score?.displayValue ?? c.score?.value : c.score);
+    if (t) { t.lines = lines; t.score = score; } else teams.push({ abbr: c.team?.abbreviation ?? '', home: c.homeAway === 'home', stats: [], lines, score });
+  }
   const wp = json?.winprobability?.at?.(-1);
   const winProb = wp?.homeWinPercentage != null ? { home: Math.round(wp.homeWinPercentage * 100), away: Math.round((1 - wp.homeWinPercentage) * 100) } : null;
   return { situation: readSituation(json?.situation ?? comp?.situation, comp), leaders, teams, winProb, at: Date.now() };
@@ -272,5 +281,58 @@ export function sportsEvents({ league, team, teamName, games, now, timeZone = 'A
       });
     }
   }
+  return out;
+}
+
+/** Leader stats in the order each sport reads them, with their full names. */
+const LEADER_ORDER = {
+  basketball: [['PTS', 'Points'], ['REB', 'Rebounds'], ['AST', 'Assists'], ['STL', 'Steals'], ['BLK', 'Blocks']],
+  football: [['PYDS', 'Passing'], ['PASS', 'Passing'], ['RYDS', 'Rushing'], ['RUSH', 'Rushing'], ['RECYDS', 'Receiving'], ['REC', 'Receiving'], ['TACK', 'Tackles'], ['SACK', 'Sacks']],
+  baseball: [['AVG', 'Batting'], ['H', 'Hits'], ['HR', 'Home runs'], ['RBI', 'RBIs'], ['ERA', 'Pitching'], ['K', 'Strikeouts']],
+  hockey: [['G', 'Goals'], ['A', 'Assists'], ['PTS', 'Points'], ['SV', 'Saves']],
+};
+const LEADER_NAMES = { PTS: 'Points', REB: 'Rebounds', AST: 'Assists', STL: 'Steals', BLK: 'Blocks', PYDS: 'Passing', PASS: 'Passing', RYDS: 'Rushing', RUSH: 'Rushing', RECYDS: 'Receiving', REC: 'Receiving', G: 'Goals', A: 'Assists', SV: 'Saves' };
+
+/**
+ * The game's leaders side by side: one row a stat (in the sport's order: Points, Rebounds, Assists…), each
+ * team's leader in it: [{ stat, label, away: { who, value } | null, home: { … } | null }]. Leaders not
+ * of either team (the game's overall) fill in a side only where that team has none of its own.
+ */
+export function leaderRows(leaders, awayAbbr, homeAbbr, sport = '') {
+  const norm = (st) => String(st ?? '').toUpperCase().replace(/[^A-Z]/g, '');
+  const by = new Map();
+  for (const l of leaders ?? []) {
+    const k = norm(l.stat); if (!k) continue;
+    if (!by.has(k)) by.set(k, { stat: k, label: LEADER_NAMES[k] ?? l.stat, away: null, home: null, any: null });
+    const r = by.get(k); const v = { who: l.who, value: l.value, ...(l.photo ? { photo: l.photo } : {}) };
+    if (l.team && l.team === awayAbbr) r.away ??= v; else if (l.team && l.team === homeAbbr) r.home ??= v; else r.any ??= { ...v, team: l.team };
+  }
+  // (Overall leaders with no side: shown on neither side, as a row of their own, unless the row has sides.)
+  const order = (LEADER_ORDER[sport] ?? []).map(([k]) => k);
+  const rows = [...by.values()].filter((r) => r.away || r.home || r.any);
+  rows.sort((a, b) => { const ia = order.indexOf(a.stat); const ib = order.indexOf(b.stat); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+  // (One row a name: Passing once even if both PYDS and PASS came.)
+  const seen = new Set();
+  return rows.filter((r) => { if (seen.has(r.label)) return false; seen.add(r.label); return true; }).map(({ stat, label, away, home, any }) => ({ stat, label, away, home, overall: !away && !home ? any : null }));
+}
+
+/** The score by period: { periods: ['1', '2', …, 'OT'], away: [...], home: [...] } or null. */
+export function lineScore(teams, sport = '') {
+  const a = (teams ?? []).find((t) => !t.home); const h = (teams ?? []).find((t) => t.home);
+  const n = Math.max(a?.lines?.length ?? 0, h?.lines?.length ?? 0);
+  if (!n) return null;
+  const reg = sport === 'basketball' || sport === 'football' ? 4 : sport === 'hockey' ? 3 : sport === 'baseball' ? 9 : n;
+  const periods = Array.from({ length: n }, (_, i) => (i < reg ? String(i + 1) : n - reg > 1 ? `OT${i - reg + 1}` : 'OT'));
+  return { periods, away: { abbr: a?.abbr ?? '', lines: a?.lines ?? [], score: a?.score ?? null }, home: { abbr: h?.abbr ?? '', lines: h?.lines ?? [], score: h?.score ?? null } };
+}
+
+/**
+ * A leader's value in parts, its numbers apart from their words ("16 TOT, 6 OFF, 10 DEF" →
+ * [['16', ' TOT, '], ['6', ' OFF, '], ['10', ' DEF']]), for the numbers bold and the words light.
+ */
+export function valueParts(v) {
+  const bits = String(v ?? '').split(/(\d[\d./:%]*)/);
+  const out = bits[0] ? [['', bits[0]]] : [];
+  for (let i = 1; i < bits.length; i += 2) out.push([bits[i], bits[i + 1] ?? '']);
   return out;
 }

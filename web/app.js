@@ -5,23 +5,16 @@ import { $, el, store } from './lib/dom.js';
 import { APPS, FILES_APPS, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
 import { VERSION, HISTORY } from './version.js';
-import { glanceCards, recentStrip } from './lib/home-extras.js';
+import { glanceCards } from './lib/home-extras.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
 
-// Above the apps: today's weather and your games at a glance, and Recent edits (unfinished work).
-let extraUrls = [];
-let extrasRun = 0;
-async function renderExtras() {
-  const run = ++extrasRun;
-  let strip = null; const urls = [];
-  try { strip = await recentStrip(urls); } catch { strip = null; }
-  if (run !== extrasRun) { for (const u of urls) URL.revokeObjectURL(u); return; }
-  for (const u of extraUrls) URL.revokeObjectURL(u);
-  extraUrls = urls;
+// Above the apps: today's weather and your games at a glance. (Recent edits are shown in the apps they
+// belong to: Files, its Photo Editor, Magic.)
+function renderExtras() {
   let cards = null; try { cards = glanceCards(); } catch { cards = null; }
-  $('#home-extras').replaceChildren(...[cards, strip].filter(Boolean));
+  $('#home-extras').replaceChildren(...[cards].filter(Boolean));
 }
 
 function renderHome() {

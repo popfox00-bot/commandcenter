@@ -15,6 +15,10 @@
  * @property {number[][]} [mesh] its dense mesh when found by it: 478 [u, v, z] (z into the picture, in units of u)
  * @property {number[][]} [outline] its outline in the photo, pixels (fit-skin targetOutline), once worked out
  * @property {{ isSkin: (r: number, g: number, b: number) => boolean }} [skin] its skin, as a test (fit-skin skinModel)
+ * @property {boolean} [estimated] seen by its skin only (fit-bangs facesFromParts: its eyes hidden)
+ * @property {Uint8Array | null} [bangs] the bangs over it, 0..255, W×H (fit-bangs bangsMap), once worked out
+ * @property {Uint8ClampedArray} [debanged] the photo with those bangs filled in from its skin (fit-bangs debang)
+ * @property {boolean} [outlineDebanged] its outline and skin worked out again without the bangs
  */
 
 /**

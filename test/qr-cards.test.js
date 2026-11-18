@@ -45,7 +45,7 @@ test('handles as each app writes them; cards checked; colors', () => {
 
 test('home screen: the default order, your order, apps added later at the end, Jobs only in Settings', () => {
   // (Calendar, Weather and Sports are the Updates card; Settings is the ⚙ at the top.)
-  assert.deepEqual(homeApps().map((a) => a.id), ['notes', 'files', 'magic', 'draw', 'rap', 'games', 'tradedesk']);
+  assert.deepEqual(homeApps().map((a) => a.id), ['notes', 'files', 'magic', 'draw', 'units', 'rap', 'games', 'tradedesk']);
   assert.deepEqual(homeApps(['draw', 'notes', 'gone']).map((a) => a.id).slice(0, 3), ['draw', 'notes', 'files'], 'unknown ids ignored; the rest keep their order');
   assert.deepEqual(homeApps(['fm', 'notes', 'qr', 'downloads', 'files']).map((a) => a.id).slice(0, 3), ['magic', 'notes', 'files'], 'FM and Downloads: Magic in the first one\'s place; QR (now in Files) gone');
   assert.deepEqual(homeApps(['calendar', 'settings', 'draw']).map((a) => a.id)[0], 'draw', 'Calendar and Settings in a saved order: no longer tiles');

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "f10498a2f04a",
+  "version": "d66792e4d976",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -28,6 +28,8 @@ const PRECACHE = {
     "apps/magic/magic.js",
     "apps/notes/notes-core.js",
     "apps/notes/notes.js",
+    "apps/packages/packages-core.js",
+    "apps/packages/packages.js",
     "apps/rap/DATA-LICENSES.md",
     "apps/rap/rap-core.js",
     "apps/rap/rap-corpus.js",
@@ -45,6 +47,8 @@ const PRECACHE = {
     "apps/tradedesk/favicon-32.png",
     "apps/tradedesk/icon-192.png",
     "apps/tradedesk/index.html",
+    "apps/units/units-core.js",
+    "apps/units/units.js",
     "apps/updates/college-sites.js",
     "apps/updates/sports-core.js",
     "apps/updates/updates.js",
@@ -68,6 +72,7 @@ const PRECACHE = {
     "lib/color-match.js",
     "lib/diag.js",
     "lib/dom.js",
+    "lib/drag-sort.js",
     "lib/face-core.js",
     "lib/face-mesh.js",
     "lib/face-parts.js",
@@ -86,6 +91,7 @@ const PRECACHE = {
     "lib/saved-files.js",
     "lib/sha256.js",
     "lib/storage-usage.js",
+    "lib/suggestions.js",
     "lib/update.js",
     "lib/upscale.js",
     "lib/vault-ui.js",

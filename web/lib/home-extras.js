@@ -57,6 +57,18 @@ export function gameSummary(data = store.json(SPORTS_CACHE, {})) {
   return next ? { game: next, live: false, at } : last ? { game: last, live: false, at } : null;
 }
 
+/**
+ * Every game today of the teams Sports follows (from what it last loaded), once each, live ones first, then
+ * by start time: [{ game, live, done }].
+ */
+export function todayGames(data = store.json(SPORTS_CACHE, {}), now = new Date()) {
+  const k = (d) => new Date(d).toDateString(); const today = k(now);
+  const seen = new Map();
+  for (const v of Object.values(data ?? {})) for (const g of v?.games ?? []) if (g?.id && g.date && k(g.date) === today) seen.set(g.id, g);
+  return [...seen.values()].map((game) => ({ game, live: game.state === 'in', done: game.state === 'post' || !!game.completed }))
+    .sort((a, b) => (b.live - a.live) || Date.parse(a.game.date) - Date.parse(b.game.date));
+}
+
 /** The two at-a-glance cards (weather, games), each opening its app. */
 export function glanceCards() {
   const w = weatherSummary(); const g = gameSummary();
@@ -94,11 +106,13 @@ export async function nextEvent(now = new Date()) {
 
 /**
  * The home screen's Updates card: one card with a line of each of Calendar, Weather and Sports (the next
- * event, the weather now, your next or live game), all of it opening the Updates page.
+ * event, the weather now, your next or live game), each opening its tab of the Updates page (Packages is
+ * there as a tab only, not in the preview).
  */
 export function updatesCard() {
   const w = weatherSummary(); const g = gameSummary();
-  const row = (icon, name, main, sub, cls = '') => el('span', { class: `upd-prev ${cls}` },
+  const tabOf = { Calendar: 'calendar', Weather: 'weather', Sports: 'sports' };
+  const row = (icon, name, main, sub, cls = '') => el('a', { class: `upd-prev ${cls}`, href: `#/updates/${tabOf[name.split(' ·')[0]] ?? ''}`, 'aria-label': `${name.split(' ·')[0]}: ${main}` },
     el('span', { class: 'upd-prev-icon', 'aria-hidden': 'true', text: icon }),
     el('span', { class: 'upd-prev-text' }, el('span', { class: 'small muted', text: name }), el('strong', { class: 'upd-prev-main', text: main }), sub ? el('span', { class: 'small muted', text: sub }) : null));
   const cal = row('📅', 'Calendar', 'Nothing coming up', 'Tap to add an event');
@@ -106,11 +120,28 @@ export function updatesCard() {
     w ? `${w.now != null ? `${w.now}° ` : ''}${w.sky}`.trim() || '—' : 'Open to see your forecast',
     w ? [w.high != null ? `H ${w.high}°` : null, w.low != null ? `L ${w.low}°` : null, w.alerts ? `⚠️ ${w.alert ?? 'Alert'}` : null].filter(Boolean).join(' · ') : '', w?.alerts ? 'alert' : '');
   const side = (x) => (x ? `${x.abbr || x.short}${x.score != null ? ` ${x.score}` : ''}` : '');
-  let line = 'Open to see your teams'; let sub = '';
-  if (g) { const { game } = g; line = `${side(game.away)} @ ${side(game.home)}`; sub = g.live ? `🔴 ${game.detail || 'Live'}` : game.completed ? `Final · ${dayOf(game.date)}` : `${dayOf(game.date)} ${timeOf(game.date)}`; }
-  const sports = row('🏆', g?.live ? 'Sports · Live' : 'Sports', line, sub, g?.live ? 'live' : '');
-  const card = el('a', { class: 'card updates-card', href: '#/updates', 'aria-label': 'Updates: Calendar, Weather and Sports' },
-    el('span', { class: 'updates-head' }, el('strong', { text: 'Updates' }), el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' })),
+  // Sports: every game today, a line each (the card grows with them), each opening that game; with none
+  // today, the next (or the last) one.
+  const today = todayGames();
+  let sports;
+  if (today.length) {
+    const live = today.some((x) => x.live);
+    sports = el('div', { class: `upd-prev upd-prev-games${live ? ' live' : ''}` },
+      el('a', { class: 'upd-prev-icon', href: '#/updates/sports', 'aria-label': 'Sports', text: '🏆' }),
+      el('span', { class: 'upd-prev-text' },
+        el('a', { class: 'small muted upd-prev-label', href: '#/updates/sports', text: `Sports · ${today.length === 1 ? 'today' : `${today.length} games today`}${live ? ' · Live' : ''}` }),
+        el('span', { class: `upd-games${today.length > 4 ? ' many' : ''}` }, ...today.map(({ game, live: on, done }) => el('a', { class: `upd-game-line${on ? ' live' : ''}`, href: `#/updates/sports/${encodeURIComponent(game.id)}`, 'aria-label': `${game.away?.abbr ?? ''} at ${game.home?.abbr ?? ''}: open this game` },
+          el('strong', { class: 'upd-game-teams', text: `${side(game.away)} @ ${side(game.home)}` }),
+          el('span', { class: 'small muted upd-game-when', text: on ? `🔴 ${game.detail || 'Live'}` : done ? 'Final' : `${timeOf(game.date)}${game.tv ? ` · ${game.tv}` : ''}` }))))));
+  } else {
+    let line = 'Open to see your teams'; let sub = '';
+    if (g) { const { game } = g; line = `${side(game.away)} @ ${side(game.home)}`; sub = g.live ? `🔴 ${game.detail || 'Live'}` : game.completed ? `Final · ${dayOf(game.date)}` : `${dayOf(game.date)} ${timeOf(game.date)}`; }
+    sports = row('🏆', g?.live ? 'Sports · Live' : 'Sports', line, sub, g?.live ? 'live' : '');
+    if (g?.game?.id) sports.href = `#/updates/sports/${encodeURIComponent(g.game.id)}`;
+  }
+  // (Each line opens its own tab of the Updates page; the heading, the page as it was left.)
+  const card = el('div', { class: 'card updates-card', role: 'group', 'aria-label': 'Updates' },
+    el('a', { class: 'updates-head', href: '#/updates', 'aria-label': 'Open Updates' }, el('strong', { text: 'Updates' }), el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' })),
     cal, weather, sports);
   nextEvent().then((e) => { if (e) cal.replaceWith(row('📅', 'Calendar', e.title, `${e.day} · ${e.when}`)); }).catch(() => {});
   return card;

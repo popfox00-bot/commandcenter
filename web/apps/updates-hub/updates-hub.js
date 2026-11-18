@@ -1,25 +1,28 @@
-// Updates: Calendar, Weather and Sports together, as tabs (the home screen's Updates card opens it). Route:
-// #/updates (Calendar first) and #/updates/<calendar|weather|sports>. Each tab is its own app, mounted when
+// Updates: Calendar, Weather, Sports and Packages together, as tabs (the home screen's Updates card opens it;
+// Packages is only here, not in the card). Route: #/updates (Calendar first) and
+// #/updates/<calendar|weather|sports|packages>. Each tab is its own app, mounted when
 // it's opened and put away when another is.
 
 import { el } from '../../lib/dom.js';
 import { APPS } from '../index.js';
 
-const TABS = [['calendar', '📅 Calendar'], ['weather', '⛅ Weather'], ['sports', '🏆 Sports']];
+const TABS = [['calendar', '📅 Calendar'], ['weather', '⛅ Weather'], ['sports', '🏆 Sports'], ['packages', '📦 Packages']];
 
 export function mount(host) {
   const bar = el('nav', { class: 'segmented upd-hub-tabs', role: 'tablist', 'aria-label': 'Updates' });
   const body = el('div', { class: 'upd-hub-body' });
   host.append(bar, body);
-  let shown = null; let unmount = null; let run = 0;
+  let shown = null; let shownSub = ''; let unmount = null; let run = 0;
 
   const current = () => { const t = (location.hash || '').split('/')[2]; return TABS.some(([id]) => id === t) ? t : 'calendar'; };
 
   async function show() {
     const id = current();
     bar.replaceChildren(...TABS.map(([t, label]) => el('a', { class: `seg${t === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t === id), href: `#/updates/${t}`, text: label })));
-    if (id === shown) return;
-    shown = id; const me = ++run;
+    // (The same tab on something else in it (a game: #/updates/sports/<id>): opened again on that.)
+    const sub = (location.hash || '').split('/').slice(3).join('/');
+    if (id === shown && sub === shownSub) return;
+    shown = id; shownSub = sub; const me = ++run;
     if (typeof unmount === 'function') unmount();
     unmount = null;
     body.replaceChildren(el('p', { class: 'muted center', text: 'Loading…' }));

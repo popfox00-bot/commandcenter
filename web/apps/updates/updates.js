@@ -227,6 +227,7 @@ export function mount(host, { only = 'weather' } = {}) {
     const stats = {}; const open = new Set(); let statsNote = ''; let updating = false;
     // The calendar: week by default (the view you pick is remembered), starting on today.
     let cal = { view: 'week', ...store.json(SPORTS_VIEW_KEY, {}), anchor: dayKey() };
+    const focusId = decodeURIComponent(/^#\/(?:updates\/)?sports\/([^/?#]+)/.exec(location.hash || '')?.[1] ?? '') || null; let focusSeen = false;
     if (!['day', 'week', 'month'].includes(cal.view)) cal.view = 'week';
     // College football in the local market (near the ZIP picked in Weather), on unless turned off.
     let localOn = store.get(LOCAL_CFB_KEY) !== 'off';
@@ -360,7 +361,8 @@ export function mount(host, { only = 'weather' } = {}) {
     }
 
     /** Every followed team's games, once each (a game between two of them shows once), by day. */
-    function gamesByDay() {
+    function gamesByDay() { return byDay(gamesFlat(), (x) => dayKey(x.g.date)); }
+    function gamesFlat() {
       const seen = new Set(); const list = [];
       for (const t of followed()) {
         const d = data[keyOf(t)];
@@ -372,7 +374,7 @@ export function mount(host, { only = 'weather' } = {}) {
         }
       }
       list.sort((a, b) => Date.parse(a.g.date) - Date.parse(b.g.date));
-      return byDay(list, (x) => dayKey(x.g.date));
+      return list;
     }
 
     function gameItem({ g, t, info }, view) {
@@ -391,7 +393,7 @@ export function mount(host, { only = 'weather' } = {}) {
       const score = live || (done && us.score != null) ? el('span', { class: 'upd-score', 'aria-label': `${us.abbr} ${us.score ?? 0}, ${them.abbr} ${them.score ?? 0}` }, scoreRow(us, ahead(us, them)), scoreRow(them, ahead(them, us))) : null;
       const extra = view === 'day' ? [g.tv && `📺 ${g.tv}`, !done && g.odds?.details && `Line: ${g.odds.details}${g.odds.overUnder ? `, O/U ${g.odds.overUnder}` : ''}`, g.venue && `📍 ${g.venue}`].filter(Boolean) : [g.tv].filter(Boolean);
       const statsBtn = live || done ? el('button', { type: 'button', class: `btn small-btn ghost upd-stats-btn${open.has(g.id) ? ' active' : ''}`, 'aria-label': `Stats: ${us.abbr} ${at} ${them.abbr}`, text: '📊', onclick: () => gameStats(g, t) }) : null;
-      return el('div', { class: `cal-item upd-game${live ? ' upd-live' : ''}${done ? ' upd-done' : ''}`, style: { borderLeftColor: live ? '#dc2626' : color } },
+      return el('div', { class: `cal-item upd-game${live ? ' upd-live' : ''}${done ? ' upd-done' : ''}${g.id === focusId ? ' upd-focus' : ''}`, 'data-game': g.id, style: { borderLeftColor: live ? '#dc2626' : color } },
         el('span', { class: 'cal-time small upd-status' }, ...status),
         el('span', { class: 'cal-what' },
           el('span', { class: 'upd-game-head' }, badge, el('strong', { text: `${at} ${them.short || them.name || them.abbr}` }), t.local ? el('span', { class: 'muted small', text: 'local' }) : null),
@@ -441,6 +443,16 @@ export function mount(host, { only = 'weather' } = {}) {
     }
 
     function render() {
+      // (Opened on one game (a game tapped on the home screen, #/sports/<id>): its day shown, it picked out
+      // and scrolled to, its stats open if it's on or over. Once.)
+      if (focusId && !focusSeen) {
+        const hit = gamesFlat().find((x) => String(x.g.id) === focusId);
+        if (hit) {
+          focusSeen = true; cal = { ...cal, view: 'day', anchor: dayKey(hit.g.date) };
+          if ((hit.g.state === 'in' || hit.g.state === 'post' || hit.g.completed) && !open.has(hit.g.id)) setTimeout(() => gameStats(hit.g, hit.t));
+          requestAnimationFrame(() => pane.querySelector(`[data-game="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: 'center' }));
+        }
+      }
       const kids = [
         el('div', { class: 'row space' },
           el('h3', { text: 'Games' }),

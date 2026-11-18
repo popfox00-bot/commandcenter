@@ -1,8 +1,9 @@
 // Command Center API (Cloudflare Worker + D1).
-//   /api/*     read API for the PWA + "Run now" + link check for scanned QR codes; bearer CC_API_TOKEN
+//   /api/*     read API for the PWA + "Run now" + link check for scanned QR codes + package tracking; bearer CC_API_TOKEN
 //   /ingest/*  write-back from job runners; HMAC-signed with CC_INGEST_SECRET (a separate secret)
 //   cron       stale-run cleanup, retention, scheduler watchdog, re-enable the scheduled workflow
 
+import { track, checkNumbers, TrackError } from './track.js';
 import * as sql from '../../shared/sql-store.js';
 import { verify, SIGNATURE_HEADER, TIMESTAMP_HEADER } from '../../shared/hmac.js';
 import { isDue, parseCron } from '../../src/core/schedule.js';
@@ -187,6 +188,19 @@ async function handleApi(request, env, url) {
     } catch (err) {
       if (err instanceof LinkError) throw new HttpError(422, err.message);
       throw new HttpError(502, 'finding videos failed');
+    }
+  }
+  // Packages: live status of tracking numbers (POST, the numbers in the body), through 17TRACK.
+  if (request.method === 'POST' && parts.length === 2 && parts[1] === 'track') {
+    const raw = await request.text();
+    if (raw.length > 8192) throw new HttpError(413, 'body too large');
+    let numbers;
+    try { numbers = checkNumbers(JSON.parse(raw).numbers); } catch (err) { throw new HttpError(400, err instanceof TrackError ? err.message : 'invalid JSON'); }
+    try {
+      return json({ packages: await track(numbers, env.TRACK17_KEY) });
+    } catch (err) {
+      if (err instanceof TrackError) throw new HttpError(env.TRACK17_KEY ? 502 : 501, err.message);
+      throw new HttpError(502, 'tracking failed');
     }
   }
   if (request.method === 'GET' && parts[1] === 'runs' && parts.length === 3 && isRunId(parts[2])) {

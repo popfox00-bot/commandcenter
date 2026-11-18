@@ -23,6 +23,20 @@ before(async () => {
   origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined });
 });
+
+/** A row of `list` (by its data-id) dragged by its ☰ handle `by` rows (− up, + down), as a finger would. */
+async function dragRow(page, list, id, by) {
+  const rows = await page.$$eval(`${list} > [data-id]`, (n) => n.map((x) => { const b = x.getBoundingClientRect(); return { id: x.dataset.id, top: b.top }; }));
+  const i = rows.findIndex((r) => r.id === id);
+  const step = rows.length > 1 ? rows[1].top - rows[0].top : 60;
+  const h = await page.locator(`${list} > [data-id="${id}"] .drag-handle`).first().boundingBox();
+  const x = h.x + h.width / 2; const y = h.y + h.height / 2;
+  await page.mouse.move(x, y); await page.mouse.down();
+  await page.mouse.move(x, y + by * step * 0.6, { steps: 4 });
+  await page.mouse.move(x, y + by * step, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction(([l, d, at]) => [...document.querySelectorAll(`${l} > [data-id]`)].findIndex((x) => x.dataset.id === d) === at, [list, id, i + by]);
+}
 after(async () => { await browser?.close(); server?.close(); });
 
 const colors = (page, sel) => page.evaluate((s) => { const n = document.querySelector(s); const cs = getComputedStyle(n); return { bg: getComputedStyle(document.body).backgroundColor, text: cs.color }; }, sel);
@@ -87,63 +101,92 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.goto(`${origin}${BASE}`);
   const home = () => page.$$eval('.app-name', (els) => els.map((e) => e.textContent));
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Rap', 'Games', 'Trade Desk']);
   await page.click('#home-settings');
   await page.waitForSelector('.st-home', { state: 'attached' });
   // Folded until tapped.
   assert.equal(await page.locator('.st-home').isVisible(), false, 'the reorder list starts folded');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.waitForSelector('.st-home');
-  assert.equal(await page.isDisabled('[aria-label="Move Notes up"]'), true);
-  await page.click('[aria-label="Move Draw up"]');
-  await page.click('[aria-label="Move Draw up"]');
-  await page.click('[aria-label="Move Notes down"]');
-  await page.click('[aria-label="Move Trade Desk up"]');
-  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Trade Desk', 'Games']);
+  // Dragged by their ☰: Draw up two places, Notes down one, then Trade Desk up one with the keyboard.
+  await dragRow(page, '.st-home', 'draw', -2);
+  await dragRow(page, '.st-home', 'notes', 1);
+  await page.getByRole('button', { name: /Reorder Trade Desk/ }).focus();
+  await page.keyboard.press('ArrowUp');
+  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Trade Desk', 'Games']);
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games']);
   // Each in its category, in that order: Productivity, then Creativity.
-  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Magic', 'Creativity: Rap, Trade Desk, Games']);
+  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Magic, Units', 'Creativity: Rap, Trade Desk, Games']);
   await page.reload();
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Rap', 'Trade Desk', 'Games'], 'kept after a reload');
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games'], 'kept after a reload');
   await page.click('#home-settings');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Rap', 'Games', 'Trade Desk']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Rap', 'Games', 'Trade Desk']);
   assert.deepEqual(errors, []);
   await context.close();
 });
 
-test('Settings: every card after App version folded until tapped; their order moved up and down and kept', async () => {
+test('Settings: every card after App version folded until tapped; their order changed by dragging its ☰ (or ↑ ↓ on it) and kept', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${origin}${BASE}#/settings`);
   await page.waitForSelector('.st-sections .st-fold');
   const order = () => page.$$eval('.st-sections > [data-id]', (n) => n.map((x) => x.dataset.id));
-  assert.deepEqual(await order(), ['home', 'background', 'saved', 'storage', 'diagnostics', 'jobs']);
+  assert.deepEqual(await order(), ['home', 'background', 'saved', 'storage', 'diagnostics', 'suggest', 'jobs']);
   assert.equal(await page.locator('.st > section.card h2').first().textContent(), 'App version', 'App version first');
   assert.ok(await page.getByRole('button', { name: 'Update to Latest Version' }).isVisible(), 'and open');
   assert.equal(await page.locator('details.st-fold[open]').count(), 0, 'the rest folded');
-  // (An arrow moves the card without opening it.)
-  await page.getByRole('button', { name: 'Move Storage up' }).click();
-  await page.getByRole('button', { name: 'Move Storage up' }).click();
-  await page.getByRole('button', { name: 'Move Jobs up' }).click();
-  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'jobs', 'diagnostics']);
+  assert.equal(await page.locator('.st-move-btn').count(), 0, 'no ↑ ↓ buttons');
+  // Dragged by its ☰: Storage up two places (the card doesn't open).
+  await dragRow(page, '.st-sections', 'storage', -2);
+  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'diagnostics', 'suggest', 'jobs']);
   assert.equal(await page.locator('details.st-fold[open]').count(), 0);
-  assert.ok(await page.getByRole('button', { name: 'Move Edit Home Screen up' }).isDisabled());
+  // On the keyboard: the focused ☰ moves its card with ↑.
+  await page.getByRole('button', { name: /Reorder Jobs/ }).focus();
+  await page.keyboard.press('ArrowUp');
+  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'diagnostics', 'jobs', 'suggest']);
   await page.reload();
   await page.waitForSelector('.st-sections .st-fold');
-  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'jobs', 'diagnostics'], 'kept after a reload');
+  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'diagnostics', 'jobs', 'suggest'], 'kept after a reload');
   // (An open card stays open when it's moved.)
   await page.locator('summary', { hasText: 'Background' }).click();
-  await page.getByRole('button', { name: 'Move Background up' }).click();
+  await page.getByRole('button', { name: /Reorder Background/ }).focus();
+  await page.keyboard.press('ArrowUp');
+  await page.waitForFunction(() => document.querySelector('.st-sections > [data-id]:nth-child(2)')?.dataset.id === 'background');
   assert.equal(await page.locator('details.st-fold[data-id="background"]').getAttribute('open'), '');
   assert.ok(await page.locator('[aria-label="Background Midnight"]').isVisible());
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Settings → Suggest Improvements: notes kept on the phone (offline too), newest first, deleted; Saved Files not set up says where they are', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/settings`);
+  await page.locator('summary', { hasText: 'Suggest Improvements' }).click();
+  await page.fill('.st-sug-text', 'Dark mode for Draw');
+  await page.getByRole('button', { name: 'Save suggestion' }).click();
+  await page.fill('.st-sug-text', 'A timer app');
+  await page.getByRole('button', { name: 'Save suggestion' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.st-sug-row').length === 2);
+  assert.deepEqual(await page.$$eval('.st-sug-row .st-sug-body > span:first-child', (n) => n.map((x) => x.textContent)), ['A timer app', 'Dark mode for Draw']);
+  assert.match(await page.textContent('.st-sug-row'), /on this phone/);
+  assert.match(await page.textContent('[data-id="suggest"]'), /Connect Saved Files/);
+  await page.reload();
+  await page.locator('summary', { hasText: 'Suggest Improvements' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.st-sug-row').length === 2);
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: /Delete suggestion: A timer app/ }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.st-sug-row').length === 1);
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('cc.suggestions'))).length, 1);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -261,9 +304,9 @@ test('Home: the Updates card (the next event, today\'s weather, a live game: fro
   assert.match(rows[1], /47° Mostly Sunny/); assert.match(rows[1], /H 54°/); assert.match(rows[1], /Wind Advisory/);
   assert.match(rows[2], /LAL 98 @ DEN 102/, 'the live game, not the one tomorrow'); assert.match(rows[2], /Q4 2:31/);
   // The card opens the Updates page (Calendar, Weather, Sports).
-  await page.click('.updates-card');
+  await page.click('.updates-head');
   await page.waitForSelector('.upd-hub-tabs');
-  assert.deepEqual(await page.$$eval('.upd-hub-tabs .seg', (t) => t.map((x) => x.textContent)), ['📅 Calendar', '⛅ Weather', '🏆 Sports']);
+  assert.deepEqual(await page.$$eval('.upd-hub-tabs .seg', (t) => t.map((x) => x.textContent)), ['📅 Calendar', '⛅ Weather', '🏆 Sports', '📦 Packages']);
   await page.goto(`${origin}${BASE}#/`); await page.waitForSelector('.updates-card');
   // Not on Home.
   assert.equal(await page.locator('.recent-item').count(), 0, 'no Recent edits on Home');

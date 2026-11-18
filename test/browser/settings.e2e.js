@@ -101,7 +101,7 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await page.goto(`${origin}${BASE}`);
   const home = () => page.$$eval('.app-name', (els) => els.map((e) => e.textContent));
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Rap', 'Games', 'Trade Desk']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Rap', 'Trade Desk', 'Games', 'WorldAtlas']);
   await page.click('#home-settings');
   await page.waitForSelector('.st-home', { state: 'attached' });
   // Folded until tapped.
@@ -113,21 +113,21 @@ test('Settings → Edit Home Screen: move apps up and down; the home screen foll
   await dragRow(page, '.st-home', 'notes', 1);
   await page.getByRole('button', { name: /Reorder Trade Desk/ }).focus();
   await page.keyboard.press('ArrowUp');
-  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games']);
+  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Games', 'Trade Desk', 'WorldAtlas']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games']);
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games', 'WorldAtlas']);
   // Each in its category, in that order: Productivity, then Creativity.
-  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Magic, Units', 'Creativity: Rap, Trade Desk, Games']);
+  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Magic, Units', 'Creativity: Rap, Trade Desk', 'Games: Games, WorldAtlas']);
   await page.reload();
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games'], 'kept after a reload');
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Rap', 'Trade Desk', 'Games', 'WorldAtlas'], 'kept after a reload');
   await page.click('#home-settings');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Rap', 'Games', 'Trade Desk']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Rap', 'Trade Desk', 'Games', 'WorldAtlas']);
   assert.deepEqual(errors, []);
   await context.close();
 });

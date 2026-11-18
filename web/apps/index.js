@@ -7,7 +7,8 @@
 //   and Saved Files (your own Google Drive folder).
 // Games is Fox Games, a self-contained page of its own (web/apps/games/fox/). Trade Desk is the LHS
 // fantasy football trade analyzer, likewise a page of its own (web/apps/tradedesk/, copied from the
-// tradedesk repository with a ‹ Home link added and its own service worker left out).
+// tradedesk repository with a ‹ Home link added and its own service worker left out). WorldAtlas (the
+// Minecraft world map) too: web/apps/worldatlas/ is the minecraft repository's build, with a ‹ Home link.
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', cat: 'updates', home: false, parent: 'updates', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', cat: 'updates', home: false, parent: 'updates', load: () => import('./weather/weather.js') },
@@ -19,7 +20,8 @@ export const APPS = [
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },
-  { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html', cat: 'creativity' },
+  { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html', cat: 'games' },
+  { id: 'worldatlas', name: 'WorldAtlas', icon: '🗺️', tint: 'green', note: 'Minecraft world map', href: 'apps/worldatlas/index.html', cat: 'games' },
   { id: 'tradedesk', name: 'Trade Desk', icon: '🏈', tint: 'blue', note: 'LHS fantasy trades', href: 'apps/tradedesk/index.html', cat: 'creativity' },
   // Settings: the ⚙ at the top right of the home screen, not a tile.
   { id: 'settings', name: 'Settings', icon: '⚙️', tint: 'gray', note: 'Home screen · Colors · Jobs', href: '#/settings', home: false, load: () => import('./settings/settings.js') },
@@ -37,12 +39,13 @@ export const APPS = [
 
 /**
  * The home screen's categories, in order: Updates (one card of previews, opening the Updates page),
- * Productivity and Creativity (tiles).
+ * Productivity, Creativity and Games (tiles).
  */
 export const CATEGORIES = [
   { id: 'updates', name: 'Updates' },
   { id: 'productivity', name: 'Productivity' },
   { id: 'creativity', name: 'Creativity' },
+  { id: 'games', name: 'Games' },
 ];
 
 /** Files' own apps (routes #/files/<tab>; each lists the tabs that are part of it). */

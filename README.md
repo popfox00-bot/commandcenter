@@ -7,7 +7,8 @@ A personal, phone-first app. Its home screen is in three parts:
   from what each last loaded (Home itself goes online for nothing). Each line opens its own tab of the
   **Updates** page (Calendar, Weather, Sports and **Packages**), and a game opens Sports on that game.
 - **Productivity**: **Notes**, **Files**, **Magic**, **Draw** and **Units**.
-- **Creativity**: **Rap**, **Games** and **Trade Desk**.
+- **Creativity**: **Rap** and **Trade Desk**.
+- **Games**: **Games** (Fox Games) and **WorldAtlas** (the Minecraft world map).
 
 **⚙ Settings** is at the top right, beside the version (tap the version for what changed in each, and
 **Update to Latest Version**). The order of the tiles can be changed in Settings → Edit Home Screen (drag a row
@@ -1094,6 +1095,16 @@ Settings → **Suggest Improvements** keeps ideas for future updates: written an
 the phone, and copied to your Google Drive when Saved Files is connected, as one plain file,
 `Command Center/Suggested improvements.md` (not encrypted, so it can be read when the app is next worked
 on; `CLAUDE.md` says to read it at the start of each session and to ask before acting on it).
+
+## WorldAtlas
+
+**WorldAtlas** opens the Minecraft Bedrock world map (biomes from the seed, structures, your own markers,
+measuring, the Nether and End; optional sync through its own Apps Script) as its own page, with a **‹ Home**
+link at the bottom left. `web/apps/worldatlas/` is the build of the `minecraft` repository (`npm ci && npm run
+build`, its `dist/`), with the Home link (`cc-frame.css`) and Command Center's icon added; Command Center's
+service worker keeps it offline. Its markers and settings are kept in the browser under this site, so they're
+the same as the standalone WorldAtlas on the same site. To bring in a newer WorldAtlas, build that repository
+again, replace the folder's `index.html` and `assets/`, and make the same two additions.
 
 ## Trade Desk
 

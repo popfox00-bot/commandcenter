@@ -1,0 +1,8 @@
+/* Command Center additions to WorldAtlas (built from the minecraft repository; its page otherwise
+   unchanged): a way back Home, at the bottom left beside the map's Legend (its tools fill the top). */
+.cc-home {
+  position: fixed; left: calc(8px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 1200; display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px;
+  border-radius: 10px; background: #fff; color: #1d4ed8; font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-decoration: none; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}

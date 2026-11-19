@@ -1274,3 +1274,12 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 @keyframes hid-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 .hid-apps .app-grid { padding: 8px 0 12px; }
 
+
+/* Collage → Free: the Layers list (top first, then the background). */
+.cl-layers { display: grid; gap: 4px; margin: 6px 0; }
+.cl-layer { display: flex; align-items: center; gap: 6px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; }
+.cl-layer.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.cl-layer.off .cl-layer-thumb { opacity: .35; }
+.cl-layer-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: 0; color: inherit; padding: 2px; text-align: left; min-height: 44px; }
+.cl-layer-thumb { width: 40px; height: 40px; border-radius: 6px; flex: none; }
+.cl-layer-bg { opacity: .85; }

@@ -295,6 +295,13 @@ Characters open). Each photo is handed over once (again after new edits).
   to move, pinch (or the corner handle) to resize and rotate; Flip, Forward/Backward, Duplicate,
   Delete and Opacity act on the selected layer. **🎨 Match color** blends the selected layer into
   the background photo behind it (or the background color), from 0 (as it is) to 100.
+  **🧽 Erase** a part of the selected layer (brush over it) to show what's under it, the layer below or the
+  background photo; **🖌 Restore** brings it back (**Brush size**, **Softness**; ↺ Restore all of it; undo;
+  kept with the collage and in what's saved). The **Layers** list (top first, then the background): tap one
+  to select it, 👁 to hide or show it, ↑ ↓ to move it up or down.
+- **🖼 Overlay image** (in Edit, beside Auto-Enhance and Auto-Crop): the photo you're editing goes to Free /
+  Superimpose as the background (the collage takes its shape), and you pick the image to lay over it; then
+  erase parts of it, fade it, match its color, and so on.
 - Export at 1080–4096 px as JPEG or PNG: Share, Save, or **Edit in Photo** to keep adjusting.
   Work is autosaved.
 

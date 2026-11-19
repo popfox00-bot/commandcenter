@@ -48,7 +48,7 @@ const TOOLS = [
 /** Whether a placed Character's mouth is matched: as asked, else as worked out (the expressions differ). */
 const mouthOn = (p) => !!(p.mouth ?? p.mouthAuto);
 
-export function mount(host, { file: initialFile, fm: faceApp = false, refill: refillApp = false } = {}) {
+export function mount(host, { file: initialFile, fm: faceApp = false, refill: refillApp = false, onOverlay = null } = {}) {
   const sessionKey = faceApp ? 'fm.session' : refillApp ? 'refill.session' : SAVE_KEY;
   const prefs = { tool: 'pen', color: '#ff3b30', size: 0.008, cleanSize: 22, exportType: 'image/jpeg', exportQuality: 0.92, exportMax: 0, autoCropColors: [...AUTO_CROP_DEFAULTS.colors], ...store.json(PREFS_KEY, {}) };
   delete prefs.autoCropColor;
@@ -212,6 +212,8 @@ export function mount(host, { file: initialFile, fm: faceApp = false, refill: re
     quick = el('div', { class: 'ed-quick' },
       el('button', { class: 'btn', text: '✨ Auto-Enhance', onclick: () => { autoEnhance(); quickNote.textContent = 'Light & color tuned. Fine-tune in Adjust.'; } }),
       el('button', { class: 'btn', text: '✂️ Auto-Crop', onclick: (e) => runAutoCrop(e.currentTarget, quickNote) }),
+      // (Another image laid over this photo, in layers: Collage's Free / Superimpose, this photo at the bottom.)
+      onOverlay ? el('button', { class: 'btn', text: '🖼 Overlay image', onclick: async () => { const f = await unmount.currentPhoto(); if (f) onOverlay(f); } }) : null,
       quickNote);
     host.replaceChildren(top, stage, quick, modeBar, panel);
     bindPointer();

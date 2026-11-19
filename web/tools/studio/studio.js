@@ -100,7 +100,18 @@ export function mount(host) {
     scan: { onWrite: sendToPdf },
     cutout: { onPlace: (f) => sendTo('collage', f) },
     collage: { onEdit: sendToPhoto },
+    photo: { onOverlay: overlayFromPhoto },
   }[id] ?? {});
+
+  /** 🖼 Overlay image, from Edit: to Collage's Free / Superimpose with this photo at the bottom, an image over it. */
+  async function overlayFromPhoto(photo) {
+    const collage = await ensure('collage', optsFor('collage'));
+    await collage.ready;
+    // (Not handed to Collage again on the way: this photo is the bottom layer already.)
+    handed.collage = panes.get('photo')?.api?.photoKey?.() ?? handed.collage;
+    location.hash = hashFor('collage');
+    await collage.api?.overlayOn?.(photo);
+  }
 
   /**
    * From a photo being edited: Collage puts it in a frame (hold and drag it to another, or pick a

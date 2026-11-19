@@ -901,6 +901,29 @@ export function garmentZone(S) {
     const touches = () => { if (part.length >= area * 0.05) return true; for (const i of part) { for (const t of [i - 2, i + 2, i - 2 * w, i + 2 * w, i - 1, i + 1, i - w, i + w]) if (t >= 0 && t < w * h && !m[t] && Math.max(p.body[t], p.hair[t], p.face[t]) >= 128) return true; } return false; };
     if (part.length < minPart || !touches()) for (const i of part) m[i] = 0;
   }
+  // (Its rim: the garment's own color right beside what's found of it, where the finder is unsure what it is
+  // (the top edge of a black collar under the jaw, half face, half hair): grown a few pixels into it, never
+  // into what's surely their face, hair or skin. Else a thin dark line of it is left along its edge.)
+  {
+    // (Just under their jaw: their face or skin a few pixels above in that column, the gap between it and the
+    // collar; not a dark shadow further off, behind an earring or under their hair.)
+    const gap = Math.max(4, Math.round(L.fh * 0.08));
+    const underJaw = (x, y) => { for (let d = 1; d <= gap; d++) { const Y = y - d; if (Y < 0) break; const j = Y * w + x; if (Math.max(p.face[j], p.body[j]) >= 128) return true; } return false; };
+    const steps = Math.max(3, Math.round(L.fh / 18)); const unsure = (i) => Math.max(p.face[i], p.hair[i], p.body[i]) < 128;
+    for (let s2 = 0; s2 < steps; s2++) {
+      const add = [];
+      for (let y = Math.max(1, y0 - steps); y < Math.min(h - 1, y1 + steps); y++) for (let x = Math.max(1, x0); x < Math.min(w - 1, x1); x++) {
+        const i = y * w + x; if (m[i] || !(m[i - 1] || m[i + 1] || m[i - w] || m[i + w]) || p.face[i] >= 128) continue;
+        const q = lab(i);
+        // (By the neck, a dark garment's pure black, which the finder can call hair: their hair has some color
+        // and light, never quite that.)
+        const black = dark && q[0] < 6 && Math.hypot(q[1], q[2]) < 5 && Math.abs(x - Fc) < L.fw * 0.5 && y >= L.chin - L.fh * 0.12 && y < L.chin + L.fh * 0.8 && underJaw(x, y);
+        if (black || (unsure(i) && like(q))) add.push(i);
+      }
+      if (!add.length) break;
+      for (const i of add) { m[i] = 1; seen[i] = 1; }
+    }
+  }
   let box1 = boxOf(m, w, h); if (!box1) return null;
   // (And on down from what's found of it to where it really ends: the zone's own bottom, its waist line,
   // isn't where a long top stops.)
@@ -1008,10 +1031,19 @@ export function eraseGarment(S, z) {
   // (How far each pixel is from the zone: skin near it is what it touches.)
   const dz = new Float32Array(bw * bh); for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) dz[y * bw + x] = z.mask[(Y0 + y) * w + X0 + x] ? 0 : 1e9;
   chamfer(dz, bw, bh);
+  // (Its rim: a few pixels of their skin right outside it, much darker than their skin is (the collar's
+  // shadow on the jaw, where the garment met it): made again from what's on either side of it, so no dark
+  // line is left along the edge.)
+  const rimR = Math.max(3, Math.round(fh / 40)); const rim = new Uint8Array(bw * bh); let nRim = 0;
+  if (mid) for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; const i = (Y0 + y) * w + X0 + x; if (z.mask[i] || dz[k] > rimR || p.face[i] >= 200) continue;
+    const v = 0.299 * base.rgba[i * 4] + 0.587 * base.rgba[i * 4 + 1] + 0.114 * base.rgba[i * 4 + 2];
+    if (v < mid * 0.5 && p.hair[i] < 160) { rim[k] = 1; nRim++; }
+  }
   const diff = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh); let touches = 0;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const k = y * bw + x; const X = X0 + x; const Y = Y0 + y; const i = Y * w + X;
-    if (z.mask[i] || !sk[k]) { free[k] = 1; continue; }
+    if (z.mask[i] || !sk[k] || rim[k]) { free[k] = 1; continue; }
     const sh = made(X, Y);
     for (let c = 0; c < 3; c++) diff[k * 3 + c] = smooth[c][k] - tone[c] * sh;
     // (Counted where it touches the zone.)
@@ -1023,19 +1055,21 @@ export function eraseGarment(S, z) {
   chamfer(ds, bw, bh);
   const fade = fh * 0.35;
   const sd = skinDetailOf(base);
-  const pw = b.x1 - b.x0; const ph = b.y1 - b.y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
-  for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) {
-    const i = y * w + x; if (!z.mask[i]) continue;
+  const ob = { x0: Math.max(0, b.x0 - rimR), y0: Math.max(0, b.y0 - rimR), x1: Math.min(w, b.x1 + rimR), y1: Math.min(h, b.y1 + rimR) };
+  const pw = ob.x1 - ob.x0; const ph = ob.y1 - ob.y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = ob.y0; y < ob.y1; y++) for (let x = ob.x0; x < ob.x1; x++) {
+    const i = y * w + x; const kk = (y - Y0) * bw + x - X0; if (!z.mask[i] && !rim[kk]) continue;
     const k = (y - Y0) * bw + x - X0; const sh = made(x, y);
     const dt = sd ? sd(x, y) : null;
-    const o = ((y - b.y0) * pw + x - b.x0) * 4;
+    const o = ((y - ob.y0) * pw + x - ob.x0) * 4;
     for (let c = 0; c < 3; c++) {
       const d = touches > 4 ? Math.max(-90, Math.min(90, diff[k * 3 + c])) * Math.max(0, 1 - ds[k] / fade) : 0;
       rgba[o + c] = tone[c] * sh + d + (dt ? dt[c] * sh : 0);
     }
-    rgba[o + 3] = 255;
+    // (The rim softly, its outer pixels less: no new edge of its own.)
+    rgba[o + 3] = z.mask[i] ? 255 : Math.round(255 * Math.min(1, 1.3 - dz[kk] / (rimR + 1)));
   }
-  return { x0: b.x0, y0: b.y0, pw, ph, rgba };
+  return { x0: ob.x0, y0: ob.y0, pw, ph, rgba };
 }
 
 /** The layer moved, sized, stretched and turned by hand (about its middle). */

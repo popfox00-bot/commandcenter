@@ -183,6 +183,8 @@ export function mount(host) {
   const orderNow = () => { const saved = store.json(ORDER_KEY, null); const ids = SECTIONS.map((q) => q.id); const o = Array.isArray(saved) ? saved.filter((id) => ids.includes(id)) : []; return [...o, ...ids.filter((id) => !o.includes(id))]; };
   const list = el('div', { class: 'st-sections' });
   function drawSections() {
+    // (Which are open, as they are now: a card opened a moment ago may not have said so yet.)
+    for (const d of list.querySelectorAll('details.st-fold[data-id]')) { if (d.open) openNow.add(d.dataset.id); else openNow.delete(d.dataset.id); }
     const order = orderNow();
     list.replaceChildren(...order.map((id) => {
       const q = SECTIONS.find((x) => x.id === id);

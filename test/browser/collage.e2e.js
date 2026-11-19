@@ -238,3 +238,64 @@ test('cutout: smart edges bring a loose trace in to the object; a trace added in
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Edit → 🖼 Overlay image: the photo at the bottom, an image over it; 🧽 erase part of the top layer (the photo shows), 🖌 restore, hide it in Layers, undo; kept after a reload; exported as shown', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('dialog', (d) => d.accept());
+  await page.goto(`${origin}${BASE}#/files/photo`);
+  await page.waitForSelector('#ed-file', { state: 'attached' });
+  // The photo: all blue. The overlay: all red, as big as it.
+  await page.setInputFiles('#ed-file', { name: 'photo.png', mimeType: 'image/png', buffer: await makePng(page, { bg: '#2050e0' }) });
+  await page.waitForSelector('text=🖼 Overlay image');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '🖼 Overlay image' }).click();
+  await page.waitForFunction(() => location.hash === '#/files/collage');
+  await (await chooser).setFiles({ name: 'over.png', mimeType: 'image/png', buffer: await makePng(page, { bg: '#e02020' }) });
+  await page.waitForSelector('.cl-layer[data-layer="0"]');
+  const pixel = (fx, fy) => page.$eval('.cl-canvas', (c, [fx, fy]) => [...c.getContext('2d').getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data].slice(0, 3), [fx, fy]);
+  const red = ([r, g, b]) => r > 180 && g < 80 && b < 80; const blue = ([r, g, b]) => b > 180 && r < 80;
+  // Laid over the photo (the middle of the overlay: red); the photo is the background, its shape the collage's.
+  assert.ok(red(await pixel(0.5, 0.5)), `the overlay on top: ${await pixel(0.5, 0.5)}`);
+  assert.equal(await page.locator('.cl-layer-bg').textContent(), 'Background photo');
+  // 🧽 Erase: a stroke across the middle shows the photo under it there; the rest stays red.
+  await page.getByRole('button', { name: '🧽 Erase' }).click();
+  const b = await canvasBox(page, '.cl-canvas');
+  await page.mouse.move(b.x + b.w * 0.42, b.y + b.h * 0.5); await page.mouse.down();
+  for (let k = 0; k <= 8; k++) await page.mouse.move(b.x + b.w * (0.42 + k * 0.02), b.y + b.h * 0.5);
+  await page.mouse.up();
+  assert.ok(blue(await pixel(0.5, 0.5)), `erased: the photo shows: ${await pixel(0.5, 0.5)}`);
+  assert.ok(red(await pixel(0.5, 0.35)), 'the rest of the layer stays');
+  assert.match(await page.locator('.cl-layer[data-layer="0"]').textContent(), /erased in places/);
+  // 🖌 Restore: brushed back.
+  await page.getByRole('button', { name: '🖌 Restore' }).click();
+  const b2 = await canvasBox(page, '.cl-canvas'); Object.assign(b, b2); // (the page may have scrolled)
+  await page.mouse.move(b.x + b.w * 0.48, b.y + b.h * 0.5); await page.mouse.down(); await page.mouse.move(b.x + b.w * 0.52, b.y + b.h * 0.5); await page.mouse.up();
+  assert.ok(red(await pixel(0.5, 0.5)), `restored: ${await pixel(0.5, 0.5)}`);
+  // Undo: the restore undone, erased again.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  assert.ok(blue(await pixel(0.5, 0.5)), 'undo: erased again');
+  // Layers: hide it (the photo everywhere), show it again.
+  await page.getByRole('button', { name: 'Hide layer 1' }).click();
+  assert.ok(blue(await pixel(0.5, 0.35)), 'hidden');
+  await page.getByRole('button', { name: 'Show layer 1' }).click();
+  assert.ok(red(await pixel(0.5, 0.35)), 'shown');
+  // Kept after a reload, erased as it was.
+  await page.waitForTimeout(900);
+  await page.reload();
+  await page.waitForSelector('.cl-canvas');
+  await page.waitForFunction(() => { const c = document.querySelector('.cl-canvas'); const d = c.getContext('2d').getImageData(Math.floor(c.width * 0.5), Math.floor(c.height * 0.35), 1, 1).data; return d[0] > 180 && d[2] < 80; });
+  assert.ok(blue(await pixel(0.5, 0.5)), `after a reload, still erased there: ${await pixel(0.5, 0.5)}`);
+  // Exported as shown.
+  await page.getByRole('button', { name: 'Done' }).click();
+  const dl = page.waitForEvent('download');
+  await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click({ timeout: 10000 });
+  const file = await (await dl).path();
+  const buf = await readFile(file);
+  const mid = await pixelOf(page, buf, 'image/jpeg', 0.5, 0.5); const top = await pixelOf(page, buf, 'image/jpeg', 0.5, 0.35);
+  assert.ok(blue(mid.rgba) && red(top.rgba), `saved: ${mid.rgba} / ${top.rgba}`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

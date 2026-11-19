@@ -2,7 +2,9 @@
 //   Grid  - a layout of cells; each photo can be panned and zoomed inside its cell.
 //   Free  - an optional background photo with photos or Characters on top; move, resize, rotate,
 //           fade, flip and reorder each layer (one finger drags, two fingers pinch/rotate, or use
-//           the corner handle).
+//           the corner handle); 🧽 erase parts of a layer to show what's under it (🖌 restore brings
+//           them back), and a Layers list to pick, hide or reorder them. From Edit, 🖼 Overlay image
+//           puts the photo being edited at the bottom and an image over it.
 import { el, store } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, encodeCanvas, MAX_CANVAS_PIXELS } from '../../lib/image.js';
@@ -25,6 +27,11 @@ const defaultState = () => ({
 /** mount(host, { onEdit, file }) — `file` is added as a layer (e.g. a cutout); onEdit sends the result to Photo. */
 export function mount(host, { onEdit, file: initialFile } = {}) {
   const images = new Map(); // id -> { blob, bmp (canvas), w, h }
+  // Layer masks: id -> { canvas (white where the layer shows, clear where it's erased), blob (as saved: its
+  // alpha) }.
+  // A stroke makes a new one (the old stays for undo); a layer without one shows all of itself.
+  const masks = new Map();
+  let tool = 'move'; let brush = 40; let soft = 50; let cursor = null; let hint = '';
   let history = createHistory(defaultState());
   let selected = null; // grid: cell index; free: layer id
   let saveTimer = 0;
@@ -80,6 +87,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
         layers.push(layer);
         selected = layer.id;
       });
+      hint = ''; tool = 'move';
       commit({ ...s, mode: 'free', layers });
     }
   }
@@ -98,12 +106,22 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     undoBtn.disabled = !history.canUndo; redoBtn.disabled = !history.canRedo;
     renderPanel(); draw(); persist();
   }
+  let loaded = false; // (Nothing saved until the saved work is back: an empty start would overwrite it.)
   function persist() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
+    if (!loaded) return;
+    saveTimer = setTimeout(async () => { try {
       const used = new Set([st().base, ...st().cells.map((c) => c?.src), ...st().layers.map((l) => l.src)].filter(Boolean));
-      idb.set(SAVE_KEY, { state: st(), images: [...used].map((id) => ({ id, blob: images.get(id)?.blob })).filter((x) => x.blob), savedAt: Date.now() });
-    }, 400);
+      // (Each layer's mask too: how much of it shows at each of its pixels, made once.)
+      const usedMasks = [...new Set(st().layers.map((l) => l.mask).filter(Boolean))];
+      for (const id of usedMasks) {
+        const m = masks.get(id); if (!m || m.blob) continue;
+        const { width: mw, height: mh } = m.canvas; const d = m.canvas.getContext('2d').getImageData(0, 0, mw, mh).data;
+        const a = new Uint8Array(mw * mh); for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3];
+        m.blob = { w: mw, h: mh, a };
+      }
+      await idb.set(SAVE_KEY, { state: st(), images: [...used].map((id) => ({ id, blob: images.get(id)?.blob })).filter((x) => x.blob), masks: usedMasks.map((id) => ({ id, data: masks.get(id)?.blob })).filter((x) => x.data), savedAt: Date.now() });
+    } catch { /* storage full or off: the work stays on screen */ } }, 400);
   }
 
   // ---------- geometry ----------
@@ -149,12 +167,13 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
       }
       for (const l of s.layers) {
         const im = images.get(l.src);
-        if (!im) continue;
+        if (!im || l.hidden) continue;
         const w = l.scale * W; const h = w * (im.h / im.w);
         ctx.save();
         ctx.translate(l.x * W, l.y * H); ctx.rotate(l.rot); if (l.flip) ctx.scale(-1, 1);
         ctx.globalAlpha = l.opacity;
-        ctx.drawImage(l.match ? matchedBmp(l, im, W, H, ui ? 640 : 2048) : im.bmp, -w / 2, -h / 2, w, h);
+        const src = l.match ? matchedBmp(l, im, W, H, ui ? 640 : 2048) : im.bmp;
+        ctx.drawImage(l.mask && masks.has(l.mask) ? maskedBmp(l, src, ui ? 1024 : 4096) : src, -w / 2, -h / 2, w, h);
         ctx.restore();
         if (ui && selected === l.id) {
           const px = W / canvas.clientWidth;
@@ -164,9 +183,14 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           ctx.strokeRect(-w / 2, -h / 2, w, h);
           ctx.restore();
           const [hx, hy] = handlePoint(l, im.w / im.h, W, H);
-          ctx.beginPath(); ctx.arc(hx, hy, 12 * px, 0, Math.PI * 2);
-          ctx.fillStyle = '#0a84ff'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3 * px; ctx.stroke();
+          if (tool === 'move') { ctx.beginPath(); ctx.arc(hx, hy, 12 * px, 0, Math.PI * 2); ctx.fillStyle = '#0a84ff'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3 * px; ctx.stroke(); }
         }
+      }
+      // (The brush: a ring as big as it is, where the finger is.)
+      if (ui && cursor && tool !== 'move') {
+        const px = W / canvas.clientWidth;
+        ctx.save(); ctx.beginPath(); ctx.arc(cursor[0], cursor[1], (brush / 2) * px, 0, Math.PI * 2);
+        ctx.lineWidth = 2 * px; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.setLineDash([4 * px, 4 * px]); ctx.strokeStyle = '#000'; ctx.stroke(); ctx.restore();
       }
     }
     ctx.restore();
@@ -200,6 +224,62 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     if (target) ox.putImageData(new ImageData(matchColors(ox.getImageData(0, 0, w, h).data, w, h, target, l.match / 100), w, h), 0, 0);
     matchCache.set(`${l.id}|${max}`, { key, canvas: out });
     return out;
+  }
+
+  /**
+   * The layer's image (`src`, as drawn) with its mask applied (what's erased made clear), at up to `max` px.
+   * Kept until the mask, the image or the size changes (a stroke changes the mask's version).
+   */
+  const maskCache = new Map();
+  function maskedBmp(l, src, max) {
+    const m = masks.get(l.mask);
+    const key = `${l.mask}|${m.version ?? 0}|${src.width}x${src.height}|${l.match ?? 0}`;
+    const hit = maskCache.get(`${l.id}|${max}`);
+    if (hit?.key === key) return hit.canvas;
+    const k = Math.min(1, max / Math.max(src.width, src.height)); const w = Math.max(1, Math.round(src.width * k)); const h = Math.max(1, Math.round(src.height * k));
+    const out = hit?.canvas?.width === w && hit.canvas.height === h ? hit.canvas : document.createElement('canvas');
+    out.width = w; out.height = h;
+    const x = out.getContext('2d'); x.clearRect(0, 0, w, h); x.globalCompositeOperation = 'source-over';
+    x.drawImage(src, 0, 0, w, h);
+    x.globalCompositeOperation = 'destination-in'; x.imageSmoothingQuality = 'high';
+    x.drawImage(m.canvas, 0, 0, w, h);
+    x.globalCompositeOperation = 'source-over';
+    maskCache.set(`${l.id}|${max}`, { key, canvas: out });
+    return out;
+  }
+
+  /** A new mask for the layer, a copy of its current one (or all shown), at up to 1024 px. Its id. */
+  function newMask(l) {
+    const im = images.get(l.src); const k = Math.min(1, 1024 / Math.max(im.w, im.h));
+    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.w * k)); c.height = Math.max(1, Math.round(im.h * k));
+    const x = c.getContext('2d');
+    const old = l.mask && masks.get(l.mask);
+    if (old) x.drawImage(old.canvas, 0, 0, c.width, c.height); else { x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
+    const id = crypto.randomUUID(); masks.set(id, { canvas: c, blob: null, version: 0 });
+    return id;
+  }
+
+  /** Where canvas point (px, py) falls on the layer's mask (its own pixels), or null off it. */
+  function onMask(l, m, px, py, W, H) {
+    const im = images.get(l.src); const w = l.scale * W; const h = w * (im.h / im.w);
+    const dx = px - l.x * W; const dy = py - l.y * H;
+    const c = Math.cos(-l.rot); const sn = Math.sin(-l.rot);
+    let lx = dx * c - dy * sn; const ly = dx * sn + dy * c;
+    if (l.flip) lx = -lx;
+    return [((lx + w / 2) / w) * m.canvas.width, ((ly + h / 2) / h) * m.canvas.height, m.canvas.width / w];
+  }
+
+  /** A dab of the brush on the mask at canvas point p: 🧽 erases (clears), 🖌 restores; soft-edged by Softness. */
+  function dab(l, m, p, W, H) {
+    const [mx, my, k] = onMask(l, m, p[0], p[1], W, H);
+    const r = Math.max(1, (brush / 2) * (W / canvas.clientWidth) * k);
+    const x = m.canvas.getContext('2d');
+    const g = x.createRadialGradient(mx, my, r * Math.max(0, 1 - soft / 100) * 0.999, mx, my, r);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over';
+    x.fillStyle = g; x.beginPath(); x.arc(mx, my, r, 0, Math.PI * 2); x.fill();
+    x.globalCompositeOperation = 'source-over';
+    m.version = (m.version ?? 0) + 1; m.blob = null;
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -295,14 +375,41 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           el('button', { class: 'btn small-btn', text: 'Backward', disabled: idx === 0, onclick: () => { const L = [...st().layers]; [L[idx], L[idx - 1]] = [L[idx - 1], L[idx]]; commit({ ...st(), layers: L }); } }),
           el('button', { class: 'btn small-btn', text: 'Duplicate', onclick: () => { const copy = { ...layer, id: crypto.randomUUID(), x: layer.x + 0.04, y: layer.y + 0.04 }; selected = copy.id; commit({ ...st(), layers: [...st().layers, copy] }); } }),
           el('button', { class: 'btn small-btn ghost', text: 'Delete', onclick: () => { selected = null; commit({ ...st(), layers: st().layers.filter((l) => l.id !== layer.id) }); } })) : null,
+        // (What a finger does on the selected layer: move it, or erase / restore parts of it.)
+        layer ? chipRow([['move', '✋ Move'], ['erase', '🧽 Erase'], ['restore', '🖌 Restore']], tool, (id) => { tool = id; renderPanel(); draw(); }) : null,
+        layer && tool !== 'move' ? slider('Brush size', 6, 160, brush, (v) => { brush = v; cursor = [canvas.width / 2, canvas.height / 2]; draw(); }, () => { cursor = null; }) : null,
+        layer && tool !== 'move' ? slider('Softness', 0, 100, soft, (v) => { soft = v; }) : null,
+        layer && tool !== 'move' && layer.mask ? el('div', { class: 'row wrap' }, el('button', { class: 'btn small-btn ghost', text: '↺ Restore all of it', onclick: () => upd({ mask: null }) })) : null,
         layer ? slider('Opacity', 10, 100, Math.round(layer.opacity * 100), (v) => upd({ opacity: v / 100 }, live)) : null,
         layer ? slider('🎨 Match color (to what\'s behind it)', 0, 100, Math.round(layer.match ?? 0), (v) => upd({ match: v }, live)) : null,
-        el('p', { class: 'muted small', text: layer
-          ? 'Drag to move. Two fingers (or the blue dot) resize and rotate.'
-          : s.layers.length ? 'Tap a layer to select it.' : 'Choose a background photo, then add photos or Characters on top.' }),
+        el('p', { class: 'muted small', text: hint || (layer
+          ? tool === 'erase' ? 'Brush over the layer to erase it there: what\'s under it shows. 🖌 Restore brings it back.'
+            : tool === 'restore' ? 'Brush over what was erased to bring it back.'
+              : 'Drag to move. Two fingers (or the blue dot) resize and rotate.'
+          : s.layers.length ? 'Tap a layer to select it.' : 'Choose a background photo, then add photos or Characters on top.') }),
+        s.layers.length ? layersList(s) : null,
         ...common,
       ].filter(Boolean));
     }
+  }
+
+  /** The layers, top first, then the background: tap one to select it, 👁 to hide or show it, ↑ ↓ to move it. */
+  function layersList(s) {
+    const thumb = (im, l) => {
+      const c = el('canvas', { class: 'cl-layer-thumb checker', width: '40', height: '40' }); if (!im) return c;
+      const x = c.getContext('2d'); const k = Math.min(40 / im.w, 40 / im.h); const w = im.w * k; const h = im.h * k;
+      const src = l?.mask && masks.has(l.mask) ? maskedBmp(l, im.bmp, 256) : im.bmp;
+      x.drawImage(src, (40 - w) / 2, (40 - h) / 2, w, h); return c;
+    };
+    const rows = [...s.layers].map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: `cl-layer${selected === l.id ? ' active' : ''}${l.hidden ? ' off' : ''}`, 'data-layer': String(i) },
+      el('button', { type: 'button', class: 'cl-layer-pick', 'aria-label': `Select layer ${i + 1}`, onclick: () => { selected = l.id; renderPanel(); draw(); } },
+        thumb(images.get(l.src), l), el('span', { class: 'small', text: `Layer ${i + 1}${l.mask ? ' · erased in places' : ''}` })),
+      el('button', { type: 'button', class: 'icon-btn', 'aria-label': l.hidden ? `Show layer ${i + 1}` : `Hide layer ${i + 1}`, 'aria-pressed': String(!l.hidden), text: l.hidden ? '🚫' : '👁', onclick: () => commit({ ...st(), layers: st().layers.map((x) => (x.id === l.id ? { ...x, hidden: !x.hidden } : x)) }) }),
+      el('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move layer ${i + 1} up`, text: '↑', disabled: i === s.layers.length - 1, onclick: () => { const L = [...st().layers]; [L[i], L[i + 1]] = [L[i + 1], L[i]]; commit({ ...st(), layers: L }); } }),
+      el('button', { type: 'button', class: 'icon-btn', 'aria-label': `Move layer ${i + 1} down`, text: '↓', disabled: i === 0, onclick: () => { const L = [...st().layers]; [L[i], L[i - 1]] = [L[i - 1], L[i]]; commit({ ...st(), layers: L }); } })));
+    const bg = el('div', { class: 'cl-layer cl-layer-bg' },
+      el('span', { class: 'cl-layer-pick' }, thumb(s.base ? images.get(s.base) : null), el('span', { class: 'small muted', text: s.base ? 'Background photo' : 'Background color' })));
+    return el('div', { class: 'cl-layers', role: 'list', 'aria-label': 'Layers' }, el('strong', { class: 'small', text: 'Layers' }), ...rows, bg);
   }
 
   function firstEmpty() {
@@ -348,7 +455,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
       if (pts.size === 2) {
         // Two fingers: pinch the selected layer (free) or zoom the selected cell (grid).
         const [a, b] = [...pts.values()];
-        if (s.mode === 'free' && selected) { const l = s.layers.find((x) => x.id === selected); if (l) g = { kind: 'pinch', a, b, start: l, before: g?.before ?? s }; }
+        if (s.mode === 'free' && selected && tool === 'move') { const l = s.layers.find((x) => x.id === selected); if (l) g = { kind: 'pinch', a, b, start: l, before: g?.before ?? s }; }
         else if (s.mode === 'grid' && selected != null && s.cells[selected]?.src) g = { kind: 'zoom', a, b, start: s.cells[selected], before: g?.before ?? s };
         return;
       }
@@ -370,6 +477,14 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           navigator.vibrate?.(15);
           draw();
         }, 450);
+      } else if (tool !== 'move' && s.layers.some((l) => l.id === selected)) {
+        // A stroke of the brush on the selected layer: a new mask for it (the old kept for undo).
+        const l = s.layers.find((x) => x.id === selected);
+        const id = newMask(l);
+        live({ ...s, layers: s.layers.map((x) => (x.id === l.id ? { ...x, mask: id } : x)) });
+        const m = masks.get(id); cursor = p;
+        dab({ ...l, mask: id }, m, p, W, H); draw();
+        g = { kind: 'brush', id: l.id, mask: id, last: p, before: s };
       } else {
         const px = W / canvas.clientWidth;
         const cur = s.layers.find((l) => l.id === selected);
@@ -391,6 +506,15 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
       if (!g) return;
       const s = st(); const W = canvas.width; const H = canvas.height; const p = at(e);
       if (g.kind === 'pan' && g.timer && Math.hypot(p[0] - g.p[0], p[1] - g.p[1]) > 6 * (canvas.width / canvas.clientWidth)) { clearTimeout(g.timer); g.timer = 0; }
+      if (g.kind === 'brush') {
+        // (Dabs along the way, a third of the brush apart: a smooth stroke, not dots.)
+        const l = s.layers.find((x) => x.id === g.id); const m = masks.get(g.mask); if (!l || !m) return;
+        const step = Math.max(1, (brush / 3) * (W / canvas.clientWidth));
+        const d = Math.hypot(p[0] - g.last[0], p[1] - g.last[1]); const n = Math.max(1, Math.ceil(d / step));
+        for (let k = 1; k <= n; k++) dab(l, m, [g.last[0] + ((p[0] - g.last[0]) * k) / n, g.last[1] + ((p[1] - g.last[1]) * k) / n], W, H);
+        g.last = p; cursor = p; draw();
+        return;
+      }
       if (g.kind === 'swap') {
         const to = g.rects.findIndex((r) => p[0] >= r.x && p[0] <= r.x + r.w && p[1] >= r.y && p[1] <= r.y + r.h);
         g.to = to < 0 ? g.index : to;
@@ -436,6 +560,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
           commit({ ...st(), cells });
         } else draw();
       } else if (g.kind === 'tapEmpty') pick({ kind: 'cell', index: g.index }, true);
+      else if (g.kind === 'brush') { cursor = null; const next = st(); history.replace(g.before); hint = ''; commit(next); }
       else if (g.before) { const next = st(); history.replace(g.before); commit(next); }
       g = null;
     };
@@ -494,7 +619,7 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
   window.addEventListener('resize', draw);
   build();
   const ready = idb.get(SAVE_KEY).then(async (saved) => {
-    if (!saved?.state) return;
+    if (!saved?.state) { loaded = true; return; }
     for (const { id, blob } of saved.images ?? []) {
       try {
         const bitmap = await decodeImage(blob, await sniffType(blob));
@@ -503,9 +628,17 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
         images.set(id, { blob, bmp, w: bmp.width, h: bmp.height });
       } catch { /* skip unreadable */ }
     }
+    for (const { id, data } of saved.masks ?? []) {
+      try {
+        const c = document.createElement('canvas'); c.width = data.w; c.height = data.h;
+        const img = new ImageData(data.w, data.h); for (let i = 0; i < data.a.length; i++) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 255; img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = data.a[i]; }
+        c.getContext('2d').putImageData(img, 0, 0); masks.set(id, { canvas: c, blob: data, version: 0 });
+      } catch { /* skip unreadable */ }
+    }
     history.reset({ ...defaultState(), ...saved.state });
+    loaded = true;
     changed();
-  });
+  }).catch(() => { loaded = true; });
   const addLayerFile = async (blob) => { await ready; placeImages([await addImage(blob)], { kind: 'layer' }); };
   if (initialFile) addLayerFile(initialFile);
 
@@ -535,6 +668,21 @@ export function mount(host, { onEdit, file: initialFile } = {}) {
     selected = null;
     commit({ ...st(), mode: 'free', base: id, aspect: 'base' });
     chooseCharacter();
+  };
+  /**
+   * 🖼 Overlay image, from Edit: the photo being edited at the bottom (the background, its shape the
+   * collage's), then an image to lay over it (the file picker opens; + Photo does the same).
+   */
+  unmount.overlayOn = async (blob) => {
+    await ready;
+    // (A collage in progress: asked first, it's replaced; Undo brings it back.)
+    const busy = st().mode === 'free' ? st().layers.length > 0 || !!st().base : st().cells.some((c) => c?.src);
+    if (busy && !window.confirm('Start an overlay with this photo? The collage in progress is replaced (Undo brings it back).')) return;
+    const id = await addImage(blob);
+    selected = null; tool = 'move';
+    hint = 'Now add the image to lay over it: + Photo (or a Character). Then 🧽 Erase parts of it to show the photo under it.';
+    commit({ ...st(), mode: 'free', base: id, aspect: 'base', layers: [] });
+    try { pick({ kind: 'layer' }); } catch { /* the button does it */ }
   };
   unmount.show = () => draw();
   return unmount;

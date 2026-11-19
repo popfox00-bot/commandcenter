@@ -11,7 +11,9 @@ A personal, phone-first app. Its home screen is in three parts:
 - **Games**: **Games** (Fox Games) and **WorldAtlas** (the Minecraft world map).
 
 **⚙ Settings** is at the top right, beside the version (tap the version for what changed in each, and
-**Update to Latest Version**). The order of the tiles can be changed in Settings → Edit Home Screen (drag a row
+**Update to Latest Version**). The version is at the top right of every screen of the app's own (each app
+too), not only Home; apps with a page of their own (WorldAtlas, Trade Desk, Inkling, Laundry Timer, Games) keep
+their own look. The order of the tiles can be changed in Settings → Edit Home Screen (drag a row
 by its ☰; each stays in its part), and any app hidden from the home screen with its switch (Show all
 brings them back); **Jobs** is opened from Settings. **Recent edits** (unfinished work, newest first: tap
 to continue) are shown in the apps they belong to: Files (all of its own), the Photo Editor (its other
@@ -939,7 +941,11 @@ the clothes in it: worn by someone, or on its own).
   selection lies along that arm (shoulder → elbow → wrist) outside its torso (between its shoulders and
   hips), bent onto the same arm of the person (as wide as that arm, a little more for loose cloth, never over
   what's in front of them), whether or not the person finder told that arm apart; the piece's torso is the
-  rest. A row of the piece too short where the person is wider takes the nearest row that reaches. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  rest. A row of the piece too short where the person is wider takes the nearest row that reaches.
+  Each sleeve is laid on whole: straightened from the piece's arm into a strip (its folds and texture as they
+  are, its gaps filled from the cloth beside them, as long as it is), then wrapped onto the person's arm across
+  that arm's own width at each step, under any hair beside it. An open collar shows their neck, shaded as the
+  shadow under the chin and blended into the skin around it. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

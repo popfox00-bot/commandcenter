@@ -364,7 +364,11 @@ function zoneLayer(S) {
     // (The piece's bare skin painted where the base was clothed only when an arm changes, a tank top onto a
     // jacket: both bare-armed, the base's own neckline and skin stay.)
     // (Nor, in a zone, the piece's own skin painted on: theirs and the base's both bare, the base keeps theirs.)
-    neckline(L, base, w, differs, false); softEdge(L, tD, w, h); layers.push(L);
+    neckline(L, base, w, differs, false);
+    // (Under the chin, where the piece shows no cloth of its own (its open collar): their neck, as taken off,
+    // not the cloth beside it carried across.)
+    if (erasing(S) && L.skin && base.layout) { const yTo = base.layout.chin + base.layout.fh * 0.7; for (let y = 0; y < L.ph && L.y0 + y < yTo; y++) for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.skin[k2] && !(L.bare?.[k2])) L.rgba[k2 * 4 + 3] = 0; } }
+    softEdge(L, tD, w, h); layers.push(L);
   }
   // The arms.
   const tone = skinTone(base);
@@ -522,10 +526,12 @@ function downToHem(S, t) {
 
 /**
  * The piece's sleeve (`pc` in `pb`) laid onto the base's arm on picture side `k` (0 left, 1 right), bent along
- * both people's arms: each pixel near the base's arm placed by how far along it is (shoulder → elbow → wrist)
- * and how far to one side, and taken from the same place along the piece's arm (to the side by the
- * shoulders' ratio), where the piece's sleeve is. As long as the sleeve is on the piece (a rolled sleeve ends
- * where it ends), as wide as it is. A layer, or null without both arms' poses.
+ * both people's arms (shoulder → elbow → wrist). The sleeve is first straightened into a strip: each row a
+ * step along the piece's arm, each column a place across the sleeve there (from one of its edges to the
+ * other), its holes (a fold, something over it) filled from the cloth beside them; as long as the sleeve is
+ * on the piece (a rolled sleeve ends where it ends). Then wrapped onto the base's arm across its own width at
+ * each step (measured from their outline, a little more for loose cloth): one continuous sleeve in the shape
+ * of their arm, its texture the piece's. A layer, or null without both arms' poses.
  */
 function sleeveAlongArm(S, k, pc, pb) {
   const { base, piece } = S; const { w, h } = base;
@@ -539,47 +545,94 @@ function sleeveAlongArm(S, k, pc, pb) {
   const pB = bones(piece.pose); const bB = bones(base.pose); const rz = rigidZone(S);
   if (!pB || !bB || !rz) return null;
   // (Where a point is along an arm: u from 0 at the shoulder to 1 at the elbow and 2 at the wrist, and d its
-  // signed distance to the side; and back.)
+  // signed distance to one side; and back.)
   const frame = (B) => {
     const segs = [[B[0], B[1]], [B[1], B[2]]].map(([a, c]) => { const dx = c[0] - a[0]; const dy = c[1] - a[1]; const L = Math.hypot(dx, dy) || 1; return { a, dx: dx / L, dy: dy / L, L }; });
     const at = (x, y) => {
       let best = null;
-      segs.forEach((g, i) => { const t = (x - g.a[0]) * g.dx + (y - g.a[1]) * g.dy; const tc = Math.max(i === 0 ? -0.3 * g.L : 0, Math.min(i === 1 ? 1.2 * g.L : g.L, t)); const px = g.a[0] + g.dx * tc; const py = g.a[1] + g.dy * tc; const dist = Math.hypot(x - px, y - py); if (!best || dist < best.dist) best = { dist, u: i + tc / g.L, d: (x - g.a[0]) * -g.dy + (y - g.a[1]) * g.dx - 0 }; });
+      segs.forEach((g, i) => { const t = (x - g.a[0]) * g.dx + (y - g.a[1]) * g.dy; const tc = Math.max(i === 0 ? -0.3 * g.L : 0, Math.min(i === 1 ? 1.2 * g.L : g.L, t)); const px = g.a[0] + g.dx * tc; const py = g.a[1] + g.dy * tc; const dist = Math.hypot(x - px, y - py); if (!best || dist < best.dist) best = { dist, u: i + tc / g.L, d: (x - g.a[0]) * -g.dy + (y - g.a[1]) * g.dx }; });
       return best;
     };
     const point = (u, d) => { const i = Math.max(0, Math.min(1, Math.floor(u))); const g = segs[i]; const t = (u - i) * g.L; return [g.a[0] + g.dx * t - g.dy * d, g.a[1] + g.dy * t + g.dx * d]; };
-    return { at, point, len: segs[0].L + segs[1].L };
+    return { at, point, segs };
   };
   const PF = frame(pB); const BF = frame(bB);
-  // The sleeve on the piece's arm: how far along it reaches, and how far to either side.
-  let uMax = 0; let dMax = 0; let n = 0;
-  for (let y = pb.y0; y < pb.y1; y += 2) for (let x = pb.x0; x < pb.x1; x += 2) { if (!pc[y * piece.w + x]) continue; const f = PF.at(x, y); if (!f) continue; n++; if (f.u > uMax) uMax = f.u; if (Math.abs(f.d) > dMax) dMax = Math.abs(f.d); }
-  if (n < 30) return null;
-  uMax = Math.min(2.2, uMax); const sc = rz.s;
-  // (No wider than a sleeve on that arm can be: about an arm's half-width (from the shoulders' span) and a
-  // quarter more for loose cloth, on the person, never over what's in front of them (a glass).)
+  const tex = piece.draw ?? piece.rgba; const PW = piece.w;
+  // 1. The piece's sleeve, step by step along its arm: how far to either side it reaches at each.
+  const NU = 96; const UMAX = 2.2; const du = UMAX / NU;
+  const lo = new Float32Array(NU).fill(Infinity); const hi = new Float32Array(NU).fill(-Infinity); const cnt = new Int32Array(NU);
+  for (let y = pb.y0; y < pb.y1; y++) for (let x = pb.x0; x < pb.x1; x++) {
+    if (!pc[y * PW + x]) continue;
+    const f = PF.at(x + 0.5, y + 0.5); if (!f || f.u < 0 || f.u >= UMAX) continue;
+    const b = Math.floor(f.u / du); cnt[b]++; if (f.d < lo[b]) lo[b] = f.d; if (f.d > hi[b]) hi[b] = f.d;
+  }
+  let maxW = 0; for (let b = 0; b < NU; b++) if (cnt[b] >= 3) maxW = Math.max(maxW, hi[b] - lo[b]);
+  if (maxW < 4) return null;
+  // (Where it ends: the first step from the shoulder on where it's under 40% of its widest, past its first
+  // fifth (a shoulder seam narrows it).)
+  let first = -1; for (let b = 0; b < NU; b++) if (cnt[b] >= 3 && hi[b] - lo[b] >= maxW * 0.4) { first = b; break; }
+  if (first < 0) return null;
+  let end = first; for (let b = first; b < NU; b++) { if (cnt[b] >= 3 && hi[b] - lo[b] >= maxW * 0.4) end = b; else if (b - end > NU * 0.06) break; }
+  const uEnd = (end + 1) * du;
+  // (Its edges smoothed along it, and filled where a step had none.)
+  const smooth = (v) => { const o = Float32Array.from(v); for (let b = first; b <= end; b++) { let s2 = 0; let n = 0; for (let d = -3; d <= 3; d++) { const t = b + d; if (t >= first && t <= end && Number.isFinite(v[t])) { s2 += v[t]; n++; } } o[b] = n ? s2 / n : NaN; } return o; };
+  const L0 = smooth(lo); const H0 = smooth(hi);
+  for (let b = first; b <= end; b++) if (!Number.isFinite(L0[b]) || !Number.isFinite(H0[b])) { let c2 = b; while (c2 > first && !Number.isFinite(L0[c2])) c2--; L0[b] = L0[c2]; H0[b] = H0[c2]; }
+  // 2. The strip: NU steps along × NV across, each the piece's color there (where its sleeve is), the rest
+  // filled from the nearest cloth along its row, then from the rows beside it.
+  const NV = 48; const strip = new Float32Array(NU * NV * 3); const got = new Uint8Array(NU * NV);
+  for (let b = first; b <= end; b++) for (let j = 0; j < NV; j++) {
+    const d = L0[b] + ((j + 0.5) / NV) * (H0[b] - L0[b]);
+    const [sx, sy] = PF.point((b + 0.5) * du, d); const X = Math.round(sx); const Y = Math.round(sy);
+    // (Within the sleeve's own edges at that step, its pixels as they are: its folds and texture, not only
+    // what the person finder was sure was cloth.)
+    if (X < 0 || Y < 0 || X >= PW || Y >= piece.h || !(piece.solid ?? piece.sel)[Y * PW + X] || piece.people.face[Y * PW + X] >= 128 || piece.people.hair[Y * PW + X] >= 160) continue;
+    const o = (b * NV + j) * 3; const t = (Y * PW + X) * 4; strip[o] = tex[t]; strip[o + 1] = tex[t + 1]; strip[o + 2] = tex[t + 2]; got[b * NV + j] = 1;
+  }
+  for (let b = first; b <= end; b++) {
+    for (let j = 0; j < NV; j++) {
+      if (got[b * NV + j]) continue;
+      for (let d = 1; d < NV; d++) { const t = [j - d, j + d].find((q) => q >= 0 && q < NV && got[b * NV + q] === 1); if (t !== undefined) { for (let c2 = 0; c2 < 3; c2++) strip[(b * NV + j) * 3 + c2] = strip[(b * NV + t) * 3 + c2]; got[b * NV + j] = 2; break; } }
+    }
+  }
+  for (let b = first; b <= end; b++) if (!got[b * NV]) { let t = -1; for (let d = 1; d < NU && t < 0; d++) for (const q of [b - d, b + d]) if (q >= first && q <= end && got[q * NV]) { t = q; break; } if (t >= 0) { strip.copyWithin(b * NV * 3, t * NV * 3, (t + 1) * NV * 3); got.fill(2, b * NV, (b + 1) * NV); } }
+  // 3. The base's arm: how wide it is to either side of its bones at each step (from their outline).
   const bsh = base.pose.shoulders; const armHalf = Math.hypot(bsh[1][0] - bsh[0][0], bsh[1][1] - bsh[0][1]) * 0.15;
-  const reach = Math.min(dMax * sc * 1.05 + 2, armHalf * 1.25);
-  // The base's arm region: a box around its bones, as far out as the sleeve is wide.
-  const xs = bB.map((q) => q[0]); const ys = bB.map((q) => q[1]);
-  const x0 = Math.max(0, Math.floor(Math.min(...xs) - reach)); const x1 = Math.min(w, Math.ceil(Math.max(...xs) + reach));
-  const y0 = Math.max(0, Math.floor(Math.min(...ys) - reach)); const y1 = Math.min(h, Math.ceil(Math.max(...ys) + reach));
-  const pw = x1 - x0; const ph = y1 - y0; if (pw < 2 || ph < 2) return null;
-  const rgba = new Uint8ClampedArray(pw * ph * 4); const tex = piece.draw ?? piece.rgba; let drawn = 0;
-  // (The piece's arm and the base's may run opposite ways around (a raised arm, one held down): the side is
-  // matched by which side faces the body.)
+  const onBody = (x, y) => { const X = Math.round(x); const Y = Math.round(y); if (X < 0 || Y < 0 || X >= w || Y >= h) return false; const i = Y * w + X; return base.people.face[i] < 128 && Math.max(base.people.body[i], base.people.clothes[i], base.people.hair[i]) >= 100; };
+  // (Hair beside the arm counts as arm here: the sleeve goes on under it, and the hair is kept in front.)
+  const wl = new Float32Array(NU); const wr = new Float32Array(NU);
+  for (let b = first; b <= end; b++) {
+    const u = (b + 0.5) * du;
+    const reach = (sign) => { let t = 0; for (; t < armHalf * 1.8; t += 1) { const [x, y] = BF.point(u, sign * t); if (!onBody(x, y)) break; } return t; };
+    wl[b] = reach(-1); wr[b] = reach(1);
+  }
+  const clampW = (v) => { const o = smooth(v); for (let b = first; b <= end; b++) o[b] = Math.max(armHalf * 0.55, Math.min(armHalf * 1.35, Number.isFinite(o[b]) ? o[b] : armHalf)); return o; };
+  const WL = clampW(wl); const WR = clampW(wr);
+  // (Turned to match: the piece's arm and the base's may run opposite ways around.)
   const side = (B, q) => { const mid = (q.shoulders[0][0] + q.shoulders[1][0]) / 2; return Math.sign((B[0][0] - mid) || 1); };
-  const flip = side(pB, piece.pose) * side(bB, base.pose) * Math.sign((pB[1][1] - pB[0][1]) || 1) * Math.sign((bB[1][1] - bB[0][1]) || 1) < 0 ? -1 : 1;
+  const flip = side(pB, piece.pose) * side(bB, base.pose) * Math.sign((pB[1][1] - pB[0][1]) || 1) * Math.sign((bB[1][1] - bB[0][1]) || 1) < 0;
+  // 4. Wrapped on: each pixel near the base's arm, within its width (a little more: loose cloth) up to where
+  // the sleeve ends, colored from the strip, its edge a pixel soft.
+  const ext = armHalf * 1.6;
+  const xs = bB.map((q) => q[0]); const ys = bB.map((q) => q[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - ext)); const x1 = Math.min(w, Math.ceil(Math.max(...xs) + ext));
+  const y0 = Math.max(0, Math.floor(Math.min(...ys) - ext)); const y1 = Math.min(h, Math.ceil(Math.max(...ys) + ext));
+  const pw = x1 - x0; const ph = y1 - y0; if (pw < 2 || ph < 2) return null;
+  const rgba = new Uint8ClampedArray(pw * ph * 4); let drawn = 0;
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
     const i = y * w + x; if (base.people.face[i] >= 128) continue;
-    const f = BF.at(x + 0.5, y + 0.5); if (!f || f.u < 0 || f.u > uMax || Math.abs(f.d) > reach) continue;
-    const onThem = Math.max(base.people.body[i], base.people.clothes[i]) >= 100;
-    if (!onThem && Math.abs(f.d) > armHalf * 0.9) continue;
-    const [sx, sy] = PF.point(Math.max(0, f.u), (f.d / sc) * flip);
-    const X = Math.round(sx); const Y = Math.round(sy);
-    if (X < pb.x0 || Y < pb.y0 || X >= pb.x1 || Y >= pb.y1 || !pc[Y * piece.w + X]) continue;
-    const o = ((y - y0) * pw + x - x0) * 4; const j = (Y * piece.w + X) * 4;
-    rgba[o] = tex[j]; rgba[o + 1] = tex[j + 1]; rgba[o + 2] = tex[j + 2]; rgba[o + 3] = 255; drawn++;
+    const f = BF.at(x + 0.5, y + 0.5); if (!f || f.u < 0 || f.u >= uEnd) continue;
+    const bi = Math.min(end, Math.max(first, Math.floor(f.u / du)));
+    const l = WL[bi] * 1.08; const r = WR[bi] * 1.08;
+    if (f.d < -l - 1 || f.d > r + 1) continue;
+    let v = (f.d + l) / (l + r); if (flip) v = 1 - v;
+    const fj = Math.max(0, Math.min(NV - 1.001, v * NV - 0.5)); const j0 = Math.floor(fj); const tj = fj - j0;
+    const o = ((y - y0) * pw + x - x0) * 4; const s0 = (bi * NV + j0) * 3; const s1 = (bi * NV + Math.min(NV - 1, j0 + 1)) * 3;
+    for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = strip[s0 + c2] * (1 - tj) + strip[s1 + c2] * tj;
+    const edge = Math.max(0, Math.min(1, Math.min(f.d + l + 1, r + 1 - f.d)));
+    // (And a soft end at the cuff.)
+    const cuff = Math.max(0, Math.min(1, (uEnd - f.u) / (du * 1.5)));
+    rgba[o + 3] = Math.round(255 * edge * cuff); if (rgba[o + 3]) drawn++;
   }
   return drawn > 30 ? { x0, y0, pw, ph, rgba } : null;
 }
@@ -794,11 +847,12 @@ export function garmentZone(S) {
   // Down to where it really ends (a long top on someone sitting: past the waist line).
   const ext = byHand ? { mask: target.mask, box: tb } : downToHem(S, { mask: target.mask, box: tb });
   const Z = kindZone(kind === 'dress' ? 'dress' : 'upper', L, w, h);
-  const y0 = Math.max(0, Math.min(Z.y0, tb.y0, kind === 'upper' ? Math.floor(L.chin - L.fh * 0.15) : h)); const y1 = Math.min(h, Math.max(ext.box.y1, kind === 'upper' ? tb.y1 : tb.y1));
+  const y0 = Math.max(0, Math.min(Z.y0, tb.y0)); const y1 = Math.min(h, Math.max(ext.box.y1, kind === 'upper' ? tb.y1 : tb.y1));
   const x0 = Math.min(Z.x0, tb.x0); const x1 = Math.max(Z.x1, tb.x1);
   const A = base.allPeople && base.allPeople !== p ? base.allPeople : null;
   const Fc = L.face ? (L.face.x0 + L.face.x1) / 2 : (tb.x0 + tb.x1) / 2;
-  const neck = (x, y) => y >= L.chin - L.fh * 0.15 && y < L.chin + L.fh * 0.7 && Math.abs(x - Fc) < L.fw * 0.6;
+  // (Below the chin and within the neck's width: the shadow beside the jaw, behind an earring, isn't a collar.)
+  const neck = (x, y) => y >= L.chin && y < L.chin + L.fh * 0.7 && Math.abs(x - Fc) < L.fw * 0.42;
   const m = new Uint8Array(w * h); const seen = new Uint8Array(w * h);
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
     const i = y * w + x;
@@ -903,7 +957,7 @@ export function eraseGarment(S, z) {
   vals.sort((a, c) => a - c); const mid = vals.length > 30 ? vals[vals.length >> 1] : null;
   const field = mid ? boxBlur(lum, ok, bw, bh, R) : null;
   const cover = mid ? boxBlur(Float32Array.from(ok), new Uint8Array(bw * bh).fill(1), bw, bh, R) : null;
-  const sd = skinDetailOf(base);
+  const sd = skinDetailOf(base); const L0 = base.layout;
   const pw = b.x1 - b.x0; const ph = b.y1 - b.y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
   for (let y = b.y0; y < b.y1; y++) {
     // (Round: each row's stretch of it a little darker toward its ends.)
@@ -915,11 +969,22 @@ export function eraseGarment(S, z) {
       let sh = 1;
       if (field && cover[k] > 0.02) sh = Math.max(0.78, Math.min(1.15, field[k] / mid));
       const u = (x + 0.5 - l) / Math.max(1, r - l); sh *= 1 - 0.08 * (1 - Math.sqrt(Math.max(0, Math.sin(Math.PI * u))));
+      // (Under the chin: in its shadow, darkest just below the jaw, lighter going down the neck.)
+      if (L0 && y >= L0.chin && y < L0.chin + L0.fh * 0.45) sh *= 0.62 + 0.38 * Math.min(1, (y - L0.chin) / (L0.fh * 0.45));
       const dt = sd ? sd(x, y) : null;
       const o = ((y - b.y0) * pw + x - b.x0) * 4;
       for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = tone[c2] * sh + (dt ? dt[c2] * sh : 0);
       rgba[o + 3] = 255;
     }
+  }
+  // (Its edge against their own skin (the neck above an open collar) blended a few pixels into it, not cut.)
+  const R2 = Math.max(2, Math.round(fh / 18));
+  for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) {
+    const i = y * w + x; if (!z.mask[i]) continue;
+    let near = R2 + 1; let nj = -1;
+    for (let dy = -R2; dy <= R2; dy++) for (let dx = -R2; dx <= R2; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const j2 = Y * w + X; const dd = Math.hypot(dx, dy); if (dd < near && !z.mask[j2] && p.body[j2] >= 160 && p.face[j2] < 128) { near = dd; nj = j2; } }
+    // (Toward the color of their own skin just past it: the light there, so no seam.)
+    if (nj >= 0) { const o = ((y - b.y0) * pw + x - b.x0) * 4; const t = near / (R2 + 1); for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = rgba[o + c2] * t + base.rgba[nj * 4 + c2] * (1 - t); }
   }
   return { x0: b.x0, y0: b.y0, pw, ph, rgba };
 }
@@ -1069,6 +1134,17 @@ export function finish(layer, S, cache) {
       cache.front = tune.front || arms ? m : null; cache.frontKey = fkey; cache.frontBase = base;
     }
     front = cache.front;
+    // (Taken off first, an upper body with sleeves: an arm the piece's sleeve goes on is inside it, not in
+    // front of it; only a hand across their front (within the torso) stays in front.)
+    if (front && erasing(S) && isZone(kind) && base.parts?.v?.torso?.box) {
+      const tb = base.parts.v.torso.box; const f2 = Uint8Array.from(front);
+      for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) {
+        const X = layer.x0 + x; const Y = layer.y0 + y; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+        if (X >= tb.x0 && X < tb.x1) continue;
+        const i = Y * w + X; if (layer.rgba[(y * layer.pw + x) * 4 + 3] >= 128 && ppl.hair[i] < 160 && ppl.face[i] < 128) f2[i] = 0;
+      }
+      front = f2;
+    }
     // (And whoever's in front of what it covers (the next person's arm): they stay in front of it.)
     const oc = trace && S.target ? underHair(S).occ : null;
     if (oc) { if (cache.frontOcc?.of !== front || cache.frontOcc.occ !== oc) { const f2 = front ? Uint8Array.from(front) : new Uint8Array(w * h); for (let i = 0; i < f2.length; i++) if (oc[i]) f2[i] = 255; cache.frontOcc = { of: front, occ: oc, f: f2 }; } front = cache.frontOcc.f; }

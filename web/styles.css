@@ -81,6 +81,8 @@ body {
 .topbar-actions { display: flex; gap: 6px; }
 .version-tag { margin-left: auto; padding: 4px 8px; min-height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, var(--text)); opacity: 0.75; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
 .version-tag:hover, .version-tag:focus-visible { opacity: 1; background: var(--surface); }
+/* (Its 32px tap target reaches into the bar's padding: the bar is no taller with it than with the title alone.) */
+.version-tag { margin-top: -6px; margin-bottom: -6px; }
 .versions { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius, 14px); background: var(--surface); color: var(--text); }
 .versions::backdrop { background: rgb(0 0 0 / 0.4); }
 .versions-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }

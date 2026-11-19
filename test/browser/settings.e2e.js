@@ -238,7 +238,7 @@ test('Settings → Diagnostics: what loaded, how long it took, and problems note
   await context.close();
 });
 
-test('Home: the version small at the top right; tapped, the version history (this version first); only on Home', async () => {
+test('the version small at the top right, on Home and in every app; tapped, the version history (this version first)', async () => {
   const { VERSION, HISTORY } = await import('../../web/version.js');
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -263,10 +263,14 @@ test('Home: the version small at the top right; tapped, the version history (thi
   assert.ok(await dialog.getByRole('button', { name: 'Update to Latest Version' }).isVisible());
   await dialog.getByRole('button', { name: 'Close' }).click();
   assert.equal(await dialog.isVisible(), false);
-  // Not inside an app.
+  // Inside an app too (its ⚙ only on Home), and inside one in the hidden area (Magic).
   await page.goto(`${origin}${BASE}#/notes`); await page.waitForSelector('#view-app:not([hidden])');
-  assert.equal(await tag.isHidden(), true);
+  assert.equal(await tag.isVisible(), true);
+  assert.equal(await tag.textContent(), `v${VERSION}`);
   assert.equal(await page.locator('#home-settings').isHidden(), true);
+  await page.evaluate(() => sessionStorage.setItem('cc.hidden.open', '1'));
+  await page.goto(`${origin}${BASE}#/magic`); await page.waitForSelector('#app-host .app-tile');
+  assert.equal(await tag.isVisible(), true);
   assert.deepEqual(errors, []);
   await context.close();
 });

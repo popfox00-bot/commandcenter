@@ -52,7 +52,9 @@ async function route() {
   if (inFiles) { back.href = '#/files'; back.textContent = '‹ Files'; } else if (parent) { back.href = parent.href; back.textContent = `‹ ${parent.name}`; } else { back.href = '#/'; back.textContent = '‹ Home'; }
   $('#title').textContent = { home: 'Command Center', jobs: 'Jobs', app: inFiles?.name ?? app?.name }[view];
   $('#jobs-actions').hidden = view !== 'jobs';
-  $('#version').hidden = view !== 'home';
+  // (The version on every screen of the app's own (Home, each app, Jobs): which one is running is always in
+  // sight. Apps with a page of their own (WorldAtlas, Trade Desk…) have their own look.)
+  $('#version').hidden = false;
   $('#home-settings').hidden = view !== 'home';
   setJobsActive(view === 'jobs');
 

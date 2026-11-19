@@ -918,7 +918,16 @@ the clothes in it: worn by someone, or on its own).
   piece's cloth, cut at its hem, at one scale); the zone is carried down past its waist line to where the
   garment worn there really ends (rows of its own color joined to the row above, along the row through its
   color, until the stripes of the pants stop it); and each sleeve is bent along both people's arms
-  (shoulder, elbow, wrist), as long and as wide as it is on the piece, turned with the arm. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  (shoulder, elbow, wrist), as long and as wide as it is on the piece, turned with the arm.
+- **Taken off first** (Replace: a top, a dress, an upper body): all of the garment worn there is found, joined
+  or not: every bit of clothing in the upper body zone of that person is it (its side seen past a lock of
+  hair, a strip by the armhole the person finder called skin, what shows between strands: by its own color,
+  nothing like their skin), down to where it really ends, never something of its color off on its own beside
+  them; its prints and buttons are part of it. It's made their bare skin (their own skin's tone and fine
+  texture, lit as their skin is around it, a little darker toward the body's sides), and the piece is laid
+  onto that: its own color and texture kept (no folds or color taken from what was worn there), only the
+  photo's light and the light and shade on their bare skin under it (a sleeve over a lit arm). Under strands
+  of hair the new piece shows, not skin. A waist line moved by hand still ends an upper body there. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

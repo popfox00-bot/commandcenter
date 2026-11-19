@@ -75,3 +75,31 @@ test('a piece laid in at one scale (rigid) keeps its proportions in a narrow out
   const last = new Set(); for (let y = 170; y < 180; y++) last.add(blue(y));
   assert.ok(last.size > 3 && blue(179) < 199, `not one row repeated at the bottom: ${[...last]}`);
 });
+
+test('taken off first: the whole garment in the zone is found (its side past a lock of hair, a strip the finder called skin, between strands), not hair or a patch beside them; erased to their own skin', async () => {
+  const { garmentZone, eraseGarment, erasing } = await import('../web/apps/fashion/compose.js');
+  const { S } = scene(); const { w, rgba, people: p } = S.base;
+  // Between two strands of the lock (x 72..73), the top shows through, the finder unsure of hair there.
+  for (let y = 120; y < 230; y++) for (const x of [72, 73]) { const i = y * w + x; p.hair[i] = 120; rgba.set([...BLACK, 255], i * 4); }
+  // A patch of the same black off on its own beside them, in the background.
+  for (let y = 150; y < 165; y++) for (let x = 180; x < 192; x++) { const i = y * w + x; p.clothes[i] = 255; rgba.set([...BLACK, 255], i * 4); }
+  // Their layout: the person and where their waist is.
+  Object.assign(S.base.layout, { person: { x0: 30, y0: 10, x1: 196, y1: 290 }, waist: 255, ankle: 290, split: true });
+  assert.equal(erasing(S), true);
+  const z = garmentZone(S);
+  const on = (x, y) => !!z.mask[y * w + x];
+  assert.ok(on(100, 150) && on(130, 240), 'the top itself');
+  assert.ok(on(60, 150) && on(63, 200), 'its side past the lock of hair, which the finder called skin');
+  assert.ok(on(72, 150) && on(73, 200), 'between the strands');
+  assert.ok(!on(70, 150) && !on(78, 200), 'not the hair');
+  assert.ok(!on(185, 158), 'not the patch beside them');
+  assert.ok(!on(48, 150) && !on(100, 50), 'not their arm or face');
+  // Erased: their own skin there, lit as it is around it.
+  const e = eraseGarment(S, z);
+  const at = (x, y) => Array.from(e.rgba.slice(((y - e.y0) * e.pw + x - e.x0) * 4, ((y - e.y0) * e.pw + x - e.x0) * 4 + 4));
+  for (const [x, y] of [[100, 150], [60, 150], [72, 150]]) {
+    const [r, g, b, a] = at(x, y);
+    assert.equal(a, 255);
+    assert.ok(Math.abs(r - SKIN[0]) < 40 && Math.abs(g - SKIN[1]) < 40 && Math.abs(b - SKIN[2]) < 40, `skin at ${x},${y}: ${[r, g, b]}`);
+  }
+});

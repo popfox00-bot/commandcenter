@@ -431,7 +431,7 @@ test('Photo Editor → Clean Up → 👤 Remove a person: a tap on one of two pe
   await context.close();
 });
 
-test('Fashion: an upper body zone onto someone with a hand across their front: their hand stays in front; the waist line moves the zone; the check before saving points at what still shows', async () => {
+test('Fashion: an upper body zone onto someone with a hand across their front: their hand stays in front; the waist line moves the zone; taken off first, all of the old top goes (not a patch beside them), and it saves', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await context.route('**/lib/face-parts.js', (route) => route.fulfill({ body: FAKE_PARTS, headers: { 'content-type': 'text/javascript' } }));
   await context.route('**/lib/pose.js', (route) => route.fulfill({ body: FAKE_POSE_ONE, headers: { 'content-type': 'text/javascript' } }));
@@ -477,19 +477,14 @@ test('Fashion: an upper body zone onto someone with a hand across their front: t
   const after = await pixel(370, 470);
   assert.ok(blue(before) && !blue(after), `raised: ${before} → ${after}`);
   await slider.fill('0'); await slider.dispatchEvent('change'); await page.waitForTimeout(400);
-  // Save: the check points at the stray bit of the old top first; Show me marks it and picks the brush.
-  await page.getByRole('button', { name: '💾 Save' }).click();
-  const dlg = page.locator('dialog[open].fa-check');
-  await dlg.waitFor();
-  assert.match(await dlg.textContent(), /still shows/);
-  await dlg.getByRole('button', { name: 'Show me' }).first().click();
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator('.chip.active', { hasText: 'Brush in' }).count(), 1, 'the brush that fixes it');
-  // And Save anyway saves.
-  await page.getByRole('button', { name: '💾 Save' }).click();
-  await dlg.waitFor();
+  // Taken off first: all of the old top goes, down to its hem, below their hand too; the stray red patch
+  // beside them, not on them, stays as it is.
+  assert.ok(blue(await pixel(300, 500)), `the old top replaced down to its hem: ${await pixel(300, 500)}`);
+  const red = ([r, g, b]) => r > 150 && g < 90 && b < 90;
+  assert.ok(red(await pixel(470, 470)), `the patch beside them left as it is: ${await pixel(470, 470)}`);
+  // Save: nothing of the old top left to point at, so it saves straight away.
   const dl = page.waitForEvent('download');
-  await dlg.getByRole('button', { name: 'Save anyway' }).click();
+  await page.getByRole('button', { name: '💾 Save' }).click();
   assert.match((await dl).suggestedFilename(), /^fashion-/);
   assert.deepEqual(errors, []);
   await context.close();

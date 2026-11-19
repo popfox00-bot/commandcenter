@@ -24,7 +24,7 @@ import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { rgbToLab } from '../../lib/color-match.js';
 import { armSkin, strayClothes, KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand, refineOutline } from '../../tools/fashion/fashion-core.js';
-import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps } from './compose.js';
+import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps, erasing, garmentZone, eraseGarment, underStrands } from './compose.js';
 
 const WORK_MAX = 1024;
 const SAVE_MAX = 2560;      // the saved picture's longest side (and no more than ~6 MP: a phone's memory)
@@ -940,7 +940,18 @@ export function mount(host) {
     let layer = null;
     try { layer = buildLayer(S); } catch (e) { noteError('Fashion: putting it on', e); }
     if (layer) finish(layer, S, cache);
-    if (mode === 'replace' && target && !target.body) {
+    if (mode === 'replace' && target && !target.body && erasing(S)) {
+      // Taken off first: all of the garment worn there made their bare skin (once for this garment), the piece
+      // laid on that.
+      const key = `erase,${kind}`;
+      if (fillCache?.target !== target || fillCache.key !== key) {
+        let patch = null;
+        try { patch = eraseGarment(S, garmentZone(S)); } catch (e) { noteError('Fashion: taking it off', e); }
+        fillCache = { target, key, patch, erase: true, rest: null, straps: null, restKey: key, restTarget: target };
+      }
+      if (fillCache.patch) lay(out, w, h, fillCache.patch);
+      try { underStrands(out, w, layer, garmentZone(S), base.people); } catch (e) { noteError('Fashion: under the hair', e); }
+    } else if (mode === 'replace' && target && !target.body) {
       const key = layer ? `${layer.x0},${layer.y0},${layer.pw},${layer.ph},${JSON.stringify(tune)}` : `none,${tune.front},${tune.arms}`;
       if (fillCache?.target !== target || (fillCache.key !== key && !interacting)) {
         const unc = uncovered(target, layer, w, h, cache.front, base.people);
@@ -952,7 +963,16 @@ export function mount(host) {
     }
     if (layer) lay(out, w, h, layer);
     // (What's left of the old garment just outside it, its straps, recolored as the piece.)
-    if (layer && mode === 'replace' && target && !target.body) {
+    // (Taken off first: the piece's straps still drawn over bare shoulders; nothing of the old garment left
+    // to recolor.)
+    if (layer && fillCache?.erase && kind !== 'upper') {
+      if (fillCache.strapsKey !== `${layer.x0},${layer.y0},${layer.pw},${layer.ph}`) {
+        try { fillCache.straps = straps(S, layer, null); } catch (e) { fillCache.straps = null; noteError('Fashion: the straps', e); }
+        fillCache.strapsKey = `${layer.x0},${layer.y0},${layer.pw},${layer.ph}`;
+      }
+      if (fillCache.straps) lay(out, w, h, fillCache.straps);
+    }
+    if (layer && mode === 'replace' && target && !target.body && !fillCache?.erase) {
       if (fillCache && (fillCache.restKey !== fillCache.key || fillCache.restTarget !== target)) {
         try { fillCache.rest = leftovers(S, layer); } catch (e) { fillCache.rest = null; noteError('Fashion: the straps', e); }
         try { fillCache.straps = straps(S, layer, fillCache.rest); } catch (e) { fillCache.straps = null; noteError('Fashion: the straps', e); }
@@ -1161,6 +1181,7 @@ export function mount(host) {
           const x2 = c2.getContext('2d'); x2.imageSmoothingQuality = 'high'; x2.drawImage(c, 0, 0, c2.width, c2.height);
           lay(out, W, H, { x0: Math.round(fp.x0 * k), y0: Math.round(fp.y0 * k), pw: c2.width, ph: c2.height, rgba: x2.getImageData(0, 0, c2.width, c2.height).data });
         }
+        if (layer && fillCache?.erase && bBig.people) { try { underStrands(out, W, layer, garmentZone(S), bBig.people); } catch (e) { noteError('Fashion: under the hair', e); } }
         if (layer) lay(out, W, H, layer);
         // (The old garment's straps, recolored: worked out at the working size, brought up.)
         const rest = mode === 'replace' ? fillCache?.rest : null;

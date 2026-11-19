@@ -3,7 +3,7 @@
 // turned by hand, finished (light, form, what's kept in front), over the base, with what was worn there
 // taken off where the piece doesn't cover it (Replace).
 
-import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture, fillHoles, findPrints } from '../../tools/fashion/fashion-core.js';
+import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture, fillHoles, findPrints, kindZone } from '../../tools/fashion/fashion-core.js';
 import { boxBlur } from '../../lib/geometry.js';
 import { softenMask } from '../../lib/geometry.js';
 import { rgbToLab } from '../../lib/color-match.js';
@@ -309,7 +309,8 @@ function zoneLayer(S) {
     // part of them.)
     fillHoles(tC, w, h, tCb, 0.3); fillHoles(pC, piece.w, piece.h, pCb, 0.3);
     tCb = boxOf(tC, w, h); pCb = boxOf(pC, piece.w, piece.h);
-    const tO = { mask: tC, box: tCb, spans: rowSpans(tC, w, tCb, Math.max(8, Math.round((tCb.y1 - tCb.y0) / 14))) };
+    let tO = { mask: tC, box: tCb, spans: rowSpans(tC, w, tCb, Math.max(8, Math.round((tCb.y1 - tCb.y0) / 14))) };
+    if (erasing(S)) { const z = garmentZone(S); if (z) { tO = withZone(tO, z, w, h); tCb = tO.box; } }
     // (A side running off the photo: as far past its edge as the whole outline's goes.)
     for (let y = tCb.y0; y < tCb.y1; y++) {
       const ky = y - tCb.y0; const ku = y - under.box.y0; if (tO.spans[ky * 2 + 1] < 0 || ku < 0 || ku >= under.box.y1 - under.box.y0 || under.spans[ku * 2 + 1] < 0) continue;
@@ -350,7 +351,9 @@ function zoneLayer(S) {
     const pcb = boxOf(pc, piece.w, piece.h);
     const pH = pcb && hemCut(pc, pcb, piece.draw ?? piece.rgba, piece.w, piece.h);
     const pMask = pH?.mask ?? (pcb ? pc : pT.mask); const pBox = pH?.box ?? pcb ?? pT.box;
-    const tD = downToHem(S, tT);
+    let tD = base.layout.waistShift ? { ...tT, spans: tT.spans ?? rowSpans(tT.mask, w, tT.box, Math.max(8, Math.round((tT.box.y1 - tT.box.y0) / 14))) } : downToHem(S, tT);
+    // (Taking off first: all of the garment worn there, wherever it shows, less their bare arms.)
+    if (erasing(S)) { const z = garmentZone(S); if (z) { const zm = Uint8Array.from(z.mask); for (let i = 0; i < zm.length; i++) if (tArms?.[i] && base.people.clothes[i] < 100) zm[i] = 0; tD = withZone(tD, { ...z, mask: zm }, w, h); } }
     const centers = frontCenters(S); const rigid = centers && rigidZone(S);
     const open = tD.box.y1 >= h - 2 || pBox.y1 >= piece.h - 2;
     const L = traceTransfer(tex, pMask, piece.w, piece.h, pBox, tD, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers, rigid });
@@ -450,7 +453,7 @@ function downToHem(S, t) {
     for (let x = b.x0 + 1; x < b.x1; x++) if (!cur[x] && cur[x - 1] && ok2(x)) { cur[x] = 1; n++; }
     for (let x = b.x1 - 2; x >= b.x0; x--) if (!cur[x] && cur[x + 1] && ok2(x)) { cur[x] = 1; n++; }
     if (!nRef && y >= b.y1) nRef = n;
-    if (y >= b.y1 && (n < 4 || n < nRef * 0.7)) break;
+    if (y >= b.y1 && (n < 4 || n < nRef * 0.5)) break;
     for (let x = b.x0; x < b.x1; x++) if (cur[x] || m[y * w + x]) { m[y * w + x] = 1; cur[x] = 1; }
     prev = cur; y1 = Math.max(y1, y + 1); any = true;
   }
@@ -588,9 +591,9 @@ export function buildLayer(S) {
     }
     const hm = toHem(piece, S.kind);
     const open = target.box.y1 >= h - 2 || (hm?.box ?? piece.box).y1 >= piece.h - 2;
-    const under = underHair(S);
+    const under = erasing(S) ? withZone(underHair(S), garmentZone(S), w, h) : underHair(S);
     const centers = frontCenters(S);
-    const layer = traceTransfer(piece.draw ?? piece.rgba, hm?.mask ?? piece.solid ?? piece.sel, piece.w, piece.h, hm?.box ?? piece.box, under, w, h, { rigid: centers ? rigidOf(S) : null, s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers });
+    const layer = traceTransfer(piece.draw ?? piece.rgba, hm?.mask ?? piece.solid ?? piece.sel, piece.w, piece.h, hm?.box ?? piece.box, under, w, h, { rigid: centers ? (rigidOf(S) ?? (erasing(S) ? rigidZone(S) : null)) : null, s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers });
     neckline(layer, base, w);
     softEdge(layer, under, w, h);
     return transformLayer(layer, tune, w, h);
@@ -689,6 +692,169 @@ function rigidOf(S) {
   return hidden || sleevedOnBare ? { s: bd / pd } : null;
 }
 
+/**
+ * Whether Replace works by taking off first (a top, a dress, an upper body zone, on a person found): the
+ * whole garment worn there found (garmentZone) and erased to their bare skin (eraseGarment), then the piece
+ * laid on that with its own color and texture, lit as the photo is, not tinted by what was there before.
+ */
+export function erasing(S) {
+  return S.mode === 'replace' && !!S.target && !S.target.body && !!S.base?.people && !!S.base.layout && ['top', 'dress', 'upper'].includes(S.kind);
+}
+
+/**
+ * All of the garment worn in the base's zone (a top's, an upper body's: from the chin to where the garment
+ * really ends), joined or not: every bit of clothing there is that garment (its sides seen past a lock of
+ * hair, a strip by the armhole, between strands of hair); plus what the person finder took for skin or
+ * left unsure but is the garment's own color and nothing like their skin. Its prints and buttons (holes in
+ * it) are part of it. { mask, box, spans }, kept on the target.
+ */
+export function garmentZone(S) {
+  const { base, target, kind } = S; const { w, h } = base; const p = base.people; const L = base.layout;
+  if (target.zoneOf?.base === base && target.zoneOf.kind === kind && target.zoneOf.layout === L) return target.zoneOf.z;
+  // (A waist line moved by hand: an upper body ends there, not carried on down to the garment's hem.)
+  const byHand = kind === 'upper' && !!L.waistShift;
+  const lab = (i) => rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
+  // The garment's own color: the median of what was found of it.
+  const A0 = []; const A1 = []; const A2 = []; const tb = target.box;
+  for (let y = tb.y0; y < tb.y1; y += 2) for (let x = tb.x0; x < tb.x1; x += 2) { const i = y * w + x; if (!target.mask[i] || p.clothes[i] < 128) continue; const q = lab(i); A0.push(q[0]); A1.push(q[1]); A2.push(q[2]); }
+  const med = (v) => { v.sort((a, b) => a - b); return v[v.length >> 1]; };
+  const c = A0.length > 30 ? [med(A0), med(A1), med(A2)] : null;
+  const tone = skinTone(base); const sk = tone ? rgbToLab(tone[0], tone[1], tone[2]) : null;
+  const dark = c && c[0] < 30;
+  const like = (q) => {
+    if (!c) return false;
+    const dL = dark && q[0] < c[0] ? 0 : Math.max(0, Math.abs(q[0] - c[0]) - (dark ? 14 : 6));
+    return Math.hypot(dL * 0.7, q[1] - c[1], q[2] - c[2]) < 16;
+  };
+  const skinish = (q) => sk && q[0] > 30 && Math.hypot((q[0] - sk[0]) * 0.5, q[1] - sk[1], q[2] - sk[2]) < 18;
+  // Down to where it really ends (a long top on someone sitting: past the waist line).
+  const ext = byHand ? { mask: target.mask, box: tb } : downToHem(S, { mask: target.mask, box: tb });
+  const Z = kindZone(kind === 'dress' ? 'dress' : 'upper', L, w, h);
+  const y0 = Math.max(0, Math.min(Z.y0, tb.y0)); const y1 = Math.min(h, Math.max(ext.box.y1, kind === 'upper' ? tb.y1 : tb.y1));
+  const x0 = Math.min(Z.x0, tb.x0); const x1 = Math.max(Z.x1, tb.x1);
+  const A = base.allPeople && base.allPeople !== p ? base.allPeople : null;
+  const m = new Uint8Array(w * h); const seen = new Uint8Array(w * h);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = y * w + x;
+    if (p.face[i] >= 128) continue;
+    // (Someone else's, not theirs.)
+    if (A && Math.max(A.body[i], A.clothes[i]) >= 128 && Math.max(p.body[i], p.clothes[i], p.hair[i]) < 60) continue;
+    if (ext.mask[i] && (p.clothes[i] >= 100 || kind !== 'upper')) { m[i] = 1; continue; }
+    if (p.hair[i] >= 200) continue;
+    const q = lab(i);
+    if (p.hair[i] >= 40) { if (like(q) && !skinish(q)) { m[i] = 1; seen[i] = 1; } continue; }
+    if (p.clothes[i] >= 100) { if (!skinish(q)) m[i] = 1; continue; }
+    // (Read as skin, or unsure, but the garment's own color and far from their skin: the garment.)
+    if (Math.max(p.body[i], p.others[i]) >= 100 && like(q) && !skinish(q) && (!sk || Math.hypot(q[0] - sk[0], q[1] - sk[1], q[2] - sk[2]) > 30)) m[i] = 1;
+  }
+  let personOn = null;
+  // (Only on them: the person, all of them joined from their face (skin, clothes, hair). A patch of the same
+  // color off on its own beside them, in the background, isn't theirs to take off.)
+  {
+    const on = new Uint8Array(w * h); const F = L.face; const st = [];
+    const any = (i) => Math.max(p.body[i], p.clothes[i], p.hair[i], p.face[i]) >= 100;
+    if (F) for (let y = Math.max(0, Math.floor(F.y0)); y < Math.min(h, Math.ceil(F.y1)); y++) for (let x = Math.max(0, Math.floor(F.x0)); x < Math.min(w, Math.ceil(F.x1)); x++) { const i = y * w + x; if (any(i)) { on[i] = 1; st.push(i); } }
+    for (let a = 0; a < st.length; a++) { const i = st[a]; const x = i % w; for (const t of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) if (t >= 0 && t < w * h && !on[t] && (any(t) || m[t])) { on[t] = 1; st.push(t); } }
+    if (st.length > 100) { for (let i = 0; i < m.length; i++) if (m[i] && !on[i]) m[i] = 0; personOn = on; }
+  }
+  // (Specks of a few pixels off on their own aren't it; holes in it, its prints and buttons, are.)
+  const box0 = boxOf(m, w, h); if (!box0) return null;
+  const area = (box0.x1 - box0.x0) * (box0.y1 - box0.y0); const minPart = Math.max(12, Math.round(area * 0.0005));
+  const lab2 = new Int32Array(w * h); let id = 0;
+  for (let y = box0.y0; y < box0.y1; y++) for (let x = box0.x0; x < box0.x1; x++) {
+    const i0 = y * w + x; if (!m[i0] || lab2[i0]) continue;
+    id++; const st = [i0]; lab2[i0] = id; const part = [i0];
+    while (st.length) { const i = st.pop(); for (const t of [i - 1, i + 1, i - w, i + w]) if (t >= 0 && t < w * h && m[t] && !lab2[t]) { lab2[t] = id; st.push(t); part.push(t); } }
+    // (And joined or not, on them: its main part, or touching their skin, hair or face; a patch of the same
+    // color off on its own beside them (something in the background) isn't theirs to take off.)
+    const touches = () => { if (part.length >= area * 0.05) return true; for (const i of part) { for (const t of [i - 2, i + 2, i - 2 * w, i + 2 * w, i - 1, i + 1, i - w, i + w]) if (t >= 0 && t < w * h && !m[t] && Math.max(p.body[t], p.hair[t], p.face[t]) >= 128) return true; } return false; };
+    if (part.length < minPart || !touches()) for (const i of part) m[i] = 0;
+  }
+  let box1 = boxOf(m, w, h); if (!box1) return null;
+  // (And on down from what's found of it to where it really ends: the zone's own bottom, its waist line,
+  // isn't where a long top stops.)
+  if (!byHand) { const more = downToHem(S, { mask: m, box: box1 }); if (more.mask !== m) { for (let i = 0; i < m.length; i++) if (more.mask[i]) m[i] = 1; box1 = boxOf(m, w, h); } }
+  fillHoles(m, w, h, box1, 0.05);
+  const box = boxOf(m, w, h);
+  // (`seen`: where it was found between strands of hair, by its own color.)
+  const z = { mask: m, box, spans: rowSpans(m, w, box, Math.max(14, Math.round((box.y1 - box.y0) / 14))), seen, on: personOn };
+  target.zoneOf = { base, kind, layout: L, z };
+  return z;
+}
+
+/**
+ * Under strands of hair over the garment taken off (Replace): the new piece's own color there, not their bare
+ * skin, so a strand the finder is unsure of blends over the new top as it did over the old one. On `out`
+ * (w wide, laid before the layer), where the layer (`layer`, finished: its alpha lowered by what's in front)
+ * has the piece but lets something show through. In place.
+ */
+export function underStrands(out, w, layer, z, people) {
+  if (!layer || !z) return;
+  for (let y = 0; y < layer.ph; y++) for (let x = 0; x < layer.pw; x++) {
+    const o = (y * layer.pw + x) * 4; const a = layer.rgba[o + 3]; if (a >= 250) continue;
+    const X = layer.x0 + x; const Y = layer.y0 + y; if (X < 0 || Y < 0 || X >= w || Y * w + X >= z.mask.length) continue;
+    const i = Y * w + X; if (!z.mask[i] || people.hair[i] < 25 || people.face[i] >= 128) continue;
+    // (Only where the layer reaches: its color there, before what's in front lowered it.)
+    if (!layer.rgba[o] && !layer.rgba[o + 1] && !layer.rgba[o + 2]) continue;
+    out[i * 4] = layer.rgba[o]; out[i * 4 + 1] = layer.rgba[o + 1]; out[i * 4 + 2] = layer.rgba[o + 2];
+  }
+}
+
+/** An outline (`u`: { mask, box, spans, ... }) with the garment zone's pixels added (its other fields kept). */
+function withZone(u, z, w, h) {
+  if (!z) return u;
+  if (u.zoned?.z === z) return u.zoned.out;
+  // (And only what's on the person: nothing of the same color off on its own beside them.)
+  const m = Uint8Array.from(u.mask); for (let i = 0; i < m.length; i++) { if (z.mask[i]) m[i] = 1; else if (m[i] && z.on && !z.on[i]) m[i] = 0; }
+  const box = boxOf(m, w, h) ?? u.box;
+  const out = { ...u, mask: m, box, spans: rowSpans(m, w, box, Math.max(14, Math.round((box.y1 - box.y0) / 14))) };
+  u.zoned = { z, out };
+  return out;
+}
+
+/**
+ * The garment worn there erased (Replace): each of its pixels made their bare skin, in their own skin's
+ * color and fine texture, lit as their skin is around it (the broad light on them: brighter on the side the
+ * light comes from) and a little darker toward the body's sides (round). A patch over the zone, laid on the
+ * picture before the piece, or null without their skin to go by.
+ */
+export function eraseGarment(S, z) {
+  const { base } = S; const { w, h } = base; const p = base.people;
+  if (!z) return null;
+  const tone = skinTone(base); if (!tone) return null;
+  const fh = base.layout?.fh ?? h / 7; const R = Math.max(8, Math.round(fh * 1.2));
+  const b = z.box; const X0 = Math.max(0, b.x0 - R); const Y0 = Math.max(0, b.y0 - R); const X1 = Math.min(w, b.x1 + R); const Y1 = Math.min(h, b.y1 + R);
+  const bw = X1 - X0; const bh = Y1 - Y0;
+  // (The light on their skin around it, read broadly.)
+  const lum = new Float32Array(bw * bh); const ok = new Uint8Array(bw * bh); const vals = [];
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = (Y0 + y) * w + X0 + x;
+    if (p.body[i] >= 200 && p.face[i] < 100 && p.hair[i] < 60 && !z.mask[i]) { const v = 0.299 * base.rgba[i * 4] + 0.587 * base.rgba[i * 4 + 1] + 0.114 * base.rgba[i * 4 + 2]; lum[y * bw + x] = v; ok[y * bw + x] = 1; vals.push(v); }
+  }
+  vals.sort((a, c) => a - c); const mid = vals.length > 30 ? vals[vals.length >> 1] : null;
+  const field = mid ? boxBlur(lum, ok, bw, bh, R) : null;
+  const cover = mid ? boxBlur(Float32Array.from(ok), new Uint8Array(bw * bh).fill(1), bw, bh, R) : null;
+  const sd = skinDetailOf(base);
+  const pw = b.x1 - b.x0; const ph = b.y1 - b.y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = b.y0; y < b.y1; y++) {
+    // (Round: each row's stretch of it a little darker toward its ends.)
+    let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (z.mask[y * w + x]) { if (l < 0) l = x; r = x + 1; }
+    if (l < 0) continue;
+    for (let x = l; x < r; x++) {
+      const i = y * w + x; if (!z.mask[i]) continue;
+      const k = (y - Y0) * bw + x - X0;
+      let sh = 1;
+      if (field && cover[k] > 0.02) sh = Math.max(0.78, Math.min(1.15, field[k] / mid));
+      const u = (x + 0.5 - l) / Math.max(1, r - l); sh *= 1 - 0.08 * (1 - Math.sqrt(Math.max(0, Math.sin(Math.PI * u))));
+      const dt = sd ? sd(x, y) : null;
+      const o = ((y - b.y0) * pw + x - b.x0) * 4;
+      for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = tone[c2] * sh + (dt ? dt[c2] * sh : 0);
+      rgba[o + 3] = 255;
+    }
+  }
+  return { x0: b.x0, y0: b.y0, pw, ph, rgba };
+}
+
 /** The layer moved, sized, stretched and turned by hand (about its middle). */
 export function transformLayer(layer, t, w, h) {
   if (t.scale === 100 && t.wide === 100 && t.long === 100 && !t.rot && !t.dx && !t.dy) return layer;
@@ -715,11 +881,13 @@ export function finish(layer, S, cache) {
   const fbox = { x0: layer.x0, y0: layer.y0, x1: layer.x0 + layer.pw, y1: layer.y0 + layer.ph };
   const key = `${fbox.x0},${fbox.y0},${fbox.x1},${fbox.y1}`;
   const trace = isTrace(S);
+  // (Taken off first: the piece keeps its own folds and texture; the light and shade on their bare skin under
+  // it (a sleeve over a lit arm) and the photo's broad light are what it takes.)
   if (trace) {
     // The folds and shadows of what was worn there, on the design laid into it.
     if (cache.formKey !== `fold${key}` || cache.formBase !== base || cache.formTarget !== S.target) {
       const fh = base.layout?.fh ?? h / 7;
-      cache.form = foldMap(base.rgba, w, clothesOf(S), fbox, Math.max(1, Math.round(fh / 45)), Math.max(6, Math.round(fh / 3.5)));
+      cache.form = erasing(S) ? new Float32Array((fbox.x1 - fbox.x0) * (fbox.y1 - fbox.y0)).fill(1) : foldMap(base.rgba, w, clothesOf(S), fbox, Math.max(1, Math.round(fh / 45)), Math.max(6, Math.round(fh / 3.5)));
       // (Where it goes over their bare skin (a sleeve onto a bare arm, a higher neckline): the light and shade
       // on the body there, the arm's roundness, the shadow where it turns from the light.)
       if (base.people) {
@@ -836,11 +1004,25 @@ export function finish(layer, S, cache) {
     const oc = trace && S.target ? underHair(S).occ : null;
     if (oc) { if (cache.frontOcc?.of !== front || cache.frontOcc.occ !== oc) { const f2 = front ? Uint8Array.from(front) : new Uint8Array(w * h); for (let i = 0; i < f2.length; i++) if (oc[i]) f2[i] = 255; cache.frontOcc = { of: front, occ: oc, f: f2 }; } front = cache.frontOcc.f; }
   }
+  // (Taken off first: where the garment was seen between strands of hair (by its own color, the finder
+  // unsure of hair there), the piece covers it; strands of hair's own color stay in front. Else their bare
+  // skin, made where the garment was, would show through between the strands.)
+  if (front && erasing(S)) {
+    const z = garmentZone(S);
+    if (z) {
+      if (cache.zfront?.of !== front || cache.zfront.z !== z) {
+        const f2 = Uint8Array.from(front); const b = z.box;
+        for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) { const i = y * w + x; if (z.seen[i] && ppl.face[i] < 128) f2[i] = 0; }
+        cache.zfront = { of: front, z, f: f2 };
+      }
+      front = cache.zfront.f;
+    }
+  }
   const gains = lightGains(piece.rgba, piece.people?.face ?? null, base.rgba, ppl?.face ?? null);
   const done = finishLayer(layer, w, { gains, light: tune.light / 100, form: cache.form, fbox, formAmt: trace ? tune.form / 100 : tune.form / 100, front, soft: trace ? 0 : tune.soft, depth: tune.depth ? Math.max(2, Math.round((base.layout?.fh ?? h / 7) / 14)) : 0, round: trace ? tune.form / 300 : tune.form / 100 });
   // (Its edge as the old garment's was, pixel by pixel: no halo of the old color, no blur.)
   let L2 = done;
-  if (trace && S.target && ppl && !S.target.body) { const m = replaceEdge(layer, S, front); if (m) { L2 = m; Object.assign(layer, m); } }
+  if (trace && S.target && ppl && !S.target.body && !erasing(S)) { const m = replaceEdge(layer, S, front); if (m) { L2 = m; Object.assign(layer, m); } }
   // (As sharp and as grainy as the photo it's in: a crisp piece in a soft photo looks pasted on.)
   if (trace && S.target && ppl) matchGrain(layer, base, clothesOf(S));
   // (An upper body's hem over what's below it: a soft shadow under it, cloth over cloth, not a cut.)

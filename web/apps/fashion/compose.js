@@ -445,9 +445,11 @@ export function buildLayer(S) {
     if (isZone(kind) && kind !== 'lower' && base.layout && piece.layout && base.people && piece.people) {
       const z = zoneLayer(still); if (z) return transformLayer(z, tune, w, h);
     }
-    const open = target.box.y1 >= h - 2 || piece.box.y1 >= piece.h - 2;
+    const hm = toHem(piece, S.kind);
+    const open = target.box.y1 >= h - 2 || (hm?.box ?? piece.box).y1 >= piece.h - 2;
     const under = underHair(S);
-    const layer = traceTransfer(piece.draw ?? piece.rgba, piece.solid ?? piece.sel, piece.w, piece.h, piece.box, under, w, h, { s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers: frontCenters(S) });
+    const centers = frontCenters(S);
+    const layer = traceTransfer(piece.draw ?? piece.rgba, hm?.mask ?? piece.solid ?? piece.sel, piece.w, piece.h, hm?.box ?? piece.box, under, w, h, { rigid: centers ? rigidOf(S) : null, s: place.s, open, adj: still.tune, skin: pieceSkin(piece), rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers });
     neckline(layer, base, w);
     softEdge(layer, under, w, h);
     return transformLayer(layer, tune, w, h);
@@ -486,6 +488,64 @@ export function buildLayer(S) {
   } else layers = [R(piece.alpha, piece.box, place, fitting ? regionOf(target) : null)];
   const layer = mergeLayers(layers);
   return layer && transformLayer(layer, tune, w, h);
+}
+
+/**
+ * A top or a dress picked with something of another color caught below its hem (a strip of the pants under a
+ * shirt): cut at its real hem, the last row with a fair share of its own cloth's color (its median, in
+ * Lab), so the rows below it aren't laid in as the shirt. { mask, box } over the piece, or null when nothing
+ * is cut. Kept on the piece.
+ */
+function toHem(piece, kind) {
+  if (!['top', 'dress'].includes(kind)) return null;
+  const m = piece.solid ?? piece.sel; const b = piece.box; if (!m || !b) return null;
+  if (piece.hemOf === m) return piece.hem;
+  piece.hemOf = m; piece.hem = null;
+  const { w } = piece; const tex = piece.draw ?? piece.rgba;
+  const lab = (i) => rgbToLab(tex[i * 4], tex[i * 4 + 1], tex[i * 4 + 2]);
+  // (Its cloth's color: the median of its upper two thirds.)
+  const L = []; const A = []; const B2 = [];
+  for (let y = b.y0; y < b.y0 + (b.y1 - b.y0) * 0.67; y += 3) for (let x = b.x0; x < b.x1; x += 3) { const i = y * w + x; if (!m[i]) continue; const q = lab(i); L.push(q[0]); A.push(q[1]); B2.push(q[2]); }
+  if (L.length < 50) return null;
+  const med = (v) => { v.sort((p, q) => p - q); return v[v.length >> 1]; };
+  const c = [med(L), med(A), med(B2)];
+  const rowsCloth = []; const rowsAll = [];
+  for (let y = b.y0; y < b.y1; y++) {
+    let n = 0; let k = 0;
+    for (let x = b.x0; x < b.x1; x += 2) { const i = y * w + x; if (!m[i]) continue; n++; const q = lab(i); if (Math.hypot((q[0] - c[0]) * 0.5, q[1] - c[1], q[2] - c[2]) < 22) k++; }
+    rowsAll.push(n); rowsCloth.push(k);
+  }
+  const usual = [...rowsCloth].sort((p, q) => p - q)[Math.floor(rowsCloth.length * 0.6)] || 1;
+  let hem = b.y1;
+  for (let y = b.y1 - 1; y > b.y0 + (b.y1 - b.y0) * 0.4; y--) { if (rowsCloth[y - b.y0] >= usual * 0.3) { hem = y + 1; break; } }
+  if (hem >= b.y1 - 2) return null;
+  const out = Uint8Array.from(m); for (let y = hem; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) out[y * w + x] = 0;
+  const box = boxOf(out, w, piece.h); if (!box) return null;
+  piece.hem = { mask: out, box };
+  return piece.hem;
+}
+
+/**
+ * Whether a top's piece is laid in at one scale rather than stretched row by row to what's seen of the
+ * garment worn there: when most of that is hidden (long hair over it: what's seen is far narrower than the
+ * shoulders) or a sleeved piece goes onto a sleeveless top (each row from sleeve to sleeve would be squeezed
+ * into it). By both people's poses: { s } (the shoulders' ratio), or null.
+ */
+function rigidOf(S) {
+  const { base, piece, target } = S;
+  if (!['top', 'dress'].includes(S.kind) || !piece.pose || !base.pose || !piece.box) return null;
+  const seen = (v) => v && v[2] >= 0.3;
+  const ps = piece.pose.shoulders; const bs = base.pose.shoulders;
+  if (!seen(ps?.[0]) || !seen(ps?.[1]) || !seen(bs?.[0]) || !seen(bs?.[1])) return null;
+  const pm = piece.solid ?? piece.sel; if (!pm) return null;
+  // (Each one's usual width over the middle of its height, against its shoulders' span.)
+  const width = (m, W, b) => { const v = []; for (let y = Math.round(b.y0 + (b.y1 - b.y0) * 0.3); y < b.y0 + (b.y1 - b.y0) * 0.7; y++) { let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (m[y * W + x]) { if (l < 0) l = x; r = x; } if (l >= 0) v.push(r - l + 1); } v.sort((a, c) => a - c); return v.length ? v[v.length >> 1] : 0; };
+  const bd = Math.hypot(bs[1][0] - bs[0][0], bs[1][1] - bs[0][1]); const pd = Math.hypot(ps[1][0] - ps[0][0], ps[1][1] - ps[0][1]);
+  if (bd < 4 || pd < 4) return null;
+  const tw = width(target.mask, base.w, target.box);
+  const hidden = tw < bd * 0.75;
+  const sleevedOnBare = tw <= bd * 1.3 && width(pm, piece.w, piece.box) >= pd * 1.3;
+  return hidden || sleevedOnBare ? { s: bd / pd } : null;
 }
 
 /** The layer moved, sized, stretched and turned by hand (about its middle). */

@@ -53,3 +53,25 @@ test('Replace a black top under dark hair: its side past the hair takes the piec
   // Their skin and face: untouched.
   assert.deepEqual(px(48, 150), SKIN); assert.deepEqual(px(100, 50), SKIN);
 });
+
+test('a piece laid in at one scale (rigid) keeps its proportions in a narrow outline; past its hem its bottom rows are mirrored on, not one row repeated', async () => {
+  const { traceTransfer, rowSpans } = await import('../web/tools/fashion/fashion-core.js');
+  // The piece: 100 × 100, columns striped every 10 px (dark, light), and its rows shaded top to bottom.
+  const pw = 100; const ph = 100; const tex = new Uint8ClampedArray(pw * ph * 4); const pm = new Uint8Array(pw * ph).fill(1);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const i = (y * pw + x) * 4; const v = Math.floor(x / 10) % 2 ? 220 : 40; tex[i] = v; tex[i + 1] = v; tex[i + 2] = 100 + y; tex[i + 3] = 255; }
+  const pb = { x0: 0, y0: 0, x1: pw, y1: ph };
+  // The outline: only 20 px wide (the rest hidden), 160 tall, in a 200 × 200 picture.
+  const w = 200; const h = 200; const mask = new Uint8Array(w * h); const box = { x0: 90, y0: 20, x1: 110, y1: 180 };
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) mask[y * w + x] = 1;
+  const target = { mask, box, spans: rowSpans(mask, w, box, 4) };
+  const centers = { t: () => 100, p: () => 50 };
+  const L = traceTransfer(tex, pm, pw, ph, pb, target, w, h, { centers, rigid: { s: 1 }, prints: false, rows: null, open: true, s: 1 });
+  const at = (x, y) => L.rgba[((y - L.y0) * L.pw + x - L.x0) * 4];
+  // At one scale: the stripes keep their 10 px width (stretched to the outline, 100 px would be squeezed into 20).
+  let changes = 0; for (let x = 91; x < 109; x++) if (Math.abs(at(x, 60) - at(x - 1, 60)) > 100) changes++;
+  assert.ok(changes <= 2, `stripes kept their width: ${changes} edges in 18 px`);
+  // Rows: the outline is taller than the piece; its last rows aren't all the piece's last row.
+  const blue = (y) => L.rgba[((y - L.y0) * L.pw + 100 - L.x0) * 4 + 2];
+  const last = new Set(); for (let y = 170; y < 180; y++) last.add(blue(y));
+  assert.ok(last.size > 3 && blue(179) < 199, `not one row repeated at the bottom: ${[...last]}`);
+});

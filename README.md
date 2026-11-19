@@ -913,7 +913,12 @@ the clothes in it: worn by someone, or on its own).
   most of the old top is hidden (long hair over it) or a shirt with sleeves goes onto a sleeveless top, so
   its buttons and pockets keep their shape; where the old top is longer than the piece, its bottom rows are
   mirrored on (never one row repeated); and a piece is only carried on past its photo's bottom edge when its
-  cloth really runs off there, and never more than half as long again. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  cloth really runs off there, and never more than half as long again.
+  In a body zone (Upper body) with sleeves onto bare arms, the torso is laid in the same way (only the
+  piece's cloth, cut at its hem, at one scale); the zone is carried down past its waist line to where the
+  garment worn there really ends (rows of its own color joined to the row above, along the row through its
+  color, until the stripes of the pants stop it); and each sleeve is bent along both people's arms
+  (shoulder, elbow, wrist), as long and as wide as it is on the piece, turned with the arm. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

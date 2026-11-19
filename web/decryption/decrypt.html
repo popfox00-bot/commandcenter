@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Open encrypted Saved Files</title>
 <!--
   Command Center Saved Files: open encrypted "ccv." files without the app. This one file is all it
@@ -15,11 +15,13 @@
   @media (prefers-color-scheme: dark) { :root { --bg: #0f1115; --card: #181b21; --text: #e8eaee; --muted: #9aa3b2; --border: #2a2f38; --primary: #3b82f6; --bad: #f87171; --ok: #4ade80; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 14px; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  input, select, textarea { max-width: 100%; box-sizing: border-box; }
+  .card, label { grid-template-columns: minmax(0, 1fr); }
   h1 { font-size: 1.3rem; margin: 0; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: grid; gap: 10px; }
   label { display: grid; gap: 6px; font-weight: 600; font-size: .95rem; }
-  input { font: inherit; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  input { font: inherit; font-size: 16px; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   button { font: inherit; font-weight: 600; min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: var(--primary); color: #fff; cursor: pointer; }
   .muted { color: var(--muted); font-size: .9rem; }
   .bad { color: var(--bad); } .ok { color: var(--ok); }

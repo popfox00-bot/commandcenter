@@ -212,3 +212,29 @@ test('Files app: old converter link redirects, and Edit sends a converted image 
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('on a phone, nothing zooms in when tapped: every text box and picker at 16px at least, in every app and page; none wider than the screen', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await context.addInitScript(() => { try { sessionStorage.setItem('cc.hidden.open', '1'); } catch { /* private mode */ } });
+  const { page } = await openApp(context);
+  const where = ['', '#/files', '#/notes', '#/draw', '#/units', '#/rap', '#/updates', '#/calendar', '#/packages', '#/settings', '#/hidden', '#/downloads', '#/fm', '#/refill', '#/fashion', '#/saved',
+    '#/files/photo', '#/files/collage', '#/files/cutout', '#/files/convert', '#/files/pdf', '#/files/scan', '#/files/qr'].map((h) => `${BASE_PATH}${h}`)
+    .concat(['apps/inkling/index.html', 'apps/tradedesk/index.html', 'apps/laundrytimer/index.html', 'apps/worldatlas/index.html', 'decryption/decrypt.html'].map((p) => `${BASE_PATH}${p}`));
+  for (const url of where) {
+    await page.goto(`${origin}${url}`);
+    await page.waitForTimeout(400);
+    const got = await page.evaluate(() => {
+      document.querySelectorAll('details').forEach((d) => { d.open = true; });
+      const boxes = [...document.querySelectorAll('input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):not([type=hidden]), select, textarea')];
+      return {
+        viewport: document.querySelector('meta[name=viewport]')?.content ?? '',
+        small: boxes.filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16).map((e) => e.className || e.getAttribute('aria-label') || e.tagName),
+        width: document.documentElement.scrollWidth,
+      };
+    });
+    assert.match(got.viewport, /maximum-scale=1/, `${url}: the page can't be zoomed in by itself`);
+    assert.deepEqual(got.small, [], `${url}: text boxes under 16px`);
+    assert.ok(got.width <= 390, `${url}: ${got.width}px wide`);
+  }
+  await context.close();
+});

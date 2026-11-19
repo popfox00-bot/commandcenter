@@ -17,6 +17,7 @@ brings them back); **Jobs** is opened from Settings. **Recent edits** (unfinishe
 to continue) are shown in the apps they belong to: Files (all of its own), the Photo Editor (its other
 parts': a collage in progress, seen from Edit), and Magic (FM, Reverse Fill, Fashion).
 
+- **No zooming in on a phone**: every text box and picker is 16px at least, app-wide (`styles.css`, each imported page's `cc-frame.css`), and each page's viewport has `maximum-scale=1`, so iPhone Safari never zooms in when one is tapped; `test/browser/converter.e2e.js` checks every app and page.
 - **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
   Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
   one with no connection. Only what's online by nature needs one: Weather, Sports, Saved

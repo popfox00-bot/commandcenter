@@ -945,7 +945,10 @@ the clothes in it: worn by someone, or on its own).
   Each sleeve is laid on whole: straightened from the piece's arm into a strip (its folds and texture as they
   are, its gaps filled from the cloth beside them, as long as it is), then wrapped onto the person's arm across
   that arm's own width at each step, under any hair beside it. An open collar shows their neck, shaded as the
-  shadow under the chin and blended into the skin around it. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  shadow under the chin. Skin made where the garment was meets their real skin seamlessly: the difference
+  between the skin it borders (the jaw's shaded underside counts) and the made-up skin is spread smoothly into
+  it (a membrane), all of it at the border and fading out a third of a face's height in; unsure pixels between
+  (a thin line of hair, shadow) don't stop it. A high dark collar rising beside the jaw is taken off too. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

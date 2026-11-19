@@ -888,11 +888,23 @@ export function mount(host) {
    * running on). The piece as it is when it isn't cut off or needs no more.
    */
   let ext = null;
+  /** Whether a mask's bottom rows (in `b`) are as wide as 40% of its usual row. */
+  function cutAcross(m, w, b) {
+    if (!m) return false;
+    const rowW = (y) => { let n = 0; for (let x = b.x0; x < b.x1; x++) if (m[y * w + x]) n++; return n; };
+    const ws = []; for (let y = b.y0; y < b.y1; y += Math.max(1, Math.round((b.y1 - b.y0) / 40))) ws.push(rowW(y));
+    ws.sort((a2, c) => a2 - c); const usual = ws[ws.length >> 1] || 1;
+    let bot = 0; for (let y = b.y1 - 3; y < b.y1; y++) bot += rowW(y);
+    return bot / 3 >= usual * 0.4;
+  }
   function extended() {
     if (!piece?.alpha || !place || !base) return piece;
-    const cut = piece.box.y1 >= piece.h - 2;
     const goal = target ? (target.box.y1 >= base.h - 2 ? base.h : target.box.y1) : null;
-    const need = cut && goal ? Math.ceil(((goal - place.y0) / place.s - (piece.box.y1 - piece.box.y0)) * 1.04) : 0;
+    // (Cut off only where its cloth meets the photo's bottom across a good part of its width: a sliver of
+    // something else caught with it there (the pants below a shirt) isn't the shirt running on.)
+    const cut = piece.box.y1 >= piece.h - 2 && cutAcross(piece.solid ?? piece.sel, piece.w, piece.box);
+    // (And never more than half as long again: past that, its bottom rows mirrored over and over are stripes.)
+    const need = cut && goal ? Math.min(Math.round((piece.box.y1 - piece.box.y0) * 0.5), Math.ceil(((goal - place.y0) / place.s - (piece.box.y1 - piece.box.y0)) * 1.04)) : 0;
     if (need < 3) return piece;
     const key = `${need}`;
     if (ext?.src === piece && ext.key === key && ext.alpha0 === piece.alpha) return ext.piece;
@@ -1158,7 +1170,7 @@ export function mount(host) {
           const rx = Math.round(rest.x0 * k); const ry = Math.round(rest.y0 * k);
           const cw = Math.min(rw, W - rx); const ch = Math.min(rh, H - ry); const wgt = new Float32Array(cw * ch);
           for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) wgt[y * cw + x] = big[y * rw + x] / 255;
-          recolor(out, W, { x0: rx, y0: ry, pw: cw, ph: ch, wgt, gain: rest.gain }, B.rgba);
+          recolor(out, W, { x0: rx, y0: ry, pw: cw, ph: ch, wgt, gain: rest.gain, mono: rest.mono }, B.rgba);
         }
         // (The straps, taken off or drawn at the working size: brought up.)
         const sp = mode === 'replace' ? fillCache?.straps : null;

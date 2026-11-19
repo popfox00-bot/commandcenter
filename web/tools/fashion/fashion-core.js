@@ -968,7 +968,7 @@ export function garmentPlace(kind, pm, pw, pb, pL, tm, tw, tb, tL, mode = 'repla
  * the outline's (`skin`: 1 where it isn't cloth seen in the piece's photo: its skin, a gap, what was rebuilt;
  * `bare`: 1 where it's the piece's bare skin itself).
  */
-export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null, prints = true, centers = null } = {}) {
+export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open = false, adj = null, skin = null, rebuilt = null, rows = null, prints = true, centers = null, rigid = null } = {}) {
   const T = target.box; const tw = T.x1 - T.x0; const th = T.y1 - T.y0;
   const pbh = pb.y1 - pb.y0; const pbw = pb.x1 - pb.x0;
   const pspans = rowSpans(pm, pw, pb, Math.max(4, Math.round(pbh / 16)));
@@ -1075,10 +1075,14 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
   const anchors = rows && rows.length >= 2 && !open ? [[T.y0, pb.y0], ...rows.filter(([ty, py]) => ty > T.y0 + 2 && ty < T.y1 - 2 && py > pb.y0 + 2 && py < pb.y1 - 2), [T.y1, pb.y1]].sort((a, b) => a[0] - b[0]) : null;
   if (anchors) for (let i = 1; i < anchors.length; i++) if (anchors[i][1] <= anchors[i - 1][1]) { anchors.length = 0; break; }
   const viaAnchors = (y) => { for (let i = 1; i < anchors.length; i++) if (y <= anchors[i][0] || i === anchors.length - 1) { const [a0, b0] = anchors[i - 1]; const [a1, b1] = anchors[i]; return b0 + ((y - a0) * (b1 - b0)) / Math.max(1, a1 - a0); } return pb.y1; };
+  // (Past its bottom (the outline longer than the piece, a shirt that ended at the waist onto a long top):
+  // its bottom quarter mirrored back and forth, cloth running on, not its last row repeated as a streak.)
+  const band = Math.max(2, Math.round(pbh * 0.25));
+  const fold = (r) => { if (r <= pbh - 1) return Math.max(0, r); const t = (r - (pbh - 1)) % (2 * band); return pbh - 1 - (t < band ? t : 2 * band - t); };
   const rowAt = (y) => {
     const v = (y - T.y0 - A.dy) / zy;
-    if (anchors?.length) return Math.max(0, Math.min(pbh - 1, viaAnchors(T.y0 + v) - pb.y0 - 0.5));
-    return Math.max(0, Math.min(pbh - 1, (open ? v / s : (v / th) * pbh) - 0.5));
+    if (anchors?.length) return fold(viaAnchors(T.y0 + v) - pb.y0 - 0.5);
+    return fold((open ? v / s : (v / th) * pbh) - 0.5);
   };
   const rowOf = (y) => nearRow(Math.round(rowAt(y)));
   const rgba = new Uint8ClampedArray(tw * th * 4); const skinOut = skin ? new Uint8Array(tw * th) : null; const bareOut = skin ? new Uint8Array(tw * th) : null; const neckOut = skin ? new Uint8Array(tw * th) : null;
@@ -1111,13 +1115,27 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
     let ax0 = Math.max(T.x0, Math.floor(tl)); let ax1 = Math.min(T.x1, Math.ceil(tr));
     for (let x = T.x0; x < ax0; x++) if (target.mask[y * w + x]) { ax0 = x; break; }
     for (let x = T.x1 - 1; x >= ax1; x--) if (target.mask[y * w + x]) { ax1 = x + 1; break; }
+    // (`rigid`: { s } with `centers`: the piece laid across at one scale (the two bodies' shoulders' ratio)
+    // from the body's middle, the outline only clipping it: cloth isn't stretched to the width seen of what
+    // was worn there (hair over most of it, a sleeveless top for a shirt), so its buttons and pockets keep
+    // their shape.)
+    const rx = rigid && centers ? (r, x2) => centers.p(pb.y0 + r) + (x2 + 0.5 - centers.t(y) - A.dx) / (rigid.s * zx) : null;
+    const sampleAt = (r, X, c) => {
+      const l = pspans[r * 2]; const rr = pspans[r * 2 + 1];
+      const f = Math.max(l, Math.min(rr - 1, X - 0.5)) - pb.x0;
+      const xa = Math.max(0, Math.min(pbw - 1, Math.floor(f))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, f - xa));
+      return fill[(r * pbw + xa) * 3 + c] * (1 - t) + fill[(r * pbw + xb) * 3 + c] * t;
+    };
     for (let x = ax0; x < ax1; x++) {
       if (!target.mask[y * w + x]) continue;
       const u = 0.5 + (across(x + 0.5) - 0.5 - A.dx / tw) / zx;
-      const fx = Math.max(pl, Math.min(pr - 1, pieceX(ry, u) - 0.5)) - pb.x0;
+      const fx = Math.max(pl, Math.min(pr - 1, (rx ? rx(ry, x) : pieceX(ry, u)) - 0.5)) - pb.x0;
       const xa = Math.max(0, Math.min(pbw - 1, Math.floor(fx)));
       const o = (ky * tw + x - T.x0) * 4; const k = ry * pbw;
-      if (tv > 0) for (let c = 0; c < 3; c++) rgba[o + c] = sample(ra, u, c) * (1 - tv) + sample(rb, u, c) * tv;
+      if (rx) {
+        if (tv > 0) for (let c = 0; c < 3; c++) rgba[o + c] = sampleAt(ra, rx(ra, x), c) * (1 - tv) + sampleAt(rb, rx(rb, x), c) * tv;
+        else for (let c = 0; c < 3; c++) rgba[o + c] = sampleAt(ry, rx(ry, x), c);
+      } else if (tv > 0) for (let c = 0; c < 3; c++) rgba[o + c] = sample(ra, u, c) * (1 - tv) + sample(rb, u, c) * tv;
       else for (let c = 0; c < 3; c++) rgba[o + c] = sample(ry, u, c);
       rgba[o + 3] = 255;
       if (srcX) { srcX[ky * tw + x - T.x0] = fx; srcY[ky * tw + x - T.x0] = fr; }

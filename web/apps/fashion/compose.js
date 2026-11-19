@@ -343,7 +343,11 @@ function zoneLayer(S) {
   // (Both bare-armed: only the base's bare arms are theirs to keep; anything else of the zone is torso.)
   const tArms = !differs && bp.byPose ? (() => { const o = new Uint8Array(w * h); for (const k of ['left', 'right']) if (bp[k] && bare(bp[k])) for (let i = 0; i < o.length; i++) if (bp[k].mask[i]) o[i] = 1; return o; })() : bp.arms;
   const tT = bp.byPose ? cut(minus(tAll, tArms), w, h, -1, w + 1) : cut(tAll, w, h, bp.t0, bp.t1);
-  const pT = pp.byPose ? cut(minus(pAll, pp.arms), piece.w, piece.h, -1, piece.w + 1) : cut(pAll, piece.w, piece.h, pp.t0, pp.t1);
+  // (The piece's arms by its pose, when both people's are known: whatever of its selection lies along each
+  // arm, outside the torso. Its torso is the rest: nothing of a sleeve laid onto the base's shoulder.)
+  const pArms = pieceArms(S);
+  const pArmAll = pArms && (() => { const o = new Uint8Array(piece.w * piece.h); for (const a of pArms) if (a) for (let i = 0; i < o.length; i++) if (a[i]) o[i] = 1; return o; })();
+  const pT = pArmAll ? cut(minus(pAll, pArmAll), piece.w, piece.h, -1, piece.w + 1) : pp.byPose ? cut(minus(pAll, pp.arms), piece.w, piece.h, -1, piece.w + 1) : cut(pAll, piece.w, piece.h, pp.t0, pp.t1);
   if (tT && pT) {
     // (Only the piece's cloth (not their hair or skin over it, a hand at their neck), cut at its real hem; and
     // the base's zone carried down to where what they wear there really ends.)
@@ -364,7 +368,19 @@ function zoneLayer(S) {
   }
   // The arms.
   const tone = skinTone(base);
+  // (By both people's poses: each arm of the piece that has its cloth on it (a sleeve), bent onto the base's
+  // arm on that side, bone to bone, whether or not the person finder told that arm apart.)
+  const done2 = [false, false];
+  if (pArms) for (const k of [0, 1]) {
+    const a = pArms[k]; if (!a) continue;
+    const pc = new Uint8Array(piece.w * piece.h); let n = 0;
+    for (let i = 0; i < pc.length; i++) if (a[i] && (piece.people.clothes[i] >= 100 || piece.rebuilt?.[i])) { pc[i] = 1; n++; }
+    const pb = n > 40 ? boxOf(pc, piece.w, piece.h) : null; if (!pb) continue;
+    const bent = sleeveAlongArm(S, k, pc, pb);
+    if (bent) { layers.push(bent); done2[k] = true; }
+  }
   for (const side of ['left', 'right']) {
+    if (done2[side === 'left' ? 0 : 1]) continue;
     const b = bp[side]; const p = pp[side]; if (!b || !p) continue;
     const pCl = cut(p.mask, piece.w, piece.h, -1, piece.w + 1);
     if (p.covered) {
@@ -390,6 +406,48 @@ function zoneLayer(S) {
   return mergeLayers([...layers.slice(1), layers[0]]);
 }
 
+
+/**
+ * The piece's two arms by its pose (picture left, right): each the pixels of its selection along that arm
+ * (within a third of the shoulders' span of its shoulder → elbow → wrist, and a little past the wrist) that
+ * aren't inside its torso (between its shoulders and hips). [mask | null, mask | null], or null without both
+ * people's poses. Kept on the piece.
+ */
+export function pieceArms(S) {
+  const { piece, base } = S; const q = piece.pose; const seen = (v) => v && v[2] >= 0.3;
+  if (!q || !base.pose || !seen(q.shoulders?.[0]) || !seen(q.shoulders?.[1])) return null;
+  const pm = piece.solid ?? piece.sel; if (!pm) return null;
+  if (piece.armsOf?.m === pm && piece.armsOf.q === q) return piece.armsOf.v;
+  const W = piece.w; const H = piece.h; const b = piece.box;
+  const sw = Math.hypot(q.shoulders[1][0] - q.shoulders[0][0], q.shoulders[1][1] - q.shoulders[0][1]);
+  const reach = sw * 0.34;
+  const hips = seen(q.hips?.[0]) && seen(q.hips?.[1]) ? q.hips : [[q.shoulders[0][0], q.shoulders[0][1] + sw * 1.6], [q.shoulders[1][0], q.shoulders[1][1] + sw * 1.6]];
+  // (Inside the torso: the quadrilateral shoulder, shoulder, hip, hip, its sides pulled in a little.)
+  const quad = [q.shoulders[0], q.shoulders[1], hips[1], hips[0]].map((v) => [v[0], v[1]]);
+  const cx = quad.reduce((a, v) => a + v[0], 0) / 4; const cy = quad.reduce((a, v) => a + v[1], 0) / 4;
+  const shrunk = quad.map(([x, y]) => [cx + (x - cx) * 0.92, cy + (y - cy) * 0.98]);
+  const inside = (x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = shrunk[i]; const [xj, yj] = shrunk[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+  const segD = (x, y, a, c) => { const dx = c[0] - a[0]; const dy = c[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+  const v = [0, 1].map((k) => {
+    if (!seen(q.elbows?.[k])) return null;
+    const s0 = q.shoulders[k]; const e = q.elbows[k];
+    const wr = seen(q.wrists?.[k]) ? q.wrists[k] : [e[0] + (e[0] - s0[0]) * 0.9, e[1] + (e[1] - s0[1]) * 0.9];
+    const past = [wr[0] + (wr[0] - e[0]) * 0.25, wr[1] + (wr[1] - e[1]) * 0.25];
+    const m = new Uint8Array(W * H); let n = 0;
+    for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) {
+      const i = y * W + x; if (!pm[i] || inside(x, y)) continue;
+      const d = Math.min(segD(x, y, s0, e), segD(x, y, e, wr), segD(x, y, wr, past));
+      // (Nearer this arm than the other.)
+      const ok = d < reach; if (!ok) continue;
+      m[i] = 1; n++;
+    }
+    return n > 40 ? m : null;
+  });
+  // (A pixel both arms reach goes to the nearer.)
+  if (v[0] && v[1]) for (let i = 0; i < W * H; i++) if (v[0][i] && v[1][i]) { const x = i % W; const y = (i / W) | 0; const d = (k) => Math.min(segD(x, y, q.shoulders[k], q.elbows[k]), seen(q.wrists?.[k]) ? segD(x, y, q.elbows[k], q.wrists[k]) : 1e9); if (d(0) <= d(1)) v[1][i] = 0; else v[0][i] = 0; }
+  piece.armsOf = { m: pm, q, v };
+  return v;
+}
 
 /** The shoulders' ratio of the two people (base over piece), for a zone laid in at one scale, or null. */
 function rigidZone(S) {
@@ -497,7 +555,11 @@ function sleeveAlongArm(S, k, pc, pb) {
   let uMax = 0; let dMax = 0; let n = 0;
   for (let y = pb.y0; y < pb.y1; y += 2) for (let x = pb.x0; x < pb.x1; x += 2) { if (!pc[y * piece.w + x]) continue; const f = PF.at(x, y); if (!f) continue; n++; if (f.u > uMax) uMax = f.u; if (Math.abs(f.d) > dMax) dMax = Math.abs(f.d); }
   if (n < 30) return null;
-  uMax = Math.min(2.2, uMax); const sc = rz.s; const reach = dMax * sc * 1.05 + 2;
+  uMax = Math.min(2.2, uMax); const sc = rz.s;
+  // (No wider than a sleeve on that arm can be: about an arm's half-width (from the shoulders' span) and a
+  // quarter more for loose cloth, on the person, never over what's in front of them (a glass).)
+  const bsh = base.pose.shoulders; const armHalf = Math.hypot(bsh[1][0] - bsh[0][0], bsh[1][1] - bsh[0][1]) * 0.15;
+  const reach = Math.min(dMax * sc * 1.05 + 2, armHalf * 1.25);
   // The base's arm region: a box around its bones, as far out as the sleeve is wide.
   const xs = bB.map((q) => q[0]); const ys = bB.map((q) => q[1]);
   const x0 = Math.max(0, Math.floor(Math.min(...xs) - reach)); const x1 = Math.min(w, Math.ceil(Math.max(...xs) + reach));
@@ -510,7 +572,9 @@ function sleeveAlongArm(S, k, pc, pb) {
   const flip = side(pB, piece.pose) * side(bB, base.pose) * Math.sign((pB[1][1] - pB[0][1]) || 1) * Math.sign((bB[1][1] - bB[0][1]) || 1) < 0 ? -1 : 1;
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
     const i = y * w + x; if (base.people.face[i] >= 128) continue;
-    const f = BF.at(x + 0.5, y + 0.5); if (!f || f.u < -0.25 || f.u > uMax) continue;
+    const f = BF.at(x + 0.5, y + 0.5); if (!f || f.u < 0 || f.u > uMax || Math.abs(f.d) > reach) continue;
+    const onThem = Math.max(base.people.body[i], base.people.clothes[i]) >= 100;
+    if (!onThem && Math.abs(f.d) > armHalf * 0.9) continue;
     const [sx, sy] = PF.point(Math.max(0, f.u), (f.d / sc) * flip);
     const X = Math.round(sx); const Y = Math.round(sy);
     if (X < pb.x0 || Y < pb.y0 || X >= pb.x1 || Y >= pb.y1 || !pc[Y * piece.w + X]) continue;
@@ -730,9 +794,11 @@ export function garmentZone(S) {
   // Down to where it really ends (a long top on someone sitting: past the waist line).
   const ext = byHand ? { mask: target.mask, box: tb } : downToHem(S, { mask: target.mask, box: tb });
   const Z = kindZone(kind === 'dress' ? 'dress' : 'upper', L, w, h);
-  const y0 = Math.max(0, Math.min(Z.y0, tb.y0)); const y1 = Math.min(h, Math.max(ext.box.y1, kind === 'upper' ? tb.y1 : tb.y1));
+  const y0 = Math.max(0, Math.min(Z.y0, tb.y0, kind === 'upper' ? Math.floor(L.chin - L.fh * 0.15) : h)); const y1 = Math.min(h, Math.max(ext.box.y1, kind === 'upper' ? tb.y1 : tb.y1));
   const x0 = Math.min(Z.x0, tb.x0); const x1 = Math.max(Z.x1, tb.x1);
   const A = base.allPeople && base.allPeople !== p ? base.allPeople : null;
+  const Fc = L.face ? (L.face.x0 + L.face.x1) / 2 : (tb.x0 + tb.x1) / 2;
+  const neck = (x, y) => y >= L.chin - L.fh * 0.15 && y < L.chin + L.fh * 0.7 && Math.abs(x - Fc) < L.fw * 0.6;
   const m = new Uint8Array(w * h); const seen = new Uint8Array(w * h);
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
     const i = y * w + x;
@@ -740,6 +806,9 @@ export function garmentZone(S) {
     // (Someone else's, not theirs.)
     if (A && Math.max(A.body[i], A.clothes[i]) >= 128 && Math.max(p.body[i], p.clothes[i], p.hair[i]) < 60) continue;
     if (ext.mask[i] && (p.clothes[i] >= 100 || kind !== 'upper')) { m[i] = 1; continue; }
+    // (An upper body: a dark garment's collar in the shadow under the chin, near black and colorless, which the
+    // finder takes for hair (their hair is lighter than that, and has a color). A top found by itself has it.)
+    if (dark && kind === 'upper' && p.hair[i] >= 40 && neck(x, y)) { const q0 = lab(i); if (q0[0] < 8 && Math.hypot(q0[1], q0[2]) < 6) { m[i] = 1; seen[i] = 1; continue; } }
     if (p.hair[i] >= 200) continue;
     const q = lab(i);
     if (p.hair[i] >= 40) { if (like(q) && !skinish(q)) { m[i] = 1; seen[i] = 1; } continue; }

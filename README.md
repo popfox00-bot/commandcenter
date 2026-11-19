@@ -927,7 +927,12 @@ the clothes in it: worn by someone, or on its own).
   texture, lit as their skin is around it, a little darker toward the body's sides), and the piece is laid
   onto that: its own color and texture kept (no folds or color taken from what was worn there), only the
   photo's light and the light and shade on their bare skin under it (a sleeve over a lit arm). Under strands
-  of hair the new piece shows, not skin. A waist line moved by hand still ends an upper body there. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  of hair the new piece shows, not skin. A waist line moved by hand still ends an upper body there.
+  An upper body is matched body to body by both people's poses: each arm of the piece is whatever of its
+  selection lies along that arm (shoulder → elbow → wrist) outside its torso (between its shoulders and
+  hips), bent onto the same arm of the person (as wide as that arm, a little more for loose cloth, never over
+  what's in front of them), whether or not the person finder told that arm apart; the piece's torso is the
+  rest. A row of the piece too short where the person is wider takes the nearest row that reaches. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

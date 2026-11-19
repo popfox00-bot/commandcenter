@@ -103,3 +103,22 @@ test('taken off first: the whole garment in the zone is found (its side past a l
     assert.ok(Math.abs(r - SKIN[0]) < 40 && Math.abs(g - SKIN[1]) < 40 && Math.abs(b - SKIN[2]) < 40, `skin at ${x},${y}: ${[r, g, b]}`);
   }
 });
+
+test('an upper body matched body to body: each arm of the piece (raised or hanging) is what of its selection lies along that arm, outside its torso', async () => {
+  const { pieceArms } = await import('../web/apps/fashion/compose.js');
+  // A piece 200 × 300: its torso x 70..130, y 80..220; its left arm raised (shoulder 70,85 → elbow 30,40 →
+  // wrist 60,10), its right arm hanging (shoulder 130,85 → elbow 150,160 → wrist 155,230).
+  const W = 200; const H = 300; const sel = new Uint8Array(W * H);
+  const band = (a, b, r) => { for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const dx = b[0] - a[0]; const dy = b[1] - a[1]; const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy))); if (Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy) < r) sel[y * W + x] = 1; } };
+  for (let y = 80; y < 220; y++) for (let x = 70; x < 130; x++) sel[y * W + x] = 1;
+  band([70, 85], [30, 40], 9); band([30, 40], [60, 10], 8); band([130, 85], [150, 160], 9); band([150, 160], [155, 230], 8);
+  const pose = { shoulders: [[70, 85, 1], [130, 85, 1]], elbows: [[30, 40, 1], [150, 160, 1]], wrists: [[60, 10, 1], [155, 230, 1]], hips: [[75, 215, 1], [125, 215, 1]] };
+  const piece = { w: W, h: H, sel, solid: sel, box: { x0: 0, y0: 0, x1: W, y1: H }, pose };
+  const arms = pieceArms({ piece, base: { pose } });
+  assert.ok(arms[0] && arms[1], 'both arms found');
+  const on = (k, x, y) => !!arms[k][y * W + x];
+  assert.ok(on(0, 45, 55) && on(0, 50, 22), 'the raised arm, upper and fore');
+  assert.ok(on(1, 142, 125) && on(1, 153, 200), 'the hanging arm, upper and fore');
+  assert.ok(!on(0, 100, 150) && !on(1, 100, 150) && !on(1, 125, 150), 'not the torso');
+  assert.ok(!on(1, 45, 55) && !on(0, 142, 125), 'each arm only its own');
+});

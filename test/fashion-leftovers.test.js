@@ -122,3 +122,30 @@ test('an upper body matched body to body: each arm of the piece (raised or hangi
   assert.ok(!on(0, 100, 150) && !on(1, 100, 150) && !on(1, 125, 150), 'not the torso');
   assert.ok(!on(1, 45, 55) && !on(0, 142, 125), 'each arm only its own');
 });
+
+test('skin made where the garment was meets their real skin it touches with no seam: by the border its color, fading to the made-up skin further in', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  // A neck in shadow (darker than their usual skin) right above the garment zone.
+  const w = 120; const h = 200; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const NECK = [150, 105, 85]; const ARM = [225, 180, 150];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 40 && y < 80 && x >= 45 && x < 75) { people.body[i] = 255; put(NECK); }
+    else if (y >= 80 && y < 190 && x >= 30 && x < 90) { people.clothes[i] = 255; zm[i] = 1; put([20, 20, 24]); }
+    else if (y >= 80 && y < 190 && (x >= 10 && x < 30)) { people.body[i] = 255; put(ARM); }
+  }
+  const z = { mask: zm, box: { x0: 30, y0: 80, x1: 90, y1: 190 } };
+  const S = { base: { w, h, rgba, people, layout: { fw: 30, fh: 60, chin: 40, face: { x0: 45, y0: 0, x1: 75, y1: 40 } } }, target: {}, kind: 'top', mode: 'replace' };
+  const e = eraseGarment(S, z);
+  const at = (x, y) => Array.from(e.rgba.slice(((y - e.y0) * e.pw + x - e.x0) * 4, ((y - e.y0) * e.pw + x - e.x0) * 4 + 3));
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  // Just under the neck: its shaded color, not the usual skin's.
+  assert.ok(dist(at(60, 81), NECK) < 30, `meets the neck: ${at(60, 81)} vs ${NECK}`);
+  // Further in (well past a third of a face's height): the made-up skin (their usual skin, lit).
+  assert.ok(dist(at(60, 170), NECK) > dist(at(60, 81), NECK) + 20, `fades further in: ${at(60, 170)}`);
+  // Smooth: no step down its middle column.
+  let step = 0; for (let y = 82; y < 185; y++) step = Math.max(step, dist(at(60, y), at(60, y - 1)));
+  assert.ok(step < 12, `no seam: largest step ${step.toFixed(1)}`);
+});

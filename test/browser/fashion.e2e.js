@@ -25,6 +25,9 @@ before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined });
+  // (Its apps are in the hidden area: opened here as if it's been unlocked in this tab.)
+  const plain = browser.newContext.bind(browser);
+  browser.newContext = async (o) => { const c = await plain(o); await c.addInitScript(() => { try { sessionStorage.setItem('cc.hidden.open', '1'); } catch { /* private mode */ } }); return c; };
 });
 after(async () => { await browser?.close(); server?.close(); });
 

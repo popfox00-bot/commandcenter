@@ -3,8 +3,9 @@
 // opened from Settings; other apps load on first open. Two apps hold others:
 // - Files: Photo Editor (with Collage and Cutout), Convert, PDF and Scan (documents, and QR codes):
 //   all on this phone, offline.
-// - Magic: Downloads (a video from a link: needs a connection), FM (FaceMask), Reverse Fill, Fashion
-//   and Saved Files (your own Google Drive folder).
+// - Magic (in the hidden area, behind its password): Downloads (a video from a link: needs a connection),
+//   FM (FaceMask), Reverse Fill and Fashion. Saved Files (your own Google Drive folder) is in the hidden
+//   area too, an app of its own.
 // Games is Fox Games, a self-contained page of its own (web/apps/games/fox/). Trade Desk is the LHS
 // fantasy football trade analyzer, likewise a page of its own (web/apps/tradedesk/, copied from the
 // tradedesk repository with a ‹ Home link added and its own service worker left out). WorldAtlas (the
@@ -19,7 +20,7 @@ export const APPS = [
   { id: 'packages', name: 'Packages', icon: '📦', tint: 'amber', note: 'Tracking numbers · Live status', href: '#/packages', cat: 'updates', home: false, parent: 'updates', load: () => import('./packages/packages.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', cat: 'productivity', load: () => import('./notes/notes.js') },
   { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Convert · PDF · Scan', href: '#/files', cat: 'productivity', load: () => import('../tools/studio/studio.js') },
-  { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Fashion · Saved Files', href: '#/magic', cat: 'productivity', load: () => import('./magic/magic.js') },
+  { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Reverse Fill · Fashion', href: '#/magic', parent: 'hidden', home: false, locked: true, load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
   { id: 'laundrytimer', name: 'Laundry Timer', icon: '🧺', tint: 'blue', note: 'Washer · Dryer', href: 'apps/laundrytimer/index.html', cat: 'productivity' },
@@ -33,11 +34,11 @@ export const APPS = [
   // Updates: Calendar, Weather and Sports together (the home screen's Updates card opens it).
   { id: 'updates', name: 'Updates', icon: '📰', tint: 'amber', note: 'Calendar · Weather · Sports · Packages', href: '#/updates', home: false, load: () => import('./updates-hub/updates-hub.js') },
   // In Magic (its own apps, opened from it).
-  { id: 'downloads', name: 'Downloads', icon: '⬇️', tint: 'blue', note: 'Video links · Queue · History', href: '#/downloads', parent: 'magic', home: false, load: () => import('./downloads/downloads.js') },
-  { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', parent: 'magic', home: false, load: () => import('./fm/fm.js') },
-  { id: 'refill', name: 'Reverse Fill', icon: '🎨', tint: 'amber', note: 'Take off a label, logo or stain', href: '#/refill', parent: 'magic', home: false, load: () => import('./refill/refill.js') },
-  { id: 'fashion', name: 'Fashion', icon: '👕', tint: 'pink', note: 'Put a top, pants, hat or shoes on', href: '#/fashion', parent: 'magic', home: false, load: () => import('./fashion/fashion.js') },
-  { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'magic', home: false, load: () => import('./saved/saved-app.js') },
+  { id: 'downloads', name: 'Downloads', icon: '⬇️', tint: 'blue', note: 'Video links · Queue · History', href: '#/downloads', parent: 'magic', home: false, locked: true, load: () => import('./downloads/downloads.js') },
+  { id: 'fm', name: 'FM', icon: '🎭', tint: 'purple', note: 'FaceMask · Quick Swap · Characters', href: '#/fm', parent: 'magic', home: false, locked: true, load: () => import('./fm/fm.js') },
+  { id: 'refill', name: 'Reverse Fill', icon: '🎨', tint: 'amber', note: 'Take off a label, logo or stain', href: '#/refill', parent: 'magic', home: false, locked: true, load: () => import('./refill/refill.js') },
+  { id: 'fashion', name: 'Fashion', icon: '👕', tint: 'pink', note: 'Put a top, pants, hat or shoes on', href: '#/fashion', parent: 'magic', home: false, locked: true, load: () => import('./fashion/fashion.js') },
+  { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'hidden', home: false, locked: true, load: () => import('./saved/saved-app.js') },
   // Not anywhere on screen: reached by a sequence of taps (see web/lib/hidden-lock.js), behind a password.
   { id: 'hidden', name: 'Hidden', icon: '🔒', tint: 'slate', note: '', href: '#/hidden', home: false, load: () => import('./hidden/hidden.js') },
   // Not on the home screen: opened from Settings.
@@ -63,8 +64,10 @@ export const FILES_APPS = [
   { id: 'scan', name: 'Scan', icon: '📷', tint: 'ink', note: 'Documents · QR codes', tabs: ['scan', 'qr'] },
 ];
 
-/** The apps inside an app (Magic's), for its page of them. */
+/** The apps inside an app (Magic's, the hidden area's), for its page of them. */
 export const childrenOf = (id) => APPS.filter((a) => a.parent === id);
+/** Whether an app is in the hidden area (Magic and its apps, Saved Files): opened only once it's unlocked. */
+export const isLocked = (app) => !!app?.locked;
 
 export const HOME_ORDER_KEY = 'cc.home.order';
 /** The apps hidden from the home screen (Settings → Edit Home Screen): their ids. */
@@ -75,9 +78,8 @@ export const isHidden = (id, hidden) => Array.isArray(hidden) && hidden.includes
 export function homeApps(order = null) {
   const list = APPS.filter((a) => a.home !== false);
   if (!Array.isArray(order)) return list;
-  // (Updates became Weather and Sports: they take its place. FM and Downloads went into Magic: it
-  // takes the place of the first of them. QR went into Files → Scan.)
-  order = order.flatMap((id) => (id === 'updates' ? ['weather', 'sports'] : id === 'fm' || id === 'downloads' ? ['magic'] : id === 'qr' ? [] : [id]));
+  // (Updates became Weather and Sports: they take its place. QR went into Files → Scan.)
+  order = order.flatMap((id) => (id === 'updates' ? ['weather', 'sports'] : id === 'qr' ? [] : [id]));
   order = order.filter((id, i) => order.indexOf(id) === i);
   const pos = new Map(order.map((id, i) => [id, i]));
   return [...list].sort((a, b) => (pos.get(a.id) ?? 1e9 + list.indexOf(a)) - (pos.get(b.id) ?? 1e9 + list.indexOf(b)));

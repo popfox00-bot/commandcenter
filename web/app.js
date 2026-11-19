@@ -2,7 +2,8 @@
 // No build step; every module is plain ES modules served from this folder.
 
 import { $, el, store } from './lib/dom.js';
-import { APPS, FILES_APPS, CATEGORIES, redirect, homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden } from './apps/index.js';
+import { APPS, FILES_APPS, CATEGORIES, redirect, homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden, isLocked } from './apps/index.js';
+import { isOpen as hiddenOpen } from './lib/hidden-lock.js';
 import { setJobsActive } from './jobs.js';
 import { VERSION, HISTORY } from './version.js';
 import { updatesCard } from './lib/home-extras.js';
@@ -37,6 +38,8 @@ async function route() {
   if (moved) { location.replace(moved); return; }
   const [, section = ''] = (location.hash || '#/').split('/');
   const app = APPS.find((a) => a.id === section && a.load);
+  // (An app of the hidden area, opened while it's locked: its password first, then on to where it was going.)
+  if (isLocked(app) && !hiddenOpen()) { try { sessionStorage.setItem('cc.hidden.next', location.hash); } catch { /* private mode */ } location.replace('#/hidden'); return; }
   const view = section === 'jobs' ? 'jobs' : app ? 'app' : 'home';
   if (view === 'home') renderHome(); // the order may have changed in Settings
   for (const [name, node] of Object.entries(views)) node.hidden = name !== view;

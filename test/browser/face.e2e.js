@@ -24,6 +24,9 @@ before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  // (Its apps are in the hidden area: opened here as if it's been unlocked in this tab.)
+  const plain = browser.newContext.bind(browser);
+  browser.newContext = async (o) => { const c = await plain(o); await c.addInitScript(() => { try { sessionStorage.setItem('cc.hidden.open', '1'); } catch { /* private mode */ } }); return c; };
 });
 after(async () => { await browser?.close(); server?.close(); });
 
@@ -176,9 +179,9 @@ test('faces: FM → ➕ Character goes on the face and matches the colors behind
   await page.evaluate(async (base) => { const m = await import(`${base}lib/characters.js`); const c = (await m.listCharacters()).find((x) => x.name === 'My face'); await m.removeCharacter(c.id); }, BASE);
   await place();
   await page.$eval('input[aria-label="Blend into the photo"]', (r) => { r.value = '0'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
-  await page.waitForTimeout(250);
-  // Shown on the face while it's being placed.
-  const shown = await pixel('.ed-overlay', 0.52, 0.48);
+  // Shown on the face while it's being placed (once redrawn with no blend: up to a few seconds on a slow machine).
+  let shown = await pixel('.ed-overlay', 0.52, 0.48);
+  for (let i = 0; i < 40 && !(shown[1] > 150 && shown[0] < 100); i++) { await page.waitForTimeout(125); shown = await pixel('.ed-overlay', 0.52, 0.48); }
   assert.ok(shown[1] > 150 && shown[0] < 100, `on the face while placing: ${shown}`);
   await page.getByRole('button', { name: '✓ Place' }).click();
   await page.waitForSelector('text=Placed Green mask');

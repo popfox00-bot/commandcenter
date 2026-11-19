@@ -1,11 +1,12 @@
-// Settings: app-wide preferences, kept on this phone. Edit Home Screen (the order of the apps), the
+// Settings: app-wide preferences, kept on this phone. Edit Home Screen (the order of the apps, and which are
+// hidden), the
 // background color (a preset or any color; text, cards and borders follow it so everything stays
 // readable, see web/theme.js), the Saved Files connection (Google Drive), Storage (what's kept on the
 // phone, how much room it takes, and clearing what can go), Diagnostics, and the way into Jobs.
 // Route: #/settings (#/settings/saved and the like: that card opened).
 
 import { el, store } from '../../lib/dom.js';
-import { homeApps, HOME_ORDER_KEY } from '../index.js';
+import { homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden } from '../index.js';
 import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 import { storageSettings } from '../../lib/storage-usage.js';
@@ -43,13 +44,27 @@ export function mount(host) {
 
   // ---------- Edit Home Screen ----------
   const homeList = el('ol', { class: 'st-home', 'aria-label': 'Home screen order' });
+  const homeNote = el('p', { class: 'small muted', 'aria-live': 'polite' });
   function drawHome() {
     const apps = homeApps(store.json(HOME_ORDER_KEY, null));
     // (Drag a row by its ☰ to move it; each app stays in its part of the home screen.)
-    homeList.replaceChildren(...apps.map((a) => el('li', { class: 'st-home-row', 'data-id': a.id },
-      el('span', { class: `app-icon st-home-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
-      el('strong', { class: 'st-home-name', text: a.name }),
-      dragHandle(a.name))));
+    // (Each with a switch: shown on the home screen, or hidden there, still here to show again.)
+    const hidden = store.json(HOME_HIDDEN_KEY, []);
+    const setShown = (id, show) => {
+      const now = Array.isArray(store.json(HOME_HIDDEN_KEY, [])) ? store.json(HOME_HIDDEN_KEY, []) : [];
+      store.set(HOME_HIDDEN_KEY, JSON.stringify(show ? now.filter((x) => x !== id) : [...new Set([...now, id])]));
+      drawHome();
+      homeList.querySelector(`[data-id="${id}"] .st-home-show`)?.focus();
+    };
+    homeList.replaceChildren(...apps.map((a) => {
+      const off = isHidden(a.id, hidden);
+      return el('li', { class: `st-home-row${off ? ' st-home-hidden' : ''}`, 'data-id': a.id },
+        el('span', { class: `app-icon st-home-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
+        el('span', { class: 'st-home-text' }, el('strong', { class: 'st-home-name', text: a.name }), off ? el('span', { class: 'small muted', text: 'Hidden from the home screen' }) : null),
+        el('button', { type: 'button', class: 'st-home-show', role: 'switch', 'aria-checked': String(!off), 'aria-label': `Show ${a.name} on the home screen`, onclick: () => setShown(a.id, off) }, el('span', { class: 'st-switch-knob', 'aria-hidden': 'true' })),
+        dragHandle(a.name));
+    }));
+    homeNote.textContent = Array.isArray(hidden) && hidden.length ? `${hidden.length} hidden.` : '';
     sortable(homeList, (from, to) => {
       const ids = moved(homeApps(store.json(HOME_ORDER_KEY, null)).map((a) => a.id), from, to);
       store.set(HOME_ORDER_KEY, JSON.stringify(ids));
@@ -102,9 +117,9 @@ export function mount(host) {
   // this phone. App version stays first and open.
   const ORDER_KEY = 'cc.settings.order';
   const homeBody = el('div', {},
-    el('p', { class: 'small muted', text: 'The order of the apps on the home screen. Saved on this phone only.' }),
-    homeList,
-    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default order', onclick: () => { try { localStorage.removeItem(HOME_ORDER_KEY); } catch { /* private mode */ } drawHome(); } })));
+    el('p', { class: 'small muted', text: 'The order of the apps on the home screen (drag ☰), and which show there (the switch). Saved on this phone only.' }),
+    homeList, homeNote,
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: 'Reset to default order', onclick: () => { try { localStorage.removeItem(HOME_ORDER_KEY); } catch { /* private mode */ } drawHome(); } }), el('button', { type: 'button', class: 'btn', text: 'Show all', onclick: () => { try { localStorage.removeItem(HOME_HIDDEN_KEY); } catch { /* private mode */ } drawHome(); } })));
   const bgBody = el('div', {},
     el('p', { class: 'small muted', text: 'Used across the whole app. Saved on this phone only.' }),
     grid,
@@ -147,7 +162,7 @@ export function mount(host) {
   const sugBody = el('div', {},
     el('p', { class: 'small muted', text: 'Ideas and fixes for future updates. Saved on this phone (works offline) and copied to your Drive when Saved Files is connected, for the next time the app is worked on.' }),
     sugBox,
-    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', text: 'Save suggestion', onclick: async () => { const S = await import('../../lib/suggestions.js'); if (!sugBox.value.trim()) return; S.add(sugBox.value); sugBox.value = ''; await drawSuggestions(); syncSuggestions(); } })),
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', text: 'Save suggestion', onclick: async () => { const text = sugBox.value; if (!text.trim()) return; sugBox.value = ''; const S = await import('../../lib/suggestions.js'); S.add(text); await drawSuggestions(); syncSuggestions(); } })),
     sugNote, sugList);
   drawSuggestions(); syncSuggestions();
   // (Back online: copied then; not once Settings is closed.)
@@ -168,6 +183,8 @@ export function mount(host) {
   const orderNow = () => { const saved = store.json(ORDER_KEY, null); const ids = SECTIONS.map((q) => q.id); const o = Array.isArray(saved) ? saved.filter((id) => ids.includes(id)) : []; return [...o, ...ids.filter((id) => !o.includes(id))]; };
   const list = el('div', { class: 'st-sections' });
   function drawSections() {
+    // (Which are open, as they are now: a card opened a moment ago may not have said so yet.)
+    for (const d of list.querySelectorAll('details.st-fold[data-id]')) { if (d.open) openNow.add(d.dataset.id); else openNow.delete(d.dataset.id); }
     const order = orderNow();
     list.replaceChildren(...order.map((id) => {
       const q = SECTIONS.find((x) => x.id === id);

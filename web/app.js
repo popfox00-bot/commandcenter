@@ -2,7 +2,7 @@
 // No build step; every module is plain ES modules served from this folder.
 
 import { $, el, store } from './lib/dom.js';
-import { APPS, FILES_APPS, CATEGORIES, redirect, homeApps, HOME_ORDER_KEY } from './apps/index.js';
+import { APPS, FILES_APPS, CATEGORIES, redirect, homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden } from './apps/index.js';
 import { setJobsActive } from './jobs.js';
 import { VERSION, HISTORY } from './version.js';
 import { updatesCard } from './lib/home-extras.js';
@@ -17,7 +17,9 @@ let mountedApp = null;
 function renderHome() {
   let card = null; try { card = updatesCard(); } catch { card = null; }
   $('#home-extras').replaceChildren(...[card].filter(Boolean));
-  const apps = homeApps(store.json(HOME_ORDER_KEY, null));
+  // (Without the ones hidden in Settings → Edit Home Screen.)
+  const hidden = store.json(HOME_HIDDEN_KEY, []);
+  const apps = homeApps(store.json(HOME_ORDER_KEY, null)).filter((a) => !isHidden(a.id, hidden));
   const tile = (a) => el('a', { class: 'app-tile', href: a.href },
     el('span', { class: `app-icon tint-${a.tint}`, 'aria-hidden': 'true', text: a.icon }),
     el('span', { class: 'app-name', text: a.name }),

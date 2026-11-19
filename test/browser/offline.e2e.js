@@ -98,6 +98,11 @@ test('offline: every app and tool works with no connection after the first visit
   await page.goto(`${origin}${BASE}apps/worldatlas/index.html`);
   await page.waitForSelector('a.cc-home');
   await page.waitForSelector('.leaflet-container');
+  // Laundry Timer and Inkling: their own pages, from the cache, with a way back Home.
+  await page.goto(`${origin}${BASE}apps/laundrytimer/index.html`);
+  await page.waitForSelector('a.cc-home');
+  await page.goto(`${origin}${BASE}apps/inkling/index.html`);
+  await page.waitForSelector('a.cc-home');
   // Trade Desk: its own page too, from the cache, with a way back Home.
   await page.goto(`${origin}${BASE}apps/tradedesk/index.html`);
   await page.waitForSelector('a.cc-home');

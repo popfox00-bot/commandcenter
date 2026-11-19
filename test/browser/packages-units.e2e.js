@@ -146,3 +146,38 @@ test('Home: each line of the Updates card opens its tab; a game today opens that
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('the hidden area: the Photo Editor\'s switches tapped in its order ask for a password (set the first time), then Welcome!; locked, asked again', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}#/files/photo`);
+  await page.waitForSelector('.studio-sub:not([hidden]) [role=tab]');
+  const tap = async (label) => { await page.click(`.studio-sub .seg >> text=${label}`); await page.waitForTimeout(150); };
+  for (const label of ['Cutout', 'Edit', 'Collage', 'Edit', 'Cutout', 'Collage']) await tap(label);
+  assert.notEqual(await page.evaluate(() => location.hash), '#/hidden');
+  await tap('Cutout');
+  await page.waitForFunction(() => location.hash === '#/hidden');
+  // First time: a password set (twice).
+  await page.fill('[aria-label="New password"]', 'fox42');
+  await page.fill('[aria-label="The same again"]', 'fox42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.waitForSelector('.hid-welcome >> text=Welcome!');
+  assert.doesNotMatch(await page.evaluate(() => localStorage.getItem('cc.hidden.lock')), /fox42/, 'only a hash kept');
+  await page.getByRole('button', { name: /Lock/ }).click();
+  await page.waitForFunction(() => location.hash === '#/');
+  // Straight to it: the password asked; a wrong one refused, the right one opens it.
+  await page.evaluate(() => { location.hash = '#/hidden'; });
+  await page.waitForSelector('[aria-label="Password"]');
+  await page.fill('[aria-label="Password"]', 'nope');
+  await page.getByRole('button', { name: 'Open' }).click();
+  await page.waitForSelector('text=That isn\'t it.');
+  await page.fill('[aria-label="Password"]', 'fox42');
+  await page.getByRole('button', { name: 'Open' }).click();
+  await page.waitForSelector('.hid-welcome >> text=Welcome!');
+  // Nowhere on screen: no tile, nothing in Settings.
+  await page.goto(`${origin}${BASE}#/`); await page.waitForSelector('.app-tile');
+  assert.equal(await page.locator('.app-tile >> text=Hidden').count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

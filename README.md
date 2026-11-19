@@ -6,13 +6,14 @@ A personal, phone-first app. Its home screen is in three parts:
   any alert) and **Sports** (every game today, a line each, live ones in red; the card grows with them),
   from what each last loaded (Home itself goes online for nothing). Each line opens its own tab of the
   **Updates** page (Calendar, Weather, Sports and **Packages**), and a game opens Sports on that game.
-- **Productivity**: **Notes**, **Files**, **Magic**, **Draw** and **Units**.
-- **Creativity**: **Rap** and **Trade Desk**.
+- **Productivity**: **Notes**, **Files**, **Magic**, **Draw**, **Units** and **Laundry Timer**.
+- **Creativity**: **Rap**, **Inkling** and **Trade Desk**.
 - **Games**: **Games** (Fox Games) and **WorldAtlas** (the Minecraft world map).
 
 **⚙ Settings** is at the top right, beside the version (tap the version for what changed in each, and
 **Update to Latest Version**). The order of the tiles can be changed in Settings → Edit Home Screen (drag a row
-by its ☰; each stays in its part); **Jobs** is opened from Settings. **Recent edits** (unfinished work, newest first: tap
+by its ☰; each stays in its part), and any app hidden from the home screen with its switch (Show all
+brings them back); **Jobs** is opened from Settings. **Recent edits** (unfinished work, newest first: tap
 to continue) are shown in the apps they belong to: Files (all of its own), the Photo Editor (its other
 parts': a collage in progress, seen from Edit), and Magic (FM, Reverse Fill, Fashion).
 
@@ -1095,6 +1096,17 @@ Settings → **Suggest Improvements** keeps ideas for future updates: written an
 the phone, and copied to your Google Drive when Saved Files is connected, as one plain file,
 `Command Center/Suggested improvements.md` (not encrypted, so it can be read when the app is next worked
 on; `CLAUDE.md` says to read it at the start of each session and to ask before acting on it).
+
+## Laundry Timer and Inkling
+
+**Laundry Timer** (washer and dryer timers with an alarm) and **Inkling** (sketch and describe what you're
+looking for, and it searches the web; the browser version, with your own Anthropic API key in its ⚙
+settings) open as their own pages with a **‹ Home** link. `web/apps/laundrytimer/` and `web/apps/inkling/` are
+copies of the `laundrytimer` and `inkling` repositories' pages, with the Home link (`cc-frame.css`) added and
+their own manifests and service workers left out (Command Center's keeps them offline). Inkling's folder also
+has `api/status` answering `{"configured":false}`: there's no Inkling server here, so it goes straight to its
+browser mode. To bring in newer versions, copy their pages again and make the same changes. Games played
+in the app go into Fox Games; WorldAtlas is its own app.
 
 ## WorldAtlas
 

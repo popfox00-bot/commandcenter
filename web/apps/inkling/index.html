@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#1b2340">
+  <title>Inkling — sketch it, search it</title>
+  <link rel="icon" href="public/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="public/styles.css">
+  <link rel="stylesheet" href="cc-frame.css">
+</head>
+<body>
+  <a class="cc-home" href="../../index.html#/">‹ Home</a>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Inkling home">
+      <img src="public/logo.svg" alt="" width="44" height="44">
+      <span class="wordmark">Inkling</span>
+    </a>
+    <p class="tagline">Sketch it. Describe it. Find it.</p>
+    <button class="settings-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </header>
+
+  <dialog class="settings" id="settingsDialog" aria-labelledby="settingsTitle">
+    <form method="dialog" id="settingsForm">
+      <h2 id="settingsTitle">Inkling settings</h2>
+      <div id="serverModeNote" hidden>
+        <p>Searches run through this Inkling server, so you don't need a key here.</p>
+      </div>
+      <div id="keyModeFields">
+        <p>This copy of Inkling runs entirely in your browser. To search, it needs your own
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic API key</a>.</p>
+        <label for="apiKeyInput">Anthropic API key</label>
+        <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+        <label class="checkbox"><input type="checkbox" id="rememberKey" checked> Remember on this device</label>
+        <p class="fine-print">The key is saved only in this browser and is sent only to <code>api.anthropic.com</code>.
+          Anyone who uses this browser could use it, so set a monthly spend limit in the Anthropic Console.</p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="ghost" id="forgetKeyBtn">Forget key</button>
+        <span class="spacer"></span>
+        <button type="button" class="ghost" id="cancelSettingsBtn">Cancel</button>
+        <button type="submit" class="primary" id="saveSettingsBtn" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <main>
+    <section class="composer" aria-label="Describe your search">
+      <div class="sketch-tabs" id="sketchTabs" role="tablist" aria-label="Sketches"></div>
+
+      <div class="pad-wrap">
+        <canvas id="pad" aria-label="Sketch pad. Draw with mouse, finger or stylus."></canvas>
+        <p class="pad-hint" id="padHint">Draw here — a shape, a detail, a scene…</p>
+
+        <div class="toolbox" id="toolbox" data-open="false">
+          <button class="toolbox-toggle" id="toolboxToggle" aria-expanded="false" aria-controls="toolboxPanel" title="Tools">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20c1.5-5 5-11 16-16-3 8-8 12-13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20l6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span class="current-tool-dot" id="currentToolDot"></span>
+          </button>
+          <div class="toolbox-panel" id="toolboxPanel" role="toolbar" aria-label="Drawing tools">
+            <div class="tool-group" role="radiogroup" aria-label="Pen type">
+              <button class="tool" data-tool="pen" role="radio" title="Pen (P)">
+                <svg viewBox="0 0 24 24"><path d="M3 21l3.5-1 11-11-2.5-2.5-11 11zM14 5.5l2.5 2.5 2-2a1.8 1.8 0 0 0-2.5-2.5z" fill="currentColor"/></svg>
+                <span>Pen</span></button>
+              <button class="tool" data-tool="marker" role="radio" title="Marker (M)">
+                <svg viewBox="0 0 24 24"><path d="M5 19l2-6 9-9 4 4-9 9zM4 21h7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+                <span>Marker</span></button>
+              <button class="tool" data-tool="highlighter" role="radio" title="Highlighter (H) — mark the important parts">
+                <svg viewBox="0 0 24 24"><path d="M3 20h18" stroke="#f5d33f" stroke-width="5" stroke-linecap="butt" opacity=".8"/><path d="M8 15l-2 2h4zM8 15l8-9 3 3-8 9z" fill="currentColor"/></svg>
+                <span>Highlight</span></button>
+              <button class="tool" data-tool="eraser" role="radio" title="Eraser (E)">
+                <svg viewBox="0 0 24 24"><path d="M3 16l9-9 6 6-6 6H7zM12 19h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path d="M8 11l6 6" stroke="currentColor" stroke-width="2"/></svg>
+                <span>Eraser</span></button>
+            </div>
+            <div class="tool-group swatches" id="swatches" aria-label="Colour"></div>
+            <label class="size-control">
+              <span>Size</span>
+              <input type="range" id="sizeRange" min="1" max="60" value="4">
+              <span class="size-preview" id="sizePreview"></span>
+            </label>
+            <div class="tool-group actions">
+              <button class="tool small" id="undoBtn" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 7H4V2M4 7a9 9 0 1 1-1 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Undo</span></button>
+              <button class="tool small" id="redoBtn" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="M15 7h5V2M20 7a9 9 0 1 0 1 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Redo</span></button>
+              <button class="tool small" id="clearBtn" title="Clear sketch"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Clear</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <input class="caption" id="caption" type="text" maxlength="500"
+             placeholder="Optional caption for this sketch — e.g. “the arm shape”, “opening scene”">
+
+      <label class="describe-label" for="description">Describe what you're looking for</label>
+      <textarea id="description" rows="4" maxlength="4000"
+                placeholder="e.g. A mid-century couch, low back, tapered wooden legs, mustard velvet, the arms curve outward like in sketch 2…&#10;or: A movie where a lighthouse keeper finds a boy on the beach — scene drawn above."></textarea>
+
+      <div class="submit-row">
+        <span class="summary" id="summary"></span>
+        <button class="submit" id="submitBtn">
+          <img src="public/logo.svg" alt="" width="22" height="22">
+          Search with Inkling
+        </button>
+      </div>
+      <p class="kbd-hint">Tip: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to search · add more sketches with <strong>+</strong> to show different features of the same thing.</p>
+    </section>
+
+    <section class="results" id="results" aria-live="polite" hidden></section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Inkling · private freeform search · no accounts, no tracking — your sketches go only to the search model.</span>
+  </footer>
+
+  <script type="module" src="public/app.js"></script>
+</body>
+</html>

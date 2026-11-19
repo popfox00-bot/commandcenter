@@ -948,7 +948,11 @@ the clothes in it: worn by someone, or on its own).
   shadow under the chin. Skin made where the garment was meets their real skin seamlessly: the difference
   between the skin it borders (the jaw's shaded underside counts) and the made-up skin is spread smoothly into
   it (a membrane), all of it at the border and fading out a third of a face's height in; unsure pixels between
-  (a thin line of hair, shadow) don't stop it. A high dark collar rising beside the jaw is taken off too. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  (a thin line of hair, shadow) don't stop it. A high dark collar rising beside the jaw is taken off too. Its rim
+  too: the garment's own color right beside what's found of it, where the finder is unsure, is grown into (a
+  dark garment's pure black just under the jaw even where the finder says hair), and a few pixels of skin along
+  the edge much darker than their skin (the collar's shadow on the jaw) are made again from either side, so no
+  dark line is left along it. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

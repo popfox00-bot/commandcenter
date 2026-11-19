@@ -149,3 +149,24 @@ test('skin made where the garment was meets their real skin it touches with no s
   let step = 0; for (let y = 82; y < 185; y++) step = Math.max(step, dist(at(60, y), at(60, y - 1)));
   assert.ok(step < 12, `no seam: largest step ${step.toFixed(1)}`);
 });
+
+test('no dark line between the jaw and the new neck: a black collar\'s pure-black top edge just under the jaw (called hair by the finder) is taken off', async () => {
+  const { garmentZone } = await import('../web/apps/fashion/compose.js');
+  const w = 160; const h = 240; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const tm = new Uint8Array(n);
+  const put = (i, c) => rgba.set([...c, 255], i * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (y >= 10 && y < 73 && x >= 55 && x < 105) { people.face[i] = 255; put(i, [225, 180, 150]); }            // the face; its chin line found a little lower (76), as on a real photo
+    else if (y >= 73 && y < 76 && x >= 60 && x < 100) { people.hair[i] = 220; put(i, [0, 0, 0]); }            // the collar's top edge (a few pixels, as wide as for a face this size), called hair
+    else if (y >= 76 && y < 200 && x >= 40 && x < 120) { people.clothes[i] = 255; tm[i] = 1; put(i, [20, 18, 22]); } // the top
+    else if (y >= 30 && y < 200 && (x < 40 || x >= 120) && x >= 20 && x < 140) { people.hair[i] = 255; put(i, [60, 35, 28]); } // their hair, beside
+  }
+  const target = { mask: tm, box: { x0: 40, y0: 76, x1: 120, y1: 200 } };
+  const S = { base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 76, waist: 195, ankle: 238, split: true, person: { x0: 20, y0: 10, x1: 140, y1: 238 }, face: { x0: 55, y0: 10, x1: 105, y1: 70 } } }, target, kind: 'upper', mode: 'replace', piece: {} };
+  const z = garmentZone(S);
+  const on = (x, y) => !!z.mask[y * w + x];
+  for (const y of [73, 74, 75]) assert.ok(on(80, y), `the collar's black edge under the jaw, row ${y}`);
+  assert.ok(!on(80, 65) && !on(30, 100), 'not the face, not their hair beside it');
+});

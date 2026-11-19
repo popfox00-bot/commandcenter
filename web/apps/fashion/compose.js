@@ -344,12 +344,20 @@ function zoneLayer(S) {
   const tT = bp.byPose ? cut(minus(tAll, tArms), w, h, -1, w + 1) : cut(tAll, w, h, bp.t0, bp.t1);
   const pT = pp.byPose ? cut(minus(pAll, pp.arms), piece.w, piece.h, -1, piece.w + 1) : cut(pAll, piece.w, piece.h, pp.t0, pp.t1);
   if (tT && pT) {
-    const open = tT.box.y1 >= h - 2 || pT.box.y1 >= piece.h - 2;
-    const L = traceTransfer(tex, pT.mask, piece.w, piece.h, pT.box, tT, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null, rows: poseRows(S) });
+    // (Only the piece's cloth (not their hair or skin over it, a hand at their neck), cut at its real hem; and
+    // the base's zone carried down to where what they wear there really ends.)
+    const pc = Uint8Array.from(pT.mask); for (let i = 0; i < pc.length; i++) if (pc[i] && piece.people.clothes[i] < 110 && !piece.rebuilt?.[i]) pc[i] = 0;
+    const pcb = boxOf(pc, piece.w, piece.h);
+    const pH = pcb && hemCut(pc, pcb, piece.draw ?? piece.rgba, piece.w, piece.h);
+    const pMask = pH?.mask ?? (pcb ? pc : pT.mask); const pBox = pH?.box ?? pcb ?? pT.box;
+    const tD = downToHem(S, tT);
+    const centers = frontCenters(S); const rigid = centers && rigidZone(S);
+    const open = tD.box.y1 >= h - 2 || pBox.y1 >= piece.h - 2;
+    const L = traceTransfer(tex, pMask, piece.w, piece.h, pBox, tD, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers, rigid });
     // (The piece's bare skin painted where the base was clothed only when an arm changes, a tank top onto a
     // jacket: both bare-armed, the base's own neckline and skin stay.)
     // (Nor, in a zone, the piece's own skin painted on: theirs and the base's both bare, the base keeps theirs.)
-    neckline(L, base, w, differs, false); softEdge(L, tT, w, h); layers.push(L);
+    neckline(L, base, w, differs, false); softEdge(L, tD, w, h); layers.push(L);
   }
   // The arms.
   const tone = skinTone(base);
@@ -360,6 +368,10 @@ function zoneLayer(S) {
       // A sleeve: into the base's sleeve, or over their bare arm in its shape.
       const pc = Uint8Array.from(pCl.mask); for (let i = 0; i < pc.length; i++) if (piece.people.clothes[i] < 100) pc[i] = 0;
       const pb = boxOf(pc, piece.w, piece.h); if (!pb) continue;
+      // (Bent along both people's arms, shoulder to elbow to wrist: a sleeve on a raised arm laid onto an arm
+      // held down keeps its own shape, turned with the arm, not pressed row by row into its outline.)
+      const bent = sleeveAlongArm(S, side === 'left' ? 0 : 1, pc, pb);
+      if (bent) { layers.push(bent); continue; }
       const tB = cut(b.mask, w, h, -1, w + 1);
       const L = traceTransfer(tex, pc, piece.w, piece.h, pb, tB, w, h, { s: place.s, open: false, adj: tune });
       softEdge(L, tB, w, h); layers.push(L);
@@ -375,6 +387,135 @@ function zoneLayer(S) {
   return mergeLayers([...layers.slice(1), layers[0]]);
 }
 
+
+/** The shoulders' ratio of the two people (base over piece), for a zone laid in at one scale, or null. */
+function rigidZone(S) {
+  const seen = (v) => v && v[2] >= 0.3; const a = S.base.pose?.shoulders; const b = S.piece.pose?.shoulders;
+  if (!seen(a?.[0]) || !seen(a?.[1]) || !seen(b?.[0]) || !seen(b?.[1])) return null;
+  const bd = Math.hypot(a[1][0] - a[0][0], a[1][1] - a[0][1]); const pd = Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1]);
+  return bd > 4 && pd > 4 ? { s: bd / pd } : null;
+}
+
+/**
+ * A mask (`m`, in `b`, over `tex`) cut at its real hem: the last row with a fair share of its own color (the
+ * median of its upper two thirds, in Lab). { mask, box }, or null when nothing is cut.
+ */
+function hemCut(m, b, tex, w, h) {
+  const lab = (i) => rgbToLab(tex[i * 4], tex[i * 4 + 1], tex[i * 4 + 2]);
+  const L = []; const A = []; const B2 = [];
+  for (let y = b.y0; y < b.y0 + (b.y1 - b.y0) * 0.67; y += 3) for (let x = b.x0; x < b.x1; x += 3) { const i = y * w + x; if (!m[i]) continue; const q = lab(i); L.push(q[0]); A.push(q[1]); B2.push(q[2]); }
+  if (L.length < 50) return null;
+  const med = (v) => { v.sort((p, q) => p - q); return v[v.length >> 1]; };
+  const c = [med(L), med(A), med(B2)];
+  const rows = [];
+  for (let y = b.y0; y < b.y1; y++) { let k = 0; for (let x = b.x0; x < b.x1; x += 2) { const i = y * w + x; if (!m[i]) continue; const q = lab(i); if (Math.hypot((q[0] - c[0]) * 0.5, q[1] - c[1], q[2] - c[2]) < 22) k++; } rows.push(k); }
+  const usual = [...rows].sort((p, q) => p - q)[Math.floor(rows.length * 0.6)] || 1;
+  let hem = b.y1;
+  for (let y = b.y1 - 1; y > b.y0 + (b.y1 - b.y0) * 0.4; y--) if (rows[y - b.y0] >= usual * 0.3) { hem = y + 1; break; }
+  if (hem >= b.y1 - 2) return null;
+  const out = Uint8Array.from(m); for (let y = hem; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) out[y * w + x] = 0;
+  const box = boxOf(out, w, h); return box ? { mask: out, box } : null;
+}
+
+/**
+ * A body zone's torso (`t`: { mask, box }) carried on down past its waist line to where what's worn there
+ * really ends (a long top on someone sitting): row by row, the base's clothes of that garment's own color
+ * (its median, in Lab) joined to the row above, while they're most of the row (a print below, the stripes of
+ * the pants, stops it). A { mask, box, spans } outline.
+ */
+function downToHem(S, t) {
+  const { base } = S; const { w, h } = base; const p = base.people; const b = t.box;
+  const lab = (i) => rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
+  const L = []; const A = []; const B2 = [];
+  for (let y = b.y0; y < b.y1; y += 2) for (let x = b.x0; x < b.x1; x += 2) { const i = y * w + x; if (!t.mask[i] || p.clothes[i] < 128) continue; const q = lab(i); L.push(q[0]); A.push(q[1]); B2.push(q[2]); }
+  const done = () => ({ mask: t.mask, box: b, spans: t.spans ?? rowSpans(t.mask, w, b, Math.max(8, Math.round((b.y1 - b.y0) / 14))) });
+  if (L.length < 50) return done();
+  const med = (v) => { v.sort((q1, q2) => q1 - q2); return v[v.length >> 1]; };
+  const c = [med(L), med(A), med(B2)];
+  const like = (i) => { const q = lab(i); return (c[0] < 30 && q[0] < c[0] ? true : Math.abs(q[0] - c[0]) < 14) && Math.hypot(q[1] - c[1], q[2] - c[2]) < 14; };
+  const m = Uint8Array.from(t.mask); let prev = new Uint8Array(w); let any = false;
+  // (Its lowest pixel in each column, within a few rows of the bottom: where it goes on from.)
+  // (Started a little above its bottom: the waist line's own ragged edge is filled in too.)
+  const y00 = Math.max(b.y0 + 1, b.y1 - 10);
+  for (let x = b.x0; x < b.x1; x++) for (let y = y00 - 1; y >= Math.max(b.y0, y00 - 8); y--) if (t.mask[y * w + x]) { prev[x] = 1; break; }
+  let y1 = b.y1; const fh = base.layout?.fh ?? h / 7; let nRef = 0;
+  for (let y = y00; y < Math.min(h, b.y1 + fh * 2.5); y++) {
+    // (Its pixels joined to the row above; on while they stay about as many as in its first row past the
+    // waist line: the stripes of the pants below, only part of them its color, stop it.)
+    const cur = new Uint8Array(w); let n = 0;
+    for (let x = b.x0; x < b.x1; x++) { const i = y * w + x; if (Math.max(p.clothes[i], p.others[i]) >= 110 && p.body[i] < 160 && p.face[i] < 128 && like(i) && (prev[x] || prev[x - 1] || prev[x + 1])) { cur[x] = 1; n++; } }
+    // (And along the row from those, through its color: its part under a lock of hair above, not joined
+    // to the row above, is the same garment.)
+    const ok2 = (x) => { const i = y * w + x; return Math.max(p.clothes[i], p.others[i]) >= 110 && p.body[i] < 160 && p.face[i] < 128 && like(i); };
+    for (let x = b.x0 + 1; x < b.x1; x++) if (!cur[x] && cur[x - 1] && ok2(x)) { cur[x] = 1; n++; }
+    for (let x = b.x1 - 2; x >= b.x0; x--) if (!cur[x] && cur[x + 1] && ok2(x)) { cur[x] = 1; n++; }
+    if (!nRef && y >= b.y1) nRef = n;
+    if (y >= b.y1 && (n < 4 || n < nRef * 0.7)) break;
+    for (let x = b.x0; x < b.x1; x++) if (cur[x] || m[y * w + x]) { m[y * w + x] = 1; cur[x] = 1; }
+    prev = cur; y1 = Math.max(y1, y + 1); any = true;
+  }
+  if (!any) return done();
+  const box = { ...b, y1 };
+  return { mask: m, box, spans: rowSpans(m, w, box, Math.max(8, Math.round((box.y1 - box.y0) / 14))) };
+}
+
+/**
+ * The piece's sleeve (`pc` in `pb`) laid onto the base's arm on picture side `k` (0 left, 1 right), bent along
+ * both people's arms: each pixel near the base's arm placed by how far along it is (shoulder → elbow → wrist)
+ * and how far to one side, and taken from the same place along the piece's arm (to the side by the
+ * shoulders' ratio), where the piece's sleeve is. As long as the sleeve is on the piece (a rolled sleeve ends
+ * where it ends), as wide as it is. A layer, or null without both arms' poses.
+ */
+function sleeveAlongArm(S, k, pc, pb) {
+  const { base, piece } = S; const { w, h } = base;
+  const seen = (v) => v && v[2] >= 0.3;
+  const bones = (q) => {
+    if (!q || !seen(q.shoulders?.[k]) || !seen(q.elbows?.[k])) return null;
+    const s0 = q.shoulders[k]; const e = q.elbows[k];
+    const wr = seen(q.wrists?.[k]) ? q.wrists[k] : [e[0] + (e[0] - s0[0]) * 0.9, e[1] + (e[1] - s0[1]) * 0.9];
+    return [s0, e, wr];
+  };
+  const pB = bones(piece.pose); const bB = bones(base.pose); const rz = rigidZone(S);
+  if (!pB || !bB || !rz) return null;
+  // (Where a point is along an arm: u from 0 at the shoulder to 1 at the elbow and 2 at the wrist, and d its
+  // signed distance to the side; and back.)
+  const frame = (B) => {
+    const segs = [[B[0], B[1]], [B[1], B[2]]].map(([a, c]) => { const dx = c[0] - a[0]; const dy = c[1] - a[1]; const L = Math.hypot(dx, dy) || 1; return { a, dx: dx / L, dy: dy / L, L }; });
+    const at = (x, y) => {
+      let best = null;
+      segs.forEach((g, i) => { const t = (x - g.a[0]) * g.dx + (y - g.a[1]) * g.dy; const tc = Math.max(i === 0 ? -0.3 * g.L : 0, Math.min(i === 1 ? 1.2 * g.L : g.L, t)); const px = g.a[0] + g.dx * tc; const py = g.a[1] + g.dy * tc; const dist = Math.hypot(x - px, y - py); if (!best || dist < best.dist) best = { dist, u: i + tc / g.L, d: (x - g.a[0]) * -g.dy + (y - g.a[1]) * g.dx - 0 }; });
+      return best;
+    };
+    const point = (u, d) => { const i = Math.max(0, Math.min(1, Math.floor(u))); const g = segs[i]; const t = (u - i) * g.L; return [g.a[0] + g.dx * t - g.dy * d, g.a[1] + g.dy * t + g.dx * d]; };
+    return { at, point, len: segs[0].L + segs[1].L };
+  };
+  const PF = frame(pB); const BF = frame(bB);
+  // The sleeve on the piece's arm: how far along it reaches, and how far to either side.
+  let uMax = 0; let dMax = 0; let n = 0;
+  for (let y = pb.y0; y < pb.y1; y += 2) for (let x = pb.x0; x < pb.x1; x += 2) { if (!pc[y * piece.w + x]) continue; const f = PF.at(x, y); if (!f) continue; n++; if (f.u > uMax) uMax = f.u; if (Math.abs(f.d) > dMax) dMax = Math.abs(f.d); }
+  if (n < 30) return null;
+  uMax = Math.min(2.2, uMax); const sc = rz.s; const reach = dMax * sc * 1.05 + 2;
+  // The base's arm region: a box around its bones, as far out as the sleeve is wide.
+  const xs = bB.map((q) => q[0]); const ys = bB.map((q) => q[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - reach)); const x1 = Math.min(w, Math.ceil(Math.max(...xs) + reach));
+  const y0 = Math.max(0, Math.floor(Math.min(...ys) - reach)); const y1 = Math.min(h, Math.ceil(Math.max(...ys) + reach));
+  const pw = x1 - x0; const ph = y1 - y0; if (pw < 2 || ph < 2) return null;
+  const rgba = new Uint8ClampedArray(pw * ph * 4); const tex = piece.draw ?? piece.rgba; let drawn = 0;
+  // (The piece's arm and the base's may run opposite ways around (a raised arm, one held down): the side is
+  // matched by which side faces the body.)
+  const side = (B, q) => { const mid = (q.shoulders[0][0] + q.shoulders[1][0]) / 2; return Math.sign((B[0][0] - mid) || 1); };
+  const flip = side(pB, piece.pose) * side(bB, base.pose) * Math.sign((pB[1][1] - pB[0][1]) || 1) * Math.sign((bB[1][1] - bB[0][1]) || 1) < 0 ? -1 : 1;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = y * w + x; if (base.people.face[i] >= 128) continue;
+    const f = BF.at(x + 0.5, y + 0.5); if (!f || f.u < -0.25 || f.u > uMax) continue;
+    const [sx, sy] = PF.point(Math.max(0, f.u), (f.d / sc) * flip);
+    const X = Math.round(sx); const Y = Math.round(sy);
+    if (X < pb.x0 || Y < pb.y0 || X >= pb.x1 || Y >= pb.y1 || !pc[Y * piece.w + X]) continue;
+    const o = ((y - y0) * pw + x - x0) * 4; const j = (Y * piece.w + X) * 4;
+    rgba[o] = tex[j]; rgba[o + 1] = tex[j + 1]; rgba[o + 2] = tex[j + 2]; rgba[o + 3] = 255; drawn++;
+  }
+  return drawn > 30 ? { x0, y0, pw, ph, rgba } : null;
+}
 
 /**
  * Rows of the base matched to rows of the piece by the two people's poses (their shoulders, their waist

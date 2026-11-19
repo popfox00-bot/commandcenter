@@ -162,7 +162,7 @@ export function mount(host) {
   const sugBody = el('div', {},
     el('p', { class: 'small muted', text: 'Ideas and fixes for future updates. Saved on this phone (works offline) and copied to your Drive when Saved Files is connected, for the next time the app is worked on.' }),
     sugBox,
-    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', text: 'Save suggestion', onclick: async () => { const S = await import('../../lib/suggestions.js'); if (!sugBox.value.trim()) return; S.add(sugBox.value); sugBox.value = ''; await drawSuggestions(); syncSuggestions(); } })),
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', text: 'Save suggestion', onclick: async () => { const text = sugBox.value; if (!text.trim()) return; sugBox.value = ''; const S = await import('../../lib/suggestions.js'); S.add(text); await drawSuggestions(); syncSuggestions(); } })),
     sugNote, sugList);
   drawSuggestions(); syncSuggestions();
   // (Back online: copied then; not once Settings is closed.)

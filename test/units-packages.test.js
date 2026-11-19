@@ -79,3 +79,17 @@ test('suggestions: the Drive file lists each with its date and id, a line each (
   assert.match(md, /- \[ \] 2026-11-18 \(s1\): Dark mode \/ for Draw/);
   assert.match(toMarkdown([], new Date()), /\(none\)/);
 });
+
+test('the hidden area: opened by its tap sequence, in order, within 20 seconds; any other order or a pause doesn\'t', async () => {
+  const { sequenceWatcher, SEQUENCE } = await import('../web/lib/hidden-lock.js');
+  assert.deepEqual(SEQUENCE, ['cutout', 'photo', 'collage', 'photo', 'cutout', 'collage', 'cutout']);
+  let w = sequenceWatcher();
+  const run = (taps, t0 = 0, gap = 500) => taps.map((t, i) => w(t, t0 + i * gap));
+  assert.deepEqual(run(SEQUENCE), [false, false, false, false, false, false, true]);
+  w = sequenceWatcher();
+  assert.equal(run(['photo', ...SEQUENCE]).at(-1), true, 'extra taps before it don\'t matter');
+  w = sequenceWatcher();
+  assert.equal(run(['cutout', 'photo', 'collage', 'photo', 'cutout', 'cutout', 'collage']).at(-1), false, 'out of order');
+  w = sequenceWatcher();
+  assert.equal(run(SEQUENCE, 0, 4000).at(-1), false, 'too slow (24 s)');
+});

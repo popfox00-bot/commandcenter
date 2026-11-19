@@ -11,6 +11,7 @@ import { handoff } from '../../lib/handoff.js';
 import { FILES_APPS } from '../../apps/index.js';
 import { renderHub } from '../../apps/hub.js';
 import { recentIn } from '../../lib/home-extras.js';
+import { sequenceWatcher } from '../../lib/hidden-lock.js';
 
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
@@ -42,6 +43,13 @@ export function mount(host) {
   const near = el('div', { class: 'studio-recent' });
   let nearOnly = () => false; const nearRecent = recentIn(near, (href) => nearOnly(href));
   host.append(hub, sub, near, body);
+  // (A certain order of taps on the Photo Editor's switches opens the hidden area: web/lib/hidden-lock.js.)
+  const watch = sequenceWatcher();
+  sub.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a.seg'); if (!a) return;
+    const tab = (a.getAttribute('href') || '').split('/')[2];
+    if (inPhoto(tab) && watch(tab)) { e.preventDefault(); location.hash = '#/hidden'; }
+  });
   let shown = null;    // the tab on screen
   const handed = {};   // the editor photo (its key) last handed to Collage / Cutout
 

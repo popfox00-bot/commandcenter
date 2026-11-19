@@ -8,7 +8,10 @@
 // Games is Fox Games, a self-contained page of its own (web/apps/games/fox/). Trade Desk is the LHS
 // fantasy football trade analyzer, likewise a page of its own (web/apps/tradedesk/, copied from the
 // tradedesk repository with a ‹ Home link added and its own service worker left out). WorldAtlas (the
-// Minecraft world map) too: web/apps/worldatlas/ is the minecraft repository's build, with a ‹ Home link.
+// Minecraft world map) too: web/apps/worldatlas/ is the minecraft repository's build, with a ‹ Home link;
+// and Laundry Timer (web/apps/laundrytimer/) and Inkling (web/apps/inkling/, its browser version: your own
+// Anthropic key in its settings), copied from their repositories with a ‹ Home link. Games played in the
+// app go into Fox Games; WorldAtlas stays its own app (a Minecraft companion, not a game played here).
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', cat: 'updates', home: false, parent: 'updates', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', cat: 'updates', home: false, parent: 'updates', load: () => import('./weather/weather.js') },
@@ -19,7 +22,9 @@ export const APPS = [
   { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Fashion · Saved Files', href: '#/magic', cat: 'productivity', load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
+  { id: 'laundrytimer', name: 'Laundry Timer', icon: '🧺', tint: 'blue', note: 'Washer · Dryer', href: 'apps/laundrytimer/index.html', cat: 'productivity' },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },
+  { id: 'inkling', name: 'Inkling', icon: '🖍️', tint: 'ink', note: 'Sketch it · Search it', href: 'apps/inkling/index.html', cat: 'creativity' },
   { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html', cat: 'games' },
   { id: 'worldatlas', name: 'WorldAtlas', icon: '🗺️', tint: 'green', note: 'Minecraft world map', href: 'apps/worldatlas/index.html', cat: 'games' },
   { id: 'tradedesk', name: 'Trade Desk', icon: '🏈', tint: 'blue', note: 'LHS fantasy trades', href: 'apps/tradedesk/index.html', cat: 'creativity' },
@@ -33,6 +38,8 @@ export const APPS = [
   { id: 'refill', name: 'Reverse Fill', icon: '🎨', tint: 'amber', note: 'Take off a label, logo or stain', href: '#/refill', parent: 'magic', home: false, load: () => import('./refill/refill.js') },
   { id: 'fashion', name: 'Fashion', icon: '👕', tint: 'pink', note: 'Put a top, pants, hat or shoes on', href: '#/fashion', parent: 'magic', home: false, load: () => import('./fashion/fashion.js') },
   { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'magic', home: false, load: () => import('./saved/saved-app.js') },
+  // Not anywhere on screen: reached by a sequence of taps (see web/lib/hidden-lock.js), behind a password.
+  { id: 'hidden', name: 'Hidden', icon: '🔒', tint: 'slate', note: '', href: '#/hidden', home: false, load: () => import('./hidden/hidden.js') },
   // Not on the home screen: opened from Settings.
   { id: 'jobs', name: 'Jobs', icon: '⏱', tint: 'slate', note: 'Background runs & settings', href: '#/jobs', home: false },
 ];
@@ -60,6 +67,10 @@ export const FILES_APPS = [
 export const childrenOf = (id) => APPS.filter((a) => a.parent === id);
 
 export const HOME_ORDER_KEY = 'cc.home.order';
+/** The apps hidden from the home screen (Settings → Edit Home Screen): their ids. */
+export const HOME_HIDDEN_KEY = 'cc.home.hidden';
+/** Whether `id` is hidden, by the list kept (`hidden`: an array of ids, or anything else for none). */
+export const isHidden = (id, hidden) => Array.isArray(hidden) && hidden.includes(id);
 /** The apps on the home screen, in the order you set in Settings (apps added later go at the end). */
 export function homeApps(order = null) {
   const list = APPS.filter((a) => a.home !== false);

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "5d2c96f8a24b",
+  "version": "8065d1b79d2c",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -23,8 +23,21 @@ const PRECACHE = {
     "apps/games/fox/fox.css",
     "apps/games/fox/fox.js",
     "apps/games/fox/index.html",
+    "apps/hidden/hidden.js",
     "apps/hub.js",
     "apps/index.js",
+    "apps/inkling/api/status",
+    "apps/inkling/cc-frame.css",
+    "apps/inkling/index.html",
+    "apps/inkling/public/app.js",
+    "apps/inkling/public/canvas.js",
+    "apps/inkling/public/favicon.svg",
+    "apps/inkling/public/logo.svg",
+    "apps/inkling/public/search-core.js",
+    "apps/inkling/public/styles.css",
+    "apps/inkling/public/vendor/anthropic-sdk.js",
+    "apps/laundrytimer/cc-frame.css",
+    "apps/laundrytimer/index.html",
     "apps/magic/magic.js",
     "apps/notes/notes-core.js",
     "apps/notes/notes.js",
@@ -86,6 +99,7 @@ const PRECACHE = {
     "lib/files.js",
     "lib/geometry.js",
     "lib/handoff.js",
+    "lib/hidden-lock.js",
     "lib/home-extras.js",
     "lib/idb.js",
     "lib/image.js",

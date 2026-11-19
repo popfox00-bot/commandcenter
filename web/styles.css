@@ -1269,3 +1269,4 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .hid-welcome { font-size: 2rem; text-align: center; margin: 24px 0; }
 .hid-shake { animation: hid-shake .3s; }
 @keyframes hid-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.hid-apps .app-grid { padding: 8px 0 12px; }

@@ -101,33 +101,33 @@ test('Settings → Edit Home Screen: apps dragged into order and hidden with the
   await page.goto(`${origin}${BASE}`);
   const home = () => page.$$eval('.app-name', (els) => els.map((e) => e.textContent));
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   await page.click('#home-settings');
   await page.waitForSelector('.st-home', { state: 'attached' });
   // Folded until tapped.
   assert.equal(await page.locator('.st-home').isVisible(), false, 'the reorder list starts folded');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.waitForSelector('.st-home');
-  // Dragged by their ☰: Draw up two places, Notes down one, then Trade Desk up one with the keyboard.
-  await dragRow(page, '.st-home', 'draw', -2);
+  // Dragged by their ☰: Draw up one place, Notes down one, then Trade Desk up one with the keyboard.
+  await dragRow(page, '.st-home', 'draw', -1);
   await dragRow(page, '.st-home', 'notes', 1);
   await page.getByRole('button', { name: /Reorder Trade Desk/ }).focus();
   await page.keyboard.press('ArrowUp');
-  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Games', 'Trade Desk', 'WorldAtlas']);
+  assert.deepEqual(await page.$$eval('.st-home-name', (els) => els.map((e) => e.textContent)), ['Draw', 'Notes', 'Files', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Games', 'Trade Desk', 'WorldAtlas']);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   // Each in its category, in that order: Productivity, then Creativity.
-  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Magic, Units, Laundry Timer', 'Creativity: Rap, Inkling, Trade Desk', 'Games: Games, WorldAtlas']);
+  assert.deepEqual(await page.$$eval('.home-cat', (cs) => cs.map((c) => `${c.querySelector('.home-cat-title').textContent}: ${[...c.querySelectorAll('.app-name')].map((n) => n.textContent).join(', ')}`)), ['Productivity: Draw, Notes, Files, Units, Laundry Timer', 'Creativity: Rap, Inkling, Trade Desk', 'Games: Games, WorldAtlas']);
   await page.reload();
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Magic', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas'], 'kept after a reload');
+  assert.deepEqual(await home(), ['Draw', 'Notes', 'Files', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas'], 'kept after a reload');
   await page.click('#home-settings');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
   await page.getByRole('button', { name: 'Reset to default order' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   // Hidden with its switch: off the home screen, still in the list (dimmed) to show again; Show all.
   await page.click('#home-settings');
   await page.locator('summary', { hasText: 'Edit Home Screen' }).click();
@@ -137,7 +137,7 @@ test('Settings → Edit Home Screen: apps dragged into order and hidden with the
   assert.match(await page.textContent('[data-id="rap"]'), /Hidden from the home screen/);
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Laundry Timer', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Draw', 'Laundry Timer', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   await page.reload(); await page.waitForSelector('.app-tile');
   assert.equal((await home()).includes('Rap'), false, 'kept after a reload');
   await page.click('#home-settings');
@@ -146,7 +146,7 @@ test('Settings → Edit Home Screen: apps dragged into order and hidden with the
   await page.getByRole('button', { name: 'Show all' }).click();
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  assert.deepEqual(await home(), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await home(), ['Notes', 'Files', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   assert.deepEqual(errors, []);
   await context.close();
 });

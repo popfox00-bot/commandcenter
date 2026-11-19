@@ -6,7 +6,7 @@ A personal, phone-first app. Its home screen is in three parts:
   any alert) and **Sports** (every game today, a line each, live ones in red; the card grows with them),
   from what each last loaded (Home itself goes online for nothing). Each line opens its own tab of the
   **Updates** page (Calendar, Weather, Sports and **Packages**), and a game opens Sports on that game.
-- **Productivity**: **Notes**, **Files**, **Magic**, **Draw**, **Units** and **Laundry Timer**.
+- **Productivity**: **Notes**, **Files**, **Draw**, **Units** and **Laundry Timer**.
 - **Creativity**: **Rap**, **Inkling** and **Trade Desk**.
 - **Games**: **Games** (Fox Games) and **WorldAtlas** (the Minecraft world map).
 
@@ -27,10 +27,12 @@ parts': a collage in progress, seen from Edit), and Magic (FM, Reverse Fill, Fas
   [QR codes](#qr--barcode): scan with a link safety check before anything opens, make your own).
   Converted images have an **Edit** button (opens the photo editor) and converted PDFs a **Write on
   it** button. **[Draw](#draw)** is a sketching canvas that saves to Photos or to Saved Files.
-- **Magic** is a page of five apps: **[Downloads](#downloads)** (a video from a link, with a queue
+- **Magic** and **[Saved Files](#saved-files)** (your own Google Drive folder) are kept behind their own
+  password (set on the phone, only a salted hash of it kept), not on the home screen; a link to either
+  asks for it first. Magic is a page of four apps: **[Downloads](#downloads)** (a video from a link, with a queue
   and a history; it needs a connection), **[FM](#fm-facemask)** (face swaps), **[Reverse
-  Fill](#reverse-fill)** (take a label, logo or stain off a surface), **[Fashion](#fashion)** (put a
-  top, pants, a hat or shoes from one photo onto the person in another) and **[Saved Files](#saved-files)** (your own Google Drive folder). Each app inside Files or Magic shows
+  Fill](#reverse-fill)** (take a label, logo or stain off a surface) and **[Fashion](#fashion)** (put a
+  top, pants, a hat or shoes from one photo onto the person in another). Each app inside Files or Magic shows
   its own name at the top, and **‹** goes back to Files or Magic.
 - **[Calendar](#calendar)**: your own events, in a week, day or month view, kept on the phone.
 - **[Weather](#weather)** (Weather Service alerts, forecast, freezes, wind, air quality for ZIP 80214
@@ -92,7 +94,7 @@ choices that keep usage under them.
 
 Open **https://popfox00-bot.github.io/commandcenter/** in Safari, then Share → **Add to Home
 Screen**. Files and Draw work immediately; the Jobs app needs the cloud setup below. (Old links and
-bookmarks still work: the Tools icon's tools, QR (now in Files → Scan), Saved Files (now in Magic).)
+bookmarks still work: the Tools icon's tools, QR (now in Files → Scan), Saved Files (now behind its password).)
 
 Everything they do happens in the browser on your phone. Nothing is uploaded (except what you save
 to [Saved Files](#saved-files), your own Drive; [Downloads](#downloads) only fetches the video link
@@ -479,7 +481,7 @@ It needs a connection, and it's careful about what it fetches:
 
 ### Saved Files
 
-(In **Magic**. A photo opened from it goes to Files → Photo Editor, a PDF to Files → PDF.)
+(Behind its password, with Magic. A photo opened from it goes to Files → Photo Editor, a PDF to Files → PDF.)
 
 **Files → Saved Files** keeps files in your own Google Drive folder: the folder that holds your
 "Saved Files" spreadsheet. A small Google Apps Script in that spreadsheet
@@ -1113,10 +1115,11 @@ in the app go into Fox Games; WorldAtlas is its own app.
 **WorldAtlas** opens the Minecraft Bedrock world map (biomes from the seed, structures, your own markers,
 measuring, the Nether and End; optional sync through its own Apps Script) as its own page, with a **‹ Home**
 link at the bottom left. `web/apps/worldatlas/` is the build of the `minecraft` repository (`npm ci && npm run
-build`, its `dist/`), with the Home link (`cc-frame.css`) and Command Center's icon added; Command Center's
+build`, its `dist/`), with the Home link and a phone layout (`cc-frame.css`: bigger buttons, the tools in one row,
+every text box at 16px so iPhone Safari doesn't zoom in; the viewport's `maximum-scale=1`) and Command Center's icon added; Command Center's
 service worker keeps it offline. Its markers and settings are kept in the browser under this site, so they're
 the same as the standalone WorldAtlas on the same site. To bring in a newer WorldAtlas, build that repository
-again, replace the folder's `index.html` and `assets/`, and make the same two additions.
+again, replace the folder's `index.html` and `assets/`, and make the same additions.
 
 ## Trade Desk
 

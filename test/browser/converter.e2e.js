@@ -55,11 +55,11 @@ async function convertTo(page, label) {
   return page.$$eval('.result strong', (els) => els.map((e) => e.textContent));
 }
 
-test('home screen of apps: Files and Magic hold the others (each back to where it came from), Jobs is in Settings; old links still work; no setup needed', async () => {
+test('home screen of apps: Files holds the others; Magic and Saved Files only once the hidden area is unlocked (each back to where it came from), Jobs is in Settings; old links still work; no setup needed', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Notes', 'Files', 'Magic', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Notes', 'Files', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   // Files: a page of its apps; each opens with its own name, back to Files.
   await page.click('.app-tile >> text=Files');
@@ -83,17 +83,34 @@ test('home screen of apps: Files and Magic hold the others (each back to where i
   await page.click('#view-app .back');
   await page.click('#view-app .back');
   await page.waitForSelector('#view-home:not([hidden])');
-  // Magic: Downloads, FM, Saved Files; back to Magic, then Home.
-  await page.click('.app-tile >> text=Magic');
-  await page.waitForSelector('#app-host .app-tile');
-  assert.deepEqual(await page.$$eval('#app-host .app-name', (els) => els.map((e) => e.textContent)), ['Downloads', 'FM', 'Reverse Fill', 'Fashion', 'Saved Files']);
-  await page.click('#app-host .app-tile >> text=Downloads');
+  // Magic (and its apps) in the hidden area: a link to it asks for that password first, then goes on.
+  await page.evaluate(() => { location.hash = '#/downloads'; });
+  await page.waitForSelector('.hid-pw');
+  assert.equal(await page.isVisible('.dl-url'), false, 'nothing of it shown while locked');
+  const pw = page.locator('.hid-pw');
+  await pw.nth(0).fill('test-pass'); await pw.nth(1).fill('test-pass');
+  await page.click('button:has-text("Set password")');
   await page.waitForSelector('.dl-url');
   assert.equal(await page.textContent('#title'), 'Downloads');
   assert.equal(await page.textContent('#view-app .back'), '‹ Magic');
   await page.click('#view-app .back');
   await page.waitForFunction(() => location.hash === '#/magic');
+  await page.waitForSelector('#app-host .app-tile');
+  assert.deepEqual(await page.$$eval('#app-host .app-name', (els) => els.map((e) => e.textContent)), ['Downloads', 'FM', 'Reverse Fill', 'Fashion']);
   await page.click('#view-app .back');
+  await page.waitForFunction(() => location.hash === '#/hidden');
+  await page.waitForSelector('.hid-apps .app-tile');
+  assert.deepEqual(await page.$$eval('.hid-apps .app-name', (els) => els.map((e) => e.textContent)), ['Magic', 'Saved Files']);
+  // Locked again: Saved Files asks first too.
+  await page.click('button:has-text("Lock")');
+  await page.waitForSelector('#view-home:not([hidden])');
+  await page.evaluate(() => { location.hash = '#/saved'; });
+  await page.waitForSelector('.hid-pw');
+  await page.locator('.hid-pw').fill('test-pass');
+  await page.click('button:has-text("Open")');
+  await page.waitForFunction(() => location.hash === '#/saved');
+  assert.equal(await page.textContent('#title'), 'Saved Files');
+  await page.evaluate(() => { location.hash = '#/'; });
   await page.waitForSelector('#view-home:not([hidden])');
   // Jobs lives in Settings now, and goes back there.
   await page.click('#home-settings');

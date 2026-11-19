@@ -1,8 +1,38 @@
 /* Command Center additions to WorldAtlas (built from the minecraft repository; its page otherwise
-   unchanged): a way back Home, at the bottom left beside the map's Legend (its tools fill the top). */
+   unchanged): a way back Home, at the bottom left beside the map's Legend (its tools fill the top), and
+   a phone-friendlier look. */
 .cc-home {
   position: fixed; left: calc(8px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom));
-  z-index: 1200; display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px;
-  border-radius: 10px; background: #fff; color: #1d4ed8; font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  text-decoration: none; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+  z-index: 1200; display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px;
+  border-radius: 10px; background: var(--panel, #fff); color: var(--accent, #1d4ed8); border: 1px solid var(--line, #ddd);
+  font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}
+/* (Out of the way while a panel is up: it would sit over the panel's buttons.) */
+body:has(.sheet.open) .cc-home { display: none; }
+
+/* Every text box and picker at 16px: iPhone Safari zooms into smaller ones when they're tapped, and the
+   page then stays zoomed in (the map's own pinch zoom is unaffected). */
+input, select, textarea { font-size: 16px !important; }
+
+/* On a phone: bigger, clearer buttons. */
+@media (max-width: 759px), (pointer: coarse) {
+  :root { --tap: 48px; }
+  body { font-size: 15px; }
+  button.icon { border-width: 1.5px; border-radius: 10px; }
+  button.icon svg { width: 23px; height: 23px; stroke-width: 1.8; }
+  .tab { font-size: 16px; padding: 0 16px; }
+  .field > span, .hint, .mitem-sub, .ro-sub, .ro-what, .sheet h3 { font-size: 13px; }
+  .sheet-head h2 { font-size: 18px; }
+  .sheet button.find-row { font-size: 14px; min-height: 44px; }
+  .readout button.small, .banner button.small, .sheet button.small { min-height: 44px; padding: 0 14px; }
+}
+/* On a narrow phone: the tools in one row across the top (they share its width, none cut off), then the
+   Overworld / Nether / End tabs, then the Go to box across the width. */
+@media (max-width: 759px) {
+  .topbar { gap: 8px; }
+  .topbar > button.icon:first-child { order: 0; flex: 0 0 var(--tap); }
+  .top-actions { order: 1; flex: 1 1 calc(100% - var(--tap) - 8px); margin-left: 0; justify-content: space-between; gap: 6px; min-width: 0; }
+  .top-actions button.icon { flex: 1 1 0; width: auto; max-width: 56px; }
+  .tabs { order: 2; }
+  .goto { order: 3; flex: 1 1 100%; }
 }

@@ -1,7 +1,10 @@
 // The hidden page: reached only from a sequence of taps on the Photo Editor's switches, and behind its own
-// password (web/lib/hidden-lock.js): set the first time, asked for after that. For now it says "Welcome!".
+// password (web/lib/hidden-lock.js): set the first time, asked for after that. It says "Welcome!" and holds
+// its apps: Magic (Downloads, FM, Reverse Fill, Fashion) and Saved Files, opened only once it's unlocked.
 
 import { el } from '../../lib/dom.js';
+import { childrenOf } from '../index.js';
+import { renderHub } from '../hub.js';
 import { hasPassword, isOpen, setPassword, tryPassword, waitLeft, lock } from '../../lib/hidden-lock.js';
 
 export function mount(host) {
@@ -9,8 +12,14 @@ export function mount(host) {
   host.append(box);
 
   function welcome() {
+    // (Opened on the way to one of its apps: on to it.)
+    let next = null; try { next = sessionStorage.getItem('cc.hidden.next'); sessionStorage.removeItem('cc.hidden.next'); } catch { next = null; }
+    if (next && next !== '#/hidden') { location.replace(next); return; }
+    const apps = el('div', { class: 'hid-apps' });
+    renderHub(apps, childrenOf('hidden'));
     box.replaceChildren(el('section', { class: 'card hid-card' },
       el('h2', { class: 'hid-welcome', text: 'Welcome!' }),
+      apps,
       el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: '🔒 Lock', onclick: () => { lock(); ask(); location.hash = '#/'; } }))));
   }
 

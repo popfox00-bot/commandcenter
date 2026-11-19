@@ -33,6 +33,9 @@ before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined });
+  // (Its apps are in the hidden area: opened here as if it's been unlocked in this tab.)
+  const plain = browser.newContext.bind(browser);
+  browser.newContext = async (o) => { const c = await plain(o); await c.addInitScript(() => { try { sessionStorage.setItem('cc.hidden.open', '1'); } catch { /* private mode */ } }); return c; };
 });
 after(async () => { await browser?.close(); server?.close(); });
 
@@ -69,7 +72,7 @@ async function openApp(context, hash = '#/downloads') {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${origin}${BASE_PATH}${hash}`);
-  await page.waitForSelector(hash ? '.dl-url' : '.app-tile');
+  await page.waitForSelector(hash === '#/downloads' ? '.dl-url' : hash === '#/hidden' ? '.hid-apps .app-tile' : '.app-tile');
   return { page, errors };
 }
 /** A link typed in and Enter (as checked when typing stops or it's pasted). */
@@ -81,8 +84,8 @@ test('downloads: its own app; checked as soon as it\'s in; stills and a closer l
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
   const seen = [];
   await context.route('https://cdn.example.com/**', cdn(webm, { seen }));
-  const { page, errors } = await openApp(context, '');
-  await page.click('.app-tile >> text=Magic');
+  const { page, errors } = await openApp(context, '#/hidden');
+  await page.click('.hid-apps .app-tile >> text=Magic');
   await page.click('#app-host .app-tile >> text=Downloads');
   await page.waitForSelector('.dl-url');
   assert.deepEqual(await page.$$eval('.dl-tabs [role=tab]', (els) => els.map((e) => e.textContent)), ['Download', 'Queue', 'History']);

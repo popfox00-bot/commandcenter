@@ -903,7 +903,11 @@ the clothes in it: worn by someone, or on its own).
   unless the piece's own cloth covers most of it (only cloth seen in the piece's photo covers skin, never
   what was rebuilt or bridged). A dress is laid in to its hem (a gown's to the feet). What's left of the
   old garment outside its outline (thin straps, a sliver at its edge) takes the new one's color, keeping
-  its own shading. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  its own shading. A black, white or grey garment (or one so dark its hue is noise) takes the piece's own
+  color shaded by its lightness only, so a light piece stays its color on a black top; its parts cut off
+  by hair (its side by the armhole, between strands) are replaced too, while the hair itself stays as it
+  is, in front (dark hair beside a black top is never recolored); and the old garment's own color isn't
+  kept in front as an arm where the person finder misread it as skin. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

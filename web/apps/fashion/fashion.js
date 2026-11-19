@@ -1158,7 +1158,7 @@ export function mount(host) {
           const rx = Math.round(rest.x0 * k); const ry = Math.round(rest.y0 * k);
           const cw = Math.min(rw, W - rx); const ch = Math.min(rh, H - ry); const wgt = new Float32Array(cw * ch);
           for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) wgt[y * cw + x] = big[y * rw + x] / 255;
-          recolor(out, W, { x0: rx, y0: ry, pw: cw, ph: ch, wgt, gain: rest.gain }, B.rgba);
+          recolor(out, W, { x0: rx, y0: ry, pw: cw, ph: ch, wgt, gain: rest.gain, mono: rest.mono }, B.rgba);
         }
         // (The straps, taken off or drawn at the working size: brought up.)
         const sp = mode === 'replace' ? fillCache?.straps : null;

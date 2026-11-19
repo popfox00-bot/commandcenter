@@ -561,6 +561,23 @@ export function finish(layer, S, cache) {
         // (Not the neckline's skin: that's what the piece covers or not, not a hand in front.)
         const ns = trace && S.target ? underHair(S).neckSkin : null;
         if (ns) for (let i = 0; i < a.length; i++) if (ns[i]) a[i] = 0;
+        // (Nor what's the old garment's own color where the finder said skin: a black top's side, past a lock
+        // of hair, read as an arm, would keep the old top in front of the new one. Closer to the garment's
+        // color than to their skin's, and far from their skin: the garment.)
+        if (trace && S.target) {
+          const tone = skinTone(base); const cl = clothesOf(S); const gm = [0, 0, 0]; let gn = 0; const tb2 = S.target.box;
+          for (let y = tb2.y0; y < tb2.y1; y += 2) for (let x = tb2.x0; x < tb2.x1; x += 2) { const i = y * w + x; if (!cl[i]) continue; const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); gm[0] += q[0]; gm[1] += q[1]; gm[2] += q[2]; gn++; }
+          if (tone && gn > 50) {
+            for (let c = 0; c < 3; c++) gm[c] /= gn;
+            const sl = rgbToLab(tone[0], tone[1], tone[2]);
+            const dist = (q, r) => Math.hypot(q[0] - r[0], q[1] - r[1], q[2] - r[2]);
+            if (dist(sl, gm) > 30) for (let i = 0; i < a.length; i++) {
+              if (a[i] <= 140) continue;
+              const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
+              if (dist(q, sl) > 25 && dist(q, gm) < dist(q, sl) * 0.5) a[i] = 0;
+            }
+          }
+        }
         for (let i = 0; i < m.length; i++) { const v = a[i] <= 140 ? 0 : a[i] >= 205 ? 255 : Math.round(((a[i] - 140) / 65) * 255); if (v > m[i]) m[i] = v; }
       }
       // (A body zone: their own skin lying across what they wore, below the neck, a hand or a forearm across
@@ -708,13 +725,21 @@ export function leftovers(S, layer) {
   }
   if (nb < 50 || nl < 50) return null;
   ta /= nb; tb /= nb; tL /= nb;
+  // (Without a hue: grey, white, black; or so dark (a black top in warm light) that its hue is mostly noise.)
+  const hueless = Math.hypot(ta, tb) < 8 || (tL < 30 && Math.hypot(ta, tb) < 16);
+  const tcOf = () => (hueless ? 0 : Math.hypot(ta, tb));
   const gain = [0, 1, 2].map((c) => (lm[c] / nl) / Math.max(8, bm[c] / nb));
   // Around it, about half a face's width.
   // (Above it and beside it: its straps, a sliver at its side. Not below its hem: what's there is another
   // garment (the shorts under a jersey), however alike in color.)
-  const g = Math.round(base.layout.fw * 0.6); const B = target.box;
-  const x0 = Math.max(0, B.x0 - g); const y0 = Math.max(0, B.y0 - g); const x1 = Math.min(w, B.x1 + g); const y1 = Math.min(h, B.y1);
+  // (Further for a garment without a hue: a black top's side seen past a lock of hair, cut off from the rest
+  // by it, is still that top.)
+  const g = Math.round(base.layout.fw * (tcOf() < 8 ? 1.1 : 0.6)); const B = target.box;
+  const x0 = Math.max(0, B.x0 - g); const y0 = Math.max(0, B.y0 - Math.round(base.layout.fw * 0.6)); const x1 = Math.min(w, B.x1 + g); const y1 = Math.min(h, B.y1);
   const pw = x1 - x0; const ph = y1 - y0; const wgt = new Float32Array(pw * ph); let any = 0;
+  // (Hair over it: never recolored (it stays as it is, in front), but what's on either side of a lock is
+  // joined across it.)
+  const pass = new Uint8Array(pw * ph);
   const covered = (X, Y) => { const lx = X - layer.x0; const ly = Y - layer.y0; return lx >= 0 && ly >= 0 && lx < layer.pw && ly < layer.ph && (layer.rgba[(ly * layer.pw + lx) * 4 + 3] >= 128 || !!layer.matted?.[ly * layer.pw + lx]); };
   // (Of their hue: near its color, or its hue at any lightness (its shade); and nearer it than their skin,
   // on them (a strap too thin for the person finder to call clothes), never the leaves behind them.)
@@ -730,18 +755,29 @@ export function leftovers(S, layer) {
     if (p.face[i] >= 128 || Math.max(p.clothes[i], p.body[i], p.others[i], p.hair[i]) < 40 || covered(X, Y)) continue;
     const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
     const d = Math.hypot(q[1] - ta, q[2] - tb); const qc = Math.hypot(q[1], q[2]);
+    // (Hair: dark brown hair is near a black top's lightness, and multiplied up to the piece's color it
+    // would come out pink. Between its strands, where the finder is less sure, the garment's own color
+    // (as light as it, and as colorless for a garment without a hue) is the garment seen there.)
+    if (p.hair[i] >= 40) {
+      const seen = p.hair[i] < 200 && (tL < 30 && q[0] < tL ? q[0] > tL - 14 : Math.abs(q[0] - tL) < 10) && (!hueless ? d < 10 : qc < tc + 4);
+      if (!seen) { pass[(Y - y0) * pw + X - x0] = 1; continue; }
+    }
     let hd = Math.abs(Math.atan2(q[2], q[1]) - th0); if (hd > Math.PI) hd = 2 * Math.PI - hd; hd *= 180 / Math.PI;
     let v = d < 22 ? Math.min(1, (22 - d) / 10) : 0;
     // (A garment without a hue (white, grey, black): by its lightness too. A tattoo's ink isn't a white jersey.)
     // (Where the finder says skin, nearly its lightness: a white strap is as light as the jersey; the light on
     // someone's skin isn't.)
-    if (tc < 8 && Math.abs(q[0] - tL) > (p.body[i] >= 128 ? 12 : 35)) v = 0;
-    if (tc >= 8 && qc >= 8) v = Math.max(v, hd < 20 ? 1 : hd < 35 ? (35 - hd) / 15 : 0);
+    // (Darker than a dark garment is its own shade, a fold or its shadow side: skin is never that dark.)
+    const dL = tL < 30 && q[0] < tL ? 0 : Math.abs(q[0] - tL);
+    // (Where the finder says skin, nearly its lightness; a dark garment's sunlit side a little more: skin is
+    // far lighter.)
+    if (hueless && (dL > (p.body[i] >= 128 ? (tL < 30 ? 18 : 12) : 35) || qc > tc + 6)) v = 0;
+    if (!hueless && qc >= 8) v = Math.max(v, hd < 20 ? 1 : hd < 35 ? (35 - hd) / 15 : 0);
     if (!v) continue;
     if (sk) {
       // (Nearer the garment's hue than their skin's, by its angle where both have color; else by distance.)
       let hs = Math.abs(Math.atan2(q[2], q[1]) - Math.atan2(sk[2], sk[1])); if (hs > Math.PI) hs = 2 * Math.PI - hs; hs *= 180 / Math.PI;
-      if (qc >= 8 && tc >= 8 ? hs <= hd : Math.hypot(q[1] - sk[1], q[2] - sk[2]) < d) continue;
+      if (qc >= 8 && !hueless ? hs <= hd : Math.hypot(q[1] - sk[1], q[2] - sk[2]) < d) continue;
     }
     if (p.clothes[i] < 90) v *= 0.9;
     wgt[(Y - y0) * pw + X - x0] = v; any++;
@@ -749,12 +785,53 @@ export function leftovers(S, layer) {
   if (!any) return null;
   // (Only what's joined to the garment: a strap from it, a sliver along it. A patch off on its own (a mark on
   // an arm) isn't part of it.)
+  // (Reached across a lock of hair: only beside the garment or below its top, never above it (the shadow
+  // between the hair and the neck isn't a strap).)
+  const colTop = new Int32Array(pw).fill(-1);
+  for (let X = Math.max(x0, B.x0); X < Math.min(x1, B.x1); X++) for (let Y = B.y0; Y < B.y1; Y++) if (target.mask[Y * w + X]) { colTop[X - x0] = Y; break; }
+  let topAll = B.y1; for (let x = 0; x < pw; x++) if (colTop[x] >= 0) topAll = Math.min(topAll, colTop[x]);
+  // (Not above the garment's highest row; and as light as the garment itself, not the deep shadow between
+  // the hair and the neck, which isn't a strap.)
+  const below = (x, y) => {
+    if (y0 + y < topAll) return false;
+    const i = ((y0 + y) * w + x0 + x) * 4; const q = rgbToLab(base.rgba[i], base.rgba[i + 1], base.rgba[i + 2]);
+    return (q[0] > tL - 10 && q[0] < tL + (tL < 30 ? 18 : 10)) || !!pass[y * pw + x];
+  };
+  const via = new Uint8Array(pw * ph);
   const keep = new Uint8Array(pw * ph); const st = [];
   const inT = (X, Y) => X >= 0 && Y >= 0 && X < w && Y < h && (!!target.mask[Y * w + X] || covered(X, Y));
-  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const k = y * pw + x; if (!wgt[k]) continue; const X = x0 + x; const Y = y0 + y; if (inT(X - 1, Y) || inT(X + 1, Y) || inT(X, Y - 1) || inT(X, Y + 1)) { keep[k] = 1; st.push(k); } }
-  for (let a = 0; a < st.length; a++) { const k = st[a]; const x = k % pw; const y = (k / pw) | 0; for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, y > 0 ? k - pw : -1, y < ph - 1 ? k + pw : -1]) if (t >= 0 && wgt[t] && !keep[t]) { keep[t] = 1; st.push(t); } }
-  let kept = 0; for (let k = 0; k < pw * ph; k++) { if (!keep[k]) wgt[k] = 0; else kept++; }
-  return kept ? { x0, y0, pw, ph, wgt, gain } : null;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const k = y * pw + x; if (!wgt[k] && !pass[k]) continue; if (pass[k] && !below(x, y)) continue; const X = x0 + x; const Y = y0 + y; if (inT(X - 1, Y) || inT(X + 1, Y) || inT(X, Y - 1) || inT(X, Y + 1)) { keep[k] = 1; via[k] = pass[k]; st.push(k); } }
+  for (let a = 0; a < st.length; a++) {
+    const k = st[a]; const x = k % pw; const y = (k / pw) | 0;
+    for (const t of [x > 0 ? k - 1 : -1, x < pw - 1 ? k + 1 : -1, y > 0 ? k - pw : -1, y < ph - 1 ? k + pw : -1]) {
+      if (t < 0 || keep[t] || !(wgt[t] || pass[t])) continue;
+      const v2 = via[k] || pass[t] ? 1 : 0;
+      if (v2 && !below(t % pw, (t / pw) | 0)) continue;
+      keep[t] = 1; via[t] = v2; st.push(t);
+    }
+  }
+  for (let k = 0; k < pw * ph; k++) if (!keep[k]) wgt[k] = 0;
+  // (No speckle of the old color left among what's recolored: a pixel near the garment's lightness, mostly
+  // surrounded by recolored ones (four passes over its 5 × 5), is recolored as much as they are; not what's
+  // surely hair.)
+  for (let pass2 = 0; pass2 < 4; pass2++) {
+    const prev = Float32Array.from(wgt);
+    for (let y = 2; y < ph - 2; y++) for (let x = 2; x < pw - 2; x++) {
+      const k = y * pw + x; if (prev[k] > 0) continue;
+      let sum = 0; let on = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const v = prev[k + dy * pw + dx]; sum += v; if (v > 0) on++; }
+      if (on < 13) continue;
+      const X = x0 + x; const Y = y0 + y; const i = Y * w + X;
+      if (p.hair[i] >= 200 || p.face[i] >= 128 || covered(X, Y) || (colBot[x] >= 0 && Y > colBot[x])) continue;
+      const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]);
+      if ((tL < 30 && q[0] < tL ? 0 : Math.abs(q[0] - tL)) > 25 || (hueless ? Math.hypot(q[1], q[2]) > Math.hypot(ta, tb) + 8 : Math.hypot(q[1] - ta, q[2] - tb) > 22)) continue;
+      wgt[k] = sum / on;
+    }
+  }
+  let kept = 0; for (let k = 0; k < pw * ph; k++) if (wgt[k]) kept++;
+  // (A garment without a hue (black, white, grey): recolored by its lightness only, the piece's own color
+  // shaded as the old garment was there: a black top's faint warm cast, multiplied up, would tint it pink.)
+  const mono = tcOf() < 8 ? { color: lm.map((v) => v / nl), lum: Math.max(8, (0.299 * bm[0] + 0.587 * bm[1] + 0.114 * bm[2]) / nb) } : null;
+  return kept ? { x0, y0, pw, ph, wgt, gain, mono } : null;
 }
 
 /** The leftovers (above) recolored on `out` (w wide) from `src` (the base's pixels, the same size). In place. */
@@ -763,7 +840,10 @@ export function recolor(out, w, rest, src) {
   for (let y = 0; y < rest.ph; y++) for (let x = 0; x < rest.pw; x++) {
     const v = rest.wgt[y * rest.pw + x]; if (!v) continue;
     const i = ((rest.y0 + y) * w + rest.x0 + x) * 4;
-    for (let c = 0; c < 3; c++) out[i + c] = out[i + c] * (1 - v) + Math.min(255, src[i + c] * rest.gain[c]) * v;
+    if (rest.mono) {
+      const sh = Math.max(0.68, Math.min(1.25, (0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2] + 4) / (rest.mono.lum + 4)));
+      for (let c = 0; c < 3; c++) out[i + c] = out[i + c] * (1 - v) + Math.min(255, rest.mono.color[c] * sh) * v;
+    } else for (let c = 0; c < 3; c++) out[i + c] = out[i + c] * (1 - v) + Math.min(255, src[i + c] * rest.gain[c]) * v;
   }
 }
 

@@ -1,0 +1,55 @@
+// Fashion's Replace, on a black top with dark brown hair lying over it (web/apps/fashion/compose.js:
+// leftovers and recolor): what's left of the old top past the hair (its side by the armhole, which the
+// person finder read as skin) takes the piece's color; the hair itself is never recolored (multiplied up
+// from black to the piece's cream, dark brown hair came out pink); a lighter piece keeps its own color.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { leftovers, recolor } from '../web/apps/fashion/compose.js';
+
+const BLACK = [22, 20, 24]; const HAIR = [62, 36, 30]; const SKIN = [225, 180, 150]; const CREAM = [236, 226, 204];
+
+function scene() {
+  const w = 200; const h = 300; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(235);
+  const target = { mask: new Uint8Array(n), box: { x0: 80, y0: 100, x1: 140, y1: 260 } };
+  const put = (x, y, c) => { const i = (y * w + x) * 4; rgba[i] = c[0]; rgba[i + 1] = c[1]; rgba[i + 2] = c[2]; rgba[i + 3] = 255; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (y >= 20 && y < 80 && x >= 80 && x < 120) { people.face[i] = 255; put(x, y, SKIN); continue; }
+    if (y >= 80 && y < 100 && x >= 92 && x < 108) { people.body[i] = 255; put(x, y, SKIN); continue; }
+    // The top: found as clothes from x = 80 to 140.
+    if (y >= 100 && y < 260 && x >= 80 && x < 140) { people.clothes[i] = 255; target.mask[i] = 1; put(x, y, BLACK); continue; }
+    // A lock of dark brown hair over the top's left side (x 66..80), and the top's side past it (x 58..66),
+    // which the finder took for skin.
+    if (y >= 60 && y < 240 && x >= 66 && x < 80) { people.hair[i] = 255; put(x, y, HAIR); continue; }
+    if (y >= 110 && y < 240 && x >= 58 && x < 66) { people.body[i] = 230; put(x, y, BLACK); continue; }
+    // Their arm beyond it.
+    if (y >= 105 && y < 250 && x >= 40 && x < 58) { people.body[i] = 255; put(x, y, SKIN); continue; }
+  }
+  const base = { w, h, rgba, people, layout: { fw: 40, fh: 60, chin: 80, face: { x0: 80, y0: 20, x1: 120, y1: 80 } } };
+  // The new piece laid in over the top's outline: plain cream.
+  const b = target.box; const pw = b.x1 - b.x0; const ph = b.y1 - b.y0; const L = new Uint8ClampedArray(pw * ph * 4);
+  for (let k = 0; k < pw * ph; k++) { L[k * 4] = CREAM[0]; L[k * 4 + 1] = CREAM[1]; L[k * 4 + 2] = CREAM[2]; L[k * 4 + 3] = 255; }
+  const layer = { x0: b.x0, y0: b.y0, pw, ph, rgba: L };
+  return { S: { base, piece: {}, target, kind: 'top', mode: 'replace', tune: {} }, layer };
+}
+
+test('Replace a black top under dark hair: its side past the hair takes the piece\'s cream; the hair is never recolored (no pink); the cream keeps its color', () => {
+  const { S, layer } = scene(); const { w, rgba } = S.base;
+  const rest = leftovers(S, layer);
+  assert.ok(rest, 'something of the old top left to recolor');
+  const out = Uint8ClampedArray.from(rgba);
+  recolor(out, w, rest, rgba);
+  const px = (x, y) => Array.from(out.slice((y * w + x) * 4, (y * w + x) * 4 + 3));
+  // The top's side past the lock of hair: cream now (light, without a tint), not black.
+  for (const [x, y] of [[60, 150], [63, 200], [61, 130]]) {
+    const [r, g, b] = px(x, y);
+    assert.ok(r > 140 && g > 130 && b > 115, `the top's side recolored at ${x},${y}: ${[r, g, b]}`);
+    assert.ok(r - b < 45 && Math.abs(r - g) < 25, `cream, not pink, at ${x},${y}: ${[r, g, b]}`);
+  }
+  // The hair: exactly as it was.
+  for (const [x, y] of [[70, 150], [75, 200], [68, 120], [78, 230]]) assert.deepEqual(px(x, y), HAIR, `hair untouched at ${x},${y}`);
+  // Their skin and face: untouched.
+  assert.deepEqual(px(48, 150), SKIN); assert.deepEqual(px(100, 50), SKIN);
+});

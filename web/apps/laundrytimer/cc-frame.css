@@ -1,3 +1,8 @@
 /* Command Center additions to Laundry Timer (copied from the laundrytimer repository; its page otherwise
    unchanged): a way back Home, pinned at the top right (the page lays itself out as a centered column; its title is at the left). */
 .cc-home { position: fixed; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); z-index: 50; padding: 6px 8px; color: inherit; font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; opacity: .85; }
+
+
+/* Every text box and picker at 16px (none here is meant to be bigger): iPhone Safari zooms into smaller
+   ones when tapped, and the page stays zoomed in. */
+input, select, textarea { font-size: 16px !important; }

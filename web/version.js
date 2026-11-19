@@ -4,6 +4,7 @@
 
 /** @type {{ v: string, date: string, notes: string }[]} */
 export const HISTORY = [
+  { v: '1.86', date: '2026-11-19', notes: 'No more zooming in on a phone, in every app (Fashion, FM, Files, Settings and the rest, and Trade Desk, Inkling, Laundry Timer and Fox Games): every text box and picker is big enough that iPhone Safari doesn\'t zoom in when one is tapped (it stayed zoomed in, cut off at the right). Pinch-zooming a photo or map still works. The decryption page fits a phone\'s width too.' },
   { v: '1.85', date: '2026-11-19', notes: 'WorldAtlas easier on a phone: bigger, clearer buttons, its tools in one row across the top (none cut off), the Go to box across the width, and no more zooming in when a box is tapped (it stayed zoomed in). Magic and Saved Files are behind their own password now, off the home screen.' },
   { v: '1.84', date: '2026-11-19', notes: 'Laundry Timer (Productivity) and Inkling (Creativity: sketch it, search it; with your own Anthropic key in its settings) in Command Center, working offline. Settings → Edit Home Screen: a switch on each app to hide it from the home screen (Show all brings them back).' },
   { v: '1.83', date: '2026-11-18', notes: 'WorldAtlas (your Minecraft Bedrock world\'s map: biomes, structures and your own markers) in Command Center, in a new Games part of the home screen with Fox Games; it works offline too.' },

@@ -5,3 +5,8 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
 .cc-home + #app .page { padding-top: 12px; }
+
+
+/* Every text box and picker at 16px (none here is meant to be bigger): iPhone Safari zooms into smaller
+   ones when tapped, and the page stays zoomed in. */
+input, select, textarea { font-size: 16px !important; }

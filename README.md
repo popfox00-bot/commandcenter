@@ -7,7 +7,7 @@ A personal, phone-first app. Its home screen is in three parts:
   from what each last loaded (Home itself goes online for nothing). Each line opens its own tab of the
   **Updates** page (Calendar, Weather, Sports and **Packages**), and a game opens Sports on that game.
 - **Productivity**: **Notes**, **Files**, **Draw**, **Units** and **Laundry Timer**.
-- **Creativity**: **Rap**, **Inkling** and **Trade Desk**.
+- **Creativity**: **Rap**, **Socials**, **Inkling** and **Trade Desk**.
 - **Games**: **Games** (Fox Games) and **WorldAtlas** (the Minecraft world map).
 
 **⚙ Settings** is at the top right, beside the version (tap the version for what changed in each, and
@@ -78,7 +78,7 @@ choices that keep usage under them.
 
 - [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files) · [Downloads](#downloads)
 - [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters · [Reverse Fill](#reverse-fill) · [Fashion](#fashion)
-- [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Games](#games) · [Settings](#settings)
+- [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Socials](#socials) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
 - [Repository layout](#repository-layout)
 - [Quick start (local, no cloud)](#quick-start-local-no-cloud)
@@ -1173,6 +1173,19 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
   endings like "watch me ___"); notices in `DATA-LICENSES.md`. Words it doesn't know ("stuntin'") are
   worked out from their stem or ending. Suggestions learn from `rap-corpus.js` (lines written for this
   app) and your songs.
+
+## Socials
+
+A photo feed laid out the way phone photo apps are (a row of accounts across the top, posts with the photo,
+♥ and 💬, likes, caption and comments, a tab bar of Home, Search, New post and Profile), where everything is
+made by you in the app. Make as many accounts as you like (a username, a name, a bio, a profile photo) and
+switch between them from the top bar; post a photo with a caption from whichever one is in use; follow one
+account from another; Home shows the posts of the accounts the one in use follows (and its own), newest first.
+Like (♥, or double-tap the photo) and comment as the account in use; Search finds accounts and shows every
+post as a grid; a profile shows its posts, followers and following. Delete a post from its ⋯, an account
+from Edit profile. All of it, photos included (resized to at most 1440 px), is kept on this phone in
+IndexedDB and is still there after a reload; nothing is fetched or sent anywhere. The rules live in
+`web/apps/socials/socials-core.js` (tested in `test/socials.test.js`), the screens in `socials.js`.
 
 ## Packages
 

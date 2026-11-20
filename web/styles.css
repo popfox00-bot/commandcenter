@@ -1285,3 +1285,89 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .cl-layer-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: 0; color: inherit; padding: 2px; text-align: left; min-height: 44px; }
 .cl-layer-thumb { width: 40px; height: 40px; border-radius: 6px; flex: none; }
 .cl-layer-bg { opacity: .85; }
+
+/* Socials: a photo feed laid out as phone photo apps are: a top bar (its name, the account in use), the
+   feed (a row of accounts, then posts: a header, the photo, ♥ 💬, likes, caption, comments), and a tab bar
+   pinned at the bottom (Home, Search, New post, Profile). */
+.so { max-width: 520px; margin: 0 auto; padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+.so-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; background: var(--bg); }
+.so-logo { font-family: "Snell Roundhand", "Brush Script MT", "Segoe Script", cursive; font-size: 1.7rem; font-weight: 700; letter-spacing: .01em; }
+.so-logo-big { font-size: 2.6rem; text-align: center; }
+.so-switch { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 600; background: none; border: 0; color: var(--text); min-height: 44px; cursor: pointer; max-width: 55%; }
+.so-switch span:not(.so-av) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-main { min-height: 50vh; }
+.so-pad { padding: 12px; }
+.so-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: space-around; align-items: center; height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: var(--bg); border-top: 1px solid var(--border); }
+.so-tabs:empty { display: none; }
+.so-tab { flex: 1; max-width: 120px; height: 56px; font-size: 1.7rem; line-height: 1; background: none; border: 0; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.so-tab.active { color: var(--text); font-weight: 700; }
+.so-tab.active .so-av { outline: 2px solid var(--text); outline-offset: 1px; }
+.so-av { border-radius: 50%; object-fit: cover; flex: none; display: inline-grid; place-items: center; background: linear-gradient(135deg, #f9a03f, #d62976 55%, #7a3ff2); color: #fff; font-weight: 700; }
+.so-av-s { width: 30px; height: 30px; font-size: .8rem; }
+.so-av-m { width: 44px; height: 44px; font-size: 1.1rem; }
+.so-av-l { width: 62px; height: 62px; font-size: 1.5rem; }
+.so-av-xl { width: 86px; height: 86px; font-size: 2.2rem; }
+.so-stories { display: flex; gap: 14px; overflow-x: auto; padding: 10px 12px; border-bottom: 1px solid var(--border); scrollbar-width: none; }
+.so-story { display: grid; justify-items: center; gap: 4px; background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; width: 70px; flex: none; }
+.so-ring { padding: 2px; border-radius: 50%; background: linear-gradient(45deg, #f9ce34, #ee2a7b, #6228d7); display: grid; }
+.so-ring .so-av { border: 2px solid var(--bg); }
+.so-story-name { font-size: .72rem; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-post { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.so-post-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.so-avbtn { background: none; border: 0; padding: 0; cursor: pointer; display: grid; }
+.so-handle { font: inherit; font-weight: 700; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; }
+.so-dot { font-size: .85rem; }
+.so-more { margin-left: auto; background: none; border: 0; color: var(--text); font-size: 1.3rem; min-width: 44px; min-height: 44px; cursor: pointer; }
+.so-pic { position: relative; background: #000; display: grid; place-items: center; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.so-pic img { width: 100%; max-height: 80vh; aspect-ratio: auto; object-fit: contain; display: block; }
+.so-burst { position: absolute; font-size: 6rem; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.4); animation: so-burst .7s ease-out forwards; pointer-events: none; }
+@keyframes so-burst { 0% { transform: scale(.3); opacity: 0; } 25% { transform: scale(1.1); opacity: 1; } 70% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .so-burst { animation-duration: .01s; } }
+.so-actions { display: flex; gap: 4px; padding: 4px 6px 0; }
+.so-act { background: none; border: 0; font-size: 1.6rem; line-height: 1; min-width: 44px; min-height: 44px; color: var(--text); cursor: pointer; }
+.so-like.on { color: #ed4956; }
+.so-likes { font-weight: 700; padding: 0 12px; }
+.so-caption, .so-comment { margin: 4px 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.so-link { font: inherit; background: none; border: 0; padding: 4px 12px; color: var(--accent, #0095f6); font-weight: 600; cursor: pointer; text-align: left; }
+.so-link.muted { color: var(--muted); font-weight: 400; }
+.so-comment-add { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; }
+.so-comment-input { flex: 1; min-width: 0; }
+.so-input { font: inherit; font-size: 16px; width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); min-height: 44px; }
+textarea.so-input { resize: vertical; }
+.so-empty { text-align: center; padding: 40px 16px; display: grid; gap: 8px; justify-items: center; }
+.so-empty-big { font-size: 1.3rem; font-weight: 700; margin: 0; }
+.so-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.so-row .btn { flex: 1; }
+.so-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.so-tile { aspect-ratio: 1; padding: 0; border: 0; background: var(--surface); cursor: pointer; overflow: hidden; display: grid; place-items: center; }
+.so-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.so-tile-text { padding: 6px; font-size: .8rem; color: var(--text); overflow: hidden; }
+.so-people { display: grid; }
+.so-person { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+.so-person-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 0; font: inherit; color: var(--text); text-align: left; cursor: pointer; min-height: 52px; }
+.so-person-text { display: grid; min-width: 0; }
+.so-person-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-check { color: var(--accent, #0095f6); font-weight: 700; font-size: 1.2rem; }
+.so-prof { display: grid; gap: 6px; }
+.so-prof-top { display: flex; align-items: center; gap: 16px; }
+.so-stats { flex: 1; display: flex; justify-content: space-around; }
+.so-stat { display: grid; justify-items: center; background: none; border: 0; font: inherit; color: var(--text); cursor: pointer; min-height: 44px; }
+.so-stat strong { font-size: 1.1rem; }
+.so-stat span { font-size: .85rem; }
+.so-prof-handle { font-weight: 700; }
+.so-prof-name { font-weight: 600; }
+.so-bio { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.so-back { display: flex; align-items: center; gap: 4px; padding: 0 6px; border-bottom: 1px solid var(--border); }
+.so-back strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-form { display: grid; gap: 10px; }
+.so-form-pic { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.so-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.so-err { color: #dc2626; margin: 0; min-height: 0; }
+.so-err:empty { display: none; }
+.so-delete { margin-top: 24px; width: 100%; }
+.so-new { display: grid; gap: 10px; }
+.so-new-pick { display: block; cursor: pointer; position: relative; }
+.so-new-prev { aspect-ratio: 1; border: 2px dashed var(--border); border-radius: 12px; display: grid; place-items: center; overflow: hidden; background: var(--surface); }
+.so-new-prev img { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.so-welcome { display: grid; gap: 8px; text-align: center; }
+.so-welcome .so-form { text-align: left; }

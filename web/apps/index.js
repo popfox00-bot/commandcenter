@@ -13,6 +13,7 @@
 // and Laundry Timer (web/apps/laundrytimer/) and Inkling (web/apps/inkling/, its browser version: your own
 // Anthropic key in its settings), copied from their repositories with a ‹ Home link. Games played in the
 // app go into Fox Games; WorldAtlas stays its own app (a Minecraft companion, not a game played here).
+// Socials (Creativity) is a photo feed of accounts you make yourself, all kept on this phone.
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', cat: 'updates', home: false, parent: 'updates', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', cat: 'updates', home: false, parent: 'updates', load: () => import('./weather/weather.js') },
@@ -25,6 +26,7 @@ export const APPS = [
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
   { id: 'laundrytimer', name: 'Laundry Timer', icon: '🧺', tint: 'blue', note: 'Washer · Dryer', href: 'apps/laundrytimer/index.html', cat: 'productivity' },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },
+  { id: 'socials', name: 'Socials', icon: '📸', tint: 'pink', note: 'Your accounts · Posts · Feed', href: '#/socials', cat: 'creativity', load: () => import('./socials/socials.js') },
   { id: 'inkling', name: 'Inkling', icon: '🖍️', tint: 'ink', note: 'Sketch it · Search it', href: 'apps/inkling/index.html', cat: 'creativity' },
   { id: 'games', name: 'Games', icon: '🦊', tint: 'fox', note: 'Fox Games', href: 'apps/games/fox/index.html', cat: 'games' },
   { id: 'worldatlas', name: 'WorldAtlas', icon: '🗺️', tint: 'green', note: 'Minecraft world map', href: 'apps/worldatlas/index.html', cat: 'games' },

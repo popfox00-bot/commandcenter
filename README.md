@@ -928,6 +928,17 @@ the clothes in it: worn by someone, or on its own).
   garment worn there really ends (rows of its own color joined to the row above, along the row through its
   color, until the stripes of the pants stop it); and each sleeve is bent along both people's arms
   (shoulder, elbow, wrist), as long and as wide as it is on the piece, turned with the arm.
+- **The engine** (`web/apps/fashion/engine.js`, since 3.00): Replace on a top, a dress or an upper body, with both
+  people's poses found, puts the piece on as one continuous mapping, rigged: the torso by a gentle thin-plate warp
+  through the chin, shoulders and hips; each arm by its bones (how far along shoulder → elbow → wrist, how far to
+  the side, scaled by the bodies' sizes); blended per pixel by distance near the shoulders (the shoulder's cap is
+  the torso's). Only the piece's own cloth is sampled (its person's clothes, not anyone's skin, face or hair; small
+  holes filled, its neckline open; below its waist only cloth continuing from above; cut at its real hem), its
+  colors carried smoothly past its edges so none of its background comes along. An arm the piece's photo hides
+  (its bones over someone else, or a forearm folded short) is read from its other arm mirrored; a part hidden but
+  worn on the base is taken from its other side; cloth cut off by its photo or zone is carried on, mirrored. The
+  layer then goes through the same finish as before (light, what's in front, grain, edge shadows). Without both
+  poses, the older ways below are used.
 - **Taken off first** (Replace: a top, a dress, an upper body): all of the garment worn there is found, joined
   or not: every bit of clothing in the upper body zone of that person is it (its side seen past a lock of
   hair, a strip by the armhole the person finder called skin, what shows between strands: by its own color,

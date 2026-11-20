@@ -319,9 +319,10 @@ test('fashion: an upper body zone ends at a waist tilted as the hips are; a pers
   m /= N; const sd = Math.sqrt(v / N - m * m);
   assert.ok(sd > 4.5 && sd < 10, `its detail as strong as the skin's (about 7): ${sd.toFixed(1)}`);
   assert.ok(Math.abs(m) < 1.5 && g / N < 1, `no shade or tint added: mean ${m.toFixed(2)}, green ${(g / N).toFixed(2)}`);
-  // (No repeat: a stretch far off isn't the same as this one.)
-  let same = 0; for (let k = 0; k < 400; k++) { const a = t(k, 5)[0]; const b2 = t(k + 512, 5)[0]; if (Math.abs(a - b2) < 0.5) same++; }
-  assert.ok(same < 120, `not a repeat: ${same} of 400 alike`);
+  // (No repeat: at no distance up to 200 px along a row is the texture the same again.)
+  let worst = 0; let at = 0;
+  for (let d = 8; d <= 200; d++) { let same = 0; for (let k = 0; k < 200; k++) if (Math.abs(t(k, 5)[0] - t(k + d, 5)[0]) < 0.5) same++; if (same > worst) { worst = same; at = d; } }
+  assert.ok(worst < 60, `not a repeating tile: ${worst} of 200 alike ${at} px on`);
 });
 
 test('fashion: a print (lettering) on the piece keeps its proportions when laid onto an outline that widens: rigid, not stretched row by row', () => {

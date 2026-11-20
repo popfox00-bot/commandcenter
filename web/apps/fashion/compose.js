@@ -8,6 +8,7 @@ import { boxBlur } from '../../lib/geometry.js';
 import { softenMask } from '../../lib/geometry.js';
 import { rgbToLab } from '../../lib/color-match.js';
 import { cleanUp, membrane } from '../../tools/editor/cleanup.js';
+import { engineFor, engineLayer } from './engine.js';
 
 /**
  * What's worn there and what of it the hair hides (long hair over a shirt): the garment goes on under the
@@ -861,6 +862,9 @@ export function buildLayer(S) {
     // (Laid into the outline as it is; then moved, sized and turned by hand as a whole, the same as in
     // Overlay: what it no longer covers of the old garment is taken off.)
     const still = { ...S, tune: { ...tune, scale: 100, wide: 100, long: 100, rot: 0, dx: 0, dy: 0 } };
+    // (Taken off first, both people's bodies found: the piece put on as one smooth whole (engine.js). The ways
+    // below are for when that can't be done.)
+    if (erasing(still) && engineFor(still)) { const E = engineLayer(still); if (E) return transformLayer(E, tune, w, h); }
     if (isZone(kind) && kind !== 'lower' && base.layout && piece.layout && base.people && piece.people) {
       const z = zoneLayer(still); if (z) return transformLayer(z, tune, w, h);
     }

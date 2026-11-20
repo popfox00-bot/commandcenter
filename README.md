@@ -966,6 +966,10 @@ the clothes in it: worn by someone, or on its own).
   edge on the made skin softened over a few pixels. Their skin's color is matched channel by channel (a ratio, so its warmth
   is kept, never washed toward grey), its exact shade where it meets their skin, and only a little way in (a
   sixth of a face's height) before it's the made skin's own light: the deep shade under a jaw stays by the jaw.
+  Each side of a made neck is one smooth line (its shape, or just inside where their hair comes in, smoothed
+  down the neck): skin inside, the dark behind the neck past it, so the hair's ragged edge lies on dark, not
+  skin. The piece's own skin in its open collar is dropped there, and a thin line of something on it the finder
+  called cloth (the model's necklace) with it.
   Opened again after an update, the piece is placed afresh, and a drag, pinch or turn made on the old placing
   is dropped (the sliders are kept). A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.

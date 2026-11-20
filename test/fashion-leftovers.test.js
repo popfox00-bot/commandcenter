@@ -223,3 +223,31 @@ test('made skin keeps their skin\'s color by a deep shade: not washed out to a g
   // (...and that shade only a little way in (a fifth of a face's height): past it, lit as their skin is.)
   assert.ok(L(at(60, 72)) > L(SKIN) * 0.8, `lit as their skin past the jaw's shade: ${at(60, 72)}`);
 });
+
+test('a made neck beside hair: the skin ends on a smooth neck line and what\'s behind it (dark, as under the hair) is past it, so the hair\'s ragged edge lies on dark, not skin', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 200; const h = 240; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const SKIN = [220, 170, 140]; const HAIR = [50, 30, 25];
+  let seed = 3; const rnd = () => { seed = (seed * 1103515245 + 12345) >>> 0; return seed / 4294967296; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    // (Hair down both sides, its inner edge ragged.)
+    const edgeL = 40 + Math.floor(rnd() * 10); const edgeR = 160 - Math.floor(rnd() * 10);
+    if (y >= 10 && y < 70 && x >= 75 && x < 125) { people.face[i] = 255; put(SKIN); }
+    else if (y >= 20 && y < 230 && (x < edgeL || x >= edgeR)) { people.hair[i] = 255; put(HAIR); }
+    else if (y >= 70 && y < 230) { people.clothes[i] = 255; zm[i] = 1; put([20, 20, 24]); }   // the top, out to the hair
+  }
+  const P = (x, y) => [x, y, 1];
+  const S = { base: { w, h, rgba, people, pose: { shoulders: [P(55, 140), P(145, 140)], elbows: [P(45, 200), P(155, 200)], wrists: [P(45, 240), P(155, 240)], hips: [P(70, 260), P(130, 260)] }, layout: { fw: 250, fh: 60, chin: 70, face: { x0: 75, y0: 10, x1: 125, y1: 70 } } }, target: {}, kind: 'upper', mode: 'replace' };
+  // (A face as wide as this one would have a neck wider than the gap between the locks: the hair decides.)
+  const e = eraseGarment(S, { mask: zm, box: { x0: 30, y0: 70, x1: 170, y1: 230 } });
+  const L = (x, y) => { const o = ((y - e.y0) * e.pw + x - e.x0) * 4; return 0.299 * e.rgba[o] + 0.587 * e.rgba[o + 1] + 0.114 * e.rgba[o + 2]; };
+  // (By the hair, past the neck's side: dark, as the hair is.)
+  assert.ok(L(47, 100) < L(100, 100) * 0.55, `dark beside the hair: ${L(47, 100).toFixed(0)} vs neck ${L(100, 100).toFixed(0)}`);
+  // (The neck's side a smooth line: from row to row it moves little, though the hair's edge jumps.)
+  const side = (y) => { let x = 100; while (x > 50 && L(x, y) > L(100, y) * 0.75) x--; return x; };
+  let jump = 0; for (let y = 86; y < 125; y++) jump = Math.max(jump, Math.abs(side(y) - side(y - 1)));
+  assert.ok(jump <= 3, `a smooth neck line: it moves at most ${jump} px from row to row`);
+});

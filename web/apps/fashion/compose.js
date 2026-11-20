@@ -1001,6 +1001,41 @@ export function eraseGarment(S, z) {
   const field = mid ? boxBlur(lum, ok, bw, bh, R) : null;
   const cover = mid ? boxBlur(Float32Array.from(ok), new Uint8Array(bw * bh).fill(1), bw, bh, R) : null;
   const L0 = base.layout;
+  // The neck: a column from under the chin down to the shoulders, its middle under the chin's lowest point
+  // leaning to the shoulders' middle, a third of a face wide at the jaw and flaring toward the shoulders.
+  // Above the shoulders, what's made is the neck (lit round, as a cylinder is), and beside it a soft shadow
+  // (what's behind it under their hair), not a flat slab of skin from one side to the other.
+  let neck = null;
+  {
+    const q = base.pose; const seenP = (v) => v && v[2] >= 0.3;
+    if (L0?.face && q && seenP(q.shoulders?.[0]) && seenP(q.shoulders?.[1])) {
+      // (The chin's lowest point: the lowest rows of the face, their middle.)
+      let cy = -1; for (let y = Math.min(h - 1, Math.round(L0.face.y1 + L0.fh * 0.2)); y > L0.face.y0; y--) { let any = false; for (let x = Math.max(0, Math.floor(L0.face.x0)); x < Math.min(w, Math.ceil(L0.face.x1)); x++) if (p.face[y * w + x] >= 128) { any = true; break; } if (any) { cy = y; break; } }
+      let sx = 0; let sn = 0; if (cy > 0) for (let y = Math.max(0, cy - Math.round(L0.fh * 0.06)); y <= cy; y++) for (let x = Math.max(0, Math.floor(L0.face.x0)); x < Math.min(w, Math.ceil(L0.face.x1)); x++) if (p.face[y * w + x] >= 128) { sx += x; sn++; }
+      if (sn) {
+        const cx0 = sx / sn; const sy = (q.shoulders[0][1] + q.shoulders[1][1]) / 2; const smx = (q.shoulders[0][0] + q.shoulders[1][0]) / 2;
+        const y1 = Math.max(cy + L0.fh * 0.35, sy);
+        neck = {
+          y0: cy, y1,
+          at: (y) => { const t = Math.max(0, Math.min(1, (y - cy) / Math.max(1, y1 - cy))); return { c: cx0 + (smx - cx0) * t * 0.7, hw: L0.fw * (0.3 + 0.22 * t * t) }; },
+        };
+      }
+    }
+  }
+  const soft = Math.max(2, Math.round(fh / 22));
+  // (Shade where it meets hair or a deep shadow beside it (not their skin): skin is darker in the hollow
+  // under a lock of hair or against the dark behind it, so it sits in the picture, not on it.)
+  const occ = new Float32Array(bw * bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; const i = (Y0 + y) * w + X0 + x;
+    if (z.mask[i]) { occ[k] = 1e9; continue; }
+    const v = 0.299 * base.rgba[i * 4] + 0.587 * base.rgba[i * 4 + 1] + 0.114 * base.rgba[i * 4 + 2];
+    occ[k] = (p.hair[i] >= 128 || (mid && v < mid * 0.35)) && p.face[i] < 128 ? 0 : 1e9;
+  }
+  chamfer(occ, bw, bh);
+  const aoR = Math.max(4, fh * 0.09);
+  // (The shadow beside the neck fades out over its last fifth, into the shoulders.)
+  const y1Fade = (y) => (neck ? Math.max(0, Math.min(1, (neck.y1 - y) / ((neck.y1 - neck.y0) * 0.2))) : 0);
   // The made-up skin's smooth color at any pixel of the box (its light; no texture yet).
   const rowEnds = new Int32Array(bh * 2).fill(-1);
   for (let y = b.y0; y < b.y1; y++) { let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (z.mask[y * w + x]) { if (l < 0) l = x; r = x + 1; } rowEnds[(y - Y0) * 2] = l; rowEnds[(y - Y0) * 2 + 1] = r; }
@@ -1011,6 +1046,9 @@ export function eraseGarment(S, z) {
     // (Round: each row's stretch of it a little darker toward its ends.)
     const l = rowEnds[(y - Y0) * 2]; const r = rowEnds[(y - Y0) * 2 + 1];
     if (l >= 0 && x >= l && x < r) { const u = (x + 0.5 - l) / Math.max(1, r - l); sh *= 1 - 0.08 * (1 - Math.sqrt(Math.max(0, Math.sin(Math.PI * u)))); }
+    { const ko = (y - Y0) * bw + x - X0; const dd = occ[ko]; if (dd < aoR) { const t = 1 - dd / aoR; sh *= 1 - 0.42 * t * t; } }
+    // (On the neck: round, its middle lit, darker toward its sides.)
+    if (neck && y >= neck.y0 && y < neck.y1) { const { c, hw } = neck.at(y); const u = Math.min(1, Math.abs(x + 0.5 - c) / hw); sh *= 1 - 0.3 * (1 - Math.sqrt(Math.max(0, Math.cos((Math.PI / 2) * u)))); }
     // (Under the chin: in its shadow, darkest just below the jaw, lighter going down the neck.)
     if (L0 && y >= L0.chin && y < L0.chin + L0.fh * 0.45) sh *= 0.62 + 0.38 * Math.min(1, (y - L0.chin) / (L0.fh * 0.45));
     return sh;
@@ -1067,6 +1105,11 @@ export function eraseGarment(S, z) {
       rgba[o + c] = tone[c] * sh + d + (dt ? dt[c] * sh : 0);
     }
     // (The rim softly, its outer pixels less: no new edge of its own.)
+    // (Beside the neck, above the shoulders: shadow, what's behind it, deepening away from its edge.)
+    if (neck && y >= neck.y0 && y < neck.y1) {
+      const { c, hw } = neck.at(y); const out2 = Math.abs(x + 0.5 - c) - hw;
+      if (out2 > -soft) { const t = Math.max(0, Math.min(1, (out2 + soft) / (2 * soft))); const fall = Math.min(1, (y1Fade(y)) ); const dk = 0.22 + 0.2 * Math.max(0, 1 - out2 / (soft * 6)); for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = rgba[o + c2] * (1 - t * fall) + tone[c2] * dk * t * fall; }
+    }
     rgba[o + 3] = z.mask[i] ? 255 : Math.round(255 * Math.min(1, 1.3 - dz[kk] / (rimR + 1)));
   }
   return { x0: ob.x0, y0: ob.y0, pw, ph, rgba };

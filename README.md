@@ -956,7 +956,12 @@ the clothes in it: worn by someone, or on its own).
   Made-up skin takes the person's own texture: many patches of their clear skin (arms, shoulders, chest; the
   face's skin if no other shows), each its fine detail (pores, grain) and half its soft mottling, the broad
   light taken out, patches with something in them left out and marks (a mole) held back, laid on as a
-  patchwork of randomly picked, turned and blended patches with its contrast kept: no repeating tile. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  patchwork of randomly picked, turned and blended patches with its contrast kept: no repeating tile.
+  A made neck is shaped as one: a column from the chin's lowest point leaning to the shoulders' middle, a
+  third of a face wide at the jaw and flaring toward the shoulders, lit round, with soft shadow beside it;
+  and made skin is shaded where it meets hair or a deep shadow (the hollow under a lock of hair).
+  Opened again after an update, the piece is placed afresh, and a drag, pinch or turn made on the old placing
+  is dropped (the sliders are kept). A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

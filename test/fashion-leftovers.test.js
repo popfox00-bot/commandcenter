@@ -174,3 +174,26 @@ test('no dark line between the jaw and the new neck: a black collar\'s pure-blac
   for (const y of [73, 74, 75]) assert.ok(on(80, y), `the collar's black edge under the jaw, row ${y}`);
   assert.ok(!on(80, 65) && !on(30, 100), 'not the face, not their hair beside it');
 });
+
+test('made skin starting right under the jaw: no line where it meets it (its exact shade there); the chin\'s shadow comes in gradually below, never a step', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 120; const h = 200; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const JAW = [205, 160, 132];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 60 && x >= 35 && x < 85) { people.face[i] = 255; put(JAW); }          // the face down to the chin (60)
+    else if (y >= 60 && y < 190 && x >= 25 && x < 95) { people.clothes[i] = 255; zm[i] = 1; put([20, 20, 24]); } // the top, right under it
+    else if (y >= 60 && y < 190 && x >= 8 && x < 25) { people.body[i] = 255; put([225, 180, 150]); }   // an arm
+  }
+  const z = { mask: zm, box: { x0: 25, y0: 60, x1: 95, y1: 190 } };
+  const S = { base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 60, face: { x0: 35, y0: 10, x1: 85, y1: 60 } } }, target: {}, kind: 'top', mode: 'replace' };
+  const e = eraseGarment(S, z);
+  const lum = (x, y) => { const o = ((y - e.y0) * e.pw + x - e.x0) * 4; return 0.299 * e.rgba[o] + 0.587 * e.rgba[o + 1] + 0.114 * e.rgba[o + 2]; };
+  const jaw = 0.299 * JAW[0] + 0.587 * JAW[1] + 0.114 * JAW[2];
+  assert.ok(Math.abs(lum(60, 60) - jaw) < 14, `right under the jaw, its shade: ${lum(60, 60).toFixed(0)} vs ${jaw.toFixed(0)}`);
+  let step = 0; for (let y = 61; y < 100; y++) step = Math.max(step, Math.abs(lum(60, y) - lum(60, y - 1)));
+  assert.ok(step < 6, `no step going down: largest ${step.toFixed(1)}`);
+  assert.ok(lum(60, 72) < lum(60, 60) - 8, 'the chin\'s shadow comes in below');
+});

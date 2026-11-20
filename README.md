@@ -959,7 +959,11 @@ the clothes in it: worn by someone, or on its own).
   patchwork of randomly picked, turned and blended patches with its contrast kept: no repeating tile.
   A made neck is shaped as one: a column from the chin's lowest point leaning to the shoulders' middle, a
   third of a face wide at the jaw and flaring toward the shoulders, lit round, with soft shadow beside it;
-  and made skin is shaded where it meets hair or a deep shadow (the hollow under a lock of hair).
+  and made skin is shaded where it meets hair or a deep shadow (the hollow under a lock of hair). These shapes
+  come in only away from their real skin (over about a fifth of a face's height), so where made skin meets
+  theirs it is exactly theirs, matched to its exact shade (not a blur of it); beside the neck, what's around it
+  (the dark behind it, their hair) is carried in smoothly; and the piece's open collar fades in over a band, its
+  edge on the made skin softened over a few pixels.
   Opened again after an update, the piece is placed afresh, and a drag, pinch or turn made on the old placing
   is dropped (the sliders are kept). A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.

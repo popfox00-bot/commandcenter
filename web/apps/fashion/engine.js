@@ -15,10 +15,11 @@
 // The light of the base, what's in front (hair, hands), grain and the shadows at its edges are added after,
 // as for any layer (compose.js, finish).
 
-import { garmentZone } from './compose.js';
+import { garmentZone, eraseGarment } from './compose.js';
 import { boxOf, fillHoles } from '../../tools/fashion/fashion-core.js';
 import { membrane } from '../../tools/editor/cleanup.js';
 import { rgbToLab } from '../../lib/color-match.js';
+import { boxBlur } from '../../lib/geometry.js';
 
 const seen = (v) => v && v[2] >= 0.3;
 
@@ -175,6 +176,48 @@ function prepare(piece) {
   return piece.engine;
 }
 
+/**
+ * A photo's skin's relief, once: on each pixel of its person's clear skin (not face, not hair), its light over
+ * its own light nearby (a tenth of a face around), within 0.82–1.18, so only its shapes (a collarbone's ridge
+ * and the shade under it, the throat's hollow) and texture are left, not its color or broad light. Or null.
+ */
+function skinRelief(img) {
+  if (img.skinRelief !== undefined && img.skinRelief?.w === img.w && img.skinRelief?.h === img.h) return img.skinRelief.v;
+  const p = img.people; const keep = (v) => { img.skinRelief = { w: img.w, h: img.h, v }; return v; };
+  if (!p) return keep(null);
+  const { w, h, rgba } = img; const n = w * h; const on = new Uint8Array(n); const L = new Float32Array(n); let cnt = 0;
+  // (Not near their hair: its strands across the skin would come as dark lines.)
+  const fh = img.layout?.fh ?? h / 7; const near = new Float32Array(n);
+  for (let i = 0; i < n; i++) near[i] = p.hair[i] >= 60 || p.clothes[i] >= 128 ? 0 : 1e9;
+  chamfer(near, w, h); const away = Math.max(2, fh * 0.05);
+  // (Nor their hands: a hand's knuckles and fingers aren't a chest's or a neck's shapes.)
+  const wr = (img.pose?.wrists ?? []).filter((v) => v && v[2] >= 0.2);
+  for (const v of wr) { const R2 = fh * 0.8; for (let y = Math.max(0, Math.floor(v[1] - R2)); y < Math.min(h, Math.ceil(v[1] + R2)); y++) for (let x = Math.max(0, Math.floor(v[0] - R2)); x < Math.min(w, Math.ceil(v[0] + R2)); x++) if (Math.hypot(x - v[0], y - v[1]) < R2) near[y * w + x] = 0; }
+  for (let i = 0; i < n; i++) if (p.body[i] >= 128 && p.face[i] < 100 && near[i] > away) { on[i] = 1; L[i] = 0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]; cnt++; }
+  if (cnt < 200) return keep(null);
+  const R = Math.max(2, Math.round(fh * 0.06));
+  let low = boxBlur(L, on, w, h, R);
+  for (let k = 0; k < n; k++) if (!on[k]) low[k] = 0;
+  low = boxBlur(boxBlur(low, on, w, h, R), on, w, h, R);
+  // (Its finest speckle a little softened (the base's own grain is already in the made skin); held within
+  // 0.82–1.18: a shape, never a mark.)
+  const fine = boxBlur(L, on, w, h, 1);
+  const r = new Float32Array(n); for (let i = 0; i < n; i++) if (on[i]) r[i] = Math.max(0.82, Math.min(1.18, fine[i] / Math.max(4, low[i])));
+  return keep({ on, r });
+}
+
+/** What was worn on the base, taken off to their made skin: once for its zone. */
+function erasedOf(S, z) {
+  // (At full size, what was made at the working size, brought up: the same skin as is laid under it.)
+  if (S.erased) return S.erased;
+  return eraseGarment(S, z);
+}
+
+function chamfer(d, W, H) {
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = y * W + x; let v = d[k]; if (x > 0) v = Math.min(v, d[k - 1] + 1); if (y > 0) v = Math.min(v, d[k - W] + 1); d[k] = v; }
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const k = y * W + x; let v = d[k]; if (x < W - 1) v = Math.min(v, d[k + 1] + 1); if (y < H - 1) v = Math.min(v, d[k + W] + 1); d[k] = v; }
+}
+
 /** A rig of one body: its torso (shoulders, hips, chin) and its arms' bones (each [shoulder, elbow, wrist] or null). */
 function rig(q, L) {
   const S0 = q.shoulders.map((v) => [v[0], v[1]]);
@@ -290,6 +333,22 @@ export function engineLayer(S) {
   const inPieceTorso = (x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = pqs[i]; const [xj, yj] = pqs[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
   const zEnd = S.kind === 'upper' && z ? z.box.y1 : null; const zFade = Math.max(2, (base.layout?.fh ?? 60) * 0.06);
   const smooth = (v) => (v <= 0.25 ? 0 : v >= 0.75 ? 1 : (v - 0.25) / 0.5);
+  // The piece's skin's own shapes (a collarbone, the hollow at the throat, a tendon, the shade of a neck under
+  // its chin), where it shows skin and the base's garment is taken off: its light relative to its own light
+  // nearby, laid on the base person's made skin (their color and light), so what shows is shaped as real skin
+  // is, in their skin, with no edge where it starts.
+  const PD = skinRelief(piece); const pp = piece.people; const PW = piece.w; const PH = piece.h;
+  const patch = z && PD ? erasedOf(S, z) : null;
+  const skinAt = (X, Y) => {
+    const fx = X - 0.5; const fy = Y - 0.5; if (fx < 0 || fy < 0 || fx > PW - 1.001 || fy > PH - 1.001) return null;
+    const xa = Math.floor(fx); const ya = Math.floor(fy); const tx = fx - xa; const ty = fy - ya; let wsum = 0; let r = 0;
+    for (const [dx, dy, wt0] of [[0, 0, (1 - tx) * (1 - ty)], [1, 0, tx * (1 - ty)], [0, 1, (1 - tx) * ty], [1, 1, tx * ty]]) { const i = (ya + dy) * PW + xa + dx; if (!PD.on[i]) continue; wsum += wt0; r += PD.r[i] * wt0; }
+    return wsum < 0.05 ? null : [r / wsum, wsum];
+  };
+  const skR = new Float32Array(pw * ph); const skA = new Float32Array(pw * ph);
+  // (Not over the base's hands: a hand over where the garment was stays as it is.)
+  const bwr = (base.pose?.wrists ?? []).filter((v) => v && v[2] >= 0.2); const hR = (base.layout?.fh ?? h / 7) * 0.8;
+  const byHand = (X, Y) => bwr.some((v) => Math.hypot(X - v[0], Y - v[1]) < hR);
   const rgba = new Uint8ClampedArray(pw * ph * 4); let n = 0;
   for (let y = 0; y < ph; y++) {
     const fj = y / G; const j0 = Math.min(gh - 2, Math.floor(fj)); const tj = fj - j0;
@@ -302,7 +361,10 @@ export function engineLayer(S) {
       const share = (gs[g] * (1 - ti) + gs[g + 1] * ti) * (1 - tj) + (gs[g + gw] * (1 - ti) + gs[g + gw + 1] * ti) * tj;
       if (share > 0.6 && inPieceTorso(sx, sy)) al = 0;
       // (Hidden in its photo but worn on the base there: its other side, mirrored.)
-      if (al < 0.5 && z?.mask[(y0 + y) * w + x0 + x]) { const [mx, my] = mirror(sx, sy); const am = bil(a, false, mx, my); if (am > al) { al = am; sx = mx; sy = my; } }
+      const sx0 = sx; const sy0 = sy; const inZone = !!z?.mask[(y0 + y) * w + x0 + x];
+      // (The piece's own skin there, where what was worn on the base is taken off: its shapes.)
+      if (inZone && patch && !byHand(x0 + x, y0 + y)) { const sk = skinAt(sx0, sy0); if (sk) { skR[y * pw + x] = sk[0]; skA[y * pw + x] = sk[1]; } }
+      if (al < 0.5 && inZone) { const [mx, my] = mirror(sx, sy); const am = bil(a, false, mx, my); if (am > al) { al = am; sx = mx; sy = my; } }
       // (An upper body ends where the zone does: the waist line, as found or moved by hand.)
       if (zEnd != null && y0 + y > zEnd - zFade) al *= Math.max(0, (zEnd - (y0 + y)) / zFade);
       const A = smooth(al); if (A <= 0) continue;
@@ -310,5 +372,23 @@ export function engineLayer(S) {
       const o = (y * pw + x) * 4; rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = Math.round(255 * A); n++;
     }
   }
-  return n > 50 ? { x0, y0, pw, ph, rgba, engine: true } : null;
+  // (Laid under the cloth: the made skin there, shaped by the piece's; faded in at the piece's skin's edge.)
+  // (How much of each pixel is that skin (`skinShare`): finish leaves it as it is, it's not cloth to relight.)
+  const share = patch ? new Float32Array(pw * ph) : null;
+  if (patch) {
+    const fh = base.layout?.fh ?? h / 7; const edge = Math.max(2, fh * 0.06);
+    const d = new Float32Array(pw * ph); for (let k = 0; k < pw * ph; k++) d[k] = skA[k] > 0.5 ? 1e9 : 0;
+    chamfer(d, pw, ph);
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+      const k = y * pw + x; const sa = skA[k]; if (sa <= 0.05) continue;
+      const X = x0 + x - patch.x0; const Y = y0 + y - patch.y0; if (X < 0 || Y < 0 || X >= patch.pw || Y >= patch.ph) continue;
+      const po = (Y * patch.pw + X) * 4; if (patch.rgba[po + 3] < 250) continue;
+      const f = Math.min(1, d[k] / edge); const s1 = Math.min(1, sa) * f * f * (3 - 2 * f); if (s1 <= 0.01) continue;
+      const o = k * 4; const ca = rgba[o + 3] / 255; const r = skR[k];
+      for (let c = 0; c < 3; c++) { const sk = patch.rgba[po + c] * r; rgba[o + c] = ca > 0 ? rgba[o + c] * ca + sk * (1 - ca) : sk; }
+      rgba[o + 3] = Math.round(255 * Math.max(ca, s1)); if (!ca) n++;
+      share[k] = ca > 0 ? 1 - ca : 1;
+    }
+  }
+  return n > 50 ? { x0, y0, pw, ph, rgba, engine: true, skinShare: share } : null;
 }

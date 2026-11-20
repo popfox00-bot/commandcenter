@@ -937,14 +937,23 @@ the clothes in it: worn by someone, or on its own).
   colors carried smoothly past its edges so none of its background comes along. An arm the piece's photo hides
   (its bones over someone else, or a forearm folded short) is read from its other arm mirrored; a part hidden but
   worn on the base is taken from its other side; cloth cut off by its photo or zone is carried on, mirrored. The
-  layer then goes through the same finish as before (light, what's in front, grain, edge shadows). Without both
-  poses, the older ways below are used.
+  layer then goes through the same finish as before (light, what's in front, grain, edge shadows). Where the
+  piece shows its model's skin (a neckline, the throat) over where the base's garment was taken off, that skin's
+  shapes come too (a collarbone's ridge and the shade under it, the hollow at the throat): its light over its own
+  light nearby (not its color), laid on the base person's made skin and faded in at its edge, not near the
+  model's hair or hands; the finish leaves those pixels as they are (they're skin, not cloth to relight; also
+  when the piece is moved by hand, and at full size on save, from the same made skin as the preview). Without
+  both poses, the older ways below are used.
 - **Taken off first** (Replace: a top, a dress, an upper body): all of the garment worn there is found, joined
   or not: every bit of clothing in the upper body zone of that person is it (its side seen past a lock of
   hair, a strip by the armhole the person finder called skin, what shows between strands: by its own color,
   nothing like their skin), down to where it really ends, never something of its color off on its own beside
-  them; its prints and buttons are part of it. It's made their bare skin (their own skin's tone and fine
-  texture, lit as their skin is around it, a little darker toward the body's sides), and the piece is laid
+  them; its prints and buttons are part of it. It's made their bare skin (their own skin's tone, from their
+  body's clear skin unless that's far from their face's color (a hand, a lock of hair), else their face's lit
+  skin; their fine texture, or the photo's own grain; lit as their skin is around it, smoothly, with no steps;
+  round as a body is, darker toward their figure's outline; lighter on the side the light comes from, as their
+  face is; the collarbones and the hollow at the throat softly shaded; their own hand over it left as it is),
+  and the piece is laid
   onto that: its own color and texture kept (no folds or color taken from what was worn there), only the
   photo's light and the light and shade on their bare skin under it (a sleeve over a lit arm). Under strands
   of hair the new piece shows, not skin. A waist line moved by hand still ends an upper body there.

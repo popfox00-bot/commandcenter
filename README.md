@@ -970,6 +970,13 @@ the clothes in it: worn by someone, or on its own).
   down the neck): skin inside, the dark behind the neck past it, so the hair's ragged edge lies on dark, not
   skin. The piece's own skin in its open collar is dropped there, and a thin line of something on it the finder
   called cloth (the model's necklace) with it.
+  A piece is sized by the middle of several measures between the two people (the shoulders' span, the face's
+  height, the shoulders to the hips), so a piece photographed turned (its shoulders foreshortened) isn't laid
+  on far too big. When either person is turned, an upper body is laid on body to body even if both wear
+  sleeves: the piece's torso is mapped onto theirs frame to frame (the four-sided shape between each one's
+  shoulders and hips, carried on past it), the shoulders' caps with it, each sleeve bent onto its own arm;
+  where it lands on the piece's own skin (a bare midriff) theirs shows, and below the piece's waist only the
+  cloth that goes on from above (a jacket's sides) is laid on, not a belt or jeans.
   Opened again after an update, the piece is placed afresh, and a drag, pinch or turn made on the old placing
   is dropped (the sliders are kept). A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.

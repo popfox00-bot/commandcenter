@@ -369,11 +369,14 @@ function zoneLayer(S) {
     // not the cloth beside it carried across.)
     if (erasing(S) && L.skin && base.layout) {
       // (Faded out over a band, not cut at a row: no line across where the piece's own cloth begins.)
-      const yTo = base.layout.chin + base.layout.fh * 0.7; const band = base.layout.fh * 0.25;
-      for (let y = 0; y < L.ph && L.y0 + y < yTo + band; y++) {
-        const f = Math.max(0, Math.min(1, (L.y0 + y - (yTo - band)) / (2 * band))); const keep = f * f * (3 - 2 * f);
-        for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.skin[k2] && !(L.bare?.[k2])) L.rgba[k2 * 4 + 3] = Math.round(L.rgba[k2 * 4 + 3] * keep); }
-      }
+      // (All of the piece's own skin there (the model's neck, a necklace on it) gone, not faded: what shows is
+      // their neck as made; the piece's cloth begins at its own collar's edge, feathered below.)
+      const yTo = base.layout.chin + base.layout.fh * 0.95;
+      for (let y = 0; y < L.ph && L.y0 + y < yTo; y++) for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.skin[k2] || L.bare?.[k2]) L.rgba[k2 * 4 + 3] = 0; }
+      // (And a thin line of something on that skin the finder called cloth (a necklace's chain): no cloth only a
+      // few pixels tall with nothing of the piece above or below it there.)
+      { const thin = Math.max(3, Math.round(base.layout.fh * 0.035)); const yEnd = Math.min(L.ph, Math.ceil(yTo - L.y0));
+        for (let x = 0; x < L.pw; x++) { let y = 0; while (y < yEnd) { while (y < yEnd && L.rgba[(y * L.pw + x) * 4 + 3] === 0) y++; const a0 = y; while (y < L.ph && L.rgba[(y * L.pw + x) * 4 + 3] > 0) y++; if (a0 < yEnd && y - a0 <= thin && y < L.ph) for (let t = a0; t < y; t++) L.rgba[(t * L.pw + x) * 4 + 3] = 0; } } }
       featherOnSkin(L, S);
     }
     softEdge(L, tD, w, h); layers.push(L);
@@ -1031,6 +1034,30 @@ export function eraseGarment(S, z) {
     }
   }
   const soft = Math.max(2, Math.round(fh / 22));
+  // (The neck's two sides as smooth lines: on each row, its model's side, or just inside where their hair
+  // comes in if that's nearer, smoothed down the neck. The skin ends on that line and what's behind the neck
+  // (the dark under their hair) is past it, so the ragged edge of the hair lies on dark, as it did on the
+  // old collar, not on skin: one continuous line of neck beside the hair.)
+  if (neck) {
+    const n0 = Math.floor(neck.y0); const nr = Math.max(1, Math.ceil(neck.y1) - n0);
+    const L1 = new Float32Array(nr); const R1 = new Float32Array(nr);
+    const margin = soft * 1.5;
+    for (let r = 0; r < nr; r++) {
+      const y = n0 + r; const { c, hw } = neck.at(y); let l = c - hw; let rr = c + hw;
+      if (y >= 0 && y < h) {
+        const cx = Math.round(c);
+        for (let x = cx; x >= Math.max(0, Math.floor(c - hw)); x--) { const j = y * w + x; if (!z.mask[j] && p.hair[j] >= 100) { l = Math.max(l, x + margin); break; } }
+        for (let x = cx; x <= Math.min(w - 1, Math.ceil(c + hw)); x++) { const j = y * w + x; if (!z.mask[j] && p.hair[j] >= 100) { rr = Math.min(rr, x - margin); break; } }
+      }
+      // (Never narrower than half the model's: a lock of hair across the neck lies over it.)
+      if (rr - l < hw) { const m2 = (l + rr) / 2; l = m2 - hw / 2; rr = m2 + hw / 2; }
+      L1[r] = l; R1[r] = rr;
+    }
+    // (Smoothed down the neck: a run of rows a fifth of a face's height, twice.)
+    const sm = (v) => { const R = Math.max(2, Math.round(fh * 0.1)); let o = v; for (let pass = 0; pass < 2; pass++) { const q = new Float32Array(nr); for (let r = 0; r < nr; r++) { let s2 = 0; let n2 = 0; for (let d = -R; d <= R; d++) { const t = r + d; if (t >= 0 && t < nr) { s2 += o[t]; n2++; } } q[r] = s2 / n2; } o = q; } return o; };
+    const LS = sm(L1); const RS = sm(R1); const at0 = neck.at;
+    neck.at = (y) => { const r = Math.max(0, Math.min(nr - 1, Math.round(y - n0))); const l = LS[r]; const rr = RS[r]; const m0 = at0(y); return { c: (l + rr) / 2, hw: Math.max(4, (rr - l) / 2), c0: m0.c, hw0: m0.hw }; };
+  }
   // (Shade where it meets hair or a deep shadow beside it (not their skin): skin is darker in the hollow
   // under a lock of hair or against the dark behind it, so it sits in the picture, not on it.)
   const occ = new Float32Array(bw * bh);
@@ -1043,7 +1070,7 @@ export function eraseGarment(S, z) {
   chamfer(occ, bw, bh);
   const aoR = Math.max(4, fh * 0.09);
   // (The shadow beside the neck fades out over its last fifth, into the shoulders.)
-  const y1Fade = (y) => (neck ? Math.max(0, Math.min(1, (neck.y1 - y) / ((neck.y1 - neck.y0) * 0.2))) : 0);
+  const y1Fade = (y) => { if (!neck) return 0; const t = Math.max(0, Math.min(1, (neck.y1 - y) / ((neck.y1 - neck.y0) * 0.45))); return t * t * (3 - 2 * t); };
   // The made-up skin's smooth color at any pixel of the box (its light; no texture yet).
   const rowEnds = new Int32Array(bh * 2).fill(-1);
   for (let y = b.y0; y < b.y1; y++) { let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (z.mask[y * w + x]) { if (l < 0) l = x; r = x + 1; } rowEnds[(y - Y0) * 2] = l; rowEnds[(y - Y0) * 2 + 1] = r; }

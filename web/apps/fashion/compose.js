@@ -367,7 +367,15 @@ function zoneLayer(S) {
     neckline(L, base, w, differs, false);
     // (Under the chin, where the piece shows no cloth of its own (its open collar): their neck, as taken off,
     // not the cloth beside it carried across.)
-    if (erasing(S) && L.skin && base.layout) { const yTo = base.layout.chin + base.layout.fh * 0.7; for (let y = 0; y < L.ph && L.y0 + y < yTo; y++) for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.skin[k2] && !(L.bare?.[k2])) L.rgba[k2 * 4 + 3] = 0; } }
+    if (erasing(S) && L.skin && base.layout) {
+      // (Faded out over a band, not cut at a row: no line across where the piece's own cloth begins.)
+      const yTo = base.layout.chin + base.layout.fh * 0.7; const band = base.layout.fh * 0.25;
+      for (let y = 0; y < L.ph && L.y0 + y < yTo + band; y++) {
+        const f = Math.max(0, Math.min(1, (L.y0 + y - (yTo - band)) / (2 * band))); const keep = f * f * (3 - 2 * f);
+        for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.skin[k2] && !(L.bare?.[k2])) L.rgba[k2 * 4 + 3] = Math.round(L.rgba[k2 * 4 + 3] * keep); }
+      }
+      featherOnSkin(L, S);
+    }
     softEdge(L, tD, w, h); layers.push(L);
   }
   // The arms.
@@ -1039,6 +1047,10 @@ export function eraseGarment(S, z) {
   // The made-up skin's smooth color at any pixel of the box (its light; no texture yet).
   const rowEnds = new Int32Array(bh * 2).fill(-1);
   for (let y = b.y0; y < b.y1; y++) { let l = -1; let r = -1; for (let x = b.x0; x < b.x1; x++) if (z.mask[y * w + x]) { if (l < 0) l = x; r = x + 1; } rowEnds[(y - Y0) * 2] = l; rowEnds[(y - Y0) * 2 + 1] = r; }
+  // (Its shading in two parts: the broad light and rounding of the zone (`made`), which their real skin it
+  // touches has too, and the shapes only made skin has (the chin's shadow, the neck's roundness, shade by hair:
+  // `extra`), which come in only away from their skin, so where it meets their skin it's exactly that skin.)
+  let extraOn = true;
   const made = (x, y) => {
     const k = (y - Y0) * bw + x - X0;
     let sh = 1;
@@ -1046,16 +1058,19 @@ export function eraseGarment(S, z) {
     // (Round: each row's stretch of it a little darker toward its ends.)
     const l = rowEnds[(y - Y0) * 2]; const r = rowEnds[(y - Y0) * 2 + 1];
     if (l >= 0 && x >= l && x < r) { const u = (x + 0.5 - l) / Math.max(1, r - l); sh *= 1 - 0.08 * (1 - Math.sqrt(Math.max(0, Math.sin(Math.PI * u)))); }
-    { const ko = (y - Y0) * bw + x - X0; const dd = occ[ko]; if (dd < aoR) { const t = 1 - dd / aoR; sh *= 1 - 0.42 * t * t; } }
+    let ex = 1;
+    { const ko = (y - Y0) * bw + x - X0; const dd = occ[ko]; if (dd < aoR) { const t = 1 - dd / aoR; ex *= 1 - 0.42 * t * t; } }
     // (On the neck: round, its middle lit, darker toward its sides.)
-    if (neck && y >= neck.y0 && y < neck.y1) { const { c, hw } = neck.at(y); const u = Math.min(1, Math.abs(x + 0.5 - c) / hw); sh *= 1 - 0.3 * (1 - Math.sqrt(Math.max(0, Math.cos((Math.PI / 2) * u)))); }
+    if (neck && y >= neck.y0 && y < neck.y1) { const { c, hw } = neck.at(y); const u = Math.min(1, Math.abs(x + 0.5 - c) / hw); ex *= 1 - 0.3 * (1 - Math.sqrt(Math.max(0, Math.cos((Math.PI / 2) * u)))); }
     // (Under the chin: in its shadow, darkest just below the jaw, lighter going down the neck.)
-    if (L0 && y >= L0.chin && y < L0.chin + L0.fh * 0.45) sh *= 0.62 + 0.38 * Math.min(1, (y - L0.chin) / (L0.fh * 0.45));
-    return sh;
+    if (L0 && y >= L0.chin && y < L0.chin + L0.fh * 0.45) ex *= 0.62 + 0.38 * Math.min(1, (y - L0.chin) / (L0.fh * 0.45));
+    if (!extraOn) return sh;
+    const kd = (y - Y0) * bw + x - X0; const away = ds ? Math.min(1, ds[kd] / (fh * 0.22)) : 1;
+    return sh * (1 - (1 - ex) * away * away * (3 - 2 * away));
   };
   // Their real skin, smoothed (its color and light, not its pores), where it is, over a few pixels only (the
   // shade just under the jaw isn't averaged away).
-  const rs = Math.max(2, Math.round(fh / 40));
+  const rs = Math.max(1, Math.round(fh / 120));
   const sk = new Uint8Array(bw * bh); const ch = [0, 1, 2].map(() => new Float32Array(bw * bh));
   // (The underside of the jaw counts here too, though the finder calls it face: it's the skin the neck meets.)
   const touchSkin = (i) => !z.mask[i] && p.hair[i] < 90 && Math.max(p.body[i], p.face[i]) >= 60 && p.body[i] + p.face[i] > p.hair[i] + p.clothes[i];
@@ -1076,8 +1091,13 @@ export function eraseGarment(S, z) {
   if (mid) for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const k = y * bw + x; const i = (Y0 + y) * w + X0 + x; if (z.mask[i] || dz[k] > rimR || p.face[i] >= 200) continue;
     const v = 0.299 * base.rgba[i * 4] + 0.587 * base.rgba[i * 4 + 1] + 0.114 * base.rgba[i * 4 + 2];
-    if (v < mid * 0.5 && p.hair[i] < 160) { rim[k] = 1; nRim++; }
+    if (v < mid * 0.6 && p.hair[i] < 160) { rim[k] = 1; nRim++; }
   }
+  // (How far each pixel is from their skin: the carried color fades out over a third of a face's height.)
+  const ds = new Float32Array(bw * bh); for (let k = 0; k < bw * bh; k++) ds[k] = sk[k] && !rim[k] ? 0 : 1e9;
+  chamfer(ds, bw, bh);
+  // (Measured against the made skin's broad light only: its own shapes come in away from their skin.)
+  extraOn = false;
   const diff = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh); let touches = 0;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const k = y * bw + x; const X = X0 + x; const Y = Y0 + y; const i = Y * w + X;
@@ -1088,10 +1108,20 @@ export function eraseGarment(S, z) {
     if (dz[k] <= 4) touches++;
   }
   if (touches > 4) membrane(diff, free, bw, bh);
-  // (How far each pixel is from their skin: the carried color fades out over a third of a face's height.)
-  const ds = new Float32Array(bw * bh); for (let k = 0; k < bw * bh; k++) ds[k] = sk[k] ? 0 : 1e9;
-  chamfer(ds, bw, bh);
+  // (What's around it that isn't their skin (the dark behind their neck, their hair), carried smoothly into
+  // it: beside the neck, that's what shows, so it meets what's beside it with no edge.)
+  let around = null;
+  if (neck) {
+    around = new Float32Array(bw * bh * 3); const fr2 = new Uint8Array(bw * bh);
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      const k = y * bw + x; const i = (Y0 + y) * w + X0 + x;
+      if (z.mask[i] || sk[k] || rim[k]) { fr2[k] = 1; continue; }
+      for (let c = 0; c < 3; c++) around[k * 3 + c] = base.rgba[i * 4 + c];
+    }
+    membrane(around, fr2, bw, bh);
+  }
   const fade = fh * 0.35;
+  extraOn = true;
   const sd = skinDetailOf(base);
   const ob = { x0: Math.max(0, b.x0 - rimR), y0: Math.max(0, b.y0 - rimR), x1: Math.min(w, b.x1 + rimR), y1: Math.min(h, b.y1 + rimR) };
   const pw = ob.x1 - ob.x0; const ph = ob.y1 - ob.y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
@@ -1108,11 +1138,24 @@ export function eraseGarment(S, z) {
     // (Beside the neck, above the shoulders: shadow, what's behind it, deepening away from its edge.)
     if (neck && y >= neck.y0 && y < neck.y1) {
       const { c, hw } = neck.at(y); const out2 = Math.abs(x + 0.5 - c) - hw;
-      if (out2 > -soft) { const t = Math.max(0, Math.min(1, (out2 + soft) / (2 * soft))); const fall = Math.min(1, (y1Fade(y)) ); const dk = 0.22 + 0.2 * Math.max(0, 1 - out2 / (soft * 6)); for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = rgba[o + c2] * (1 - t * fall) + tone[c2] * dk * t * fall; }
+      if (out2 > -soft * 2 && around) { const t0 = Math.max(0, Math.min(1, (out2 + soft * 2) / (4 * soft))); const t = t0 * t0 * (3 - 2 * t0); const fall = y1Fade(y); for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = rgba[o + c2] * (1 - t * fall) + around[kk * 3 + c2] * t * fall; }
     }
     rgba[o + 3] = z.mask[i] ? 255 : Math.round(255 * Math.min(1, 1.3 - dz[kk] / (rimR + 1)));
   }
   return { x0: ob.x0, y0: ob.y0, pw, ph, rgba };
+}
+
+/**
+ * Taken off first: the layer's edge where it lies on the skin made there (its open collar against the neck)
+ * faded in over a few pixels (as soft as the photo's own edges of cloth on skin), not cut: in place.
+ */
+function featherOnSkin(L, S) {
+  const z = garmentZone(S); if (!z) return;
+  const { w } = S.base; const R = Math.max(2, Math.round((S.base.layout?.fh ?? 60) / 40));
+  const { pw, ph } = L; const d = new Float32Array(pw * ph);
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const k = y * pw + x; const X = L.x0 + x; const Y = L.y0 + y; d[k] = L.rgba[k * 4 + 3] < 128 && X >= 0 && Y >= 0 && X < w && z.mask[Y * w + X] ? 0 : 1e9; }
+  chamfer(d, pw, ph);
+  for (let k = 0; k < pw * ph; k++) if (d[k] > 0 && d[k] <= R) { const t = d[k] / (R + 1); L.rgba[k * 4 + 3] = Math.round(L.rgba[k * 4 + 3] * t * t * (3 - 2 * t)); }
 }
 
 /** The layer moved, sized, stretched and turned by hand (about its middle). */

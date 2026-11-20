@@ -61,3 +61,57 @@ test('search, time ago, counts, and state from storage made safe', () => {
   assert.equal(n.accounts.length, 1); assert.deepEqual(n.accounts[0].following, []); assert.equal(n.posts.length, 1); assert.deepEqual(n.posts[0].likes, ['x']); assert.equal(n.me, 'x');
   assert.deepEqual(normalize(null), emptyState());
 });
+
+/** A Saved Files script stand-in: folders in the main folder by name, files in each (same names replaced). */
+function fakeDrive() {
+  const folders = new Map(); let n = 0; const seen = [];
+  return {
+    seen,
+    folders: async () => [...folders.keys()].map((name) => ({ id: `f:${name}`, name, path: name })),
+    browse: async (id) => ({ files: [...(folders.get(id.slice(2)) ?? new Map()).values()].map(({ id: fid, name }) => ({ id: fid, name })), folders: [], path: [] }),
+    async upload(file, from, folder) {
+      const m = folders.get(folder) ?? new Map(); folders.set(folder, m);
+      const bytes = new Uint8Array(await file.arrayBuffer()); seen.push(bytes);
+      m.set(file.name, { id: `x${++n}`, name: file.name, bytes, type: file.type });
+      return { id: `x${n}`, name: file.name };
+    },
+    async download(id) { for (const m of folders.values()) for (const f of m.values()) if (f.id === id) return new File([f.bytes], f.name, { type: f.type }); throw new Error('gone'); },
+  };
+}
+
+test('sync between two phones through Drive: encrypted there, merged both ways, photos sent once, a wrong password refused', async () => {
+  const { syncSocials, WrongPassword, opens, remoteHeader } = await import('../web/apps/socials/socials-sync.js');
+  const drive = fakeDrive(); const pw = 'blue-heron-42'; const fast = { iterations: 1000 };
+  const photo = new Blob([new Uint8Array([0xff, 0xd8, 1, 2, 3, 4, 5, 6, 7, 8])], { type: 'image/jpeg' });
+  // Phone A: an account and a post with a photo, sent first (the copy in Drive made now: a recovery key).
+  const A = emptyState(); const maya = addAccount(A, { handle: 'maya' }); addPost(A, maya.id, { image: photo, caption: 'Sunset at the pier' });
+  const r1 = await syncSocials(drive, A, pw, fast);
+  assert.ok(r1.recoveryKey, 'a recovery key, shown once'); assert.equal(r1.sent, 1);
+  // (Nothing readable in Drive: no caption, no handle in any file sent but the key file's wrapped key.)
+  const text = drive.seen.map((b) => new TextDecoder().decode(b)).join('\n');
+  assert.ok(!text.includes('Sunset') && !text.includes('maya'), 'encrypted in Drive');
+  assert.ok(await opens(await remoteHeader(drive), pw) && !(await opens(await remoteHeader(drive), 'nope')));
+  // Phone B, empty: the same password brings everything, the photo too.
+  const r2 = await syncSocials(drive, emptyState(), pw, fast);
+  assert.equal(r2.recoveryKey, null); assert.equal(r2.fetched, 1);
+  const B = r2.state;
+  assert.deepEqual(B.posts.map((p) => p.caption), ['Sunset at the pier']);
+  assert.deepEqual([...new Uint8Array(await B.posts[0].image.arrayBuffer())], [...new Uint8Array(await photo.arrayBuffer())]);
+  // B adds an account that follows maya and likes the post; A meanwhile edits its bio. Both synced: both have both.
+  const jo = addAccount(B, { handle: 'jordan' }); B.me = jo.id; toggleFollow(B, jo.id, maya.id); toggleLike(B, B.posts[0].id, jo.id);
+  await new Promise((r) => setTimeout(r, 5));
+  const A2 = r1.state; editAccount(A2, maya.id, { bio: 'photos' });
+  const rb = await syncSocials(drive, B, pw, fast); assert.equal(rb.sent, 0, 'the photo isn\'t sent again');
+  const ra = await syncSocials(drive, A2, pw, fast);
+  assert.deepEqual(ra.state.accounts.map((a) => a.handle).sort(), ['jordan', 'maya']);
+  assert.equal(ra.state.me, maya.id, 'each phone keeps the account it\'s using');
+  assert.deepEqual(feedFor(ra.state, jo.id).map((p) => p.caption), ['Sunset at the pier']);
+  assert.equal(ra.state.accounts.find((a) => a.handle === 'maya').bio, 'photos');
+  // A deletes the post; B, syncing after, loses it too (not brought back).
+  removeAccount(ra.state, jo.id);
+  await syncSocials(drive, ra.state, pw, fast);
+  const rb2 = await syncSocials(drive, rb.state, pw, fast);
+  assert.deepEqual(rb2.state.accounts.map((a) => a.handle), ['maya'], 'a deletion on one phone reaches the other');
+  // Another password: refused, nothing changed.
+  await assert.rejects(syncSocials(drive, emptyState(), 'wrong-password', fast), WrongPassword);
+});

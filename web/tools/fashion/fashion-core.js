@@ -1671,8 +1671,14 @@ export function matteBand(rgba, w, h, mask, box, B = 2, R = 7) {
  * blended into its neighbours with smooth windows, its contrast kept. A function (x, y) → [dr, dg, db], or
  * null when too little skin is seen.
  */
-export function skinTexture(rgba, w, h, people, fh = 60) {
-  let ok = (i) => people.body[i] >= 200 && people.face[i] < 100 && people.hair[i] < 60;
+let skinFaceOnly = false; // (Retrying from the face only: once.)
+export function skinTexture(rgba, w, h, people, fh = 60, pose = null) {
+  // (Not their hands: knuckles and fingers' creases, tiled, look like a weave. Near a wrist from the pose.)
+  const wrists = (pose?.wrists ?? []).filter((v) => v && v[2] >= 0.2);
+  const nearHand = (x, y) => wrists.some((v) => Math.hypot(x - v[0], y - v[1]) < fh * 0.75);
+  // (Their skin: what the finder calls skin and is the color of skin (a white knit it can call skin isn't).)
+  const isSkinColor = (i) => { const r = rgba[i * 4]; const g = rgba[i * 4 + 1]; const b2 = rgba[i * 4 + 2]; return r > g && g >= b2 * 0.85 && r - b2 > 32 && r - b2 < 140 && r > 60; };
+  let ok = (i) => people.body[i] >= 200 && people.face[i] < 100 && people.hair[i] < 60 && isSkinColor(i);
   const I = new Int32Array((w + 1) * (h + 1));
   const integral = () => { for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += ok(y * w + x) ? 1 : 0; I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row; } } };
   const sum = (x0, y0, s2) => I[(y0 + s2) * (w + 1) + x0 + s2] - I[y0 * (w + 1) + x0 + s2] - I[(y0 + s2) * (w + 1) + x0] + I[y0 * (w + 1) + x0];
@@ -1682,6 +1688,7 @@ export function skinTexture(rgba, w, h, people, fh = 60) {
       const got = []; const step = Math.max(2, P >> 1);
       for (let y = 0; y + P <= h; y += step) for (let x = 0; x + P <= w; x += step) {
         if (sum(x, y, P) < P * P * 0.97) continue;
+        if (nearHand(x + P / 2, y + P / 2)) continue;
         if (got.some((g) => Math.abs(g.x - x) < P && Math.abs(g.y - y) < P)) continue;
         got.push({ x, y }); if (got.length >= 24) break;
       }
@@ -1691,7 +1698,7 @@ export function skinTexture(rgba, w, h, people, fh = 60) {
   };
   integral(); let found = find();
   // (No clear body skin: their cheeks and forehead, the face's skin away from its features.)
-  if (!found) { ok = (i) => people.face[i] >= 220 && people.hair[i] < 40; integral(); found = find(); }
+  if (!found) { ok = (i) => people.face[i] >= 220 && people.hair[i] < 40 && isSkinColor(i); integral(); found = find(); }
   if (!found) return null;
   const { P } = found; const n = P * P;
   const r1 = Math.max(1, Math.round(P / 24)); const r2 = Math.max(r1 + 2, Math.round(P / 5));
@@ -1710,6 +1717,31 @@ export function skinTexture(rgba, w, h, people, fh = 60) {
     for (let q = 0; q < n * 3; q++) D[q] = Math.max(-lim, Math.min(lim, D[q]));
     return { D, sd };
   });
+  // (Against their face, which the finder is surest of: a patch far from its color, or with far more texture
+  // than its skin (a knit sleeve in warm light), isn't skin.)
+  {
+    const fc = [[], [], []];
+    for (let i = 0; i < w * h; i += 3) if (people.face[i] >= 200 && people.hair[i] < 40) for (let c = 0; c < 3; c++) fc[c].push(rgba[i * 4 + c]);
+    if (fc[0].length > 200) {
+      const med = fc.map((v) => { v.sort((a, b) => a - b); return v[v.length >> 1]; });
+      const fl = rgbToLab(med[0], med[1], med[2]);
+      // (The face's own fine texture: a patch of its cheek, its detail as the patches' is measured.)
+      let fsd = null;
+      { const vals = []; for (let y = 1; y < h - 1; y += 2) for (let x = 1; x < w - 1; x += 2) { const i = y * w + x; if (people.face[i] < 200 || people.face[i - 1] < 200 || people.face[i + 1] < 200 || people.face[i - w] < 200 || people.face[i + w] < 200 || people.hair[i] > 40) continue; const L0 = (j) => 0.299 * rgba[j * 4] + 0.587 * rgba[j * 4 + 1] + 0.114 * rgba[j * 4 + 2]; vals.push(L0(i) - (L0(i - 1) + L0(i + 1) + L0(i - w) + L0(i + w)) / 4); } if (vals.length > 100) { vals.sort((a, b) => a - b); const q = vals.slice(Math.floor(vals.length * 0.1), Math.ceil(vals.length * 0.9)); fsd = Math.sqrt(q.reduce((a, v) => a + v * v, 0) / q.length); } }
+      bank = bank.filter((b, j) => {
+        const { x, y } = found.got[j] ?? found.got[0]; const m = [0, 0, 0];
+        for (let yy = 0; yy < P; yy += 2) for (let xx = 0; xx < P; xx += 2) { const i = (y + yy) * w + x + xx; for (let c = 0; c < 3; c++) m[c] += rgba[i * 4 + c]; }
+        const k = (P / 2) ** 2; const pl = rgbToLab(m[0] / k, m[1] / k, m[2] / k);
+        // (Its fine detail, as the face's is measured: pixel less its four neighbours.)
+        let e = 0; let ne = 0; const L0 = (i) => 0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2];
+        for (let yy = 1; yy < P - 1; yy++) for (let xx = 1; xx < P - 1; xx++) { const i = (y + yy) * w + x + xx; const d = L0(i) - (L0(i - 1) + L0(i + 1) + L0(i - w) + L0(i + w)) / 4; e += d * d; ne++; }
+        const psd = Math.sqrt(e / ne);
+        return Math.hypot((pl[0] - fl[0]) * 0.4, pl[1] - fl[1], pl[2] - fl[2]) < 14 && (fsd == null || psd < fsd * 2.2 + 0.8);
+      });
+    }
+  }
+  // (None of their body's skin will do: their cheeks and forehead instead, once.)
+  if (!bank.length) return pose !== false && !skinFaceOnly ? (() => { skinFaceOnly = true; try { const p2 = { ...people, body: new Uint8Array(people.body.length) }; return skinTexture(rgba, w, h, p2, fh, pose); } finally { skinFaceOnly = false; } })() : null;
   // (Not a patch with something in it: far more contrast than the others.)
   const sds = bank.map((b) => b.sd).sort((a, b) => a - b); const msd = sds[sds.length >> 1];
   bank = bank.filter((b) => b.sd <= msd * 1.8 + 0.5);

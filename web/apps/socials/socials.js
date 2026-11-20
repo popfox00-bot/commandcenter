@@ -2,18 +2,28 @@
 // accounts across the top, a tab bar at the bottom: Home, Search, New post, Profile), where everything is
 // yours and made here. Make accounts, switch between them, post photos from any of them, follow one from
 // another, like and comment; Home shows the posts of the accounts the one you're using follows. All of it is
-// kept on this phone (IndexedDB, photos included) and stays after a reload; nothing goes anywhere.
+// kept on this phone (IndexedDB, photos included) and stays after a reload.
+// Behind its own password (as the hidden area is: only a salted hash kept), asked each time the app starts.
+// With Saved Files set up, it's also kept in your own Google Drive, encrypted with that password on the
+// phone first, so your other devices open the same Socials with the same password (socials-sync.js).
 
 import { el, fill } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
+import { makeLock } from '../../lib/hidden-lock.js';
+import { connected } from '../../lib/saved-files.js';
+import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword } from './socials-sync.js';
 import { sniffType, decodeImage, fitSize, canvasToBlob } from '../../lib/image.js';
 import {
   emptyState, normalize, addAccount, editAccount, removeAccount, accountById, toggleFollow, isFollowing,
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
-  searchAccounts, timeAgo, countLabel, handleProblem,
+  searchAccounts, timeAgo, countLabel, handleProblem, mergeStates,
 } from './socials-core.js';
 
 const KEY = 'cc.socials';
+export const socialsLock = makeLock('cc.socials.lock', 'cc.socials.open');
+// The password, once entered, for as long as the app is open (it opens the copy in Drive): forgotten on a
+// reload or when the app is closed, so it's asked again then.
+let sessionPw = null;
 
 export function mount(host) {
   let state = emptyState();
@@ -21,7 +31,39 @@ export function mount(host) {
   let alive = true;
   const urls = new Map(); // Blob → object URL, made once each.
   const urlOf = (b) => { if (!b) return null; let u = urls.get(b); if (!u) { u = URL.createObjectURL(b); urls.set(b, u); } return u; };
-  const save = () => idb.set(KEY, state);
+  const save = () => { idb.set(KEY, state); soon(); };
+  // ---- Sync with Drive: after each change (a few seconds later), when the app opens, when back online.
+  const sync = { busy: false, again: false, msg: '', ok: null, wrong: false, timer: 0 };
+  const soon = () => { clearTimeout(sync.timer); sync.timer = setTimeout(runSync, 3000); };
+  async function runSync() {
+    clearTimeout(sync.timer);
+    const api = connected(); if (!api || !sessionPw || !alive) { sync.msg = api ? '' : 'Not set up'; return; }
+    if (sync.busy) { sync.again = true; return; }
+    sync.busy = true; sync.msg = 'Syncing…'; sync.ok = null; drawStatus();
+    try {
+      const r = await syncSocials(api, state, sessionPw);
+      if (!alive) return;
+      // (Anything changed here while it ran is kept: merged again over what came back.)
+      state = mergeStates(state, r.state); await idb.set(KEY, state);
+      sync.ok = true; sync.wrong = false; sync.msg = `Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+      if (r.recoveryKey) sync.pendingKey = r.recoveryKey;
+      // (Shown again only where nothing's being typed or picked: a post being made, a comment, a form stay as they are.)
+      if (['feed', 'profile', 'people'].includes(view.name)) draw(); else drawStatus();
+    } catch (e) {
+      sync.ok = false; sync.wrong = e instanceof WrongPassword;
+      sync.msg = sync.wrong ? 'The copy in your Drive has a different password' : navigator.onLine === false ? 'Offline: syncs when back online' : `Couldn't sync: ${e.message}`;
+    } finally { sync.busy = false; drawStatus(); if (sync.again) { sync.again = false; soon(); } }
+  }
+  const onOnline = () => soon();
+  globalThis.addEventListener?.('online', onOnline);
+  const statusEl = el('button', { type: 'button', class: 'so-cloud', 'aria-label': 'Sync and password', onclick: () => go({ name: 'settings' }) });
+  function drawStatus() {
+    const api = !!connected();
+    statusEl.textContent = !api ? '⚙' : sync.busy ? '⟳' : sync.ok === false ? '⚠' : '☁';
+    statusEl.title = sync.msg || 'Sync and password';
+    if (view.name === 'settings') { const m = main.querySelector('.so-sync-msg'); if (m) m.textContent = syncLine(); }
+  }
+  const syncLine = () => (!connected() ? 'Not syncing: Saved Files isn\'t set up on this device.' : sync.msg || 'Ready to sync.');
   const me = () => accountById(state, state.me);
 
   const main = el('div', { class: 'so-main' });
@@ -43,7 +85,8 @@ export function mount(host) {
     const m = me();
     fill(top,
       el('span', { class: 'so-logo', text: 'Socials' }),
-      m && el('button', { type: 'button', class: 'so-switch', 'aria-label': `Using @${m.handle}: switch account`, onclick: () => go({ name: 'accounts' }) }, avatar(m, 's'), el('span', { text: m.handle }), el('span', { 'aria-hidden': 'true', text: ' ▾' })));
+      m && el('span', { class: 'so-top-right' }, statusEl, el('button', { type: 'button', class: 'so-switch', 'aria-label': `Using @${m.handle}: switch account`, onclick: () => go({ name: 'accounts' }) }, avatar(m, 's'), el('span', { text: m.handle }), el('span', { 'aria-hidden': 'true', text: ' ▾' }))));
+    drawStatus();
     const tab = (name, label, icon, v) => el('button', { type: 'button', class: `so-tab${view.name === name && (name !== 'profile' || view.id === state.me) ? ' active' : ''}`, 'aria-label': label, onclick: () => go(v) }, icon);
     fill(tabs, m && [
       tab('feed', 'Home', '⌂', { name: 'feed' }),
@@ -88,8 +131,9 @@ export function mount(host) {
   function welcome() {
     return el('div', { class: 'so-pad so-welcome' },
       el('div', { class: 'so-logo so-logo-big', text: 'Socials' }),
-      el('p', { class: 'muted', text: 'Make an account to start posting. Everything here is made by you and kept only on this phone.' }),
-      accountForm(null));
+      el('p', { class: 'muted', text: connected() ? 'Make an account to start posting. Everything here is made by you, kept on this device and, encrypted, in your Drive.' : 'Make an account to start posting. Everything here is made by you and kept on this device.' }),
+      accountForm(null),
+      el('button', { type: 'button', class: 'so-link', text: 'Sync and password', onclick: () => go({ name: 'settings' }) }));
   }
 
   function feed() {
@@ -219,19 +263,144 @@ export function mount(host) {
       el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), caption, err, share));
   }
 
+  // ---- The password: asked first, every time the app starts.
+  function gate() {
+    fill(top, el('span', { class: 'so-logo', text: 'Socials' })); fill(tabs);
+    const box = el('div', { class: 'so-pad so-welcome so-gate' }, el('div', { class: 'so-logo so-logo-big', text: 'Socials' }));
+    fill(main, box);
+    const pw = (label) => el('input', { class: 'so-input', type: 'password', autocomplete: 'off', 'aria-label': label, placeholder: label });
+    const err = el('p', { class: 'so-err', role: 'alert' });
+    const busy = (b, btn) => { btn.disabled = b; };
+    const opened = (p) => { sessionPw = p; start(); };
+    // (A new password, after the recovery key opened the copy in Drive.)
+    const newPassword = (rk) => {
+      const a = pw('New password'); const b = pw('New password again');
+      const go2 = el('button', { type: 'button', class: 'btn primary', text: 'Set password' });
+      go2.addEventListener('click', async () => {
+        err.textContent = ''; if (a.value !== b.value) { err.textContent = 'The two don\'t match.'; return; }
+        if (a.value.length < 4) { err.textContent = 'Use at least 4 characters.'; return; }
+        busy(true, go2);
+        try { await changeRemotePassword(connected(), rk, a.value); await socialsLock.setPassword(a.value); opened(a.value); } catch (e) { err.textContent = e.message; busy(false, go2); }
+      });
+      fill(box, el('div', { class: 'so-logo so-logo-big', text: 'Socials' }), el('p', { class: 'muted', text: 'Recovery key accepted. Pick a new password for Socials (on your other devices too).' }), el('div', { class: 'so-form' }, a, b, err, go2));
+    };
+    if (socialsLock.hasPassword()) {
+      const p = pw('Password'); const go2 = el('button', { type: 'button', class: 'btn primary', text: 'Open' });
+      const submit = async () => {
+        err.textContent = ''; const wait = socialsLock.waitLeft(); if (wait) { err.textContent = `Too many tries: wait ${wait}s.`; return; }
+        busy(true, go2);
+        if (await socialsLock.tryPassword(p.value)) { opened(p.value); return; }
+        // (A recovery key, when Socials is in Drive: it opens that copy, then a new password.)
+        if (isRecoveryKey(p.value) && connected()) { try { const h = await remoteHeader(connected()); if (h && await opens(h, p.value)) { newPassword(p.value); return; } } catch { /* offline */ } }
+        err.textContent = socialsLock.waitLeft() ? `Too many tries: wait ${socialsLock.waitLeft()}s.` : 'Wrong password.'; busy(false, go2); p.select();
+      };
+      p.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }); go2.addEventListener('click', submit);
+      box.append(el('p', { class: 'muted', text: 'Enter your Socials password.' }), el('div', { class: 'so-form' }, p, err, go2),
+        el('p', { class: 'muted small', text: 'Forgot it? Enter the recovery key you saved instead (when Socials is synced to your Drive).' }));
+      setTimeout(() => p.focus(), 50);
+      return;
+    }
+    // (No password on this device yet: Socials may already be in Drive, from another device.)
+    const create = (note) => {
+      const a = pw('Password'); const b = pw('Password again'); const go2 = el('button', { type: 'button', class: 'btn primary', text: 'Set password' });
+      go2.addEventListener('click', async () => {
+        err.textContent = ''; if (a.value !== b.value) { err.textContent = 'The two don\'t match.'; return; }
+        try { await socialsLock.setPassword(a.value); opened(a.value); } catch (e) { err.textContent = e.message; }
+      });
+      fill(box, el('div', { class: 'so-logo so-logo-big', text: 'Socials' }), el('p', { class: 'muted', text: note }), el('div', { class: 'so-form' }, a, b, err, go2));
+    };
+    const join = (header) => {
+      const p = pw('Password or recovery key'); const go2 = el('button', { type: 'button', class: 'btn primary', text: 'Open' });
+      const submit = async () => {
+        err.textContent = ''; busy(true, go2);
+        if (await opens(header, p.value)) {
+          if (isRecoveryKey(p.value)) { newPassword(p.value); return; }
+          await socialsLock.setPassword(p.value); opened(p.value); return;
+        }
+        err.textContent = 'That doesn\'t open it.'; busy(false, go2);
+      };
+      p.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }); go2.addEventListener('click', submit);
+      fill(box, el('div', { class: 'so-logo so-logo-big', text: 'Socials' }), el('p', { class: 'muted', text: 'Your Socials is in your Drive (from another device). Enter its password to open it here.' }), el('div', { class: 'so-form' }, p, err, go2));
+    };
+    const api = connected();
+    if (!api) { create('Set a password for Socials. It\'s asked each time the app starts. (Set up Saved Files to keep Socials on your other devices too, with the same password.)'); return; }
+    box.append(el('p', { class: 'muted', text: 'Checking your Drive…' }));
+    remoteHeader(api).then((h) => { if (!alive) return; if (h) join(h); else create('Set a password for Socials. It\'s asked each time the app starts, and it encrypts the copy kept in your Drive, so your other devices open it with the same password.'); })
+      .catch(() => { if (!alive) return; create('Couldn\'t reach your Drive. If Socials is already on another device, try again when online and use its password; otherwise set one now.'); box.append(el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: gate })); });
+  }
+
+  // ---- Sync and password settings.
+  function settings() {
+    const api = connected();
+    const pw = (label) => el('input', { class: 'so-input', type: 'password', autocomplete: 'off', 'aria-label': label, placeholder: label });
+    const err = el('p', { class: 'so-err', role: 'alert' }); const done = el('p', { class: 'muted small', role: 'status' });
+    const cur = pw('Current password'); const n1 = pw('New password'); const n2 = pw('New password again');
+    const change = el('button', { type: 'button', class: 'btn', text: 'Change password' });
+    change.addEventListener('click', async () => {
+      err.textContent = ''; done.textContent = '';
+      if (n1.value !== n2.value) { err.textContent = 'The new passwords don\'t match.'; return; }
+      if (n1.value.length < 4) { err.textContent = 'Use at least 4 characters.'; return; }
+      if (!(await socialsLock.tryPassword(cur.value))) { err.textContent = 'The current password is wrong.'; return; }
+      change.disabled = true;
+      try {
+        if (api) await changeRemotePassword(api, cur.value, n1.value);
+        await socialsLock.setPassword(n1.value); sessionPw = n1.value;
+        cur.value = n1.value = n2.value = ''; done.textContent = api ? 'Password changed, here and for the copy in your Drive: use the new one on your other devices.' : 'Password changed.';
+      } catch (e) { err.textContent = navigator.onLine === false ? 'You\'re offline: the password is changed in your Drive too, so it needs a connection.' : e.message; }
+      change.disabled = false;
+    });
+    // (Another device changed the password: the new one, to keep syncing.)
+    const fix = sync.wrong ? (() => {
+      const p = pw('The password used on your other device'); const b = el('button', { type: 'button', class: 'btn primary', text: 'Use it' }); const e2 = el('p', { class: 'so-err', role: 'alert' });
+      b.addEventListener('click', async () => { e2.textContent = ''; try { const h = await remoteHeader(api); if (h && await opens(h, p.value) && !isRecoveryKey(p.value)) { await socialsLock.setPassword(p.value); sessionPw = p.value; sync.wrong = false; runSync(); draw(); } else e2.textContent = 'That doesn\'t open it.'; } catch (x) { e2.textContent = x.message; } });
+      return el('div', { class: 'so-form' }, el('p', { text: 'Socials in your Drive has a different password (changed on another device?). Enter it to keep syncing; it becomes this device\'s password too.' }), p, e2, b);
+    })() : null;
+    return el('div', {}, backBar('Sync and password', { name: 'feed' }),
+      el('div', { class: 'so-pad so-settings' },
+        el('h3', { text: 'Sync' }),
+        el('p', { class: 'so-sync-msg', text: syncLine() }),
+        api ? el('p', { class: 'muted small', text: 'Kept in the Socials folder of your Saved Files (Google Drive), encrypted with your Socials password on this device first. Other devices with Saved Files set up open it with the same password.' })
+          : el('p', { class: 'muted small', text: 'To keep Socials on your other devices, set up Saved Files (Settings → Saved Files), then open Socials there with the same password.' }),
+        api ? el('button', { type: 'button', class: 'btn primary', text: 'Sync now', onclick: () => runSync() }) : null,
+        fix,
+        el('h3', { text: 'Password' }),
+        el('div', { class: 'so-form' }, cur, n1, n2, err, done, change),
+        el('h3', { text: 'Lock' }),
+        el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
+  }
+
+  function recovery(key) {
+    return el('div', { class: 'so-pad so-settings' },
+      el('h3', { text: 'Your recovery key' }),
+      el('p', { text: 'Socials is now kept in your Drive, encrypted. If you ever forget your password, this key opens it instead. Write it down or save it somewhere safe; it\'s shown only this once.' }),
+      el('p', { class: 'so-key', text: key }),
+      el('button', { type: 'button', class: 'btn primary', text: 'I\'ve saved it', onclick: () => go({ name: 'feed' }) }));
+  }
+
   function draw() {
     if (!alive) return;
+    if (!sessionPw) { gate(); return; }
     drawBars();
-    if (!me()) { fill(main, welcome()); return; }
+    // (The recovery key, once, as soon as nothing's being made.)
+    if (sync.pendingKey && ['feed', 'profile', 'people', 'explore', 'settings'].includes(view.name)) { view = { name: 'recovery', key: sync.pendingKey }; sync.pendingKey = null; }
+    if (view.name === 'recovery') { fill(main, recovery(view.key)); return; }
+    if (!me() && view.name !== 'settings') { fill(main, welcome()); return; }
+    if (!me()) { fill(main, settings()); return; }
     const v = view;
-    fill(main, v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
+    fill(main, v.name === 'settings' ? settings() : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
       : v.name === 'post' ? onePost(v.id) : v.name === 'accounts' ? accounts() : v.name === 'edit' ? edit() : v.name === 'people' ? people(v.id, v.kind) : feed());
   }
 
-  fill(main, el('p', { class: 'muted so-pad', text: 'Loading…' }));
-  idb.get(KEY).then((raw) => { state = normalize(raw); draw(); });
+  // Opened: what's on this device, then a sync.
+  let loaded = false;
+  function start() {
+    if (loaded) { draw(); runSync(); return; }
+    fill(main, el('p', { class: 'muted so-pad', text: 'Loading…' }));
+    idb.get(KEY).then((raw) => { loaded = true; state = normalize(raw); draw(); runSync(); });
+  }
+  if (sessionPw) start(); else gate();
 
-  return () => { alive = false; for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
+  return () => { alive = false; clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
 }
 
 /** A picked photo made ready to keep: at most `edge` px on its long side (or a centered square), as JPEG. */

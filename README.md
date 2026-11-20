@@ -1184,8 +1184,26 @@ account from another; Home shows the posts of the accounts the one in use follow
 Like (♥, or double-tap the photo) and comment as the account in use; Search finds accounts and shows every
 post as a grid; a profile shows its posts, followers and following. Delete a post from its ⋯, an account
 from Edit profile. All of it, photos included (resized to at most 1440 px), is kept on this phone in
-IndexedDB and is still there after a reload; nothing is fetched or sent anywhere. The rules live in
-`web/apps/socials/socials-core.js` (tested in `test/socials.test.js`), the screens in `socials.js`.
+IndexedDB and is still there after a reload.
+
+**Password.** Socials has its own password (separate from the hidden area's, kept the same way: only a
+salted PBKDF2 hash on the phone), set the first time it's opened and asked each time the app starts; five
+wrong tries in a row wait 30 seconds. ☁ (top right) → Sync and password: change it, or 🔒 lock Socials now.
+The data on the phone itself isn't encrypted (as the hidden area's isn't): the password keeps the app shut.
+
+**On your other devices (through your Drive).** With [Saved Files](#saved-files) set up, Socials keeps a copy
+in a **Socials** folder of your Saved Files folder, encrypted on the phone first with a key that only your
+Socials password (or a recovery key, shown once when the copy is first made) opens: AES-256-GCM, the key
+wrapped as Saved Files' own encryption does (`web/lib/vault.js`). In it: `socials-key.json` (the wrapped
+key), `socials-data.ccs` (accounts and posts) and one `socials-m-<id>.ccs` per photo (sent once). On another
+device with Saved Files set up, opening Socials finds the copy and asks for its password, which becomes that
+device's Socials password too. It syncs a few seconds after each change, when Socials opens and when back
+online; the two copies are merged (each account and post as last changed on either device, deletions kept,
+each device keeping the account it's using). Changing the password changes it for the copy in Drive too (it
+needs a connection); a device whose password was changed elsewhere is asked for the new one. Forgot the
+password: the recovery key opens the copy in Drive and sets a new one. Without Saved Files, nothing leaves the
+phone. The rules live in `web/apps/socials/socials-core.js` and `socials-sync.js` (tested in
+`test/socials.test.js`), the screens in `socials.js`.
 
 ## Packages
 

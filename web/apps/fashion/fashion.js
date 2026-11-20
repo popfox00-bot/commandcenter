@@ -399,7 +399,10 @@ export function mount(host) {
     if (saved.v !== VERSION) {
       const pk = saved.picks; const handPicked = pk && (pk.add?.length || pk.del?.length || pk.edits?.length || pk.loop);
       const handTarget = saved.target && (!saved.target.auto || saved.target.taps?.length || saved.target.edits?.length);
-      saved = { ...saved, baseLayout: null, pieceLayout: null, place: null, sel: handPicked ? saved.sel : null, picks: handPicked ? pk : undefined, target: handTarget ? saved.target : null };
+      // (And how it was moved, sized or turned by hand on that placing: on the new one it would push it off
+      // where it goes (dragged down by an old offset). The sliders (light, fit, form…) are kept.)
+      const t0 = saved.tune ?? {};
+      saved = { ...saved, baseLayout: null, pieceLayout: null, place: null, sel: handPicked ? saved.sel : null, picks: handPicked ? pk : undefined, target: handTarget ? saved.target : null, tune: { ...t0, scale: 100, wide: 100, long: 100, rot: 0, dx: 0, dy: 0 } };
     }
     try {
       base = await load(saved.baseFile); piece = await load(saved.pieceFile);

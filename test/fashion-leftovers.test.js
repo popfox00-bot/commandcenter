@@ -100,8 +100,12 @@ test('taken off first: the whole garment in the zone is found (its side past a l
   for (const [x, y] of [[100, 150], [60, 150], [72, 150]]) {
     const [r, g, b, a] = at(x, y);
     assert.equal(a, 255);
-    assert.ok(Math.abs(r - SKIN[0]) < 40 && Math.abs(g - SKIN[1]) < 40 && Math.abs(b - SKIN[2]) < 40, `skin at ${x},${y}: ${[r, g, b]}`);
+    // (Their skin's color; beside hair, in its shade: as warm, a little darker.)
+    const k = r / SKIN[0];
+    assert.ok(k > 0.6 && k < 1.15 && Math.abs(g / r - SKIN[1] / SKIN[0]) < 0.08 && Math.abs(b / r - SKIN[2] / SKIN[0]) < 0.08, `skin at ${x},${y}: ${[r, g, b]}`);
   }
+  // (Shaded where it meets hair: the pixel between two strands darker than the open middle of it.)
+  assert.ok(at(72, 150)[0] < at(100, 150)[0], 'shaded beside the hair');
 });
 
 test('an upper body matched body to body: each arm of the piece (raised or hanging) is what of its selection lies along that arm, outside its torso', async () => {

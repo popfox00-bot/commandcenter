@@ -412,3 +412,19 @@ test('fashion: in a group, a strip of the next person\'s clothes given to someon
   assert.ok(b.clothes[100 * w + 99] >= 128 && a.clothes[100 * w + 99] < 128, 'it\'s the next person\'s');
   assert.equal(a.clothes[100 * w + 50], 255, 'their own top stays theirs');
 });
+
+test('skin texture is never taken from a hand (knuckles and creases tile into a weave): with a wrist at the only clear skin, the face\'s skin is used instead', () => {
+  const w = 200; const h = 300; const n = w * h;
+  const p = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (y >= 20 && y < 120 && x >= 50 && x < 150) { p.face[i] = 255; rgba.set([220, 172, 145, 255], i * 4); }                 // a smooth face
+    else if (y >= 200 && y < 260 && x >= 60 && x < 130) { p.body[i] = 255; rgba.set([(x + y) % 8 < 4 ? 160 : 230, 140, 115, 255], i * 4); } // a hand: strong creases
+  }
+  const pose = { wrists: [[95, 200, 0.9], null] };
+  const t = skinTexture(rgba, w, h, p, 60, pose);
+  assert.ok(t, 'found (from the face)');
+  let v = 0; for (let k = 0; k < 400; k++) v += t(k % 40, (k / 40) | 0)[0] ** 2;
+  assert.ok(Math.sqrt(v / 400) < 8, `smooth, not the hand's creases: ${Math.sqrt(v / 400).toFixed(1)}`);
+});

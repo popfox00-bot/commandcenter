@@ -976,7 +976,11 @@ the clothes in it: worn by someone, or on its own).
   sleeves: the piece's torso is mapped onto theirs frame to frame (the four-sided shape between each one's
   shoulders and hips, carried on past it), the shoulders' caps with it, each sleeve bent onto its own arm;
   where it lands on the piece's own skin (a bare midriff) theirs shows, and below the piece's waist only the
-  cloth that goes on from above (a jacket's sides) is laid on, not a belt or jeans.
+  cloth that goes on from above (a jacket's sides) is laid on, not a belt or jeans. A piece that's one person of a group
+  photo is laid on body to body too; a part of it hidden in its photo (hair over a shoulder, the person beside)
+  is taken from the same place on its other side, mirrored, while its own neckline stays open; and nobody
+  else's hair or skin in that photo is copied in. Made skin's texture comes only from skin the color of their
+  face and no more textured than it, never from near a wrist (a hand), else from their face.
   Opened again after an update, the piece is placed afresh, and a drag, pinch or turn made on the old placing
   is dropped (the sliders are kept). A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.

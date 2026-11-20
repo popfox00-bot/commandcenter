@@ -369,7 +369,9 @@ function zoneLayer(S) {
     const open = tD.box.y1 >= h - 2 || pBox.y1 >= piece.h - 2;
     // (Both people's shoulders and hips known: the piece's body mapped onto theirs, frame to frame (body to
     // body, a turned one unturned), else laid in row by row.)
-    const L = (poseMatch && rigid?.own && bodyWarp(S, tD)) || traceTransfer(tex, pMask, piece.w, piece.h, pBox, tD, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers, rigid });
+    // (Mapped body to body when either person is turned, or the piece is one person of a group (the person
+    // beside them over its edges): laid in row by row, those come out in strips.)
+    const L = (poseMatch && (rigid?.own || (piece.persons?.length ?? 0) > 1) && bodyWarp(S, tD)) || traceTransfer(tex, pMask, piece.w, piece.h, pBox, tD, w, h, { s: place.s, open, adj: tune, skin: sk, rebuilt: piece.rebuilt ?? null, rows: poseRows(S), centers, rigid });
     // (The piece's bare skin painted where the base was clothed only when an arm changes, a tank top onto a
     // jacket: both bare-armed, the base's own neckline and skin stay.)
     // (Nor, in a zone, the piece's own skin painted on: theirs and the base's both bare, the base keeps theirs.)
@@ -381,11 +383,14 @@ function zoneLayer(S) {
       // (All of the piece's own skin there (the model's neck, a necklace on it) gone, not faded: what shows is
       // their neck as made; the piece's cloth begins at its own collar's edge, feathered below.)
       const yTo = base.layout.chin + base.layout.fh * 0.95;
-      for (let y = 0; y < L.ph && L.y0 + y < yTo; y++) for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.skin[k2] || L.bare?.[k2]) L.rgba[k2 * 4 + 3] = 0; }
+      // (Only the piece's own bare skin there (its open neck): what was rebuilt under its hair, and its shoulders,
+      // stay.)
+      const Fc = base.layout.face ? (base.layout.face.x0 + base.layout.face.x1) / 2 : L.x0 + L.pw / 2; const nw = base.layout.fw * 0.75;
+      for (let y = 0; y < L.ph && L.y0 + y < yTo; y++) for (let x = 0; x < L.pw; x++) { const k2 = y * L.pw + x; if (L.bare?.[k2] || L.neck?.[k2]) L.rgba[k2 * 4 + 3] = 0; }
       // (And a thin line of something on that skin the finder called cloth (a necklace's chain): no cloth only a
       // few pixels tall with nothing of the piece above or below it there.)
       { const thin = Math.max(3, Math.round(base.layout.fh * 0.035)); const yEnd = Math.min(L.ph, Math.ceil(yTo - L.y0));
-        for (let x = 0; x < L.pw; x++) { let y = 0; while (y < yEnd) { while (y < yEnd && L.rgba[(y * L.pw + x) * 4 + 3] === 0) y++; const a0 = y; while (y < L.ph && L.rgba[(y * L.pw + x) * 4 + 3] > 0) y++; if (a0 < yEnd && y - a0 <= thin && y < L.ph) for (let t = a0; t < y; t++) L.rgba[(t * L.pw + x) * 4 + 3] = 0; } } }
+        for (let x = 0; x < L.pw; x++) { if (Math.abs(L.x0 + x - Fc) >= nw) continue; let y = 0; while (y < yEnd) { while (y < yEnd && L.rgba[(y * L.pw + x) * 4 + 3] === 0) y++; const a0 = y; while (y < L.ph && L.rgba[(y * L.pw + x) * 4 + 3] > 0) y++; if (a0 < yEnd && y - a0 <= thin && y < L.ph) for (let t = a0; t < y; t++) L.rgba[(t * L.pw + x) * 4 + 3] = 0; } } }
       featherOnSkin(L, S);
     }
     softEdge(L, tD, w, h); layers.push(L);
@@ -519,7 +524,9 @@ function bodyWarp(S, t) {
     const val = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh); const skin = new Uint8Array(bw * bh);
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
       const k = y * bw + x; const i = (Y0 + y) * PW + X0 + x;
-      const cloth = pm[i] && pp.body[i] < 128 && pp.face[i] < 128 && pp.hair[i] < 128;
+      // (Not anyone's hair or skin over it: in a group, the person beside them leaning in.)
+      const AP = piece.allPeople ?? pp;
+      const cloth = pm[i] && pp.body[i] < 128 && pp.face[i] < 128 && pp.hair[i] < 100 && AP.hair[i] < 100 && AP.face[i] < 128 && AP.body[i] < 160;
       if (cloth || piece.rebuilt?.[i]) { const d = piece.draw ?? piece.rgba; for (let c = 0; c < 3; c++) val[k * 3 + c] = d[i * 4 + c]; } else free[k] = 1;
       if (pp.body[i] >= 128 || pp.face[i] >= 128) skin[k] = 1;
     }
@@ -569,8 +576,19 @@ function bodyWarp(S, t) {
       // (On the piece's own skin (its open neck, a bare midriff under a short top) or off the piece: left open,
       // what's under it (their skin, as taken off) shows.)
       // (By the shoulders' line its cloth is carried a little further (the shoulder above its seam).)
-      if (kk < 0 || (skin[kk] && free[kk]) || far[kk] > (g[1] < 0.15 ? near * 4 : near)) { skinOut[k] = 1; continue; }
-      const c3 = sample(sx, sy); rgba[o] = c3[0]; rgba[o + 1] = c3[1]; rgba[o + 2] = c3[2]; rgba[o + 3] = 255; n++;
+      const lim = g[1] < 0.15 ? near * 4 : near;
+      let s2x = sx; let s2y = sy;
+      // (Its own skin there (its neckline): open, as it is.)
+      if (kk >= 0 && skin[kk] && free[kk]) { skinOut[k] = 1; continue; }
+      if (kk < 0 || far[kk] > lim) {
+        // (Hidden there in its photo (hair over that shoulder, the person beside): the same place on its other
+        // side, mirrored, if its cloth is seen there.)
+        const [mx, my] = at(fp, 1 - g[0], g[1]); const mkx = Math.round(mx - X0 - 0.5); const mky = Math.round(my - Y0 - 0.5);
+        const mk = mkx >= 0 && mky >= 0 && mkx < bw && mky < bh ? mky * bw + mkx : -1;
+        if (mk < 0 || (skin[mk] && free[mk]) || far[mk] > lim) { skinOut[k] = 1; continue; }
+        s2x = mx; s2y = my;
+      }
+      const c3 = sample(s2x, s2y); rgba[o] = c3[0]; rgba[o + 1] = c3[1]; rgba[o + 2] = c3[2]; rgba[o + 3] = 255; n++;
     }
   }
   if (n < 50) return null;
@@ -801,7 +819,7 @@ const clearly = (part) => (part.clothFrac > 0.7 ? true : part.clothFrac < 0.3 ? 
 /** The base person's own skin texture (skinTexture), once. */
 function skinDetailOf(base) {
   if (base.skinDetail !== undefined) return base.skinDetail;
-  base.skinDetail = base.people ? skinTexture(base.rgba, base.w, base.h, base.people, base.layout?.fh ?? 60) : null;
+  base.skinDetail = base.people ? skinTexture(base.rgba, base.w, base.h, base.people, base.layout?.fh ?? 60, base.pose ?? null) : null;
   return base.skinDetail;
 }
 

@@ -952,7 +952,11 @@ the clothes in it: worn by someone, or on its own).
   too: the garment's own color right beside what's found of it, where the finder is unsure, is grown into (a
   dark garment's pure black just under the jaw even where the finder says hair), and a few pixels of skin along
   the edge much darker than their skin (the collar's shadow on the jaw) are made again from either side, so no
-  dark line is left along it. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
+  dark line is left along it.
+  Made-up skin takes the person's own texture: many patches of their clear skin (arms, shoulders, chest; the
+  face's skin if no other shows), each its fine detail (pores, grain) and half its soft mottling, the broad
+  light taken out, patches with something in them left out and marks (a mole) held back, laid on as a
+  patchwork of randomly picked, turned and blended patches with its contrast kept: no repeating tile. A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.
 - **Put it on**, fitted for you: **🧥 Overlay** (on top of what's worn there, fitted to it as far as **Fit to
   body** says: at 0, as it is: a hat, shoes, something new) or **🔁 Replace**. In either, **drag** to move the

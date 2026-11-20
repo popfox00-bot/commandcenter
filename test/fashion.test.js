@@ -308,12 +308,20 @@ test('fashion: an upper body zone ends at a waist tilted as the hips are; a pers
   const r = kindRegion('upper', p, L, pose);
   const bottom = (x) => { let y = h - 1; while (y > 0 && !r.mask[y * w + x]) y--; return y; };
   assert.ok(bottom(195) - bottom(105) > 15, `the waist line slants with the hips: ${bottom(105)} → ${bottom(195)}`);
-  // Skin texture: from a square of skin with a fine pattern, its detail (not its shade) comes back.
-  const rgba = new Uint8ClampedArray(n * 4);
-  for (let i = 0; i < n; i++) { const x = i % w; rgba.set([200 + (x % 2 ? 8 : -8), 150, 120, 255], i * 4); p.body[i] = 255; p.clothes[i] = 0; p.face[i] = 0; }
+  // Skin texture: from skin with fine detail (random pores, in red) over a broad shade, its detail comes back
+  // as strong as it is, not its shade nor a tint, and without repeating.
+  const rgba = new Uint8ClampedArray(n * 4); let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) >>> 0; return seed / 4294967296; };
+  for (let i = 0; i < n; i++) { const y = (i / w) | 0; rgba.set([170 + y / 20 + (rnd() - 0.5) * 24, 150, 120, 255], i * 4); p.body[i] = 255; p.clothes[i] = 0; p.face[i] = 0; }
   const t = skinTexture(rgba, w, h, p, 60);
   assert.ok(t, 'found');
-  assert.ok(Math.abs(t(0, 0)[0] - t(1, 0)[0]) > 8 && Math.abs(t(0, 0)[1]) < 2, `its fine detail: ${t(0, 0)} / ${t(1, 0)}`);
+  let m = 0; let v = 0; let g = 0; const N = 4000;
+  for (let k = 0; k < N; k++) { const d = t(k % 200, (k / 200) | 0); m += d[0]; v += d[0] * d[0]; g += Math.abs(d[1]); }
+  m /= N; const sd = Math.sqrt(v / N - m * m);
+  assert.ok(sd > 4.5 && sd < 10, `its detail as strong as the skin's (about 7): ${sd.toFixed(1)}`);
+  assert.ok(Math.abs(m) < 1.5 && g / N < 1, `no shade or tint added: mean ${m.toFixed(2)}, green ${(g / N).toFixed(2)}`);
+  // (No repeat: a stretch far off isn't the same as this one.)
+  let same = 0; for (let k = 0; k < 400; k++) { const a = t(k, 5)[0]; const b2 = t(k + 512, 5)[0]; if (Math.abs(a - b2) < 0.5) same++; }
+  assert.ok(same < 120, `not a repeat: ${same} of 400 alike`);
 });
 
 test('fashion: a print (lettering) on the piece keeps its proportions when laid onto an outline that widens: rigid, not stretched row by row', () => {

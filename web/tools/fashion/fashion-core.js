@@ -1656,32 +1656,86 @@ export function matteBand(rgba, w, h, mask, box, B = 2, R = 7) {
 }
 
 /**
- * A person's own skin texture, to carry into skin that's made up (a bare arm where a sleeve was, a lower
- * neckline): the biggest square of their clear skin (`people` body, not face or hair, at `rgba`), its fine
- * detail only (each pixel less the blur of its square: no light or shade), tiled mirrored over the picture.
- * A function (x, y) → [dr, dg, db], or null when too little skin is seen.
+ * A person's own skin texture, to carry into skin that's made up (where a garment was taken off, a bare arm
+ * where a sleeve was, a lower neckline): sampled from many patches of their clear skin (arms, shoulders,
+ * chest: `people` body, not face or hair, at `rgba`), each its detail at two scales: the fine (pores, the
+ * photo's grain) and the mid (the soft mottling of real skin's color and light), with no broad light or
+ * shade. Patches with something in them (a tattoo, a strap, an edge) are left out. Laid over the picture as
+ * a patchwork without repeats: each cell of a grid takes a patch picked at random (and turned or flipped),
+ * blended into its neighbours with smooth windows, its contrast kept. A function (x, y) → [dr, dg, db], or
+ * null when too little skin is seen.
  */
 export function skinTexture(rgba, w, h, people, fh = 60) {
-  const ok = (i) => people.body[i] >= 200 && people.face[i] < 100 && people.hair[i] < 60;
-  // (The biggest all-skin square: an integral of the skin, tried from big to small.)
+  let ok = (i) => people.body[i] >= 200 && people.face[i] < 100 && people.hair[i] < 60;
   const I = new Int32Array((w + 1) * (h + 1));
-  for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += ok(y * w + x) ? 1 : 0; I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row; } }
+  const integral = () => { for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += ok(y * w + x) ? 1 : 0; I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row; } } };
   const sum = (x0, y0, s2) => I[(y0 + s2) * (w + 1) + x0 + s2] - I[y0 * (w + 1) + x0 + s2] - I[(y0 + s2) * (w + 1) + x0] + I[y0 * (w + 1) + x0];
-  let best = null;
-  for (let S = Math.min(64, Math.round(fh * 0.8)); S >= 8 && !best; S = Math.round(S * 0.8)) {
-    const step = Math.max(2, S >> 2);
-    for (let y = 0; y + S <= h && !best; y += step) for (let x = 0; x + S <= w; x += step) if (sum(x, y, S) >= S * S * 0.98) { best = { x, y, S }; break; }
-  }
-  if (!best) return null;
-  const { S } = best; const D = new Float32Array(S * S * 3);
-  const r = Math.max(2, Math.round(S / 6));
-  for (let c = 0; c < 3; c++) {
-    const v = new Float32Array(S * S); for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) v[y * S + x] = rgba[((best.y + y) * w + best.x + x) * 4 + c];
-    const bl = boxBlur(v, new Uint8Array(S * S).fill(1), S, S, r);
-    for (let k = 0; k < S * S; k++) D[k * 3 + c] = Math.max(-25, Math.min(25, v[k] - bl[k]));
-  }
-  const mir = (t) => { const m = ((t % (2 * S)) + 2 * S) % (2 * S); return m < S ? m : 2 * S - 1 - m; };
-  return (x, y) => { const k = mir(Math.round(y)) * S + mir(Math.round(x)); return [D[k * 3], D[k * 3 + 1], D[k * 3 + 2]]; };
+  // (Patches of clear skin, spread out: tried from big to small until there are a few.)
+  const find = () => {
+    for (let P = Math.max(16, Math.min(96, Math.round(fh * 0.45))); P >= 10; P = Math.round(P * 0.8)) {
+      const got = []; const step = Math.max(2, P >> 1);
+      for (let y = 0; y + P <= h; y += step) for (let x = 0; x + P <= w; x += step) {
+        if (sum(x, y, P) < P * P * 0.97) continue;
+        if (got.some((g) => Math.abs(g.x - x) < P && Math.abs(g.y - y) < P)) continue;
+        got.push({ x, y }); if (got.length >= 24) break;
+      }
+      if (got.length >= 2 || (got.length && P <= 16)) return { P, got };
+    }
+    return null;
+  };
+  integral(); let found = find();
+  // (No clear body skin: their cheeks and forehead, the face's skin away from its features.)
+  if (!found) { ok = (i) => people.face[i] >= 220 && people.hair[i] < 40; integral(); found = find(); }
+  if (!found) return null;
+  const { P } = found; const n = P * P;
+  const r1 = Math.max(1, Math.round(P / 24)); const r2 = Math.max(r1 + 2, Math.round(P / 5));
+  const all = new Uint8Array(n).fill(1);
+  let bank = found.got.map(({ x, y }) => {
+    const D = new Float32Array(n * 3); let e = 0;
+    for (let c = 0; c < 3; c++) {
+      const v = new Float32Array(n); for (let yy = 0; yy < P; yy++) for (let xx = 0; xx < P; xx++) v[yy * P + xx] = rgba[((y + yy) * w + x + xx) * 4 + c];
+      const b1 = boxBlur(v, all, P, P, r1); const b2 = boxBlur(v, all, P, P, r2);
+      // (The fine detail in full (pores, grain); the mid (mottling) at half, a hint of it: the broad light
+      // taken out.)
+      for (let q = 0; q < n; q++) { const d = (v[q] - b1[q]) + 0.5 * (b1[q] - b2[q]); D[q * 3 + c] = d; e += d * d; }
+    }
+    // (A mark (a mole, a freckle) isn't texture: anything past two and a half times its usual is held there.)
+    const sd = Math.sqrt(e / (n * 3)); const lim = sd * 2.5 + 1;
+    for (let q = 0; q < n * 3; q++) D[q] = Math.max(-lim, Math.min(lim, D[q]));
+    return { D, sd };
+  });
+  // (Not a patch with something in it: far more contrast than the others.)
+  const sds = bank.map((b) => b.sd).sort((a, b) => a - b); const msd = sds[sds.length >> 1];
+  bank = bank.filter((b) => b.sd <= msd * 1.8 + 0.5);
+  // (Each patch's own mean taken out: no patch lighter or darker than another.)
+  for (const b of bank) for (let c = 0; c < 3; c++) { let m = 0; for (let q = 0; q < n; q++) m += b.D[q * 3 + c]; m /= n; for (let q = 0; q < n; q++) b.D[q * 3 + c] -= m; }
+  const NB = bank.length;
+  // The patchwork: cells C apart, each a window 2C wide (sin² × sin²: neighbours add up to one), its patch
+  // and where in it chosen by a hash of the cell, so it's the same every time it's asked.
+  const C = Math.max(4, Math.floor(P * 0.32)); const span = 2 * C; const room = Math.max(0, P - span);
+  const hash = (a, b, s2) => { let t = (a * 374761393 + b * 668265263 + s2 * 2147483647) | 0; t = Math.imul(t ^ (t >>> 13), 1274126177); return ((t ^ (t >>> 16)) >>> 0) / 4294967296; };
+  const pick = (ci, cj) => ({ p: Math.floor(hash(ci, cj, 1) * NB) % NB, ox: Math.floor(hash(ci, cj, 2) * (room + 1)), oy: Math.floor(hash(ci, cj, 3) * (room + 1)), t: Math.floor(hash(ci, cj, 4) * 8) });
+  const sample = (cell, u, v) => {
+    // (Turned or flipped by `t`: skin has no grain direction.)
+    let a = u; let b = v; if (cell.t & 1) a = span - 1 - a; if (cell.t & 2) b = span - 1 - b; if (cell.t & 4) { const z = a; a = b; b = z; }
+    return (cell.oy + b) * P + cell.ox + a;
+  };
+  const win = (u) => { const s1 = Math.sin((Math.PI * (u + 0.5)) / span); return s1 * s1; };
+  const cache = new Map();
+  return (x, y) => {
+    const X = Math.round(x); const Y = Math.round(y);
+    const ci0 = Math.floor(X / C) - 1; const cj0 = Math.floor(Y / C) - 1;
+    const out = [0, 0, 0]; let w2 = 0;
+    for (let cj = cj0; cj <= cj0 + 1; cj++) for (let ci = ci0; ci <= ci0 + 1; ci++) {
+      const u = X - ci * C; const v = Y - cj * C; if (u < 0 || v < 0 || u >= span || v >= span) continue;
+      const key = ci * 100003 + cj; let cell = cache.get(key); if (!cell) { cell = pick(ci, cj); if (cache.size > 20000) cache.clear(); cache.set(key, cell); }
+      const wt = win(u) * win(v); const q = sample(cell, u, v); const D = bank[cell.p].D;
+      out[0] += D[q * 3] * wt; out[1] += D[q * 3 + 1] * wt; out[2] += D[q * 3 + 2] * wt; w2 += wt * wt;
+    }
+    // (Blending two patches would flatten them: the contrast put back.)
+    const k = w2 > 1e-6 ? 1 / Math.sqrt(w2) : 1;
+    return [out[0] * k, out[1] * k, out[2] * k];
+  };
 }
 
 /**

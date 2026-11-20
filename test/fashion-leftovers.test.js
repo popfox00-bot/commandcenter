@@ -195,5 +195,31 @@ test('made skin starting right under the jaw: no line where it meets it (its exa
   assert.ok(Math.abs(lum(60, 60) - jaw) < 14, `right under the jaw, its shade: ${lum(60, 60).toFixed(0)} vs ${jaw.toFixed(0)}`);
   let step = 0; for (let y = 61; y < 100; y++) step = Math.max(step, Math.abs(lum(60, y) - lum(60, y - 1)));
   assert.ok(step < 6, `no step going down: largest ${step.toFixed(1)}`);
-  assert.ok(lum(60, 72) < lum(60, 60) - 8, 'the chin\'s shadow comes in below');
+  // (Darker just under the chin than further down the neck, where it's lit as their skin is.)
+  assert.ok(lum(60, 70) < lum(60, 100) - 10, `in the chin's shadow just below it: ${lum(60, 70).toFixed(0)} vs ${lum(60, 100).toFixed(0)} lower down`);
+});
+
+test('made skin keeps their skin\'s color by a deep shade: not washed out to a grey-brown, and the shade doesn\'t darken all of it', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 120; const h = 220; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const SHADE = [110, 68, 48]; const SKIN = [225, 175, 145];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 52 && x >= 35 && x < 85) { people.face[i] = 255; put(SKIN); }
+    else if (y >= 52 && y < 60 && x >= 35 && x < 85) { people.face[i] = 255; put(SHADE); }       // the underside of the jaw, in deep shade
+    else if (y >= 60 && y < 210 && x >= 25 && x < 95) { people.clothes[i] = 255; zm[i] = 1; put([20, 20, 24]); }
+    else if (y >= 60 && y < 210 && x >= 6 && x < 25) { people.body[i] = 255; put(SKIN); }
+  }
+  const z = { mask: zm, box: { x0: 25, y0: 60, x1: 95, y1: 210 } };
+  const e = eraseGarment({ base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 60, face: { x0: 35, y0: 10, x1: 85, y1: 60 } } }, target: {}, kind: 'top', mode: 'replace' }, z);
+  const at = (x, y) => Array.from(e.rgba.slice(((y - e.y0) * e.pw + x - e.x0) * 4, ((y - e.y0) * e.pw + x - e.x0) * 4 + 3));
+  // (Warmth: red over blue, as their skin's (1.55); a wash toward grey would bring it toward 1.)
+  for (const y of [62, 80, 120]) { const [r, , b] = at(60, y); assert.ok(r / b > 1.4, `warm as their skin at row ${y}: ${at(60, y)}`); }
+  const L = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  // (Right by the shade it's near it (no light line under the jaw)...)
+  assert.ok(L(at(60, 61)) - L(SHADE) < 45, `near the shade by the jaw: ${at(60, 61)}`);
+  // (...and that shade only a little way in (a fifth of a face's height): past it, lit as their skin is.)
+  assert.ok(L(at(60, 72)) > L(SKIN) * 0.8, `lit as their skin past the jaw's shade: ${at(60, 72)}`);
 });

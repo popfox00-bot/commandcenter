@@ -963,7 +963,9 @@ the clothes in it: worn by someone, or on its own).
   come in only away from their real skin (over about a fifth of a face's height), so where made skin meets
   theirs it is exactly theirs, matched to its exact shade (not a blur of it); beside the neck, what's around it
   (the dark behind it, their hair) is carried in smoothly; and the piece's open collar fades in over a band, its
-  edge on the made skin softened over a few pixels.
+  edge on the made skin softened over a few pixels. Their skin's color is matched channel by channel (a ratio, so its warmth
+  is kept, never washed toward grey), its exact shade where it meets their skin, and only a little way in (a
+  sixth of a face's height) before it's the made skin's own light: the deep shade under a jaw stays by the jaw.
   Opened again after an update, the piece is placed afresh, and a drag, pinch or turn made on the old placing
   is dropped (the sliders are kept). A jacket keeps its own shape (its long sleeves over bare arms), and a hat and shoes are
   fitted as they are.

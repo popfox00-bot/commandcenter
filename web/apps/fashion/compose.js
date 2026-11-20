@@ -1059,11 +1059,11 @@ export function eraseGarment(S, z) {
     const l = rowEnds[(y - Y0) * 2]; const r = rowEnds[(y - Y0) * 2 + 1];
     if (l >= 0 && x >= l && x < r) { const u = (x + 0.5 - l) / Math.max(1, r - l); sh *= 1 - 0.08 * (1 - Math.sqrt(Math.max(0, Math.sin(Math.PI * u)))); }
     let ex = 1;
-    { const ko = (y - Y0) * bw + x - X0; const dd = occ[ko]; if (dd < aoR) { const t = 1 - dd / aoR; ex *= 1 - 0.42 * t * t; } }
+    { const ko = (y - Y0) * bw + x - X0; const dd = occ[ko]; if (dd < aoR) { const t = 1 - dd / aoR; ex *= 1 - 0.14 * t * t; } }
     // (On the neck: round, its middle lit, darker toward its sides.)
-    if (neck && y >= neck.y0 && y < neck.y1) { const { c, hw } = neck.at(y); const u = Math.min(1, Math.abs(x + 0.5 - c) / hw); ex *= 1 - 0.3 * (1 - Math.sqrt(Math.max(0, Math.cos((Math.PI / 2) * u)))); }
+    if (neck && y >= neck.y0 && y < neck.y1) { const { c, hw } = neck.at(y); const u = Math.min(1, Math.abs(x + 0.5 - c) / hw); ex *= 1 - 0.1 * (1 - Math.sqrt(Math.max(0, Math.cos((Math.PI / 2) * u)))); }
     // (Under the chin: in its shadow, darkest just below the jaw, lighter going down the neck.)
-    if (L0 && y >= L0.chin && y < L0.chin + L0.fh * 0.45) ex *= 0.62 + 0.38 * Math.min(1, (y - L0.chin) / (L0.fh * 0.45));
+    if (L0 && y >= L0.chin && y < L0.chin + L0.fh * 0.45) ex *= 0.86 + 0.14 * Math.min(1, (y - L0.chin) / (L0.fh * 0.45));
     if (!extraOn) return sh;
     const kd = (y - Y0) * bw + x - X0; const away = ds ? Math.min(1, ds[kd] / (fh * 0.22)) : 1;
     return sh * (1 - (1 - ex) * away * away * (3 - 2 * away));
@@ -1101,9 +1101,12 @@ export function eraseGarment(S, z) {
   const diff = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh); let touches = 0;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const k = y * bw + x; const X = X0 + x; const Y = Y0 + y; const i = Y * w + X;
-    if (z.mask[i] || !sk[k] || rim[k]) { free[k] = 1; continue; }
+    if (z.mask[i] || !sk[k] || rim[k]) { free[k] = 1; diff[k * 3] = diff[k * 3 + 1] = diff[k * 3 + 2] = 1; continue; }
     const sh = made(X, Y);
-    for (let c = 0; c < 3; c++) diff[k * 3 + c] = smooth[c][k] - tone[c] * sh;
+    // (As a ratio, channel by channel: their skin's warmth kept, not washed out. At the border it's exactly
+    // theirs, however deep its shade; only a little way in (`fade`) it's the made skin's own light, so one deep
+    // shadow (under the jaw) doesn't darken all of it.)
+    for (let c = 0; c < 3; c++) diff[k * 3 + c] = Math.max(0.3, Math.min(1.4, smooth[c][k] / Math.max(8, tone[c] * sh)));
     // (Counted where it touches the zone.)
     if (dz[k] <= 4) touches++;
   }
@@ -1120,7 +1123,9 @@ export function eraseGarment(S, z) {
     }
     membrane(around, fr2, bw, bh);
   }
-  const fade = fh * 0.35;
+  // (Their skin's own light carried only a little way in (the shade under a jaw belongs to the jaw); past
+  // that, the made skin's own light, which is theirs lit as their skin is lit.)
+  const fade = fh * 0.16;
   extraOn = true;
   const sd = skinDetailOf(base);
   const ob = { x0: Math.max(0, b.x0 - rimR), y0: Math.max(0, b.y0 - rimR), x1: Math.min(w, b.x1 + rimR), y1: Math.min(h, b.y1 + rimR) };
@@ -1131,8 +1136,8 @@ export function eraseGarment(S, z) {
     const dt = sd ? sd(x, y) : null;
     const o = ((y - ob.y0) * pw + x - ob.x0) * 4;
     for (let c = 0; c < 3; c++) {
-      const d = touches > 4 ? Math.max(-90, Math.min(90, diff[k * 3 + c])) * Math.max(0, 1 - ds[k] / fade) : 0;
-      rgba[o + c] = tone[c] * sh + d + (dt ? dt[c] * sh : 0);
+      const q = touches > 4 ? 1 + (diff[k * 3 + c] - 1) * Math.max(0, 1 - ds[k] / fade) : 1;
+      rgba[o + c] = tone[c] * sh * q + (dt ? dt[c] * sh : 0);
     }
     // (The rim softly, its outer pixels less: no new edge of its own.)
     // (Beside the neck, above the shoulders: shadow, what's behind it, deepening away from its edge.)

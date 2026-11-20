@@ -267,3 +267,44 @@ test('sizing a piece from a turned (three-quarter) photo: by the middle of sever
   const front = { pose: { nose: P(350, 260), shoulders: [P(217, 400), P(483, 400)], hips: [P(283, 747), P(417, 747)] }, layout: { fh: 133 } };
   assert.equal(rigidZone({ base, piece: front }).own, false);
 });
+
+test('made skin is shaped as a body, not a flat fill: darker toward the figure\'s outline than its middle, with no hard steps where the zone\'s width jumps', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 200; const h = 240; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const SKIN = [222, 172, 142];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 70 && x >= 75 && x < 125) { people.face[i] = 255; put(SKIN); }
+    // (The top: a torso, and from row 120 its sleeves out to the sides too, so each row's width jumps there.)
+    else if (y >= 70 && y < 230 && ((x >= 50 && x < 150) || (y >= 120 && y < 170 && x >= 20 && x < 180))) { people.clothes[i] = 255; zm[i] = 1; put([20, 20, 24]); }
+  }
+  const P = (x, y) => [x, y, 1];
+  const S = { base: { w, h, rgba, people, pose: { shoulders: [P(60, 100), P(140, 100)] }, layout: { fw: 50, fh: 60, chin: 70, face: { x0: 75, y0: 10, x1: 125, y1: 70 } } }, target: {}, kind: 'upper', mode: 'replace' };
+  const e = eraseGarment(S, { mask: zm, box: { x0: 20, y0: 70, x1: 180, y1: 230 } });
+  const L = (x, y) => { const o = ((y - e.y0) * e.pw + x - e.x0) * 4; return 0.299 * e.rgba[o] + 0.587 * e.rgba[o + 1] + 0.114 * e.rgba[o + 2]; };
+  // (Round: by its outline (where the body turns from the light) darker than down its middle.)
+  assert.ok(L(52, 200) < L(100, 200) - 8, `darker by the outline: ${L(52, 200).toFixed(0)} vs ${L(100, 200).toFixed(0)} in the middle`);
+  // (Smooth: going down the torso past where the sleeves start and end, no step; the light changes gradually.)
+  for (const x of [60, 80, 100]) { let step = 0; for (let y = 140; y < 225; y++) step = Math.max(step, Math.abs(L(x, y) - L(x, y - 1))); assert.ok(step < 2.5, `no step down column ${x}: largest ${step.toFixed(1)}`); }
+});
+
+test('made skin\'s color from their face when what was called their body\'s skin is far from it (a darker, oranger lock of hair or a warm wall): not a tan they don\'t have', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 160; const h = 240; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const FACE = [215, 165, 138]; const ORANGE = [137, 78, 44];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 70 && x >= 55 && x < 105) { people.face[i] = 255; put(FACE); }
+    else if (y >= 70 && y < 230 && x >= 40 && x < 120) { people.clothes[i] = 255; zm[i] = 1; put([240, 240, 240]); }
+    else if (y >= 30 && y < 230 && x >= 6 && x < 30) { people.body[i] = 255; put(ORANGE); }        // "body skin", far from the face's color
+  }
+  const e = eraseGarment({ base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 70, face: { x0: 55, y0: 10, x1: 105, y1: 70 } } }, target: {}, kind: 'top', mode: 'replace' }, { mask: zm, box: { x0: 40, y0: 70, x1: 120, y1: 230 } });
+  const at = (x, y) => Array.from(e.rgba.slice(((y - e.y0) * e.pw + x - e.x0) * 4, ((y - e.y0) * e.pw + x - e.x0) * 4 + 3));
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const c = at(80, 180);
+  assert.ok(d(c, FACE) < d(c, ORANGE) * 0.5, `as their face, not the orange: ${c}`);
+});

@@ -1158,7 +1158,17 @@ export function mount(host) {
           const torso = target.parts?.sleeves?.torso; const sc = (b2) => b2 && { x0: Math.floor(b2.x0 * k), y0: Math.floor(b2.y0 * k), x1: Math.ceil(b2.x1 * k), y1: Math.ceil(b2.y1 * k) };
           tBig = tb && { mask: tm, box: tb, spans: rowSpans(tm, W, tb, Math.round(14 * k)), parts: torso ? { sleeves: { torso: { box: sc(torso.box) } } } : {}, body: target.body };
         }
-        const S = { base: bBig, piece: extended(), target: tBig, kind, mode, place, tune: { ...tune, soft: tune.soft * k } };
+        // (What was taken off, worked out at the working size, brought up: laid under the piece, and the skin the
+        // piece's own skin is shaped on.)
+        let bigPatch = null;
+        if (mode === 'replace' && tBig && !tBig.body && fillCache?.patch) {
+          const fp = fillCache.patch; const c = document.createElement('canvas'); c.width = fp.pw; c.height = fp.ph;
+          c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(fp.rgba), fp.pw, fp.ph), 0, 0);
+          const c2 = document.createElement('canvas'); c2.width = Math.ceil(fp.pw * k); c2.height = Math.ceil(fp.ph * k);
+          const x2 = c2.getContext('2d'); x2.imageSmoothingQuality = 'high'; x2.drawImage(c, 0, 0, c2.width, c2.height);
+          bigPatch = { x0: Math.round(fp.x0 * k), y0: Math.round(fp.y0 * k), pw: c2.width, ph: c2.height, rgba: x2.getImageData(0, 0, c2.width, c2.height).data };
+        }
+        const S = { base: bBig, piece: extended(), target: tBig, kind, mode, place, tune: { ...tune, soft: tune.soft * k }, erased: bigPatch };
         // Replace laid in at full size from the piece's own photo at full size: sharp, not the preview blown
         // up. (If that can't be done, the preview's, brought up.)
         let layer = null;
@@ -1177,13 +1187,7 @@ export function mount(host) {
         }
         out = Uint8ClampedArray.from(B.rgba);
         // What was taken off (worked out at the working size), brought up and laid where the piece doesn't cover.
-        if (mode === 'replace' && tBig && !tBig.body && fillCache?.patch) {
-          const fp = fillCache.patch; const c = document.createElement('canvas'); c.width = fp.pw; c.height = fp.ph;
-          c.getContext('2d').putImageData(new ImageData(Uint8ClampedArray.from(fp.rgba), fp.pw, fp.ph), 0, 0);
-          const c2 = document.createElement('canvas'); c2.width = Math.ceil(fp.pw * k); c2.height = Math.ceil(fp.ph * k);
-          const x2 = c2.getContext('2d'); x2.imageSmoothingQuality = 'high'; x2.drawImage(c, 0, 0, c2.width, c2.height);
-          lay(out, W, H, { x0: Math.round(fp.x0 * k), y0: Math.round(fp.y0 * k), pw: c2.width, ph: c2.height, rgba: x2.getImageData(0, 0, c2.width, c2.height).data });
-        }
+        if (bigPatch) lay(out, W, H, bigPatch);
         if (layer && fillCache?.erase && bBig.people) { try { underStrands(out, W, layer, garmentZone(S), bBig.people); } catch (e) { noteError('Fashion: under the hair', e); } }
         if (layer) lay(out, W, H, layer);
         // (The old garment's straps, recolored: worked out at the working size, brought up.)

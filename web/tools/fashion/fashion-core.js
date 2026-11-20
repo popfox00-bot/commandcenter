@@ -1119,7 +1119,9 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
     // from the body's middle, the outline only clipping it: cloth isn't stretched to the width seen of what
     // was worn there (hair over most of it, a sleeveless top for a shirt), so its buttons and pockets keep
     // their shape.)
-    const rx = rigid && centers ? (r, x2) => centers.p(pb.y0 + r) + (x2 + 0.5 - centers.t(y) - A.dx) / (rigid.s * zx) : null;
+    // (`rigid.own`: a person turned: the piece's middle is its row's own (its cloth's), not its shoulders'.)
+    const pMid = (r) => (rigid?.own && pspans[r * 2] >= 0 ? (pspans[r * 2] + pspans[r * 2 + 1]) / 2 : centers.p(pb.y0 + r));
+    const rx = rigid && centers ? (r, x2) => pMid(r) + (x2 + 0.5 - centers.t(y) - A.dx) / (rigid.s * zx) : null;
     // (A row of the piece too short there (its shoulders, where a sleeve was taken off it; near its hem): the
     // nearest row of it, up or down, that reaches that far, not this row's last pixel smeared across.)
     const reaching = (r, X) => {
@@ -1130,7 +1132,11 @@ export function traceTransfer(tex, pm, pw, ph, pb, target, w, h, { s = 1, open =
     const sampleAt = (r0, X, c) => {
       const r = reaching(r0, X);
       const l = pspans[r * 2]; const rr = pspans[r * 2 + 1];
-      const f = Math.max(l, Math.min(rr - 1, X - 0.5)) - pb.x0;
+      // (Past its side, where no row of it reaches: the cloth by its edge, mirrored back in (its texture going
+      // on), not its edge pixel smeared out into streaks.)
+      const span = Math.max(1, rr - l - 1); let Xm = X - 0.5 - l;
+      if (Xm < 0 || Xm > span) { const per = 2 * span; Xm = ((Xm % per) + per) % per; if (Xm > span) Xm = per - Xm; }
+      const f = Math.max(l, Math.min(rr - 1, l + Xm)) - pb.x0;
       const xa = Math.max(0, Math.min(pbw - 1, Math.floor(f))); const xb = Math.min(pbw - 1, xa + 1); const t = Math.max(0, Math.min(1, f - xa));
       return fill[(r * pbw + xa) * 3 + c] * (1 - t) + fill[(r * pbw + xb) * 3 + c] * t;
     };

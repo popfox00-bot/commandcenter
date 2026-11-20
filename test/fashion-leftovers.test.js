@@ -251,3 +251,19 @@ test('a made neck beside hair: the skin ends on a smooth neck line and what\'s b
   let jump = 0; for (let y = 86; y < 125; y++) jump = Math.max(jump, Math.abs(side(y) - side(y - 1)));
   assert.ok(jump <= 3, `a smooth neck line: it moves at most ${jump} px from row to row`);
 });
+
+test('sizing a piece from a turned (three-quarter) photo: by the middle of several measures (face, shoulders to hips, shoulders), not the foreshortened shoulders alone; and known to be turned', async () => {
+  const { rigidZone } = await import('../web/apps/fashion/compose.js');
+  const P = (x, y) => [x, y, 1];
+  // The base faces the camera: shoulders 400 apart, face 200 tall, shoulders to hips 520.
+  const base = { pose: { nose: P(500, 300), shoulders: [P(300, 500), P(700, 500)], hips: [P(400, 1020), P(600, 1020)] }, layout: { fh: 200 } };
+  // The piece is the same build at two thirds the size, turned: its shoulders look only 150 apart (facing the
+  // camera, at 2/3 of 400, they would be 267), its nose well off their middle.
+  const piece = { pose: { nose: P(250, 260), shoulders: [P(275, 400), P(425, 400)], hips: [P(310, 747), P(400, 747)] }, layout: { fh: 133 } };
+  const r = rigidZone({ base, piece });
+  assert.ok(Math.abs(r.s - 1.5) < 0.08, `sized by the face and torso (1.5), not the shoulders (2.67): ${r.s.toFixed(2)}`);
+  assert.equal(r.own, true, 'known to be turned');
+  // (Both facing the camera: not turned.)
+  const front = { pose: { nose: P(350, 260), shoulders: [P(217, 400), P(483, 400)], hips: [P(283, 747), P(417, 747)] }, layout: { fh: 133 } };
+  assert.equal(rigidZone({ base, piece: front }).own, false);
+});

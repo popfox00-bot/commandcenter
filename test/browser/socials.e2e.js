@@ -69,6 +69,8 @@ test('Socials: accounts, a post, following, the feed, likes and comments, kept a
   await page.getByLabel('Add a comment').fill('Gorgeous!');
   await page.getByRole('button', { name: 'Post', exact: true }).click();
   await page.locator('.so-comment', { hasText: 'jordan Gorgeous!' }).waitFor();
+  // (Saved: the comment written to the phone's storage before the page goes.)
+  await page.waitForFunction(() => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').get('cc.socials'); g.onsuccess = () => res(!!g.result?.posts?.some((p) => p.comments.some((c) => c.text === 'Gorgeous!'))); g.onerror = () => res(false); }; r.onerror = () => res(false); }));
   // A reload: the accounts, who follows whom, the post, its like and comment all still there.
   await page.reload();
   await page.locator('.so-post').first().waitFor();

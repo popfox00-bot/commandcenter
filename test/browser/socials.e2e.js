@@ -294,3 +294,40 @@ test('Socials offline: posts made offline wait for Saved Files, counted for the 
   assert.equal(script.files.filter((f) => /^socials-m-/.test(f.name)).length, 2, 'both photos in Drive');
   await ctx.close();
 });
+
+test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo whose file is lost says so, then comes back from Drive', async () => {
+  const script = fakeScript(); const URL_ = 'https://script.google.com/macros/s/test/exec'; let down = false;
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await ctx.addInitScript(([u]) => { localStorage.setItem('cc.savedFiles', JSON.stringify({ url: u, key: 'k'.repeat(24) })); }, [URL_]);
+  await ctx.route(URL_, async (route) => (down ? route.abort('internetdisconnected') : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(script.handle(JSON.parse(route.request().postData()))) })));
+  const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials`);
+  // (The app's storage, read or changed directly: `op` 'get' or 'delete' on `key`.)
+  const kv = (op, key) => page.evaluate(([o, k]) => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const q = r.result.transaction('kv', 'readwrite').objectStore('kv')[o](k); q.onsuccess = () => res(o === 'get' ? (q.result && (q.result.buf ? { bytes: q.result.buf.byteLength } : q.result.posts ? { image: q.result.posts[0].image === undefined ? 'none' : 'kept' } : null)) : true); q.onerror = () => res(null); }; r.onerror = () => res(null); }), [op, key]);
+  // (Kept the older way, before this version: a Blob inside the one key.)
+  down = true;
+  const png = (await photo(page)).buffer.toString('base64');
+  await page.evaluate(([b64]) => new Promise((res) => { const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); const blob = new Blob([bytes], { type: 'image/png' }); const st = { accounts: [{ id: 'a1', handle: 'kikiparty', owner: true, following: [], at: 1, upd: 1 }], posts: [{ id: 'p1', by: 'a1', image: blob, imageId: 'img1', caption: 'From before', at: 2, upd: 2, likes: [], comments: [] }], me: 'a1' }; const r = indexedDB.open('command-center', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put(st, 'cc.socials'); t.oncomplete = res; }; }), [png]);
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.locator('.so-post', { hasText: 'From before' }).waitFor();
+  assert.ok(await page.locator('.so-post .so-pic img').evaluate((i) => i.decode().then(() => i.naturalWidth > 0)), 'shown');
+  assert.ok((await kv('get', 'cc.socials.m.img1'))?.bytes > 0, 'its bytes kept on their own');
+  assert.equal((await kv('get', 'cc.socials'))?.image, 'none', 'no Blob kept in the state any more');
+  // Sent to Drive; then its file lost on this device: the post says so (Drive unreachable), then gets it back.
+  down = false; await page.getByRole('button', { name: /Sync and password/ }).click(); await page.getByRole('button', { name: 'Sync now' }).click();
+  await page.getByText('Your recovery key').waitFor({ timeout: 20000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
+  assert.ok(script.files.some((f) => f.name === 'socials-m-img1.ccs'));
+  await kv('delete', 'cc.socials.m.img1');
+  down = true; await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByRole('button', { name: 'Open' }).click();
+  await page.getByText('This photo couldn\'t be loaded on this device').waitFor();
+  assert.equal(await page.locator('.so-post img[src^="blob:"]').count(), 0, 'no broken picture');
+  down = false; await page.getByRole('button', { name: /Sync and password/ }).click(); await page.getByRole('button', { name: 'Sync now' }).click();
+  await page.waitForFunction(() => /^Synced/.test(document.querySelector('.so-sync-msg')?.textContent ?? ''));
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.locator('.so-post .so-pic img').waitFor();
+  assert.ok(await page.locator('.so-post .so-pic img').evaluate((i) => i.decode().then(() => i.naturalWidth > 0)), 'back from Drive');
+  assert.ok((await kv('get', 'cc.socials.m.img1'))?.bytes > 0, 'and kept again');
+  await ctx.close();
+});

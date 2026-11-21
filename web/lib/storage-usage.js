@@ -35,7 +35,7 @@ export function human(n) {
 const GROUPS = [
   ['Notes, grocery list and voice memos', (k) => /^(notes\.|grocery\.)/.test(k), false],
   ['Drawings', (k) => k.startsWith('draw.'), false],
-  ['Socials (accounts, posts, photos)', (k) => k === 'cc.socials', false],
+  ['Socials (accounts, posts, photos, videos)', (k) => k === 'cc.socials' || k.startsWith('cc.socials.m.'), false],
   ['Calendar', (k) => k.startsWith('calendar.'), false],
   ['Characters (FM)', (k) => k.startsWith('characters.'), true, 'Your saved Characters are deleted from this phone.'],
   ['Fashion: your pieces', (k) => /^fashion\.piece/.test(k), true, 'The pieces you kept in Fashion are deleted from this phone.'],

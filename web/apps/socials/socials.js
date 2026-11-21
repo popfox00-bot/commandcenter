@@ -10,7 +10,7 @@
 // phone first, so your other devices open the same Socials with the same password (socials-sync.js).
 
 import { el, fill, store } from '../../lib/dom.js';
-import { idb } from '../../lib/idb.js';
+import { loadState, saveState } from './socials-store.js';
 import { makeLock } from '../../lib/hidden-lock.js';
 import { connected } from '../../lib/saved-files.js';
 import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword, pendingFiles } from './socials-sync.js';
@@ -23,7 +23,6 @@ import {
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount,
 } from './socials-core.js';
 
-const KEY = 'cc.socials';
 // (What's waiting for Drive, kept on the phone so a refresh or closing the app doesn't lose track of it:
 // which photos and videos Drive had at the last sync, and whether anything changed since.)
 const DRIVE_KEY = 'cc.socials.drive';
@@ -44,7 +43,7 @@ export function mount(host) {
   const urls = new Map(); // Blob → object URL, made once each.
   const urlOf = (b) => { if (!b) return null; let u = urls.get(b); if (!u) { u = URL.createObjectURL(b); urls.set(b, u); } return u; };
   let edits = 0;
-  const save = () => { idb.set(KEY, state); edits++; store.set(DIRTY_KEY, '1'); soon(); };
+  const save = () => { saveState(state); edits++; store.set(DIRTY_KEY, '1'); soon(); };
   /** How many files are waiting to be saved to Drive (Saved Files). */
   const pending = () => (connected() ? pendingFiles(state, store.json(DRIVE_KEY, null)?.media ?? [], store.get(DIRTY_KEY) === '1') : 0);
   // ---- Sync with Drive: after each change (a few seconds later), when the app opens, when back online.
@@ -64,11 +63,16 @@ export function mount(host) {
       store.set(DRIVE_KEY, JSON.stringify({ media: r.driveMedia, at: Date.now() }));
       if (edits === editsAt) store.set(DIRTY_KEY, '');
       // (Anything changed here while it ran is kept: merged again over what came back.)
-      state = mergeStates(state, r.state); await idb.set(KEY, state);
+      state = mergeStates(state, r.state);
+      // (Photos and videos fetched from Drive (one this device had lost, too) put in, by their ids.)
+      const got = new Map(); const each = (st, fn) => { for (const a of st.accounts) fn(a, 'avatar', 'avatarId'); for (const p of st.posts) { fn(p, 'image', 'imageId'); fn(p, 'video', 'videoId'); } };
+      each(r.state, (o, k, idk) => { if (o[k] && o[idk]) got.set(o[idk], o[k]); });
+      each(state, (o, k, idk) => { if (!o[k] && o[idk] && got.has(o[idk])) o[k] = got.get(o[idk]); });
+      await saveState(state);
       sync.ok = true; sync.wrong = false; sync.msg = `Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
       if (r.recoveryKey) sync.pendingKey = r.recoveryKey;
       // (Shown again only where nothing's being typed or picked: a post being made, a comment, a form stay as they are.)
-      if (['feed', 'profile', 'people', 'inbox'].includes(view.name)) draw(); else { drawStatus(); drawBars(); }
+      if (['feed', 'profile', 'people', 'inbox'].includes(view.name) || (sync.pendingKey && ['settings', 'explore'].includes(view.name))) draw(); else { drawStatus(); drawBars(); }
     } catch (e) {
       sync.ok = false; sync.wrong = e instanceof WrongPassword;
       sync.msg = sync.wrong ? 'The copy in your Drive has a different password' : navigator.onLine === false ? 'Offline: syncs when back online' : `Couldn't sync: ${e.message}`;
@@ -142,9 +146,18 @@ export function mount(host) {
       if (!p.video) return el('div', { class: 'so-pic so-novideo' }, p.image ? el('img', { src: urlOf(p.image), alt: '' }) : null, el('span', { text: 'This video is on the device it was posted from (too big to sync).' }));
       return el('div', { class: 'so-pic so-vid' }, el('video', { src: urlOf(p.video), poster: urlOf(p.image) ?? undefined, controls: true, playsinline: true, preload: 'metadata', 'aria-label': `Video by ${by.handle}` }));
     }
-    if (!p.image) return null;
+    // (A photo whose file couldn't be read on this device: said so, not a broken picture. With Saved Files, the
+    // copy in Drive brings it back at the next sync.)
+    if (!p.image) return p.imageId ? lostPhoto() : null;
     let lastTap = 0;
-    return el('div', { class: 'so-pic', ondblclick: () => like(), onpointerup: () => { const t = Date.now(); if (t - lastTap < 300) like(); lastTap = t; } }, el('img', { src: urlOf(p.image), alt: p.caption ? `Photo: ${p.caption.slice(0, 80)}` : `Photo by ${by.handle}` }));
+    const box = el('div', { class: 'so-pic', ondblclick: () => like(), onpointerup: () => { const t = Date.now(); if (t - lastTap < 300) like(); lastTap = t; } }, el('img', { src: urlOf(p.image), alt: p.caption ? `Photo: ${p.caption.slice(0, 80)}` : `Photo by ${by.handle}`, onerror: () => box.replaceWith(lostPhoto()) }));
+    return box;
+  }
+
+  function lostPhoto() {
+    return el('div', { class: 'so-pic so-lost', role: 'img', 'aria-label': 'Photo not available' },
+      el('span', { class: 'so-lost-icon', 'aria-hidden': 'true', text: '🖼' }),
+      el('span', { text: connected() ? 'This photo couldn\'t be loaded on this device. If it was saved to Saved Files, it comes back at the next sync.' : 'This photo couldn\'t be loaded on this device.' }));
   }
 
   /** A small menu of choices over the page (a post's ⋯): resolves to the picked one's id, or null. */
@@ -434,7 +447,7 @@ export function mount(host) {
   function chat(otherId) {
     const m = me(); const o = accountById(state, otherId); if (!o || o.id === m.id) return inbox();
     const msgs = conversation(state, m.id, o.id);
-    if (msgs.length) { markRead(state, m.id, o.id, msgs[msgs.length - 1].at); idb.set(KEY, state); }
+    if (msgs.length) { markRead(state, m.id, o.id, msgs[msgs.length - 1].at); saveState(state); }
     const list = el('div', { class: 'so-chat', role: 'log', 'aria-label': `Messages with @${o.handle}` });
     let lastDay = '';
     for (const x of msgs) {
@@ -593,7 +606,8 @@ export function mount(host) {
   function start() {
     if (loaded) { draw(); runSync(); return; }
     fill(main, el('p', { class: 'muted so-pad', text: 'Loading…' }));
-    idb.get(KEY).then((raw) => { loaded = true; state = normalize(raw); draw(); runSync(); });
+    // (If what's kept can't be read, nothing is shown or saved over it: an empty Socials saved now would replace it.)
+    loadState().then((r) => { loaded = true; state = r.state; draw(); runSync(); }).catch(() => { fill(main, el('div', { class: 'so-pad so-empty' }, el('p', { class: 'so-empty-big', text: 'Socials couldn\'t open what\'s kept on this device' }), el('p', { class: 'muted', text: 'Nothing has been changed. Close the app and open it again.' }), el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: start }))); });
   }
   if (sessionPw) start(); else gate();
 

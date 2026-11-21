@@ -1203,7 +1203,11 @@ Profile, ✈ for messages), where everything is made by you in the app.
   grid; a profile shows its posts, followers and following.
 
 All of it, photos (at most 1440 px) and videos included, is kept on this phone in IndexedDB and is still
-there after a reload.
+there after a reload (`socials-store.js`): the accounts, posts and messages under one key, each photo and video
+under its own as its bytes, written once. Not as Blobs: Safari on iPhone can lose a Blob kept in IndexedDB
+after the app is closed and opened again. What was kept as Blobs before 3.06 is moved over when Socials is
+opened (each that still reads); a photo whose file can't be read says so on its post instead of showing a
+broken picture, and with Saved Files the copy in Drive brings it back at the next sync.
 
 **Password.** Socials has its own password (separate from the hidden area's, kept the same way: only a
 salted PBKDF2 hash on the phone), set the first time it's opened and asked each time the app starts; five

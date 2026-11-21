@@ -369,6 +369,25 @@ export function conversationsOf(state, me) {
   return [...by].map(([o, c]) => ({ other: accountById(state, o), ...c })).filter((c) => c.other).sort((a, b) => b.last.at - a.last.at);
 }
 
+/** An account's unopened messages: how many, and when the latest of them was sent (0: none). */
+export function unreadInfo(state, me) {
+  let n = 0; let last = 0;
+  for (const m of state.messages ?? []) if (m.to === me && m.at > lastRead(state, me, m.from)) { n++; last = Math.max(last, m.at); }
+  return { n, last };
+}
+
+/**
+ * The accounts to pick from, in order: the Owner first; then those with unopened messages (collab requests
+ * among them), the most first, then the latest sent; then the rest, the most recently used first (`used`:
+ * { accountId: when it was last switched to }).
+ */
+export function switcherOrder(state, used = {}) {
+  const owner = state.accounts.filter((a) => a.owner);
+  const rest = state.accounts.filter((a) => !a.owner).map((a) => ({ a, u: unreadInfo(state, a.id), t: used[a.id] ?? 0 }));
+  rest.sort((x, y) => (y.u.n > 0) - (x.u.n > 0) || y.u.n - x.u.n || y.u.last - x.u.last || y.t - x.t || x.a.at - y.a.at);
+  return [...owner, ...rest.map((x) => x.a)];
+}
+
 /** How many messages to `me` they haven't read. */
 export const unreadCount = (state, me) => conversationsOf(state, me).reduce((n, c) => n + c.unread, 0);
 

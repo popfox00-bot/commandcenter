@@ -22,8 +22,9 @@ import {
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
-  toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, TRASH_DAYS,
+  toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
+import { generateComment, generateReply } from './socials-predict.js';
 import { createZip } from '../../lib/zip.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
 import { handoff } from '../../lib/handoff.js';
@@ -253,21 +254,68 @@ export function mount(host) {
   }
 
   /** People to tag: a chip for each account (but the one posting), on or off. */
-  function tagPicker(selected, author) {
-    const box = el('div', { class: 'so-tagpick', role: 'group', 'aria-label': 'Tag people' });
-    const drawPick = () => fill(box, el('span', { class: 'so-tagpick-label', text: '👤 Tag people' }),
-      accountsInOrder(state).filter((a) => a.id !== author).map((a) => el('button', { type: 'button', class: `so-chip${selected.has(a.id) ? ' on' : ''}`, 'aria-pressed': String(selected.has(a.id)), text: `@${a.handle}`, onclick: () => { if (selected.has(a.id)) selected.delete(a.id); else selected.add(a.id); drawPick(); } })),
-      accountsInOrder(state).length < 2 ? el('span', { class: 'muted small', text: 'Make another account to tag it.' }) : null);
-    drawPick(); return box;
+  // (When each account was last switched to, on this device: the account list puts the latest first.)
+  const USED_KEY = 'cc.socials.used';
+  const usedTimes = () => { try { return JSON.parse(localStorage.getItem(USED_KEY)) ?? {}; } catch { return {}; } };
+  /** Switch to account `id` (and remember when, for the account list's order). */
+  function useAccount(id) {
+    state.me = id;
+    try { const u = usedTimes(); u[id] = Date.now(); localStorage.setItem(USED_KEY, JSON.stringify(u)); } catch { /* private mode */ }
+  }
+  const byHandle = (list) => [...list].sort((a, b) => a.handle.localeCompare(b.handle, undefined, { sensitivity: 'base' }));
+
+  /** A small button that opens (and closes) a list: its label shows how many are picked. */
+  function folded(label, count, body, open) {
+    const box = el('div', { class: 'so-fold' });
+    const btn = el('button', { type: 'button', class: `so-chip so-fold-btn${count() ? ' on' : ''}`, 'aria-expanded': String(open.v) });
+    const panel = el('div', { class: 'so-fold-panel' });
+    const draw = () => {
+      const n = count(); btn.textContent = `${label}${n ? ` · ${n}` : ''} ${open.v ? '▴' : '▾'}`;
+      btn.classList.toggle('on', n > 0); btn.setAttribute('aria-expanded', String(open.v));
+      panel.hidden = !open.v; if (open.v) fill(panel, body()); else panel.replaceChildren();
+    };
+    btn.addEventListener('click', () => { open.v = !open.v; draw(); });
+    box.append(btn, panel); box.redraw = draw; draw(); return box;
   }
 
-  /** Who to invite to collaborate (the post on their profile too, once they say yes): up to three. */
-  function collabPicker(selected, author, statusOf = () => null) {
-    const box = el('div', { class: 'so-tagpick so-collabpick', role: 'group', 'aria-label': 'Collab' });
-    const drawPick = () => fill(box, el('span', { class: 'so-tagpick-label', text: '🤝 Collab' }),
-      accountsInOrder(state).filter((a) => a.id !== author).map((a) => { const on = selected.has(a.id); const st = statusOf(a.id); return el('button', { type: 'button', class: `so-chip${on ? ' on' : ''}`, 'aria-pressed': String(on), 'aria-label': `Collab with @${a.handle}`, text: `@${a.handle}${on && st === 'accepted' ? ' ✓' : on && st === 'pending' ? ' …' : ''}`, onclick: () => { if (on) selected.delete(a.id); else if (selected.size < MAX_COLLAB) selected.add(a.id); else toast(`${MAX_COLLAB} collaborators at most.`); drawPick(); } }); }),
-      el('span', { class: 'muted small so-collab-note', text: accountsInOrder(state).length < 2 ? 'Make another account to collab with it.' : 'Each gets a collab request in their messages; once they accept, it\'s on their profile too.' }));
-    drawPick(); return box;
+  /** Who's tagged in a post (alphabetical, folded until opened). */
+  function tagPicker(selected, author) {
+    const open = { v: false }; let box;
+    const others = () => byHandle(state.accounts.filter((a) => a.id !== author));
+    box = folded('👤 Tag', () => selected.size, () => [
+      el('div', { class: 'so-tagpick', role: 'group', 'aria-label': 'Tag people' }, others().map((a) => el('button', { type: 'button', class: `so-chip${selected.has(a.id) ? ' on' : ''}`, 'aria-pressed': String(selected.has(a.id)), text: `@${a.handle}`, onclick: () => { if (selected.has(a.id)) selected.delete(a.id); else selected.add(a.id); box.redraw(); } }))),
+      others().length ? null : el('span', { class: 'muted small', text: 'Make another account to tag it.' })], open);
+    return box;
+  }
+
+  /** Who to invite to collaborate (the post on their profile too, once they say yes): up to three. Each is
+   * tagged too (tagging alone doesn't collab). */
+  function collabPicker(selected, author, statusOf = () => null, tagged = null) {
+    const open = { v: false }; let box;
+    const others = () => byHandle(state.accounts.filter((a) => a.id !== author));
+    box = folded('🤝 Collab', () => selected.size, () => [
+      el('div', { class: 'so-tagpick so-collabpick', role: 'group', 'aria-label': 'Collab' }, others().map((a) => { const on = selected.has(a.id); const st = statusOf(a.id); return el('button', { type: 'button', class: `so-chip${on ? ' on' : ''}`, 'aria-pressed': String(on), 'aria-label': `Collab with @${a.handle}`, text: `@${a.handle}${on && st === 'accepted' ? ' ✓' : on && st === 'pending' ? ' …' : ''}`, onclick: () => {
+        if (on) selected.delete(a.id);
+        else if (selected.size < MAX_COLLAB) { selected.add(a.id); if (tagged) { tagged.set.add(a.id); tagged.box?.redraw(); } } else toast(`${MAX_COLLAB} collaborators at most.`);
+        box.redraw();
+      } }); })),
+      el('span', { class: 'muted small so-collab-note', text: others().length ? 'Each gets a collab request in their messages (and is tagged); once they accept, it\'s on their profile too.' : 'Make another account to collab with it.' })], open);
+    return box;
+  }
+
+  /** Hashtags used before (by every account), the most used first: a tap adds one to the caption. */
+  function communityPicker(caption) {
+    const open = { v: false };
+    const has = (t) => hashtagsIn(caption.value).includes(t);
+    let box;
+    box = folded('# Community', () => 0, () => {
+      const tags = searchTags(state, '');
+      return tags.length ? el('div', { class: 'so-tagpick', role: 'group', 'aria-label': 'Hashtags used before' }, tags.slice(0, 40).map((t) => el('button', { type: 'button', class: `so-chip${has(t.tag) ? ' on' : ''}`, 'aria-pressed': String(has(t.tag)), 'aria-label': `#${t.tag}, used ${t.count} times`, text: `#${t.tag} ${t.count}`, onclick: () => {
+        if (!has(t.tag)) { caption.value = `${caption.value.replace(/\s*$/, '')}${caption.value.trim() ? ' ' : ''}#${t.tag}`; caption.dispatchEvent(new Event('input')); }
+        box.redraw();
+      } }))) : el('span', { class: 'muted small', text: 'No hashtags yet: put #something in a caption.' });
+    }, open);
+    return box;
   }
 
   // ---- Saved posts and views.
@@ -340,6 +388,7 @@ export function mount(host) {
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') post(); });
       return el('div', { class: 'so-comment-add' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Post', onclick: post }));
     })() : null;
+    const genBox = full && m?.owner ? generateCommentBox(p) : null;
     return el('article', { class: 'so-post', 'data-post': p.id },
       el('div', { class: 'so-post-head' }, el('button', { type: 'button', class: 'so-avbtn', 'aria-label': `@${by.handle}`, onclick: () => go({ name: 'profile', id: by.id }) }, avatar(by, 's')), handleBtn(by), ...collabsOf(p).flatMap((cid) => { const ca = accountById(state, cid); return ca ? [el('span', { class: 'so-and', text: ' and ' }), handleBtn(ca)] : []; }), el('span', { class: 'so-dot muted', text: `• ${timeAgo(p.at)}${p.edited ? ' · edited' : ''}` }), menu),
       pic,
@@ -350,7 +399,27 @@ export function mount(host) {
       p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', ...captionNodes(p.caption)) : null,
       !full && p.comments.length > 2 ? el('button', { type: 'button', class: 'so-link muted', text: `View all ${p.comments.length} comments`, onclick: () => go({ name: 'post', id: p.id }) }) : null,
       ...shown.map((c) => { const a = accountById(state, c.by); return a ? el('p', { class: 'so-comment' }, handleBtn(a), ' ', c.text, full ? el('span', { class: 'muted small', text: `  ${timeAgo(c.at)}` }) : null) : null; }),
-      commentBox);
+      genBox, commentBox);
+  }
+
+  // ---- The text predictor (the Owner only): a comment from another account, or a reply in a chat.
+  let genWho = ''; // ('' = a random account)
+  /** ✨ Generate comment: one of the other accounts (random, or the one picked) says something about the post. */
+  function generateCommentBox(p) {
+    const others = byHandle(state.accounts.filter((a) => a.id !== p.by));
+    if (!others.length) return null;
+    if (genWho && !others.some((a) => a.id === genWho)) genWho = '';
+    const pick = el('select', { class: 'so-input so-gen-who', 'aria-label': 'Comment as' }, el('option', { value: '', text: '🎲 Random account' }), others.map((a) => el('option', { value: a.id, text: `@${a.handle}` })));
+    pick.value = genWho; pick.addEventListener('change', () => { genWho = pick.value; });
+    const go1 = () => {
+      // (Random: one that hasn't commented yet, when there is one.)
+      const fresh = others.filter((a) => !p.comments.some((c) => c.by === a.id));
+      const pool = fresh.length ? fresh : others;
+      const who = genWho || pool[Math.floor(Math.random() * pool.length)].id;
+      const text = generateComment(p.caption, { avoid: p.comments.map((c) => c.text) });
+      if (addComment(state, p.id, who, text)) { save(); draw(); }
+    };
+    return el('div', { class: 'so-gen' }, el('button', { type: 'button', class: 'btn so-gen-btn', text: '✨ Generate comment', onclick: go1 }), pick);
   }
 
   // ---- Screens.
@@ -527,7 +596,7 @@ export function mount(host) {
         a.bio ? el('p', { class: 'so-bio', text: a.bio }) : null,
         el('div', { class: 'so-row' }, mine
           ? [el('button', { type: 'button', class: 'btn', text: 'Edit profile', onclick: () => go({ name: 'edit' }) }), el('button', { type: 'button', class: 'btn', text: 'Switch account', onclick: () => go({ name: 'accounts' }) }), el('button', { type: 'button', class: 'btn', 'aria-label': `Download @${a.handle}'s photos and videos`, text: '⬇', onclick: () => exportAccount(a) })]
-          : [el('button', { type: 'button', class: `btn${f ? '' : ' primary'}`, text: f ? 'Following' : 'Follow', onclick: () => { toggleFollow(state, state.me, a.id); save(); draw(); } }), el('button', { type: 'button', class: 'btn', text: 'Message', onclick: () => go({ name: 'chat', id: a.id }) }), el('button', { type: 'button', class: 'btn', text: 'Use this account', onclick: () => { state.me = a.id; save(); draw(); } }), el('button', { type: 'button', class: 'btn', 'aria-label': `Download @${a.handle}'s photos and videos`, text: '⬇', onclick: () => exportAccount(a) })])),
+          : [el('button', { type: 'button', class: `btn${f ? '' : ' primary'}`, text: f ? 'Following' : 'Follow', onclick: () => { toggleFollow(state, state.me, a.id); save(); draw(); } }), el('button', { type: 'button', class: 'btn', text: 'Message', onclick: () => go({ name: 'chat', id: a.id }) }), el('button', { type: 'button', class: 'btn', text: 'Use this account', onclick: () => { useAccount(a.id); save(); draw(); } }), el('button', { type: 'button', class: 'btn', 'aria-label': `Download @${a.handle}'s photos and videos`, text: '⬇', onclick: () => exportAccount(a) })])),
       el('div', { class: 'so-ptabs', role: 'tablist' },
         [['posts', 'Posts', '▦'], ['reels', 'Reels', '▶︎'], ['tagged', 'Tagged', '👤'], ...(mine ? [['saved', 'Saved', '🔖'], ['drafts', `Drafts${draftsOf(state, a.id).length ? ` (${draftsOf(state, a.id).length})` : ''}`, '✎']] : [])].map(([g, label, icon]) => el('button', { type: 'button', role: 'tab', class: `so-ptab${grid === g ? ' on' : ''}`, 'aria-selected': String(grid === g), 'aria-label': label, text: icon, onclick: () => go({ ...view, grid: g }) }))),
       posts.length ? el('div', { class: 'so-grid' }, posts.map(tile)) : el('div', { class: 'so-empty' }, el('p', { class: 'so-empty-big', text: showReels ? 'No reels yet' : grid === 'tagged' ? 'No tagged posts yet' : grid === 'drafts' ? 'No drafts' : grid === 'saved' ? 'Nothing saved yet: tap 🔖 on a post to save it here (only you see this)' : 'No posts yet' }), mine && !['tagged', 'drafts', 'saved'].includes(grid) ? el('button', { type: 'button', class: 'btn primary', text: 'Share your first post', onclick: () => go({ name: 'new' }) }) : null));
@@ -552,10 +621,10 @@ export function mount(host) {
   // (Picking the account to use: the Owner always first, on its own, then the others.)
   function accounts() {
     const row = (a) => el('div', { class: `so-person${a.owner ? ' so-owner-row' : ''}` },
-      el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Use @${a.handle}${a.owner ? ' (Owner)' : ''}`, onclick: () => { state.me = a.id; save(); go({ name: 'feed' }); } }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', {}, a.handle, a.owner ? el('span', { class: 'so-owner', text: 'Owner' }) : null), el('span', { class: 'muted small', text: a.name || ' ' }))),
+      el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Use @${a.handle}${a.owner ? ' (Owner)' : ''}`, onclick: () => { useAccount(a.id); save(); go({ name: 'feed' }); } }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', {}, a.handle, a.owner ? el('span', { class: 'so-owner', text: 'Owner' }) : null), el('span', { class: 'muted small', text: a.name || ' ' }))),
       unreadCount(state, a.id) ? el('span', { class: 'so-badge so-badge-inline', 'aria-label': `${unreadCount(state, a.id)} unread messages`, text: String(unreadCount(state, a.id)) }) : null,
       a.id === state.me ? el('span', { class: 'so-check', 'aria-label': 'In use', text: '✓' }) : null);
-    const list = accountsInOrder(state); const owner = list.filter((a) => a.owner); const others = list.filter((a) => !a.owner);
+    const list = switcherOrder(state, usedTimes()); const owner = list.filter((a) => a.owner); const others = list.filter((a) => !a.owner);
     return el('div', {}, backBar('Accounts', { name: 'feed' }),
       el('h3', { class: 'so-section', text: 'Owner' }), el('div', { class: 'so-people' }, owner.map(row)),
       el('h3', { class: 'so-section', text: 'Other accounts' }),
@@ -582,7 +651,7 @@ export function mount(host) {
       err.textContent = '';
       const p = handleProblem(state, handle.value, a?.id ?? null); if (p) { err.textContent = p; return; }
       if (a) { editAccount(state, a.id, { handle: handle.value, name: name.value, bio: bio.value, ...(changed ? { avatar: pic } : {}) }); save(); go({ name: 'profile', id: a.id }); }
-      else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic }); state.me = n.id; save(); go({ name: 'feed' }); }
+      else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic }); useAccount(n.id); save(); go({ name: 'feed' }); }
     };
     return el('div', { class: 'so-form' },
       el('label', { class: 'so-form-pic' }, prev, el('span', { class: 'so-link', text: a?.avatar ? 'Change profile photo' : 'Add profile photo' }), file),
@@ -623,6 +692,7 @@ export function mount(host) {
     const more = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, class: 'so-file', 'aria-label': 'Add more photos or videos' });
     const caption = el('textarea', { class: 'so-input', rows: '3', placeholder: 'Write a caption…', 'aria-label': 'Caption', maxlength: '2200' });
     const err = el('p', { class: 'so-err', role: 'alert' });
+    const tagBox = tagPicker(tags, m.id);
     if (draft?.draft) caption.value = draft.caption;
     const share = el('button', { type: 'button', class: 'btn primary', text: 'Share', disabled: true });
     const saveDraft = el('button', { type: 'button', class: 'btn', text: draft?.draft ? 'Save draft' : 'Save as draft', disabled: true });
@@ -660,7 +730,7 @@ export function mount(host) {
     caption.addEventListener('input', () => { saveDraft.disabled = !items.length && !caption.value.trim(); });
     const make = (asDraft) => {
       const [first, ...rest] = items;
-      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...tags], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft });
+      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...new Set([...tags, ...collabs])], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft });
       if (draft?.draft) removePost(state, draft.id); // (the draft it was: replaced)
       // (Its collaborators: asked now if it's shared; when a draft is, they're asked when it's shared.)
       setCollabs(state, p.id, [...collabs]);
@@ -678,7 +748,7 @@ export function mount(host) {
     saveDraft.addEventListener('click', () => { try { make(true); save(); toast('Saved to your drafts (your profile → ✎)'); go({ name: 'profile', id: m.id, grid: 'drafts' }); } catch (e) { err.textContent = e.message; } });
     if (items.length) requestAnimationFrame(show);
     return el('div', {}, backBar(draft?.draft ? `Draft · @${m.handle}` : `New post as @${m.handle}`, draft?.draft ? { name: 'profile', id: m.id, grid: 'drafts' } : { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), strip, el('div', { class: 'so-row' }, again, addLabel), caption, tagPicker(tags, m.id), collabPicker(collabs, m.id), err, el('div', { class: 'so-row' }, saveDraft, share),
+      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), strip, el('div', { class: 'so-row' }, again, addLabel), caption, communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
         draft?.draft ? el('button', { type: 'button', class: 'so-link so-danger-link', text: 'Delete draft', onclick: () => { if (confirm('Delete this draft?')) { removePost(state, draft.id); save(); go({ name: 'profile', id: m.id, grid: 'drafts' }); } } }) : null));
   }
 
@@ -689,10 +759,11 @@ export function mount(host) {
     const prev = el('div', { class: 'so-new-prev so-edit-prev' }, p.kind === 'video' ? el('video', { src: urlOf(p.video), poster: urlOf(p.image) ?? undefined, controls: true, playsinline: true }) : el('img', { src: urlOf(p.image), alt: 'The photo' }));
     const caption = el('textarea', { class: 'so-input', rows: '4', 'aria-label': 'Caption', maxlength: '2200' }); caption.value = p.caption;
     const err = el('p', { class: 'so-err', role: 'alert' });
+    const tagBox = tagPicker(tags, p.by);
     const photo = p.kind === 'photo' && p.image ? el('button', { type: 'button', class: 'btn', text: 'Edit photo (fit, filter, adjust)', onclick: async () => { try { const b = await photoFrom(img ?? p.image, false); if (b) { img = b; prev.replaceChildren(el('img', { src: urlOf(b), alt: 'The photo' })); } } catch (e) { err.textContent = e.message; } } }) : null;
     return el('div', {}, backBar('Edit post', { name: 'post', id }),
-      el('div', { class: 'so-pad so-new' }, prev, photo, caption, tagPicker(tags, p.by), collabPicker(collabs, p.by, (cid) => p.collab?.find((c) => c.id === cid)?.status ?? null), err,
-        el('button', { type: 'button', class: 'btn primary', text: 'Save', onclick: () => { editPost(state, id, { caption: caption.value, image: img, tags: [...tags] }); const sent = setCollabs(state, id, [...collabs]); save(); if (sent.length) toast(`Collab request sent to ${sent.map((x) => `@${accountById(state, x)?.handle}`).join(', ')}`); go({ name: 'post', id }); } })));
+      el('div', { class: 'so-pad so-new' }, prev, photo, caption, communityPicker(caption), tagBox, collabPicker(collabs, p.by, (cid) => p.collab?.find((c) => c.id === cid)?.status ?? null, { set: tags, box: tagBox }), err,
+        el('button', { type: 'button', class: 'btn primary', text: 'Save', onclick: () => { editPost(state, id, { caption: caption.value, image: img, tags: [...new Set([...tags, ...collabs])] }); const sent = setCollabs(state, id, [...collabs]); save(); if (sent.length) toast(`Collab request sent to ${sent.map((x) => `@${accountById(state, x)?.handle}`).join(', ')}`); go({ name: 'post', id }); } })));
   }
 
   // ---- Reels: everyone's videos, one at a time, full height; swipe up for the next. Each plays when it's
@@ -808,10 +879,19 @@ export function mount(host) {
     const send = () => { if (sendMessage(state, m.id, o.id, input.value)) { save(); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+    // (The Owner just said something: ✨ a reply from the other account, to what was said.)
+    const last = msgs[msgs.length - 1];
+    if (m.owner && last && last.from === m.id && (last.text || last.post)) {
+      const lastText = last.text || postById(state, last.post)?.caption || '';
+      list.append(el('div', { class: 'so-gen so-gen-reply' }, el('button', { type: 'button', class: 'btn so-gen-btn', text: `✨ Generate reply from @${o.handle}`, onclick: () => {
+        const r = sendMessage(state, o.id, m.id, generateReply(lastText));
+        if (r) { markRead(state, m.id, o.id, r.at); save(); draw(); }
+      } })));
+    }
     return el('div', { class: 'so-chat-wrap' },
       el('div', { class: 'so-back' }, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Back', text: '‹', onclick: () => go({ name: 'inbox' }) }),
         el('button', { type: 'button', class: 'so-chat-who', onclick: () => go({ name: 'profile', id: o.id }) }, avatar(o, 's'), el('strong', { text: o.handle })),
-        el('button', { type: 'button', class: 'so-link so-chat-as', text: `Answer as @${o.handle}`, onclick: () => { state.me = o.id; save(); go({ name: 'chat', id: m.id }); } })),
+        el('button', { type: 'button', class: 'so-link so-chat-as', text: `Answer as @${o.handle}`, onclick: () => { useAccount(o.id); save(); go({ name: 'chat', id: m.id }); } })),
       list,
       el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send })));
   }

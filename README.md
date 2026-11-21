@@ -1226,8 +1226,8 @@ Profile, ✈ for messages), where everything is made by you in the app.
   (the same while the app is open; a video just posted comes first); pull down at the top to shuffle again.
   One at a time at full height: swipe up for the next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
   💬 beside it. A profile's ▦ / ▶︎ shows its posts or just its reels. In Home, a video plays with its controls.
-- **Tags, mentions, sharing.** Tag your other accounts in a post (👤 Tag people, when posting or from ⋯ →
-  Edit): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its
+- **Tags, mentions, sharing.** Tag your other accounts in a post (👤 Tag, a small button when posting or from ⋯ →
+  Edit that opens the accounts in alphabetical order; it shows how many are tagged): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its
   profile. An @handle of one of your accounts in a caption is a link to it. ✈ on a post (or beside a reel)
   shares it in a message to another account: it shows in the chat as a card that opens the post.
 - **Saved posts.** 🔖 on a post (or beside a reel) saves it to the account in use's own list: the 🔖 Saved tab
@@ -1239,17 +1239,27 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **What comes up first.** Home and Reels are each a weighted shuffle (once while the app's open; Reels again on
   a pull down): the more views, likes and comments, and the newer, the likelier near the top, not always. A
   post you've just made comes first.
-- **Collab.** 🤝 Collab when posting (or ⋯ → Edit) invites up to three of your other accounts: each gets a collab
+- **Collab.** 🤝 Collab when posting (or ⋯ → Edit; a small button like 👤 Tag, the accounts alphabetical) invites
+  up to three of your other accounts, and tags each of them too (tagging alone doesn't invite): each gets a collab
   request in their messages, with Accept and Decline. Once accepted, the same post (the identical photo) is on
   their profile too and in their followers' feeds, its header "you and them"; likes and comments are shared.
   A collaborator can take it off their profile (⋯ → Remove me from this collab). A draft's collaborators are
   asked when it's shared.
+- **# Community.** When posting (or editing), # Community opens the hashtags any account has used before, the
+  most used first, with how many posts each; a tap adds it to the caption.
+- **✨ Generate (the Owner account).** A small text predictor, all on the phone (works offline). On an opened
+  post, ✨ Generate comment has another account (a random one that hasn't commented yet, or the one picked
+  beside it) comment on it, in words and emoji that fit its caption (a beach, food, a pet, a birthday…, its own
+  emoji mirrored) and never repeating a comment already there. In a chat, after the Owner sends a message, ✨
+  Generate reply from @… answers it as the other account, fitting what was said (thanks, a question, a plan,
+  hello, something sad, a laugh…) and its emoji. The other accounts don't get the buttons.
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,
   🎭 FM or 👕 Fashion (as the base, the person to dress, or as the piece, what to put on) opens a copy of the
   photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.
 - **Messages.** ✈ (with how many are unread) lists the account in use's chats; start one with any other
   account (or Message on its profile). "Answer as @…" switches to the other account to reply. The account list
-  shows each account's unread count.
+  shows each account's unread count: the Owner first, then those with unread messages (the most first, then the
+  latest), then the rest by when each was last switched to on this device, the latest first.
 - Home shows the posts of the accounts the one in use follows (and its own), newest first. Like (♥, or
   double-tap the photo) and comment as the account in use; Search finds accounts and shows every post as a
   grid; a profile shows its posts, followers and following.

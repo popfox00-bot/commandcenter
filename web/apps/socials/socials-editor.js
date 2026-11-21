@@ -8,7 +8,7 @@
 //   Filter:  the Photo Editor's filters, each previewed on the photo, with how strong.
 //   Edit:    its adjustments (Brightness, Contrast, Saturation, Warmth, ...), each a slider.
 
-import { el } from '../../lib/dom.js';
+import { el, fill } from '../../lib/dom.js';
 import { sniffType, decodeImage, fitSize, drawToCanvas, canvasToBlob } from '../../lib/image.js';
 import { Renderer } from '../../tools/editor/renderer.js';
 import { defaultState, ADJUSTMENTS, FILTERS } from '../../tools/editor/state.js';
@@ -120,9 +120,9 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
     };
 
     function drawPanel() {
-      tabs.replaceChildren(...[['fit', avatar ? 'Fit' : 'Fit'], ['filter', 'Filter'], ['edit', 'Edit']].map(([id, label]) => el('button', { type: 'button', role: 'tab', class: `se-tab${tab === id ? ' on' : ''}`, 'aria-selected': String(tab === id), text: label, onclick: () => { tab = id; drawPanel(); } })));
+      tabs.replaceChildren(...[['fit', 'Fit'], ['filter', 'Filter'], ['edit', 'Edit']].map(([id, label]) => el('button', { type: 'button', role: 'tab', class: `se-tab${tab === id ? ' on' : ''}`, 'aria-selected': String(tab === id), text: label, onclick: () => { tab = id; drawPanel(); } })));
       if (tab === 'fit') {
-        panel.replaceChildren(
+        fill(panel,
           avatar ? el('p', { class: 'se-hint', text: 'Drag to move it in the circle; pinch or slide to zoom.' })
             : el('div', { class: 'se-chips', role: 'group', 'aria-label': 'Shape' }, POST_SHAPES.map(([label, ratio]) => el('button', { type: 'button', class: `se-chip${shape === ratio ? ' on' : ''}`, 'aria-pressed': String(shape === ratio), text: label, onclick: () => { shape = ratio; zoom = 1; px = py = 0.5; zoomIn.value = '1'; draw(); drawPanel(); } }))),
           el('div', { class: 'se-row' }, el('span', { class: 'se-label', text: 'Zoom' }), zoomIn,
@@ -131,7 +131,7 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
         const t = makeThumbs();
         const strength = el('input', { type: 'range', min: '0', max: '100', value: String(Math.round(st.filterIntensity * 100)), 'aria-label': 'Filter strength', class: 'se-range' });
         strength.addEventListener('input', () => { st.filterIntensity = Number(strength.value) / 100; draw(); });
-        panel.replaceChildren(
+        fill(panel,
           el('div', { class: 'se-filters', role: 'group', 'aria-label': 'Filters' }, FILTERS.map((f) => el('button', { type: 'button', class: `se-filter${st.filter === f.id ? ' on' : ''}`, 'aria-pressed': String(st.filter === f.id), onclick: () => { st.filter = f.id; if (f.id !== 'original' && !st.filterIntensity) st.filterIntensity = 1; draw(); drawPanel(); } }, t.get(f.id), el('span', { text: f.label })))),
           st.filter !== 'original' ? el('div', { class: 'se-row' }, el('span', { class: 'se-label', text: 'Strength' }), strength) : null);
       } else {
@@ -139,7 +139,7 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
         const s = el('input', { type: 'range', min: a.min === 0 ? '0' : '-100', max: '100', value: String(Math.round(st.adjust[a.id] * 100)), 'aria-label': a.label, class: 'se-range' });
         const val = el('span', { class: 'se-val', text: String(Math.round(st.adjust[a.id] * 100)) });
         s.addEventListener('input', () => { st.adjust[a.id] = Number(s.value) / 100; val.textContent = s.value; draw(); });
-        panel.replaceChildren(
+        fill(panel,
           el('div', { class: 'se-chips se-adjusts', role: 'group', 'aria-label': 'Adjustments' }, ADJUSTMENTS.map((x) => el('button', { type: 'button', class: `se-chip${x.id === adj ? ' on' : ''}${st.adjust[x.id] ? ' set' : ''}`, 'aria-pressed': String(x.id === adj), onclick: () => { adj = x.id; drawPanel(); } }, el('span', { 'aria-hidden': 'true', text: `${x.icon} ` }), x.label))),
           el('div', { class: 'se-row' }, el('span', { class: 'se-label', text: a.label }), s, val,
             el('button', { type: 'button', class: 'se-icon', 'aria-label': `Reset ${a.label}`, text: '⟲', onclick: () => { st.adjust[a.id] = 0; draw(); drawPanel(); } })));

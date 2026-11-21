@@ -193,6 +193,7 @@ test('Socials extras: a photo fitted square and filtered Mono in the editor (not
   const ed = page.getByRole('dialog', { name: 'Edit photo' });
   await ed.getByRole('button', { name: 'Square' }).click();
   await ed.getByRole('tab', { name: 'Filter' }).click();
+  assert.ok(!(await ed.locator('.se-panel').textContent()).includes('null'), 'no stray text in the panel');
   await ed.getByRole('button', { name: 'Mono' }).click();
   await ed.getByRole('tab', { name: 'Edit' }).click();
   await ed.getByRole('button', { name: 'Brightness', exact: true }).click();
@@ -204,6 +205,7 @@ test('Socials extras: a photo fitted square and filtered Mono in the editor (not
   assert.ok(Math.abs(shot.px[0] - shot.px[1]) < 6 && Math.abs(shot.px[1] - shot.px[2]) < 6, `mono: ${shot.px}`);
   await page.getByLabel('Caption').fill('Squared'); await page.getByRole('button', { name: 'Share' }).click();
   await page.locator('.so-post', { hasText: 'Squared' }).waitFor();
+  assert.ok(!(await page.locator('.so-top').textContent()).includes('null'), 'no stray text in the top bar');
   // (Nothing of it in the Photo Editor: no work in progress or recent edit there.)
   const kept = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').getAllKeys(); g.onsuccess = () => res(g.result); }; }));
   assert.ok(!kept.includes('editor.session'), `not in the Photo Editor: ${kept}`);
@@ -246,4 +248,49 @@ test('Socials extras: a photo fitted square and filtered Mono in the editor (not
   await page.locator('.so-bubble.mine', { hasText: 'Hi alt' }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Messages', exact: true }).count(), 1, 'read: no unread badge');
   await page.close();
+});
+
+test('Socials offline: posts made offline wait for Saved Files, counted for the Owner (also after a refresh before syncing), and are saved once back online', async () => {
+  const script = fakeScript(); const URL_ = 'https://script.google.com/macros/s/test/exec'; let down = false;
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await ctx.addInitScript(([u]) => { localStorage.setItem('cc.savedFiles', JSON.stringify({ url: u, key: 'k'.repeat(24) })); }, [URL_]);
+  await ctx.route(URL_, async (route) => (down ? route.abort('internetdisconnected') : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(script.handle(JSON.parse(route.request().postData()))) })));
+  const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  // (The first sync makes the copy in Drive: its recovery key, once.)
+  await page.getByText('Your recovery key').waitFor({ timeout: 20000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
+  await page.getByRole('button', { name: 'Sync and password' }).click();
+  await page.getByText('Everything is saved to Saved Files.').waitFor();
+  // Offline: two posts, still made and shown.
+  await ctx.setOffline(true);
+  for (const cap of ['Offline one', 'Offline two']) {
+    await page.getByRole('button', { name: 'New post' }).first().click();
+    await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+    await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill(cap); await page.getByRole('button', { name: 'Share' }).click();
+    await page.locator('.so-post', { hasText: cap }).waitFor();
+  }
+  // The Owner sees how many wait (two photos, and the posts' file), and the ⏳ by the cloud.
+  await page.getByRole('button', { name: /Sync and password: 3 files waiting/ }).click();
+  await page.getByText('⏳ 3 files waiting to be saved to Saved Files').waitFor();
+  assert.match(await page.locator('.so-waiting').textContent(), /offline/);
+  // Refreshed before it could sync (Drive still unreachable): nothing lost, still counted.
+  down = true; await ctx.setOffline(false);
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByRole('button', { name: 'Open' }).click();
+  await page.locator('.so-post', { hasText: 'Offline two' }).waitFor();
+  await page.getByRole('button', { name: /3 files waiting/ }).click();
+  await page.getByText('⏳ 3 files waiting to be saved to Saved Files').waitFor();
+  // Not shown to an account that isn't the Owner.
+  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('alt.acct'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('button', { name: /Sync and password/ }).click();
+  assert.equal(await page.locator('.so-waiting:not([hidden])').count(), 0, 'only on the Owner account');
+  // Back online: saved; nothing waiting.
+  await page.getByRole('button', { name: 'Back' }).click(); await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  down = false;
+  await page.getByRole('button', { name: /Sync and password/ }).click(); await page.getByRole('button', { name: 'Sync now' }).click();
+  await page.getByText('Everything is saved to Saved Files.').waitFor({ timeout: 20000 });
+  assert.equal(script.files.filter((f) => /^socials-m-/.test(f.name)).length, 2, 'both photos in Drive');
+  await ctx.close();
 });

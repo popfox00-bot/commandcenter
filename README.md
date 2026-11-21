@@ -1215,7 +1215,14 @@ in a **Socials** folder of your Saved Files folder, encrypted on the phone first
 Socials password (or a recovery key, shown once when the copy is first made) opens: AES-256-GCM, the key
 wrapped as Saved Files' own encryption does (`web/lib/vault.js`). In it: `socials-key.json` (the wrapped
 key), `socials-data.ccs` (accounts, posts and messages) and one `socials-m-<id>.ccs` per photo or video (sent
-once; a video over 24 MB stays on the device it was posted from, as Saved Files takes 25 MB a file). On another
+once; a video over 24 MB stays on the device it was posted from, as Saved Files takes 25 MB a file).
+**Offline.** Socials works offline like the rest of the app: posting, editing, messages, everything is kept
+on the phone, and syncing simply waits (nothing is tried while offline) until the connection's back, then runs
+by itself. On the Owner account, Sync and password shows **⏳ N files waiting to be saved to Saved Files**
+(each new photo or video Drive doesn't have yet, and the accounts-and-posts file if anything changed), or ✓
+when everything's saved; the ☁ at the top shows ⏳ with the count while there are. What's waiting is tracked on
+the phone, so refreshing or closing the app before it syncs loses nothing: it's saved the next time Socials is
+opened online (with its password). On another
 device with Saved Files set up, opening Socials finds the copy and asks for its password, which becomes that
 device's Socials password too. It syncs a few seconds after each change, when Socials opens and when back
 online; the two copies are merged (each account and post as last changed on either device, deletions kept,

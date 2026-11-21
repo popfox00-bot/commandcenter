@@ -1464,3 +1464,7 @@ body.se-open { overflow: hidden; }
 .se-thumb { width: 72px; height: 72px; border-radius: 8px; border: 2px solid transparent; }
 .se-filter.on { color: #fff; font-weight: 700; }
 .se-filter.on .se-thumb { border-color: #f4f4f5; }
+.so-cloud { position: relative; }
+.so-wait-badge { top: 2px; right: 0; background: #f59e0b; }
+.so-waiting { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 14%, transparent); border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--border)); }
+.so-waiting-done { background: color-mix(in srgb, #16a34a 10%, transparent); border-color: color-mix(in srgb, #16a34a 40%, var(--border)); }

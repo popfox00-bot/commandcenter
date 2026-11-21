@@ -425,3 +425,70 @@ test('Socials: several photos and a video in one post (a carousel), and Reels sh
   assert.ok(changed, 'a new order after pulling down');
   await page.close();
 });
+
+test('Socials: stories (new posts, on their circle), drafts, pinning, Recently deleted, comments on new posts, hashtags, and a zip of an account', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  for (const h of ['ann', 'ben', 'cat']) { await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  const newPhoto = async (cap, { draft = false } = {}) => {
+    await page.getByRole('button', { name: 'New post' }).first().click();
+    await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+    await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill(cap);
+    await page.getByRole('button', { name: draft ? 'Save as draft' : 'Share', exact: true }).click();
+  };
+  // A draft: not shared; then opened and shared.
+  await newPhoto('Sunset at the #beach', { draft: true });
+  await page.getByRole('tab', { name: /Drafts \(1\)/ }).waitFor();
+  await page.getByRole('button', { name: 'Home' }).click();
+  assert.equal(await page.locator('.so-post').count(), 0, 'a draft isn\'t in the feed');
+  await page.getByRole('button', { name: 'Profile' }).click(); await page.getByRole('tab', { name: /Drafts/ }).click();
+  await page.getByRole('button', { name: /^Draft by owner\.me/ }).click();
+  assert.equal(await page.getByLabel('Caption').inputValue(), 'Sunset at the #beach');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const post = page.locator('.so-post', { hasText: 'Sunset at the' }); await post.waitFor();
+  // (Three of the other accounts said something nice.)
+  assert.equal(await post.locator('.so-comment').count(), 2, 'two shown in the feed');
+  assert.match(await post.getByRole('button', { name: 'View all 3 comments' }).textContent(), /3/);
+  // The hashtag: a link to its posts.
+  await post.getByRole('button', { name: '#beach' }).click();
+  await page.getByText('1 post', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Search' }).click(); await page.getByLabel('Search accounts and hashtags').fill('#bea');
+  await page.getByRole('button', { name: /#beach/ }).waitFor();
+  // A second post; pin the first: first on the profile, 📌.
+  await page.getByRole('button', { name: 'Home' }).click();
+  await newPhoto('Second one');
+  await page.locator('.so-post', { hasText: 'Sunset at the' }).getByRole('button', { name: 'Post options' }).click();
+  await page.getByRole('button', { name: 'Pin to profile' }).click();
+  await page.getByRole('button', { name: 'Profile' }).click();
+  assert.match(await page.locator('.so-grid .so-tile').first().getAttribute('aria-label'), /\(pinned\): Sunset/);
+  // Stories: the Owner's ring; tapping their circle opens them; as seen after.
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('button', { name: "@owner.me's story, new" }).click();
+  const sv = page.getByRole('dialog', { name: 'Stories' }); await sv.waitFor();
+  assert.equal(await sv.locator('.so-sv-bar').count(), 2, 'both posts of today');
+  await sv.getByRole('button', { name: 'Next' }).click(); await sv.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: "@owner.me's story" }).waitFor();
+  assert.equal(await page.getByRole('button', { name: "@owner.me's story, new" }).count(), 0, 'seen');
+  // Delete → Recently deleted (7 days) → restored.
+  await page.locator('.so-post', { hasText: 'Second one' }).getByRole('button', { name: 'Post options' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByText('Deleted: in Recently deleted for 7 days').waitFor();
+  assert.equal(await page.locator('.so-post', { hasText: 'Second one' }).count(), 0);
+  await page.getByRole('button', { name: /Sync and password/ }).click();
+  await page.getByText('Recently deleted (1)').waitFor(); assert.match(await page.locator('.so-trash-row').textContent(), /7 days left/);
+  await page.getByRole('button', { name: "Restore @owner.me's post" }).click();
+  await page.getByRole('button', { name: 'Home' }).click(); await page.locator('.so-post', { hasText: 'Second one' }).waitFor();
+  // A zip of the Owner's photos (each post's file and a list of captions).
+  await page.getByRole('button', { name: 'Profile' }).click();
+  const dl = page.waitForEvent('download'); await page.getByRole('button', { name: "Download @owner.me's photos and videos" }).click();
+  const file = await dl; assert.equal(file.suggestedFilename(), 'owner.me-socials.zip');
+  const bytes = await readFile(await file.path());
+  const names = []; for (let i = 0; i + 30 < bytes.length; i++) if (bytes.readUInt32LE(i) === 0x04034b50) { const n = bytes.readUInt16LE(i + 26); names.push(bytes.subarray(i + 30, i + 30 + n).toString()); }
+  assert.equal(names.filter((n) => /\.(jpg|png)$/.test(n)).length, 2, `two photos: ${names}`); assert.ok(names.includes('captions.txt'));
+  await ctx.close();
+});

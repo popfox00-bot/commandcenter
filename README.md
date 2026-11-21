@@ -1202,6 +1202,22 @@ Profile, ✈ for messages), where everything is made by you in the app.
   Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way. Nothing of it is kept
   in the Photo Editor (no work in progress or recent edit there): only the finished photo, in Socials. A post's
   ⋯ → Edit changes its caption or edits its photo again (marked "edited"); ⋯ → Delete removes it.
+- **Stories.** Any post from the last 24 hours is also that account's story: a ring round its circle in the row
+  across the top of Home (bright while one's not seen yet, grey after) and round its picture on its profile.
+  Tap it: full screen, each of its posts' photos and videos in turn (a photo five seconds, a video as long as
+  it is, its sound with 🔇/🔊), bars across the top; tap the right to go on, the left to go back, ✕ or a swipe
+  down to close; then the next account's. What each account has seen is kept on the device.
+- **Drafts.** Save as draft instead of Share: the post waits in the ✎ Drafts tab of your profile (only you see
+  it), to be opened again, changed and shared, or deleted.
+- **Pinned posts.** ⋯ → Pin to profile keeps up to three of an account's posts first on its profile (📌).
+- **Comments on new posts.** When a post is shared, three of the other accounts (picked at random) each leave a
+  kind word from a list (with an emoji). The Owner can turn it off in Sync and password.
+- **Hashtags.** #words in a caption are links to that hashtag's page (its posts as a grid, how many); Search
+  finds hashtags (type # for only those).
+- **Download an account.** ⬇ on a profile saves all of that account's photos and videos (each post's, its
+  profile photo) in one zip, named by date, with captions.txt listing each post's caption.
+- **Recently deleted.** ⋯ → Delete moves a post to Recently deleted (in Sync and password) for 7 days: Restore it,
+  or delete it for good; after 7 days it's gone (on your other devices too).
 - **Several in one post.** Pick several photos and videos at once (each photo through the editor; Cancel
   keeps it as it is), add more with ＋ Add more, take one out with its ✕, up to ten. The post shows them as a
   carousel: swipe across, with "2/3" and dots; its tile shows ❐.

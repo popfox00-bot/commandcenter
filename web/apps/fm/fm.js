@@ -6,7 +6,10 @@
 // apart from the one open in Files. (Reverse Fill is an app of its own in Magic now.)
 
 import { mount as mountEditor } from '../../tools/editor/editor.js';
+import { handoff } from '../../lib/handoff.js';
 
 export function mount(host) {
-  return mountEditor(host, { fm: true });
+  // (A photo handed over (Socials → Open in → FM) opens in it.)
+  const file = handoff.take('fm');
+  return mountEditor(host, { fm: true, ...(file ? { file } : {}) });
 }

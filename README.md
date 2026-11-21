@@ -1326,6 +1326,23 @@ service worker keeps it offline. Its markers and settings are kept in the browse
 the same as the standalone WorldAtlas on the same site. To bring in a newer WorldAtlas, build that repository
 again, replace the folder's `index.html` and `assets/`, and make the same additions.
 
+**Tutorials** (📚 Tutorials, above ‹ Home in WorldAtlas; `web/apps/worldatlas/tutorials/`, Command Center's own,
+so a newer WorldAtlas build keeps it: add the link again) keeps farm designs and other builds on this device:
+- Each design has its **video links** and written guides, **photos**, a **supply list** (every block and how many,
+  in stacks of 64; the plants shown grown listed apart; water and lava as source blocks; and what isn't a block,
+  such as villagers or a zombie, as extras; Copy puts it on the clipboard), the **space it takes** in blocks
+  (wide × deep × tall, of what's built) and a **3D view** of it (drag or ⟲ ⟳ to turn it, + − to zoom), with
+  **Build up** to show it layer by layer.
+- **Layers**: one layer at a time from above; tap or drag to place the chosen block (the Common palette, the
+  recent ones, or any of the ~700 blocks by search) or ⬚ Air to clear; Fill layer, Copy layer below, Clear
+  layer; ‹ › between layers, + Layer above, Delete layer; the 3D view below shows it built up to that layer.
+  Edit sets its name, category, notes, size (W × D × layers), links, photos and extras; Duplicate, Delete.
+- It starts with popular farms (`designs.js`): a 9×9 wheat farm, a pumpkin and melon farm, an automatic sugar
+  cane farm, a simplified villager iron farm, a cobblestone generator and an egg farm, each with a YouTube search
+  for its videos and a written guide; the automatic ones are laid out for their shape and materials (which way
+  the observers and pistons face is in their notes). Change or delete any; one deleted isn't added back. Designs
+  and photos are kept in IndexedDB (photos as their bytes), offline like the rest of the app.
+
 ## Trade Desk
 
 **Trade Desk** opens the LHS Fantasy Football trade analyzer (position-adjusted trade values, suggested

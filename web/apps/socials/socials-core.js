@@ -1,15 +1,17 @@
-// Socials: the data and rules, with no page (so they can be tested). Everything is made in the app and kept
-// on this phone: accounts (a handle, a name, a bio, a picture), who each follows, posts (a photo and a
-// caption, by one account), likes and comments. Nothing is fetched or sent anywhere.
+// Socials: the data and rules, with no page (so they can be tested). Everything is made in the app:
+// accounts (a handle, a name, a bio, a picture; one of them the Owner, yours), who each follows, posts (a
+// photo or a video, and a caption, by one account), likes, comments, and direct messages between accounts.
 //
-// The state: { accounts: [Account], posts: [Post], me: accountId | null, gone: { id: when } } where
-//   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, following: [accountId], at, upd }
-//   Post    = { id, by: accountId, image: Blob | null, imageId, caption, at, upd, likes: [accountId], comments: [{ id, by, text, at }] }
+// The state: { accounts, posts, messages, reads, me: accountId | null, gone: { id: when } } where
+//   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], at, upd }
+//   Post    = { id, by, kind: 'photo' | 'video', image: Blob | null (the photo, or a video's still), imageId,
+//               video: Blob | null, videoId, caption, at, upd, edited, likes: [accountId], comments: [{ id, by, text, at }] }
+//   Message = { id, from, to, text, at }            reads = { accountId: { otherId: when last read } }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
-// (mergeStates); each photo has its own id (imageId, avatarId) so it's copied to Drive once.
+// (mergeStates); each photo and video has its own id so it's copied to Drive once.
 
 /** A new, empty state. */
-export const emptyState = () => ({ accounts: [], posts: [], me: null, gone: {} });
+export const emptyState = () => ({ accounts: [], posts: [], messages: [], reads: {}, me: null, gone: {} });
 
 /** A fresh id (time and a little randomness: unique enough on one phone). */
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -27,11 +29,11 @@ export function handleProblem(state, handle, exceptId = null) {
 
 export const accountById = (state, id) => state.accounts.find((a) => a.id === id) ?? null;
 
-/** Add an account (and make it the one you're using if it's the first). Returns it, or throws why not. */
+/** Add an account (the first is the Owner, and the one in use). Returns it, or throws why not. */
 export function addAccount(state, { handle, name = '', bio = '', avatar = null }) {
   const p = handleProblem(state, handle); if (p) throw new Error(p);
   const now = Date.now();
-  const a = { id: newId(), handle: cleanHandle(handle), name: String(name).trim().slice(0, 60), bio: String(bio).trim().slice(0, 300), avatar, avatarId: avatar ? newId() : null, following: [], at: now, upd: now };
+  const a = { id: newId(), handle: cleanHandle(handle), name: String(name).trim().slice(0, 60), bio: String(bio).trim().slice(0, 300), avatar, avatarId: avatar ? newId() : null, owner: !state.accounts.some((x) => x.owner), following: [], at: now, upd: now };
   state.accounts.push(a);
   if (!state.me) state.me = a.id;
   return a;
@@ -48,15 +50,34 @@ export function editAccount(state, id, changes) {
   return a;
 }
 
-/** Remove an account, its posts, and it from everyone's following, likes and comments. */
+/** The Owner account (yours), or null with no accounts. */
+export const ownerOf = (state) => state.accounts.find((a) => a.owner) ?? null;
+
+/** The accounts as they're listed to pick from: the Owner first, then the others, oldest first. */
+export const accountsInOrder = (state) => [...state.accounts].sort((a, b) => (b.owner ? 1 : 0) - (a.owner ? 1 : 0) || a.at - b.at);
+
+/** Make an account the Owner (the one before isn't any more). */
+export function setOwner(state, id) {
+  const a = accountById(state, id); if (!a || a.owner) return false;
+  const now = Date.now();
+  for (const x of state.accounts) if (x.owner) { x.owner = false; x.upd = now; }
+  a.owner = true; a.upd = now + 1; return true;
+}
+
+/** Remove an account, its posts and messages, and it from everyone's following, likes and comments. */
 export function removeAccount(state, id) {
   const now = Date.now(); state.gone ??= {}; state.gone[id] = now;
+  const wasOwner = !!accountById(state, id)?.owner;
   for (const p of state.posts) if (p.by === id) state.gone[p.id] = now;
+  for (const m of state.messages ?? []) if (m.from === id || m.to === id) state.gone[m.id] = now;
+  state.messages = (state.messages ?? []).filter((m) => m.from !== id && m.to !== id);
+  if (state.reads) delete state.reads[id];
   state.accounts = state.accounts.filter((a) => a.id !== id);
   state.posts = state.posts.filter((p) => p.by !== id);
   for (const a of state.accounts) if (a.following.includes(id)) { a.following = a.following.filter((f) => f !== id); a.upd = now; }
   for (const p of state.posts) if (p.likes.includes(id) || p.comments.some((c) => c.by === id)) { p.likes = p.likes.filter((l) => l !== id); p.comments = p.comments.filter((c) => c.by !== id); p.upd = now; }
-  if (state.me === id) state.me = state.accounts[0]?.id ?? null;
+  if (wasOwner && state.accounts.length) { const next = [...state.accounts].sort((a, b) => a.at - b.at)[0]; next.owner = true; next.upd = now; }
+  if (state.me === id) state.me = ownerOf(state)?.id ?? state.accounts[0]?.id ?? null;
 }
 
 export const isFollowing = (state, who, whom) => !!accountById(state, who)?.following.includes(whom);
@@ -73,15 +94,27 @@ export const followersOf = (state, id) => state.accounts.filter((a) => a.followi
 export const followingOf = (state, id) => (accountById(state, id)?.following ?? []).map((f) => accountById(state, f)).filter(Boolean);
 export const postsBy = (state, id) => state.posts.filter((p) => p.by === id).sort((a, b) => b.at - a.at);
 
-/** Add a post by an account. Returns it. */
-export function addPost(state, by, { image = null, caption = '' }) {
+/** Add a post by an account: a photo, or a video (with its still, `image`). Returns it. */
+export function addPost(state, by, { image = null, video = null, caption = '' }) {
   if (!accountById(state, by)) throw new Error('No account to post from.');
-  if (!image && !String(caption).trim()) throw new Error('Pick a photo first.');
+  if (!image && !video && !String(caption).trim()) throw new Error('Pick a photo or video first.');
   const now = Date.now();
-  const p = { id: newId(), by, image, imageId: image ? newId() : null, caption: String(caption).trim().slice(0, 2200), at: now, upd: now, likes: [], comments: [] };
+  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, caption: String(caption).trim().slice(0, 2200), at: now, upd: now, edited: 0, likes: [], comments: [] };
   state.posts.push(p);
   return p;
 }
+
+/** Change a post's caption, or its photo (edited again). */
+export function editPost(state, id, { caption, image }) {
+  const p = postById(state, id); if (!p) return null;
+  if (caption != null) p.caption = String(caption).trim().slice(0, 2200);
+  if (image) { p.image = image; p.imageId = newId(); }
+  p.upd = p.edited = Date.now();
+  return p;
+}
+
+/** The videos everyone has posted, newest first (Reels). */
+export const reelsOf = (state, by = null) => state.posts.filter((p) => p.kind === 'video' && (!by || p.by === by)).sort((a, b) => b.at - a.at);
 
 export const removePost = (state, id) => { state.gone ??= {}; state.gone[id] = Date.now(); state.posts = state.posts.filter((p) => p.id !== id); };
 export const postById = (state, id) => state.posts.find((p) => p.id === id) ?? null;
@@ -108,6 +141,45 @@ export function addComment(state, postId, who, text) {
   const c = { id: newId(), by: who, text: t.slice(0, 500), at: Date.now() };
   p.comments.push(c); p.upd = c.at; return c;
 }
+
+// ---- Direct messages between accounts.
+
+/** Send a message from one account to another. Returns it, or null (empty, or to yourself). */
+export function sendMessage(state, from, to, text) {
+  const t = String(text ?? '').trim();
+  if (!t || from === to || !accountById(state, from) || !accountById(state, to)) return null;
+  const m = { id: newId(), from, to, text: t.slice(0, 2000), at: Date.now() };
+  (state.messages ??= []).push(m); markRead(state, from, to, m.at);
+  return m;
+}
+
+/** The messages between two accounts, oldest first. */
+export const conversation = (state, a, b) => (state.messages ?? []).filter((m) => (m.from === a && m.to === b) || (m.from === b && m.to === a)).sort((x, y) => x.at - y.at);
+
+/** When `me` last read their chat with `other` (0: never). */
+const lastRead = (state, me, other) => state.reads?.[me]?.[other] ?? 0;
+
+/** `me` has read their chat with `other` (up to `at`). */
+export function markRead(state, me, other, at = Date.now()) {
+  state.reads ??= {}; state.reads[me] ??= {};
+  state.reads[me][other] = Math.max(state.reads[me][other] ?? 0, at);
+}
+
+/** An account's chats, the latest first: [{ other: Account, last: Message, unread: number }]. */
+export function conversationsOf(state, me) {
+  const by = new Map();
+  for (const m of state.messages ?? []) {
+    if (m.from !== me && m.to !== me) continue;
+    const o = m.from === me ? m.to : m.from; const c = by.get(o) ?? { last: null, unread: 0 };
+    if (!c.last || m.at > c.last.at) c.last = m;
+    if (m.to === me && m.at > lastRead(state, me, o)) c.unread++;
+    by.set(o, c);
+  }
+  return [...by].map(([o, c]) => ({ other: accountById(state, o), ...c })).filter((c) => c.other).sort((a, b) => b.last.at - a.last.at);
+}
+
+/** How many messages to `me` they haven't read. */
+export const unreadCount = (state, me) => conversationsOf(state, me).reduce((n, c) => n + c.unread, 0);
 
 /** Accounts whose handle or name has `q` in it (all of them for an empty search). */
 export function searchAccounts(state, q) {
@@ -137,12 +209,17 @@ export function countLabel(n) {
 export function normalize(raw) {
   const s = emptyState(); if (!raw || typeof raw !== 'object') return s;
   const ok = (v) => typeof v === 'string' && v.length > 0;
-  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), following: Array.isArray(a.following) ? a.following.filter(ok) : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, following: Array.isArray(a.following) ? a.following.filter(ok) : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  // (Exactly one Owner: the one made so last, else the oldest account.)
+  { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), caption: p.caption ?? '', at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), caption: p.caption ?? '', at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
+  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && ok(m.text) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text, at: m.at ?? 0 }));
+  s.reads = {};
+  if (raw.reads && typeof raw.reads === 'object') for (const [a, o] of Object.entries(raw.reads)) if (ids.has(a) && o && typeof o === 'object') s.reads[a] = Object.fromEntries(Object.entries(o).filter(([b, v]) => ids.has(b) && Number.isFinite(v)));
   return s;
 }
 
@@ -160,5 +237,9 @@ export function mergeStates(local, remote) {
     for (const y of ys) { const x = m.get(y.id); if (!x || (y.upd ?? 0) > (x.upd ?? 0)) m.set(y.id, y); }
     return [...m.values()].filter((v) => !(gone[v.id] >= (v.upd ?? 0)));
   };
-  return normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), me: local.me, gone });
+  // (Messages never change: every one either has, less those deleted. What each account has read: the later.)
+  const msgs = new Map([...(local.messages ?? []), ...(remote.messages ?? [])].map((m) => [m.id, m]));
+  const reads = JSON.parse(JSON.stringify(local.reads ?? {}));
+  for (const [a, o] of Object.entries(remote.reads ?? {})) for (const [b, v] of Object.entries(o ?? {})) { reads[a] ??= {}; reads[a][b] = Math.max(reads[a][b] ?? 0, v); }
+  return normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
 }

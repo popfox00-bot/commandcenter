@@ -2,7 +2,7 @@
 // and state read back from storage made safe.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyState, addAccount, editAccount, removeAccount, toggleFollow, isFollowing, followersOf, addPost, feedFor, toggleLike, addComment, searchAccounts, normalize, cleanHandle, handleProblem, timeAgo, countLabel, postsBy } from '../web/apps/socials/socials-core.js';
+import { emptyState, addAccount, editAccount, removeAccount, toggleFollow, isFollowing, followersOf, addPost, feedFor, toggleLike, addComment, searchAccounts, normalize, cleanHandle, handleProblem, timeAgo, countLabel, postsBy, ownerOf, accountsInOrder, setOwner, editPost, reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, mergeStates } from '../web/apps/socials/socials-core.js';
 
 test('handles: cleaned as typed, never two the same', () => {
   assert.equal(cleanHandle(' @Maya Shoots!! '), 'mayashoots');
@@ -114,4 +114,43 @@ test('sync between two phones through Drive: encrypted there, merged both ways, 
   assert.deepEqual(rb2.state.accounts.map((a) => a.handle), ['maya'], 'a deletion on one phone reaches the other');
   // Another password: refused, nothing changed.
   await assert.rejects(syncSocials(drive, emptyState(), 'wrong-password', fast), WrongPassword);
+});
+
+test('the Owner: the first account, always listed first; made another; never two; a deleted Owner passes it on', () => {
+  const s = emptyState(); const o = addAccount(s, { handle: 'me' }); const b = addAccount(s, { handle: 'b' }); const c = addAccount(s, { handle: 'c' });
+  assert.ok(o.owner && !b.owner && !c.owner); o.at = 1; b.at = 2; c.at = 3;
+  s.accounts.reverse();
+  assert.deepEqual(accountsInOrder(s).map((a) => a.handle), ['me', 'b', 'c']);
+  assert.equal(setOwner(s, c.id), true); assert.equal(ownerOf(s).handle, 'c'); assert.ok(!o.owner);
+  assert.deepEqual(accountsInOrder(s).map((a) => a.handle), ['c', 'me', 'b']);
+  // (Two marked Owner (two phones each made one): the one made so last.)
+  o.owner = true; o.upd = c.upd + 10; assert.equal(normalize(s).accounts.filter((a) => a.owner).map((a) => a.handle).join(), 'me');
+  // (None marked (an older copy): the oldest account.)
+  const n = normalize({ accounts: [{ id: 'y', handle: 'y', at: 5 }, { id: 'x', handle: 'x', at: 1 }] }); assert.equal(ownerOf(n).handle, 'x');
+  removeAccount(s, c.id); assert.equal(ownerOf(s).handle, 'me', 'passed on to the oldest');
+});
+
+test('messages between accounts: sent, in order, unread until read; merged from two phones; gone with an account', () => {
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b' }); const c = addAccount(s, { handle: 'c' });
+  assert.equal(sendMessage(s, a.id, a.id, 'me?'), null); assert.equal(sendMessage(s, a.id, b.id, '  '), null);
+  const m1 = sendMessage(s, a.id, b.id, 'hi b'); m1.at = 1000; const m2 = sendMessage(s, b.id, a.id, 'hi a'); m2.at = 2000; const m3 = sendMessage(s, c.id, b.id, 'yo'); m3.at = 3000;
+  s.reads = {};
+  assert.deepEqual(conversation(s, a.id, b.id).map((m) => m.text), ['hi b', 'hi a']);
+  assert.equal(unreadCount(s, b.id), 2); assert.deepEqual(conversationsOf(s, b.id).map((x) => [x.other.handle, x.unread]), [['c', 1], ['a', 1]]);
+  markRead(s, b.id, a.id, 2000); assert.equal(unreadCount(s, b.id), 1);
+  const other = JSON.parse(JSON.stringify(s)); const m4 = sendMessage(other, a.id, b.id, 'from the other phone');
+  const merged = mergeStates(s, other); assert.ok(conversation(merged, a.id, b.id).some((m) => m.id === m4.id)); assert.equal(merged.reads[b.id][a.id], 2000);
+  removeAccount(merged, c.id); assert.equal(conversationsOf(merged, b.id).length, 1);
+  assert.equal(mergeStates(merged, other).messages.some((m) => m.from === c.id), false, 'not brought back by the other copy');
+});
+
+test('videos: Reels has only them, newest first; a post edited (caption, photo) is marked so', () => {
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' });
+  const img = new Blob(['x']); const vid = new Blob(['v'], { type: 'video/mp4' });
+  const p1 = addPost(s, a.id, { image: img, caption: 'photo' }); const v1 = addPost(s, a.id, { image: img, video: vid, caption: 'clip 1' }); v1.at = 1; const v2 = addPost(s, a.id, { video: vid, caption: 'clip 2' }); v2.at = 2;
+  assert.equal(v1.kind, 'video'); assert.ok(v1.videoId); assert.equal(p1.kind, 'photo');
+  assert.deepEqual(reelsOf(s).map((p) => p.caption), ['clip 2', 'clip 1']);
+  const old = p1.imageId; editPost(s, p1.id, { caption: 'photo, edited', image: new Blob(['y']) });
+  assert.equal(p1.caption, 'photo, edited'); assert.notEqual(p1.imageId, old); assert.ok(p1.edited > 0);
+  assert.equal(normalize(JSON.parse(JSON.stringify({ ...s, posts: s.posts.map(({ image, video, ...p }) => p) }))).posts.find((p) => p.id === v2.id).kind, 'video', 'kept a video when its file isn\'t here');
 });

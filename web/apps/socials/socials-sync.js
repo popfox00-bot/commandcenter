@@ -8,7 +8,9 @@
 //   socials-key.json        the key that encrypts it all, itself encrypted twice: with your password and
 //                           with a recovery key shown once (vault.js, as Saved Files' own encryption).
 //   socials-data.ccs        the accounts and posts (no photos), encrypted.
-//   socials-m-<id>.ccs      each photo, encrypted, uploaded once (a photo never changes; a new one has a new id).
+//   socials-m-<id>.ccs      each photo and video, encrypted, uploaded once (it never changes; a new one has a
+//                           new id). A video over MAX_MEDIA stays on the phone it was posted from (Saved
+//                           Files takes 25 MB a file at most); the others show it can't be played there.
 // Each .ccs file is "CCS1" | IV (12 bytes) | AES-256-GCM(the content).
 
 import { createVault, unlock, changePassword, cleanRecoveryKey, ITERATIONS } from '../../lib/vault.js';
@@ -19,6 +21,7 @@ export const KEY_FILE = 'socials-key.json';
 export const DATA_FILE = 'socials-data.ccs';
 const mediaName = (id) => `socials-m-${id}.ccs`;
 const MAGIC = new TextEncoder().encode('CCS1');
+export const MAX_MEDIA = 24 * 1024 * 1024;
 
 /** The password doesn't open the copy in Drive (it was made with another one). */
 export class WrongPassword extends Error { constructor() { super('That isn\'t the password of the Socials copy in your Drive.'); this.name = 'WrongPassword'; } }
@@ -93,10 +96,10 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
   if (df) remote = JSON.parse(new TextDecoder().decode(await open(key, await download(api, df.id))));
   const blobs = new Map();
   for (const a of local.accounts) if (a.avatar && a.avatarId) blobs.set(a.avatarId, a.avatar);
-  for (const p of local.posts) if (p.image && p.imageId) blobs.set(p.imageId, p.image);
+  for (const p of local.posts) { if (p.image && p.imageId) blobs.set(p.imageId, p.image); if (p.video && p.videoId) blobs.set(p.videoId, p.video); }
   const state = remote ? mergeStates(local, normalize({ ...remote, me: local.me })) : normalize(local);
   // (Every photo it uses: here already, or fetched from Drive.)
-  const needs = [...state.accounts.map((a) => [a, 'avatar', 'avatarId']), ...state.posts.map((p) => [p, 'image', 'imageId'])].filter(([o, , idk]) => o[idk]);
+  const needs = [...state.accounts.map((a) => [a, 'avatar', 'avatarId']), ...state.posts.map((p) => [p, 'image', 'imageId']), ...state.posts.map((p) => [p, 'video', 'videoId'])].filter(([o, , idk]) => o[idk]);
   let fetched = 0; let sent = 0;
   await pool(needs, 4, async ([o, k, idk]) => {
     const id = o[idk];
@@ -104,16 +107,23 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
     const f = files.get(mediaName(id));
     if (!f) { o[k] = null; return; } // (Not sent yet by the phone that has it: it comes next time.)
     const bytes = await open(key, await download(api, f.id));
-    const type = bytes[0] === 0x89 ? 'image/png' : 'image/jpeg';
+    const type = k === 'video' ? videoType(bytes) : bytes[0] === 0x89 ? 'image/png' : 'image/jpeg';
     o[k] = new Blob([bytes], { type }); blobs.set(id, o[k]); fetched++;
   });
   // (Each photo Drive doesn't have yet, sent once.)
-  const uniq = new Map(); for (const [o, k, idk] of needs) if (o[k] && !files.has(mediaName(o[idk]))) uniq.set(o[idk], o[k]);
+  const uniq = new Map(); for (const [o, k, idk] of needs) if (o[k] && o[k].size <= MAX_MEDIA && !files.has(mediaName(o[idk]))) uniq.set(o[idk], o[k]);
   await pool([...uniq], 3, async ([id, blob]) => { await upload(api, mediaName(id), await seal(key, new Uint8Array(await blob.arrayBuffer()))); sent++; });
   // The merged copy, without the photos themselves, back to Drive.
-  const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, ...p }) => p) };
+  const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => p), messages: state.messages, reads: state.reads };
   await upload(api, DATA_FILE, await seal(key, new TextEncoder().encode(JSON.stringify(wire))));
   return { state, recoveryKey, sent, fetched };
+}
+
+/** A video's type from its first bytes: MP4/MOV ('ftyp', QuickTime's 'qt  ' brand) or WebM. */
+function videoType(b) {
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'video/webm';
+  const brand = String.fromCharCode(b[8], b[9], b[10], b[11]);
+  return brand === 'qt  ' ? 'video/quicktime' : 'video/mp4';
 }
 
 /** fn over items, at most n at a time. */

@@ -308,3 +308,29 @@ test('made skin\'s color from their face when what was called their body\'s skin
   const c = at(80, 180);
   assert.ok(d(c, FACE) < d(c, ORANGE) * 0.5, `as their face, not the orange: ${c}`);
 });
+
+test('where their real neck meets the made one: the old collar\'s light edge just outside it (half collar, half skin) is made again, not left as a line; and the made neck goes on with the real neck\'s warmth below it, easing (no greyer band)', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 120; const h = 220; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const FACE = [215, 190, 175]; const NECK = [190, 132, 100]; const LINE = [222, 206, 190]; const WHITE = [238, 236, 230];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 55 && x >= 35 && x < 85) { people.face[i] = 255; put(FACE); }                  // a pale face
+    else if (y >= 55 && y < 80 && x >= 45 && x < 75) { people.body[i] = 255; put(NECK); }             // their real neck, warmer, above the collar
+    else if (y >= 80 && y < 82 && x >= 40 && x < 80) { people.body[i] = 200; put(LINE); }            // the collar's light top edge, called skin
+    else if (y >= 82 && y < 210 && x >= 25 && x < 95) { people.clothes[i] = 255; zm[i] = 1; put(WHITE); } // a white turtleneck
+  }
+  const z = { mask: zm, box: { x0: 25, y0: 82, x1: 95, y1: 210 } };
+  const e = eraseGarment({ base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 55, face: { x0: 35, y0: 10, x1: 85, y1: 55 } } }, target: {}, kind: 'top', mode: 'replace' }, z);
+  const at = (x, y) => { const o = ((y - e.y0) * e.pw + x - e.x0) * 4; return [e.rgba[o], e.rgba[o + 1], e.rgba[o + 2], e.rgba[o + 3]]; };
+  // (The light edge made again: covered, near the neck's color, not the line's.)
+  const edge = at(60, 81); const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  assert.ok(edge[3] >= 200 && d(edge, NECK) < d(LINE, NECK) - 30, `the collar's edge made again: ${edge}`);
+  // (Below the collar it goes on with their neck's warmth (red over blue: the neck's 1.9, the pale face's 1.23),
+  // easing toward the made skin's own further down, not dropping straight to it: no greyer band.)
+  const r = (y) => { const c = at(60, y); return c[0] / c[2]; };
+  assert.ok(r(88) > FACE[0] / FACE[2] + 0.15, `warmer than the face just below the collar: ${r(88).toFixed(2)}`);
+  assert.ok(r(84) >= r(92) && r(92) >= r(120) - 0.02, `easing: ${[84, 92, 120].map((y) => r(y).toFixed(2))}`);
+});

@@ -937,13 +937,9 @@ the clothes in it: worn by someone, or on its own).
   colors carried smoothly past its edges so none of its background comes along. An arm the piece's photo hides
   (its bones over someone else, or a forearm folded short) is read from its other arm mirrored; a part hidden but
   worn on the base is taken from its other side; cloth cut off by its photo or zone is carried on, mirrored. The
-  layer then goes through the same finish as before (light, what's in front, grain, edge shadows). Where the
-  piece shows its model's skin (a neckline, the throat) over where the base's garment was taken off, that skin's
-  shapes come too (a collarbone's ridge and the shade under it, the hollow at the throat): its light over its own
-  light nearby (not its color), laid on the base person's made skin and faded in at its edge, not near the
-  model's hair or hands; the finish leaves those pixels as they are (they're skin, not cloth to relight; also
-  when the piece is moved by hand, and at full size on save, from the same made skin as the preview). Without
-  both poses, the older ways below are used.
+  layer then goes through the same finish as before (light, what's in front, grain, edge shadows). Slivers of
+  cloth only a pixel or two thick (the back of a collar glimpsed behind its model's neck) are left out, so
+  they don't land as thin lines across the base's neck. Without both poses, the older ways below are used.
 - **Taken off first** (Replace: a top, a dress, an upper body): all of the garment worn there is found, joined
   or not: every bit of clothing in the upper body zone of that person is it (its side seen past a lock of
   hair, a strip by the armhole the person finder called skin, what shows between strands: by its own color,
@@ -952,7 +948,13 @@ the clothes in it: worn by someone, or on its own).
   body's clear skin unless that's far from their face's color (a hand, a lock of hair), else their face's lit
   skin; their fine texture, or the photo's own grain; lit as their skin is around it, smoothly, with no steps;
   round as a body is, darker toward their figure's outline; lighter on the side the light comes from, as their
-  face is; the collarbones and the hollow at the throat softly shaded; their own hand over it left as it is),
+  face is; the collarbones and the hollow at the throat softly shaded; their own hand over it left as it is).
+  Where it meets their real skin it goes on from it: the old collar's half-and-half edge pixels just outside it
+  (a white collar's light top edge) are made again too, and the made skin fades over a few pixels onto the
+  real skin, so no line is left; where some real neck shows above the old collar, the made neck starts exactly
+  as wide as it and eases into its own shape further down (one continuous neckline), with no second, made chin
+  shadow under the real one; and the real skin's color carries much further in than its light, so the made
+  skin keeps the real neck's warmth (no greyer band below the collar line),
   and the piece is laid
   onto that: its own color and texture kept (no folds or color taken from what was worn there), only the
   photo's light and the light and shade on their bare skin under it (a sleeve over a lit arm). Under strands

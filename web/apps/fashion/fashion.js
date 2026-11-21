@@ -1158,8 +1158,7 @@ export function mount(host) {
           const torso = target.parts?.sleeves?.torso; const sc = (b2) => b2 && { x0: Math.floor(b2.x0 * k), y0: Math.floor(b2.y0 * k), x1: Math.ceil(b2.x1 * k), y1: Math.ceil(b2.y1 * k) };
           tBig = tb && { mask: tm, box: tb, spans: rowSpans(tm, W, tb, Math.round(14 * k)), parts: torso ? { sleeves: { torso: { box: sc(torso.box) } } } : {}, body: target.body };
         }
-        // (What was taken off, worked out at the working size, brought up: laid under the piece, and the skin the
-        // piece's own skin is shaped on.)
+        // (What was taken off, worked out at the working size, brought up: laid under the piece.)
         let bigPatch = null;
         if (mode === 'replace' && tBig && !tBig.body && fillCache?.patch) {
           const fp = fillCache.patch; const c = document.createElement('canvas'); c.width = fp.pw; c.height = fp.ph;
@@ -1168,7 +1167,7 @@ export function mount(host) {
           const x2 = c2.getContext('2d'); x2.imageSmoothingQuality = 'high'; x2.drawImage(c, 0, 0, c2.width, c2.height);
           bigPatch = { x0: Math.round(fp.x0 * k), y0: Math.round(fp.y0 * k), pw: c2.width, ph: c2.height, rgba: x2.getImageData(0, 0, c2.width, c2.height).data };
         }
-        const S = { base: bBig, piece: extended(), target: tBig, kind, mode, place, tune: { ...tune, soft: tune.soft * k }, erased: bigPatch };
+        const S = { base: bBig, piece: extended(), target: tBig, kind, mode, place, tune: { ...tune, soft: tune.soft * k } };
         // Replace laid in at full size from the piece's own photo at full size: sharp, not the preview blown
         // up. (If that can't be done, the preview's, brought up.)
         let layer = null;

@@ -3,13 +3,14 @@
 // photo or a video, and a caption, by one account), likes, comments, and direct messages between accounts.
 //
 // The state: { accounts, posts, messages, reads, me: accountId | null, gone: { id: when } } where
-//   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], at, upd }
+//   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], saved: [postId], at, upd }
 //   Post    = { id, by, kind: 'photo' | 'video', image: Blob | null (the photo, or a video's still), imageId,
 //               video: Blob | null, videoId, more: [{ kind, image, imageId, video, videoId }] (a post of several:
 //               its 2nd and later photos or videos), caption, tags: [accountId], at, upd, edited, likes, comments,
 //               draft: bool (saved, not shared yet), pinned: when (to the top of its profile), trashed: when (deleted:
 //               recoverable for TRASH_DAYS), collab: [{ id: accountId, status: 'pending' | 'accepted' | 'declined', at }]
-//               (accounts invited to share it: accepted, it's on their profile and in their followers' feeds too) }
+//               (accounts invited to share it: accepted, it's on their profile and in their followers' feeds too),
+//               viewsBy: { deviceId: count } (how many times it's been seen, counted on each device and added up) }
 //   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
@@ -256,6 +257,45 @@ export function addComment(state, postId, who, text) {
   p.comments.push(c); p.upd = c.at; return c;
 }
 
+// ---- Saved posts: each account's own list, private to it.
+
+/** Save a post to an account's list, or take it off. Returns whether it's saved now. */
+export function toggleSave(state, who, postId) {
+  const a = accountById(state, who); if (!a || !postById(state, postId)) return false;
+  a.saved ??= []; a.upd = Date.now();
+  if (a.saved.includes(postId)) { a.saved = a.saved.filter((x) => x !== postId); return false; }
+  a.saved.unshift(postId); return true;
+}
+export const isSaved = (state, who, postId) => !!accountById(state, who)?.saved?.includes(postId);
+/** An account's saved posts (still shared and showing), the latest saved first. */
+export const savedOf = (state, who) => (accountById(state, who)?.saved ?? []).map((id) => postById(state, id)).filter((p) => p && live(p));
+
+// ---- Views: how many times a post's been seen (in a feed, in Reels, opened from a profile), by anyone.
+// Counted on each device and added up (a device's count only ever grows), so two devices' counts merge with
+// nothing lost; a view doesn't count as a change to the post (it never overrides a like or an edit).
+
+/** A view of a post, counted on `device`. */
+export function addView(state, postId, device) {
+  const p = postById(state, postId); if (!p) return 0;
+  p.viewsBy ??= {}; p.viewsBy[device] = (p.viewsBy[device] ?? 0) + 1;
+  return viewsOf(p);
+}
+/** How many times a post's been seen, on every device. */
+export const viewsOf = (p) => Object.values(p?.viewsBy ?? {}).reduce((a, n) => a + n, 0);
+
+/**
+ * Posts in an order that favors the popular (views, then likes and comments) and the new, at random: the more
+ * seen and liked, and the newer, the likelier near the top, not always (a weighted shuffle). `rand` for tests.
+ */
+export function rankPosts(posts, { now = Date.now(), rand = Math.random } = {}) {
+  const weight = (p) => {
+    const pop = 1 + Math.log1p(viewsOf(p)) + 0.6 * Math.log1p(p.likes.length) + 0.4 * Math.log1p(p.comments.length);
+    const age = Math.max(0, now - p.at) / 86400000; // days
+    return pop / (1 + age / 4);
+  };
+  return posts.map((p) => ({ p, k: Math.log(Math.max(1e-12, rand())) / weight(p) })).sort((a, b) => b.k - a.k).map((x) => x.p);
+}
+
 // ---- Collabs: a post shared by its account and up to three others, each invited and saying yes.
 
 export const MAX_COLLAB = 3;
@@ -360,12 +400,12 @@ export function countLabel(n) {
 export function normalize(raw) {
   const s = emptyState(); if (!raw || typeof raw !== 'object') return s;
   const ok = (v) => typeof v === 'string' && v.length > 0;
-  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, following: Array.isArray(a.following) ? a.following.filter(ok) : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
   // (Exactly one Owner: the one made so last, else the oldest account.)
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], collab: Array.isArray(p.collab) ? p.collab.filter((c) => c && ids.has(c.id) && c.id !== p.by && ['pending', 'accepted', 'declined'].includes(c.status)).slice(0, MAX_COLLAB).map((c) => ({ id: c.id, status: c.status, at: c.at ?? 0 })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], viewsBy: p.viewsBy && typeof p.viewsBy === 'object' ? Object.fromEntries(Object.entries(p.viewsBy).filter(([k, v]) => ok(k) && Number.isFinite(v) && v > 0).map(([k, v]) => [k, Math.floor(v)])) : {}, collab: Array.isArray(p.collab) ? p.collab.filter((c) => c && ids.has(c.id) && c.id !== p.by && ['pending', 'accepted', 'declined'].includes(c.status)).slice(0, MAX_COLLAB).map((c) => ({ id: c.id, status: c.status, at: c.at ?? 0 })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
   s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post) || ok(m.collab)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}), ...(ok(m.collab) ? { collab: m.collab } : {}) }));
@@ -392,5 +432,9 @@ export function mergeStates(local, remote) {
   const msgs = new Map([...(local.messages ?? []), ...(remote.messages ?? [])].map((m) => [m.id, m]));
   const reads = JSON.parse(JSON.stringify(local.reads ?? {}));
   for (const [a, o] of Object.entries(remote.reads ?? {})) for (const [b, v] of Object.entries(o ?? {})) { reads[a] ??= {}; reads[a][b] = Math.max(reads[a][b] ?? 0, v); }
-  return normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
+  const out = normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
+  // (Views from both: each device's count, the higher (a device's only grows), whichever version of the post won.)
+  const vb = new Map(); for (const p of [...local.posts, ...(remote.posts ?? [])]) { const m = vb.get(p.id) ?? {}; for (const [k, v] of Object.entries(p.viewsBy ?? {})) m[k] = Math.max(m[k] ?? 0, v); vb.set(p.id, m); }
+  for (const p of out.posts) p.viewsBy = { ...(vb.get(p.id) ?? {}) };
+  return out;
 }

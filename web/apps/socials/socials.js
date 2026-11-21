@@ -22,7 +22,7 @@ import {
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
-  collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, TRASH_DAYS,
+  toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, TRASH_DAYS,
 } from './socials-core.js';
 import { createZip } from '../../lib/zip.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
@@ -50,6 +50,13 @@ const SEEN_KEY = 'cc.socials.seen';
 // (Comments made for each new post, from three other accounts: on unless the Owner turns them off.)
 const AUTO_KEY = 'cc.socials.autocomment';
 const autoOn = () => store.get(AUTO_KEY) !== '0';
+// (This device, for counting views: each device counts its own, the counts added up.)
+const DEVICE_KEY = 'cc.socials.device';
+const deviceId = () => { let d = store.get(DEVICE_KEY); if (!d) { d = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; store.set(DEVICE_KEY, d); } return d; };
+// (Views counted this session, by account and post: a post seen again by the same account isn't counted twice.)
+const viewedNow = new Set();
+// (Home's order: ranked once per account while the app's open (popular and new likelier first), new posts first.)
+const feedOrder = new Map();
 /** Videos bigger than this aren't taken (a phone's storage; and only up to 24 MB go to Drive). */
 const MAX_VIDEO = 300 * 1024 * 1024;
 
@@ -263,6 +270,39 @@ export function mount(host) {
     drawPick(); return box;
   }
 
+  // ---- Saved posts and views.
+  /** 🔖: save a post to the account in use's own list (or take it off). */
+  function saveBtn(p, cls) {
+    const on = isSaved(state, state.me, p.id);
+    return el('button', { type: 'button', class: `${cls}${on ? ' on' : ''}`, 'aria-label': on ? 'Saved: remove from saved' : 'Save', 'aria-pressed': String(on), onclick: (e) => {
+      const now = toggleSave(state, state.me, p.id); save(); toast(now ? 'Saved (your profile → 🔖)' : 'Removed from saved');
+      const b = e.currentTarget; b.classList.toggle('on', now); b.setAttribute('aria-pressed', String(now)); b.setAttribute('aria-label', now ? 'Saved: remove from saved' : 'Save');
+    } }, el('span', { class: 'so-save-icon', 'aria-hidden': 'true', text: '🔖' }));
+  }
+  let viewSaveT = 0;
+  /** A post seen by the account in use (once each while the app's open): counted, kept a moment later. */
+  function countView(postId) {
+    const k = `${state.me}:${postId}`; if (viewedNow.has(k) || !postById(state, postId)) return;
+    viewedNow.add(k); const n = addView(state, postId, deviceId());
+    clearTimeout(viewSaveT); viewSaveT = setTimeout(() => save(), 2000);
+    // (Shown where it is on screen now, without drawing it all again.)
+    const label = `👁 ${countLabel(n)} view${n === 1 ? '' : 's'}`;
+    for (const card of main.querySelectorAll(`.so-post[data-post="${postId}"]`)) {
+      let v = card.querySelector('.so-views');
+      if (!v) { v = el('div', { class: 'so-views muted small' }); card.querySelector('.so-actions')?.after(v); }
+      v.textContent = label;
+    }
+    for (const r of main.querySelectorAll(`.so-reel[data-post="${postId}"] .so-reel-views`)) { r.textContent = `👁 ${countLabel(n)}`; r.setAttribute('aria-label', `${n} views`); }
+  }
+  /** Posts in a list counted as seen when most of one has been on screen for a second. */
+  let viewObserver = null;
+  function watchViews(container) {
+    viewObserver?.disconnect(); if (!('IntersectionObserver' in globalThis)) return;
+    const timers = new Map();
+    viewObserver = new IntersectionObserver((es) => { for (const e of es) { const id = e.target.dataset.post; if (!id) continue; if (e.isIntersecting && e.intersectionRatio >= 0.6) { if (!timers.has(id)) timers.set(id, setTimeout(() => countView(id), 1000)); } else { clearTimeout(timers.get(id)); timers.delete(id); } } }, { threshold: [0, 0.6] });
+    requestAnimationFrame(() => { for (const n of container.querySelectorAll('.so-post[data-post]')) viewObserver.observe(n); });
+  }
+
   function lostPhoto() {
     return el('div', { class: 'so-pic so-lost', role: 'img', 'aria-label': 'Photo not available' },
       el('span', { class: 'so-lost-icon', 'aria-hidden': 'true', text: '🖼' }),
@@ -303,7 +343,8 @@ export function mount(host) {
     return el('article', { class: 'so-post', 'data-post': p.id },
       el('div', { class: 'so-post-head' }, el('button', { type: 'button', class: 'so-avbtn', 'aria-label': `@${by.handle}`, onclick: () => go({ name: 'profile', id: by.id }) }, avatar(by, 's')), handleBtn(by), ...collabsOf(p).flatMap((cid) => { const ca = accountById(state, cid); return ca ? [el('span', { class: 'so-and', text: ' and ' }), handleBtn(ca)] : []; }), el('span', { class: 'so-dot muted', text: `• ${timeAgo(p.at)}${p.edited ? ' · edited' : ''}` }), menu),
       pic,
-      el('div', { class: 'so-actions' }, heart, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Comments', text: '💬', onclick: () => go({ name: 'post', id: p.id }) }), el('button', { type: 'button', class: 'so-act so-share', 'aria-label': 'Share', text: '✈', onclick: () => share(p) })),
+      el('div', { class: 'so-actions' }, heart, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Comments', text: '💬', onclick: () => go({ name: 'post', id: p.id }) }), el('button', { type: 'button', class: 'so-act so-share', 'aria-label': 'Share', text: '✈', onclick: () => share(p) }), saveBtn(p, 'so-act so-save')),
+      viewsOf(p) ? el('div', { class: 'so-views muted small', text: `👁 ${countLabel(viewsOf(p))} view${viewsOf(p) === 1 ? '' : 's'}` }) : null,
       tagLine(p),
       p.likes.length ? el('div', { class: 'so-likes', text: `${countLabel(p.likes.length)} like${p.likes.length === 1 ? '' : 's'}` }) : null,
       p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', ...captionNodes(p.caption)) : null,
@@ -322,7 +363,14 @@ export function mount(host) {
   }
 
   function feed() {
-    const m = me(); const items = feedFor(state, m.id);
+    const m = me(); const raw = feedFor(state, m.id);
+    // (Ranked: the more seen and liked, and the newer, the likelier near the top; the order kept while the app's
+    // open, and anything new since (your own new post) first.)
+    let order = feedOrder.get(m.id);
+    if (!order) { order = rankPosts(raw).map((p) => p.id); feedOrder.set(m.id, order); }
+    const ids = raw.map((p) => p.id); const fresh = raw.filter((p) => !order.includes(p.id)).sort((a, b) => b.at - a.at).map((p) => p.id);
+    order = [...fresh, ...order.filter((id) => ids.includes(id))]; feedOrder.set(m.id, order);
+    const byId = new Map(raw.map((p) => [p.id, p])); const items = order.map((id) => byId.get(id)).filter(Boolean);
     const follows = followingOf(state, m.id);
     // (The row across the top: their stories (a ring round any with a post in the last day: bright while
     // there's one not seen yet), those first; tapping one with stories opens them, else its profile.)
@@ -330,8 +378,9 @@ export function mount(host) {
     const ordered = [m, ...accs.slice(1).sort((x, y) => (storyState(y.id) === 'new' ? 1 : 0) - (storyState(x.id) === 'new' ? 1 : 0))];
     const row = el('div', { class: 'so-stories', role: 'group', 'aria-label': 'Stories' },
       ordered.map((a) => { const st = storyState(a.id); return el('button', { type: 'button', class: 'so-story', 'aria-label': st ? `@${a.handle}'s story${st === 'new' ? ', new' : ''}` : `@${a.handle}`, onclick: () => (st ? openStories(withSt.map((x) => x.id), a.id) : go({ name: 'profile', id: a.id })) }, el('span', { class: `so-ring${st === 'seen' ? ' seen' : st ? '' : ' none'}` }, avatar(a, 'l')), el('span', { class: 'so-story-name', text: a.id === m.id ? (st ? 'Your story' : 'Your profile') : a.handle })); }));
+    const list = el('div', { class: 'so-feed' }, items.map((p) => postCard(p))); watchViews(list);
     return el('div', {}, row,
-      items.length ? items.map((p) => postCard(p))
+      items.length ? list
         : el('div', { class: 'so-empty' },
           el('p', { class: 'so-empty-big', text: 'Welcome to your feed' }),
           el('p', { class: 'muted', text: follows.length ? 'No posts yet from the accounts you follow.' : 'Follow accounts to see their posts here, or share your first post.' }),
@@ -465,7 +514,7 @@ export function mount(host) {
     const a = accountById(state, id); if (!a) return feed();
     const mine = a.id === state.me; const all = postsBy(state, a.id);
     const grid = view.grid ?? 'posts'; const showReels = grid === 'reels';
-    const posts = grid === 'reels' ? all.filter((p) => p.kind === 'video') : grid === 'tagged' ? taggedIn(state, a.id) : grid === 'drafts' && mine ? draftsOf(state, a.id) : all;
+    const posts = grid === 'reels' ? all.filter((p) => p.kind === 'video') : grid === 'tagged' ? taggedIn(state, a.id) : grid === 'drafts' && mine ? draftsOf(state, a.id) : grid === 'saved' && mine ? savedOf(state, a.id) : all;
     const st = storyState(a.id);
     const f = isFollowing(state, state.me, a.id);
     const stat = (n, label, v) => el('button', { type: 'button', class: 'so-stat', onclick: v ? () => go(v) : null }, el('strong', { text: countLabel(n) }), el('span', { text: label }));
@@ -480,8 +529,8 @@ export function mount(host) {
           ? [el('button', { type: 'button', class: 'btn', text: 'Edit profile', onclick: () => go({ name: 'edit' }) }), el('button', { type: 'button', class: 'btn', text: 'Switch account', onclick: () => go({ name: 'accounts' }) }), el('button', { type: 'button', class: 'btn', 'aria-label': `Download @${a.handle}'s photos and videos`, text: '⬇', onclick: () => exportAccount(a) })]
           : [el('button', { type: 'button', class: `btn${f ? '' : ' primary'}`, text: f ? 'Following' : 'Follow', onclick: () => { toggleFollow(state, state.me, a.id); save(); draw(); } }), el('button', { type: 'button', class: 'btn', text: 'Message', onclick: () => go({ name: 'chat', id: a.id }) }), el('button', { type: 'button', class: 'btn', text: 'Use this account', onclick: () => { state.me = a.id; save(); draw(); } }), el('button', { type: 'button', class: 'btn', 'aria-label': `Download @${a.handle}'s photos and videos`, text: '⬇', onclick: () => exportAccount(a) })])),
       el('div', { class: 'so-ptabs', role: 'tablist' },
-        [['posts', 'Posts', '▦'], ['reels', 'Reels', '▶︎'], ['tagged', 'Tagged', '👤'], ...(mine ? [['drafts', `Drafts${draftsOf(state, a.id).length ? ` (${draftsOf(state, a.id).length})` : ''}`, '✎']] : [])].map(([g, label, icon]) => el('button', { type: 'button', role: 'tab', class: `so-ptab${grid === g ? ' on' : ''}`, 'aria-selected': String(grid === g), 'aria-label': label, text: icon, onclick: () => go({ ...view, grid: g }) }))),
-      posts.length ? el('div', { class: 'so-grid' }, posts.map(tile)) : el('div', { class: 'so-empty' }, el('p', { class: 'so-empty-big', text: showReels ? 'No reels yet' : grid === 'tagged' ? 'No tagged posts yet' : grid === 'drafts' ? 'No drafts' : 'No posts yet' }), mine && !['tagged', 'drafts'].includes(grid) ? el('button', { type: 'button', class: 'btn primary', text: 'Share your first post', onclick: () => go({ name: 'new' }) }) : null));
+        [['posts', 'Posts', '▦'], ['reels', 'Reels', '▶︎'], ['tagged', 'Tagged', '👤'], ...(mine ? [['saved', 'Saved', '🔖'], ['drafts', `Drafts${draftsOf(state, a.id).length ? ` (${draftsOf(state, a.id).length})` : ''}`, '✎']] : [])].map(([g, label, icon]) => el('button', { type: 'button', role: 'tab', class: `so-ptab${grid === g ? ' on' : ''}`, 'aria-selected': String(grid === g), 'aria-label': label, text: icon, onclick: () => go({ ...view, grid: g }) }))),
+      posts.length ? el('div', { class: 'so-grid' }, posts.map(tile)) : el('div', { class: 'so-empty' }, el('p', { class: 'so-empty-big', text: showReels ? 'No reels yet' : grid === 'tagged' ? 'No tagged posts yet' : grid === 'drafts' ? 'No drafts' : grid === 'saved' ? 'Nothing saved yet: tap 🔖 on a post to save it here (only you see this)' : 'No posts yet' }), mine && !['tagged', 'drafts', 'saved'].includes(grid) ? el('button', { type: 'button', class: 'btn primary', text: 'Share your first post', onclick: () => go({ name: 'new' }) }) : null));
   }
 
   function people(id, kind) {
@@ -495,6 +544,8 @@ export function mount(host) {
 
   function onePost(id) {
     const p = postById(state, id); if (!p) return feed();
+    // (Opened (from a profile, a grid, a message): a view.)
+    countView(p.id);
     return el('div', {}, backBar('Post', { name: 'profile', id: p.by }), postCard(p, { full: true }));
   }
 
@@ -652,7 +703,7 @@ export function mount(host) {
     let list = reelsOf(state, view.by ?? null);
     if (!view.by) {
       const ids = list.map((p) => p.id);
-      if (!reelOrder) reelOrder = shuffled(ids);
+      if (!reelOrder) reelOrder = rankPosts(list).map((p) => p.id);
       const fresh = ids.filter((id) => !reelOrder.includes(id)); reelOrder = [...fresh, ...reelOrder.filter((id) => ids.includes(id))];
       const byId = new Map(list.map((p) => [p.id, p])); list = reelOrder.map((id) => byId.get(id)).filter(Boolean);
     }
@@ -670,6 +721,8 @@ export function mount(host) {
           el('button', { type: 'button', class: `so-reel-btn${liked ? ' on' : ''}`, 'aria-label': liked ? 'Unlike' : 'Like', 'aria-pressed': String(liked), onclick: (e) => { const on = toggleLike(state, p.id, state.me); save(); const b = e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Unlike' : 'Like'); b.querySelector('.so-reel-icon').textContent = on ? '♥' : '♡'; b.querySelector('.so-reel-n').textContent = countLabel(p.likes.length); } }, el('span', { class: 'so-reel-icon', text: liked ? '♥' : '♡' }), el('span', { class: 'so-reel-n', text: countLabel(p.likes.length) })),
           el('button', { type: 'button', class: 'so-reel-btn', 'aria-label': 'Comments', onclick: () => go({ name: 'post', id: p.id }) }, el('span', { class: 'so-reel-icon', text: '💬' }), el('span', { class: 'so-reel-n', text: countLabel(p.comments.length) })),
           el('button', { type: 'button', class: 'so-reel-btn', 'aria-label': 'Share', onclick: () => share(p) }, el('span', { class: 'so-reel-icon', text: '✈' })),
+          saveBtn(p, 'so-reel-btn so-reel-save'),
+          el('span', { class: 'so-reel-views', 'aria-label': `${viewsOf(p)} views`, text: `👁 ${countLabel(viewsOf(p))}` }),
           v ? sound : null),
         el('div', { class: 'so-reel-info' },
           el('button', { type: 'button', class: 'so-reel-by', onclick: () => go({ name: 'profile', id: by.id }) }, avatar(by, 's'), el('strong', { text: by.handle })),
@@ -681,7 +734,7 @@ export function mount(host) {
       let y0 = null; let pulled = 0;
       const startAt = (y) => { y0 = wrap.scrollTop <= 0 ? y : null; pulled = 0; };
       const moveTo = (y) => { if (y0 == null) return; pulled = Math.max(0, y - y0); hint.style.height = `${Math.min(80, pulled * 0.6)}px`; hint.classList.toggle('ready', pulled > 90); };
-      const endPull = () => { if (y0 != null && pulled > 90) { reelOrder = shuffled(reelOrder ?? []); toast('Shuffled'); draw(); return; } y0 = null; hint.style.height = '0px'; hint.classList.remove('ready'); };
+      const endPull = () => { if (y0 != null && pulled > 90) { reelOrder = rankPosts(reelsOf(state)).map((p) => p.id); toast('Shuffled'); draw(); return; } y0 = null; hint.style.height = '0px'; hint.classList.remove('ready'); };
       wrap.addEventListener('touchstart', (e) => startAt(e.touches[0].clientY), { passive: true });
       wrap.addEventListener('touchmove', (e) => moveTo(e.touches[0].clientY), { passive: true });
       wrap.addEventListener('touchend', endPull);
@@ -691,7 +744,7 @@ export function mount(host) {
     }
     // (The one in view plays; the others stop.)
     if ('IntersectionObserver' in globalThis) {
-      reelObserver = new IntersectionObserver((es) => { for (const e of es) { const v = e.target.querySelector('video'); if (!v) continue; if (e.isIntersecting && e.intersectionRatio > 0.6) { v.removeAttribute('data-off'); v.muted = !reelSound; v.play().catch(() => { v.muted = true; v.play().catch(() => {}); }); } else { v.setAttribute('data-off', ''); v.pause(); } } }, { root: wrap, threshold: [0, 0.6, 1] });
+      reelObserver = new IntersectionObserver((es) => { for (const e of es) { const v = e.target.querySelector('video'); if (!v) continue; if (e.isIntersecting && e.intersectionRatio > 0.6) { countView(e.target.dataset.post); v.removeAttribute('data-off'); v.muted = !reelSound; v.play().catch(() => { v.muted = true; v.play().catch(() => {}); }); } else { v.setAttribute('data-off', ''); v.pause(); } } }, { root: wrap, threshold: [0, 0.6, 1] });
       requestAnimationFrame(() => { for (const s2 of wrap.querySelectorAll('.so-reel')) reelObserver.observe(s2); if (view.start) wrap.querySelector(`[data-post="${view.start}"]`)?.scrollIntoView({ block: 'start' }); });
     }
     return el('div', {}, view.by ? backBar(`@${accountById(state, view.by)?.handle ?? ''} · Reels`, { name: 'profile', id: view.by, grid: 'reels' }) : null, wrap);

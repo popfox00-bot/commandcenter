@@ -1230,6 +1230,15 @@ Profile, ✈ for messages), where everything is made by you in the app.
   Edit): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its
   profile. An @handle of one of your accounts in a caption is a link to it. ✈ on a post (or beside a reel)
   shares it in a message to another account: it shows in the chat as a card that opens the post.
+- **Saved posts.** 🔖 on a post (or beside a reel) saves it to the account in use's own list: the 🔖 Saved tab
+  on its profile, which only it sees (a deleted post drops off it).
+- **Views.** 👁 under a post (and beside a reel) counts how many times it's been seen, by any account: in a
+  feed (most of it on screen for a second), in Reels (playing), or opened (from a profile, a grid, a message);
+  each account once per post while the app's open. Each device counts its own and the counts are added up, so
+  devices merge them with nothing lost, and a view never overrides a like or an edit synced from elsewhere.
+- **What comes up first.** Home and Reels are each a weighted shuffle (once while the app's open; Reels again on
+  a pull down): the more views, likes and comments, and the newer, the likelier near the top, not always. A
+  post you've just made comes first.
 - **Collab.** 🤝 Collab when posting (or ⋯ → Edit) invites up to three of your other accounts: each gets a collab
   request in their messages, with Accept and Decline. Once accepted, the same post (the identical photo) is on
   their profile too and in their followers' feeds, its header "you and them"; likes and comments are shared.

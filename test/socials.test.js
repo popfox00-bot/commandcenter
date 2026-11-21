@@ -261,3 +261,33 @@ test('collabs: invited accounts get a request; accepted, the post is on their pr
   dr.draft = false; c.sendCollabRequests(s, dr.id); assert.equal(s.messages.filter((m) => m.collab === dr.id).length, 1, 'asked when shared');
   removeAccount(s, d.id); assert.equal(dr.collab.length, 0);
 });
+
+test('saved posts (each account\'s own) and views (counted per device, added up, merged with nothing lost; a view isn\'t an edit); the popular likelier first', async () => {
+  const c = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b' });
+  const p = addPost(s, a.id, { caption: 'one' }); const q = addPost(s, a.id, { caption: 'two' });
+  assert.equal(c.toggleSave(s, b.id, p.id), true); c.toggleSave(s, b.id, q.id);
+  assert.deepEqual(c.savedOf(s, b.id).map((x) => x.caption), ['two', 'one'], 'latest saved first');
+  assert.deepEqual(c.savedOf(s, a.id), [], 'b\'s own');
+  c.trashPost(s, q.id); assert.deepEqual(c.savedOf(s, b.id).map((x) => x.caption), ['one'], 'a deleted post isn\'t in it');
+  assert.equal(c.toggleSave(s, b.id, p.id), false);
+  // Views: two devices, merged.
+  const upd = p.upd;
+  c.addView(s, p.id, 'phone'); c.addView(s, p.id, 'phone');
+  assert.equal(c.viewsOf(p), 2); assert.equal(p.upd, upd, 'a view isn\'t a change to it');
+  const other = JSON.parse(JSON.stringify(s)); other.posts.find((x) => x.id === p.id).viewsBy = { phone: 1, ipad: 3 };
+  toggleLike(other, p.id, b.id); other.posts.find((x) => x.id === p.id).upd = p.upd + 1000; // (the other device also liked it, later: its version wins…)
+  const m = mergeStates(s, other); const mp = m.posts.find((x) => x.id === p.id);
+  assert.equal(c.viewsOf(mp), 5, '…but views from both: phone 2, iPad 3'); assert.deepEqual(mp.likes, [b.id]);
+  assert.equal(c.viewsOf(normalize(JSON.parse(JSON.stringify(m))).posts.find((x) => x.id === p.id)), 5, 'kept');
+  // Ranking: a much-viewed post is first far more often than a never-seen one of the same age.
+  const t = emptyState(); const o = addAccount(t, { handle: 'o' });
+  const hot = addPost(t, o.id, { caption: 'hot' }); const cold = addPost(t, o.id, { caption: 'cold' }); hot.at = cold.at = 1000;
+  for (let i = 0; i < 200; i++) c.addView(t, hot.id, 'd');
+  let seed = 11; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  let first = 0; for (let i = 0; i < 400; i++) if (c.rankPosts(t.posts, { now: 2000, rand })[0].id === hot.id) first++;
+  assert.ok(first > 260 && first < 400, `the popular first most of the time, not always: ${first}/400`);
+  const old = addPost(t, o.id, { caption: 'old' }); old.at = 2000 - 60 * 86400000; const fresh = addPost(t, o.id, { caption: 'fresh' }); fresh.at = 2000;
+  let fr = 0; for (let i = 0; i < 400; i++) { const r = c.rankPosts([old, fresh], { now: 2000, rand }); if (r[0].id === fresh.id) fr++; }
+  assert.ok(fr > 300, `newer likelier first: ${fr}/400`);
+});

@@ -116,7 +116,24 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
   // The merged copy, without the photos themselves, back to Drive.
   const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => p), messages: state.messages, reads: state.reads };
   await upload(api, DATA_FILE, await seal(key, new TextEncoder().encode(JSON.stringify(wire))));
-  return { state, recoveryKey, sent, fetched };
+  // (Which photos and videos Drive has now: what's still to send, until the next sync, is the rest.)
+  const driveMedia = [...files.keys()].filter((n) => n.startsWith('socials-m-')).map((n) => n.slice(10, -4)).concat([...uniq.keys()]);
+  return { state, recoveryKey, sent, fetched, driveMedia };
+}
+
+/**
+ * How many files are waiting to go to Drive: each photo or video on this phone that Drive doesn't have yet
+ * (`driveMedia`: the ids it had at the last sync; a video too big for it never goes, so isn't counted), and
+ * the accounts-and-posts file when anything changed since (`dirty`).
+ */
+export function pendingFiles(state, driveMedia, dirty) {
+  const have = new Set(driveMedia ?? []); const ids = new Set();
+  for (const a of state.accounts) if (a.avatar && a.avatarId && !have.has(a.avatarId)) ids.add(a.avatarId);
+  for (const p of state.posts) {
+    if (p.image && p.imageId && !have.has(p.imageId)) ids.add(p.imageId);
+    if (p.video && p.videoId && p.video.size <= MAX_MEDIA && !have.has(p.videoId)) ids.add(p.videoId);
+  }
+  return ids.size + (dirty ? 1 : 0);
 }
 
 /** A video's type from its first bytes: MP4/MOV ('ftyp', QuickTime's 'qt  ' brand) or WebM. */

@@ -9,11 +9,11 @@
 // With Saved Files set up, it's also kept in your own Google Drive, encrypted with that password on the
 // phone first, so your other devices open the same Socials with the same password (socials-sync.js).
 
-import { el, fill } from '../../lib/dom.js';
+import { el, fill, store } from '../../lib/dom.js';
 import { idb } from '../../lib/idb.js';
 import { makeLock } from '../../lib/hidden-lock.js';
 import { connected } from '../../lib/saved-files.js';
-import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword } from './socials-sync.js';
+import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword, pendingFiles } from './socials-sync.js';
 import { sniffType, decodeImage, fitSize, canvasToBlob } from '../../lib/image.js';
 import { editPhoto, prepareVideo } from './socials-editor.js';
 import {
@@ -24,6 +24,10 @@ import {
 } from './socials-core.js';
 
 const KEY = 'cc.socials';
+// (What's waiting for Drive, kept on the phone so a refresh or closing the app doesn't lose track of it:
+// which photos and videos Drive had at the last sync, and whether anything changed since.)
+const DRIVE_KEY = 'cc.socials.drive';
+const DIRTY_KEY = 'cc.socials.dirty';
 export const socialsLock = makeLock('cc.socials.lock', 'cc.socials.open');
 // The password, once entered, for as long as the app is open (it opens the copy in Drive): forgotten on a
 // reload or when the app is closed, so it's asked again then.
@@ -39,7 +43,10 @@ export function mount(host) {
   let alive = true;
   const urls = new Map(); // Blob → object URL, made once each.
   const urlOf = (b) => { if (!b) return null; let u = urls.get(b); if (!u) { u = URL.createObjectURL(b); urls.set(b, u); } return u; };
-  const save = () => { idb.set(KEY, state); soon(); };
+  let edits = 0;
+  const save = () => { idb.set(KEY, state); edits++; store.set(DIRTY_KEY, '1'); soon(); };
+  /** How many files are waiting to be saved to Drive (Saved Files). */
+  const pending = () => (connected() ? pendingFiles(state, store.json(DRIVE_KEY, null)?.media ?? [], store.get(DIRTY_KEY) === '1') : 0);
   // ---- Sync with Drive: after each change (a few seconds later), when the app opens, when back online.
   const sync = { busy: false, again: false, msg: '', ok: null, wrong: false, timer: 0 };
   const soon = () => { clearTimeout(sync.timer); sync.timer = setTimeout(runSync, 3000); };
@@ -47,10 +54,15 @@ export function mount(host) {
     clearTimeout(sync.timer);
     const api = connected(); if (!api || !sessionPw || !alive) { sync.msg = api ? '' : 'Not set up'; return; }
     if (sync.busy) { sync.again = true; return; }
+    // (Offline: nothing tried; it's saved when the connection's back.)
+    if (navigator.onLine === false) { sync.ok = false; sync.wrong = false; sync.msg = 'Offline: saved to Saved Files when back online'; drawStatus(); return; }
     sync.busy = true; sync.msg = 'Syncing…'; sync.ok = null; drawStatus();
+    const editsAt = edits;
     try {
       const r = await syncSocials(api, state, sessionPw);
       if (!alive) return;
+      store.set(DRIVE_KEY, JSON.stringify({ media: r.driveMedia, at: Date.now() }));
+      if (edits === editsAt) store.set(DIRTY_KEY, '');
       // (Anything changed here while it ran is kept: merged again over what came back.)
       state = mergeStates(state, r.state); await idb.set(KEY, state);
       sync.ok = true; sync.wrong = false; sync.msg = `Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
@@ -62,14 +74,28 @@ export function mount(host) {
       sync.msg = sync.wrong ? 'The copy in your Drive has a different password' : navigator.onLine === false ? 'Offline: syncs when back online' : `Couldn't sync: ${e.message}`;
     } finally { sync.busy = false; drawStatus(); if (sync.again) { sync.again = false; soon(); } }
   }
-  const onOnline = () => soon();
+  const onOnline = () => { drawStatus(); soon(); };
+  const onOffline = () => { if (!sync.busy) { sync.ok = false; sync.msg = 'Offline: saved to Saved Files when back online'; } drawStatus(); };
+  globalThis.addEventListener?.('offline', onOffline);
   globalThis.addEventListener?.('online', onOnline);
   const statusEl = el('button', { type: 'button', class: 'so-cloud', 'aria-label': 'Sync and password', onclick: () => go({ name: 'settings' }) });
   function drawStatus() {
     const api = !!connected();
-    statusEl.textContent = !api ? '⚙' : sync.busy ? '⟳' : sync.ok === false ? '⚠' : '☁';
+    const n = pending(); const off = navigator.onLine === false;
+    // (⏳ with how many are waiting, while there are: offline, or not saved yet.)
+    fill(statusEl, !api ? '⚙' : sync.busy ? '⟳' : n && (off || sync.ok === false) ? '⏳' : sync.ok === false ? '⚠' : '☁', n && api && !sync.busy ? el('span', { class: 'so-badge so-wait-badge', 'aria-hidden': 'true', text: n > 99 ? '99+' : String(n) }) : null);
+    statusEl.setAttribute('aria-label', n && api ? `Sync and password: ${n} file${n === 1 ? '' : 's'} waiting to be saved` : 'Sync and password');
     statusEl.title = sync.msg || 'Sync and password';
-    if (view.name === 'settings') { const m = main.querySelector('.so-sync-msg'); if (m) m.textContent = syncLine(); }
+    if (view.name === 'settings') { const m = main.querySelector('.so-sync-msg'); if (m) m.textContent = syncLine(); const w = main.querySelector('.so-waiting'); if (w) w.replaceWith(waiting()); }
+  }
+  /** (The Owner's view of what's waiting for Saved Files: how many, and when they'll go.) */
+  function waiting() {
+    if (!connected() || !me()?.owner) return el('div', { class: 'so-waiting', hidden: true });
+    const n = pending(); const off = navigator.onLine === false;
+    if (!n) return el('div', { class: 'so-waiting so-waiting-done', role: 'status' }, el('span', { 'aria-hidden': 'true', text: '✓ ' }), 'Everything is saved to Saved Files.');
+    return el('div', { class: 'so-waiting', role: 'status' },
+      el('strong', { text: `⏳ ${n} file${n === 1 ? '' : 's'} waiting to be saved to Saved Files` }),
+      el('span', { class: 'small', text: off ? 'You\'re offline. They\'ll be saved as soon as you\'re back online with Socials open. Refreshing or closing the app doesn\'t lose them: they\'re kept on this device, and saved the next time Socials is opened online.' : 'They\'ll be saved in a moment (or tap Sync now). Refreshing or closing the app first doesn\'t lose them: they\'re kept on this device, and saved the next time Socials is opened online.' }));
   }
   const syncLine = () => (!connected() ? 'Not syncing: Saved Files isn\'t set up on this device.' : sync.msg || 'Ready to sync.');
   const me = () => accountById(state, state.me);
@@ -525,6 +551,7 @@ export function mount(host) {
       el('div', { class: 'so-pad so-settings' },
         el('h3', { text: 'Sync' }),
         el('p', { class: 'so-sync-msg', text: syncLine() }),
+        waiting(),
         api ? el('p', { class: 'muted small', text: 'Kept in the Socials folder of your Saved Files (Google Drive), encrypted with your Socials password on this device first. Other devices with Saved Files set up open it with the same password.' })
           : el('p', { class: 'muted small', text: 'To keep Socials on your other devices, set up Saved Files (Settings → Saved Files), then open Socials there with the same password.' }),
         api ? el('button', { type: 'button', class: 'btn primary', text: 'Sync now', onclick: () => runSync() }) : null,
@@ -570,7 +597,7 @@ export function mount(host) {
   }
   if (sessionPw) start(); else gate();
 
-  return () => { alive = false; reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
+  return () => { alive = false; reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); globalThis.removeEventListener?.('offline', onOffline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
 }
 
 /** A picked photo made ready to keep: at most `edge` px on its long side (or a centered square), as JPEG. */

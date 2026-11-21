@@ -331,3 +331,50 @@ test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo w
   assert.ok((await kv('get', 'cc.socials.m.img1'))?.bytes > 0, 'and kept again');
   await ctx.close();
 });
+
+test('Socials: tag accounts in a post (and @mention them), share it in a DM, and on the Owner account open any photo in the Photo Editor, FM or Fashion', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  // As pal: a photo, tagging the Owner, mentioning them in the caption.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-new-prev img').waitFor();
+  await page.getByLabel('Caption').fill('Beach day with @owner.me!');
+  await page.getByRole('group', { name: 'Tag people' }).getByRole('button', { name: '@owner.me' }).click();
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.so-post .so-tags', { hasText: 'with owner.me' }).waitFor();
+  assert.equal(await page.locator('.so-post .so-caption .so-mention').textContent(), 'owner.me', 'the @mention a link');
+  // Shared to the Owner in a DM.
+  await page.getByRole('button', { name: 'Share', exact: true }).first().click();
+  await page.getByRole('dialog', { name: 'Send to' }).getByRole('button', { name: '@owner.me (Owner)' }).click();
+  await page.getByText('Sent to @owner.me').waitFor();
+  // The Owner: the post in their Tagged grid, the shared post in their messages, opening it.
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Profile' }).click(); await page.getByRole('tab', { name: 'Tagged' }).click();
+  assert.equal(await page.locator('.so-grid .so-tile').count(), 1, 'in their Tagged posts');
+  await page.getByRole('button', { name: 'Messages, 1 unread' }).click();
+  assert.match(await page.locator('.so-person').first().textContent(), /Shared a post/);
+  await page.getByRole('button', { name: /Chat with @pal/ }).click();
+  await page.getByRole('button', { name: /Shared post by @pal/ }).click();
+  await page.locator('.so-post', { hasText: 'Beach day' }).waitFor();
+  // Owner: ⋯ → Open in… → Fashion → the piece: Fashion opens (behind the hidden area's password) with it.
+  await page.getByRole('button', { name: 'Post options' }).click();
+  await page.getByRole('dialog', { name: 'Post options' }).getByRole('button', { name: 'Open in…' }).click();
+  const apps = await page.getByRole('dialog', { name: 'Open in' }).getByRole('button').allTextContents();
+  assert.deepEqual(apps, ['🖼️ Photo Editor', '🎭 FM', '👕 Fashion', 'Cancel']);
+  await page.getByRole('dialog', { name: 'Open in' }).getByRole('button', { name: '🖼️ Photo Editor' }).click();
+  await page.waitForFunction(() => location.hash === '#/files/photo');
+  await page.locator('#view-app canvas').first().waitFor({ timeout: 20000 });
+  // (Not offered to an account that isn't the Owner, on someone else's post.)
+  // (Back in Socials in the same session: still open, no password asked.)
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @pal' }).click();
+  await page.locator('.so-post').first().waitFor();
+  await page.getByRole('button', { name: 'Post options' }).first().click();
+  assert.equal(await page.getByRole('dialog', { name: 'Post options' }).getByRole('button', { name: 'Open in…' }).count(), 0, 'pal (not the Owner): no Open in');
+  await page.close();
+});

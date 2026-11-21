@@ -20,8 +20,9 @@ import {
   emptyState, normalize, addAccount, editAccount, removeAccount, accountById, toggleFollow, isFollowing,
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost,
-  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount,
+  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts,
 } from './socials-core.js';
+import { handoff } from '../../lib/handoff.js';
 
 // (What's waiting for Drive, kept on the phone so a refresh or closing the app doesn't lose track of it:
 // which photos and videos Drive had at the last sync, and whether anything changed since.)
@@ -154,6 +155,69 @@ export function mount(host) {
     return box;
   }
 
+  // ---- Tags, @mentions, sharing and Open in.
+  /** The accounts tagged in a post, as links: "with @a and @b". */
+  function tagLine(p) {
+    const tags = (p.tags ?? []).map((t) => accountById(state, t)).filter(Boolean);
+    if (!tags.length) return null;
+    const parts = []; tags.forEach((a, i) => { if (i) parts.push(i === tags.length - 1 ? ' and ' : ', '); parts.push(handleBtn(a, 'so-handle so-tag')); });
+    return el('p', { class: 'so-tags' }, el('span', { 'aria-hidden': 'true', text: '👤 ' }), 'with ', ...parts);
+  }
+  /** A caption's @mentions of your accounts as links to them. */
+  const captionNodes = (text) => captionParts(state, text).map((x) => (x.account ? handleBtn(x.account, 'so-handle so-mention') : x.text));
+
+  /** A small note that fades (sent, opened). */
+  function toast(text) {
+    const t = el('div', { class: 'so-toast', role: 'status', text }); document.body.append(t); setTimeout(() => t.remove(), 2200);
+  }
+
+  /** Share a post in a message, as the account in use, to one of the others. */
+  async function share(p) {
+    const others = accountsInOrder(state).filter((a) => a.id !== state.me);
+    if (!others.length) { toast('Make another account to share with (Accounts → Add account).'); return; }
+    const to = await sheet('Send to', others.map((a) => [a.id, `@${a.handle}${a.owner ? ' (Owner)' : ''}`]));
+    if (!to) return;
+    if (sendMessage(state, state.me, to, '', { post: p.id })) { save(); drawBars(); toast(`Sent to @${accountById(state, to).handle}`); }
+  }
+
+  /** The ⋯ of a post: Edit and Delete for your own; on the Owner account, Open in… (another app) for any photo. */
+  function postMenu(p, by) {
+    const mine = p.by === state.me; const owner = !!me()?.owner; const canOpen = owner && p.kind === 'photo' && !!p.image;
+    if (!mine && !canOpen) return null;
+    return el('button', { type: 'button', class: 'so-more', 'aria-label': 'Post options', text: '⋯', onclick: async () => {
+      const c = await sheet('Post options', [...(canOpen ? [['open', 'Open in…']] : []), ...(mine ? [['edit', 'Edit'], ['delete', 'Delete', true]] : [])]);
+      if (c === 'edit') go({ name: 'editpost', id: p.id });
+      if (c === 'delete' && confirm('Delete this post?')) { removePost(state, p.id); save(); if (view.name === 'post') go({ name: 'profile', id: by.id }); else draw(); }
+      if (c === 'open') openIn(p, by);
+    } });
+  }
+
+  /**
+   * Open a post's photo in another app (the Owner's): Photo Editor, FM, or Fashion (as the person to dress or
+   * as the clothes). It's handed over as a copy: what's done there stays there (or in Saved Files).
+   */
+  async function openIn(p, by) {
+    const app = await sheet('Open in', [['photo', '🖼️ Photo Editor'], ['fm', '🎭 FM'], ['fashion', '👕 Fashion']]);
+    if (!app) return;
+    let to = app; let hash = app === 'photo' ? '#/files/photo' : app === 'fm' ? '#/fm' : '#/fashion';
+    if (app === 'fashion') {
+      const role = await sheet('Open in Fashion as', [['base', 'The base (the person to dress)'], ['piece', 'The piece (what to put on)']]);
+      if (!role) return; to = `fashion:${role}`; hash = '#/fashion';
+    }
+    const ext = p.image.type === 'image/png' ? 'png' : 'jpg';
+    handoff.put(to, new File([p.image], `${by.handle}-${p.id}.${ext}`, { type: p.image.type || 'image/jpeg' }));
+    location.hash = hash;
+  }
+
+  /** People to tag: a chip for each account (but the one posting), on or off. */
+  function tagPicker(selected, author) {
+    const box = el('div', { class: 'so-tagpick', role: 'group', 'aria-label': 'Tag people' });
+    const drawPick = () => fill(box, el('span', { class: 'so-tagpick-label', text: '👤 Tag people' }),
+      accountsInOrder(state).filter((a) => a.id !== author).map((a) => el('button', { type: 'button', class: `so-chip${selected.has(a.id) ? ' on' : ''}`, 'aria-pressed': String(selected.has(a.id)), text: `@${a.handle}`, onclick: () => { if (selected.has(a.id)) selected.delete(a.id); else selected.add(a.id); drawPick(); } })),
+      accountsInOrder(state).length < 2 ? el('span', { class: 'muted small', text: 'Make another account to tag it.' }) : null);
+    drawPick(); return box;
+  }
+
   function lostPhoto() {
     return el('div', { class: 'so-pic so-lost', role: 'img', 'aria-label': 'Photo not available' },
       el('span', { class: 'so-lost-icon', 'aria-hidden': 'true', text: '🖼' }),
@@ -183,11 +247,7 @@ export function mount(host) {
       draw();
       const big = el('span', { class: 'so-burst', 'aria-hidden': 'true', text: '♥' }); main.querySelector(`[data-post="${p.id}"] .so-pic`)?.append(big); setTimeout(() => big.remove(), 700);
     }
-    const menu = p.by === state.me ? el('button', { type: 'button', class: 'so-more', 'aria-label': 'Post options', text: '⋯', onclick: async () => {
-      const c = await sheet('Post options', [['edit', 'Edit'], ['delete', 'Delete', true]]);
-      if (c === 'edit') go({ name: 'editpost', id: p.id });
-      if (c === 'delete' && confirm('Delete this post?')) { removePost(state, p.id); save(); if (view.name === 'post') go({ name: 'profile', id: by.id }); else draw(); }
-    } }) : null;
+    const menu = postMenu(p, by);
     const shown = full ? p.comments : p.comments.slice(-2);
     const commentBox = full && m ? (() => {
       const input = el('input', { class: 'so-input so-comment-input', type: 'text', placeholder: `Add a comment as ${m.handle}…`, 'aria-label': 'Add a comment', maxlength: '500' });
@@ -198,9 +258,10 @@ export function mount(host) {
     return el('article', { class: 'so-post', 'data-post': p.id },
       el('div', { class: 'so-post-head' }, el('button', { type: 'button', class: 'so-avbtn', 'aria-label': `@${by.handle}`, onclick: () => go({ name: 'profile', id: by.id }) }, avatar(by, 's')), handleBtn(by), el('span', { class: 'so-dot muted', text: `• ${timeAgo(p.at)}${p.edited ? ' · edited' : ''}` }), menu),
       pic,
-      el('div', { class: 'so-actions' }, heart, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Comments', text: '💬', onclick: () => go({ name: 'post', id: p.id }) })),
+      el('div', { class: 'so-actions' }, heart, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Comments', text: '💬', onclick: () => go({ name: 'post', id: p.id }) }), el('button', { type: 'button', class: 'so-act so-share', 'aria-label': 'Share', text: '✈', onclick: () => share(p) })),
+      tagLine(p),
       p.likes.length ? el('div', { class: 'so-likes', text: `${countLabel(p.likes.length)} like${p.likes.length === 1 ? '' : 's'}` }) : null,
-      p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', p.caption) : null,
+      p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', ...captionNodes(p.caption)) : null,
       !full && p.comments.length > 2 ? el('button', { type: 'button', class: 'so-link muted', text: `View all ${p.comments.length} comments`, onclick: () => go({ name: 'post', id: p.id }) }) : null,
       ...shown.map((c) => { const a = accountById(state, c.by); return a ? el('p', { class: 'so-comment' }, handleBtn(a), ' ', c.text, full ? el('span', { class: 'muted small', text: `  ${timeAgo(c.at)}` }) : null) : null; }),
       commentBox);
@@ -258,7 +319,8 @@ export function mount(host) {
   function profile(id) {
     const a = accountById(state, id); if (!a) return feed();
     const mine = a.id === state.me; const all = postsBy(state, a.id);
-    const showReels = view.grid === 'reels'; const posts = showReels ? all.filter((p) => p.kind === 'video') : all;
+    const grid = view.grid ?? 'posts'; const showReels = grid === 'reels';
+    const posts = grid === 'reels' ? all.filter((p) => p.kind === 'video') : grid === 'tagged' ? taggedIn(state, a.id) : all;
     const f = isFollowing(state, state.me, a.id);
     const stat = (n, label, v) => el('button', { type: 'button', class: 'so-stat', onclick: v ? () => go(v) : null }, el('strong', { text: countLabel(n) }), el('span', { text: label }));
     return el('div', {},
@@ -272,9 +334,8 @@ export function mount(host) {
           ? [el('button', { type: 'button', class: 'btn', text: 'Edit profile', onclick: () => go({ name: 'edit' }) }), el('button', { type: 'button', class: 'btn', text: 'Switch account', onclick: () => go({ name: 'accounts' }) })]
           : [el('button', { type: 'button', class: `btn${f ? '' : ' primary'}`, text: f ? 'Following' : 'Follow', onclick: () => { toggleFollow(state, state.me, a.id); save(); draw(); } }), el('button', { type: 'button', class: 'btn', text: 'Message', onclick: () => go({ name: 'chat', id: a.id }) }), el('button', { type: 'button', class: 'btn', text: 'Use this account', onclick: () => { state.me = a.id; save(); draw(); } })])),
       el('div', { class: 'so-ptabs', role: 'tablist' },
-        el('button', { type: 'button', role: 'tab', class: `so-ptab${showReels ? '' : ' on'}`, 'aria-selected': String(!showReels), 'aria-label': 'Posts', text: '▦', onclick: () => go({ ...view, grid: 'posts' }) }),
-        el('button', { type: 'button', role: 'tab', class: `so-ptab${showReels ? ' on' : ''}`, 'aria-selected': String(showReels), 'aria-label': 'Reels', text: '▶︎', onclick: () => go({ ...view, grid: 'reels' }) })),
-      posts.length ? el('div', { class: 'so-grid' }, posts.map(tile)) : el('div', { class: 'so-empty' }, el('p', { class: 'so-empty-big', text: showReels ? 'No reels yet' : 'No posts yet' }), mine ? el('button', { type: 'button', class: 'btn primary', text: 'Share your first post', onclick: () => go({ name: 'new' }) }) : null));
+        [['posts', 'Posts', '▦'], ['reels', 'Reels', '▶︎'], ['tagged', 'Tagged', '👤']].map(([g, label, icon]) => el('button', { type: 'button', role: 'tab', class: `so-ptab${grid === g ? ' on' : ''}`, 'aria-selected': String(grid === g), 'aria-label': label, text: icon, onclick: () => go({ ...view, grid: g }) }))),
+      posts.length ? el('div', { class: 'so-grid' }, posts.map(tile)) : el('div', { class: 'so-empty' }, el('p', { class: 'so-empty-big', text: showReels ? 'No reels yet' : grid === 'tagged' ? 'No tagged posts yet' : 'No posts yet' }), mine && grid !== 'tagged' ? el('button', { type: 'button', class: 'btn primary', text: 'Share your first post', onclick: () => go({ name: 'new' }) }) : null));
   }
 
   function people(id, kind) {
@@ -352,7 +413,7 @@ export function mount(host) {
 
   // ---- A new post: a photo (edited first) or a video (with its sound).
   function newPost() {
-    const m = me(); let img = null; let original = null; let vid = null;
+    const m = me(); let img = null; let original = null; let vid = null; const tags = new Set();
     const prev = el('div', { class: 'so-new-prev' }, el('span', { class: 'muted', text: 'Pick a photo or video' }));
     const file = el('input', { type: 'file', accept: 'image/*,video/*', class: 'so-file', 'aria-label': 'Photo or video' });
     const caption = el('textarea', { class: 'so-input', rows: '3', placeholder: 'Write a caption…', 'aria-label': 'Caption', maxlength: '2200' });
@@ -379,23 +440,23 @@ export function mount(host) {
       } catch (e) { img = vid = null; prev.replaceChildren(el('span', { class: 'muted', text: 'Pick a photo or video' })); err.textContent = e.message; }
     });
     share.addEventListener('click', () => {
-      try { addPost(state, m.id, vid ? { image: vid.still, video: vid.video, caption: caption.value } : { image: img, caption: caption.value }); save(); go(vid ? { name: 'reels' } : { name: 'feed' }); } catch (e) { err.textContent = e.message; }
+      try { addPost(state, m.id, vid ? { image: vid.still, video: vid.video, caption: caption.value, tags: [...tags] } : { image: img, caption: caption.value, tags: [...tags] }); save(); go(vid ? { name: 'reels' } : { name: 'feed' }); } catch (e) { err.textContent = e.message; }
     });
     return el('div', {}, backBar(`New post as @${m.handle}`, { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), again, caption, err, share));
+      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), again, caption, tagPicker(tags, m.id), err, share));
   }
 
   // ---- Editing a post: its caption, and its photo (through the editor again).
   function editPostView(id) {
     const p = postById(state, id); if (!p || p.by !== state.me) return feed();
-    let img = null;
+    let img = null; const tags = new Set(p.tags ?? []);
     const prev = el('div', { class: 'so-new-prev so-edit-prev' }, p.kind === 'video' ? el('video', { src: urlOf(p.video), poster: urlOf(p.image) ?? undefined, controls: true, playsinline: true }) : el('img', { src: urlOf(p.image), alt: 'The photo' }));
     const caption = el('textarea', { class: 'so-input', rows: '4', 'aria-label': 'Caption', maxlength: '2200' }); caption.value = p.caption;
     const err = el('p', { class: 'so-err', role: 'alert' });
     const photo = p.kind === 'photo' && p.image ? el('button', { type: 'button', class: 'btn', text: 'Edit photo (fit, filter, adjust)', onclick: async () => { try { const b = await photoFrom(img ?? p.image, false); if (b) { img = b; prev.replaceChildren(el('img', { src: urlOf(b), alt: 'The photo' })); } } catch (e) { err.textContent = e.message; } } }) : null;
     return el('div', {}, backBar('Edit post', { name: 'post', id }),
-      el('div', { class: 'so-pad so-new' }, prev, photo, caption, err,
-        el('button', { type: 'button', class: 'btn primary', text: 'Save', onclick: () => { editPost(state, id, { caption: caption.value, image: img }); save(); go({ name: 'post', id }); } })));
+      el('div', { class: 'so-pad so-new' }, prev, photo, caption, tagPicker(tags, p.by), err,
+        el('button', { type: 'button', class: 'btn primary', text: 'Save', onclick: () => { editPost(state, id, { caption: caption.value, image: img, tags: [...tags] }); save(); go({ name: 'post', id }); } })));
   }
 
   // ---- Reels: everyone's videos, one at a time, full height; swipe up for the next. Each plays when it's
@@ -416,10 +477,11 @@ export function mount(host) {
         el('div', { class: 'so-reel-side' },
           el('button', { type: 'button', class: `so-reel-btn${liked ? ' on' : ''}`, 'aria-label': liked ? 'Unlike' : 'Like', 'aria-pressed': String(liked), onclick: (e) => { const on = toggleLike(state, p.id, state.me); save(); const b = e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Unlike' : 'Like'); b.querySelector('.so-reel-icon').textContent = on ? '♥' : '♡'; b.querySelector('.so-reel-n').textContent = countLabel(p.likes.length); } }, el('span', { class: 'so-reel-icon', text: liked ? '♥' : '♡' }), el('span', { class: 'so-reel-n', text: countLabel(p.likes.length) })),
           el('button', { type: 'button', class: 'so-reel-btn', 'aria-label': 'Comments', onclick: () => go({ name: 'post', id: p.id }) }, el('span', { class: 'so-reel-icon', text: '💬' }), el('span', { class: 'so-reel-n', text: countLabel(p.comments.length) })),
+          el('button', { type: 'button', class: 'so-reel-btn', 'aria-label': 'Share', onclick: () => share(p) }, el('span', { class: 'so-reel-icon', text: '✈' })),
           v ? sound : null),
         el('div', { class: 'so-reel-info' },
           el('button', { type: 'button', class: 'so-reel-by', onclick: () => go({ name: 'profile', id: by.id }) }, avatar(by, 's'), el('strong', { text: by.handle })),
-          p.caption ? el('p', { class: 'so-reel-cap', text: p.caption }) : null));
+          p.caption ? el('p', { class: 'so-reel-cap' }, ...captionNodes(p.caption)) : null, tagLine(p)));
     }));
     // (The one in view plays; the others stop.)
     if ('IntersectionObserver' in globalThis) {
@@ -436,12 +498,23 @@ export function mount(host) {
     return el('div', {}, backBar(`Messages · @${m.handle}`, { name: 'feed' }),
       chats.length ? el('div', { class: 'so-people' }, chats.map((c) => el('div', { class: 'so-person' },
         el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Chat with @${c.other.handle}${c.unread ? `, ${c.unread} unread` : ''}`, onclick: () => go({ name: 'chat', id: c.other.id }) }, avatar(c.other, 'm'),
-          el('span', { class: 'so-person-text' }, el('strong', { text: c.other.handle }), el('span', { class: `small${c.unread ? ' so-unread' : ' muted'}`, text: `${c.last.from === m.id ? 'You: ' : ''}${c.last.text.slice(0, 60)} · ${timeAgo(c.last.at)}` }))),
+          el('span', { class: 'so-person-text' }, el('strong', { text: c.other.handle }), el('span', { class: `small${c.unread ? ' so-unread' : ' muted'}`, text: `${c.last.from === m.id ? 'You: ' : ''}${c.last.text ? c.last.text.slice(0, 60) : 'Shared a post'} · ${timeAgo(c.last.at)}` }))),
         c.unread ? el('span', { class: 'so-badge so-badge-inline', 'aria-hidden': 'true', text: String(c.unread) }) : null)))
         : el('p', { class: 'muted so-pad', text: 'No messages yet.' }),
       others.length ? el('div', {}, el('h3', { class: 'so-section', text: 'New message' }), el('div', { class: 'so-people' }, others.map((a) => el('div', { class: 'so-person' },
         el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Message @${a.handle}`, onclick: () => go({ name: 'chat', id: a.id }) }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', {}, a.handle, a.owner ? el('span', { class: 'so-owner', text: 'Owner' }) : null), el('span', { class: 'muted small', text: a.name || 'Send a message' }))))))) : null,
       state.accounts.length < 2 ? el('p', { class: 'muted so-pad small', text: 'Make another account to message it (Accounts → Add account); switch to it to answer.' }) : null);
+  }
+
+  /** A post shared in a message: its picture, who posted it, the start of its caption; opens it. */
+  function sharedCard(id) {
+    const p = postById(state, id); const by = p && accountById(state, p.by);
+    if (!p || !by) return el('div', { class: 'so-shared so-shared-gone', text: 'This post is no longer here.' });
+    return el('button', { type: 'button', class: 'so-shared', 'aria-label': `Shared post by @${by.handle}${p.caption ? `: ${p.caption.slice(0, 60)}` : ''}`, onclick: () => go(p.kind === 'video' ? { name: 'reels', start: p.id } : { name: 'post', id: p.id }) },
+      el('span', { class: 'so-shared-by' }, avatar(by, 's'), el('strong', { text: by.handle })),
+      p.image ? el('img', { src: urlOf(p.image), alt: '' }) : null,
+      p.kind === 'video' ? el('span', { class: 'so-shared-badge', 'aria-hidden': 'true', text: '▶︎' }) : null,
+      p.caption ? el('span', { class: 'so-shared-cap', text: p.caption.slice(0, 90) }) : null);
   }
 
   function chat(otherId) {
@@ -453,7 +526,7 @@ export function mount(host) {
     for (const x of msgs) {
       const day = new Date(x.at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
       if (day !== lastDay) { list.append(el('div', { class: 'so-chat-day', text: day })); lastDay = day; }
-      list.append(el('div', { class: `so-bubble${x.from === m.id ? ' mine' : ''}`, title: new Date(x.at).toLocaleString() }, x.text, el('span', { class: 'so-bubble-time', text: new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })));
+      list.append(el('div', { class: `so-bubble${x.from === m.id ? ' mine' : ''}${x.post ? ' so-bubble-post' : ''}`, title: new Date(x.at).toLocaleString() }, x.post ? sharedCard(x.post) : null, x.text || null, el('span', { class: 'so-bubble-time', text: new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })));
     }
     if (!msgs.length) list.append(el('p', { class: 'muted so-pad', text: `Say hi to @${o.handle}. (Switch to @${o.handle} to answer as them.)` }));
     const input = el('input', { class: 'so-input', type: 'text', placeholder: 'Message…', 'aria-label': 'Message', maxlength: '2000', enterkeyhint: 'send' });

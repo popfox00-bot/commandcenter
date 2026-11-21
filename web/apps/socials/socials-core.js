@@ -5,8 +5,8 @@
 // The state: { accounts, posts, messages, reads, me: accountId | null, gone: { id: when } } where
 //   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], at, upd }
 //   Post    = { id, by, kind: 'photo' | 'video', image: Blob | null (the photo, or a video's still), imageId,
-//               video: Blob | null, videoId, caption, at, upd, edited, likes: [accountId], comments: [{ id, by, text, at }] }
-//   Message = { id, from, to, text, at }            reads = { accountId: { otherId: when last read } }
+//               video: Blob | null, videoId, caption, tags: [accountId], at, upd, edited, likes: [accountId], comments: [{ id, by, text, at }] }
+//   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
 
@@ -75,7 +75,7 @@ export function removeAccount(state, id) {
   state.accounts = state.accounts.filter((a) => a.id !== id);
   state.posts = state.posts.filter((p) => p.by !== id);
   for (const a of state.accounts) if (a.following.includes(id)) { a.following = a.following.filter((f) => f !== id); a.upd = now; }
-  for (const p of state.posts) if (p.likes.includes(id) || p.comments.some((c) => c.by === id)) { p.likes = p.likes.filter((l) => l !== id); p.comments = p.comments.filter((c) => c.by !== id); p.upd = now; }
+  for (const p of state.posts) if (p.likes.includes(id) || p.comments.some((c) => c.by === id) || (p.tags ?? []).includes(id)) { p.likes = p.likes.filter((l) => l !== id); p.comments = p.comments.filter((c) => c.by !== id); p.tags = (p.tags ?? []).filter((t) => t !== id); p.upd = now; }
   if (wasOwner && state.accounts.length) { const next = [...state.accounts].sort((a, b) => a.at - b.at)[0]; next.owner = true; next.upd = now; }
   if (state.me === id) state.me = ownerOf(state)?.id ?? state.accounts[0]?.id ?? null;
 }
@@ -95,19 +95,40 @@ export const followingOf = (state, id) => (accountById(state, id)?.following ?? 
 export const postsBy = (state, id) => state.posts.filter((p) => p.by === id).sort((a, b) => b.at - a.at);
 
 /** Add a post by an account: a photo, or a video (with its still, `image`). Returns it. */
-export function addPost(state, by, { image = null, video = null, caption = '' }) {
+export function addPost(state, by, { image = null, video = null, caption = '', tags = [] }) {
   if (!accountById(state, by)) throw new Error('No account to post from.');
   if (!image && !video && !String(caption).trim()) throw new Error('Pick a photo or video first.');
   const now = Date.now();
-  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, caption: String(caption).trim().slice(0, 2200), at: now, upd: now, edited: 0, likes: [], comments: [] };
+  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [] };
   state.posts.push(p);
   return p;
 }
 
-/** Change a post's caption, or its photo (edited again). */
-export function editPost(state, id, { caption, image }) {
+/** The accounts tagged in a post: real ones, each once. */
+const cleanTags = (state, tags) => [...new Set((tags ?? []).filter((t) => accountById(state, t)))];
+
+/** The posts an account is tagged in, newest first. */
+export const taggedIn = (state, id) => state.posts.filter((p) => (p.tags ?? []).includes(id)).sort((a, b) => b.at - a.at);
+
+/** A caption cut into text and @mentions of accounts there are: [{ text } | { handle, account }]. */
+export function captionParts(state, text) {
+  const out = []; const re = /@([a-z0-9._]+)/gi; let last = 0; let m;
+  while ((m = re.exec(text))) {
+    const a = state.accounts.find((x) => x.handle === m[1].toLowerCase().replace(/\.+$/, ''));
+    if (!a) continue;
+    if (m.index > last) out.push({ text: text.slice(last, m.index) });
+    out.push({ handle: a.handle, account: a });
+    last = m.index + 1 + a.handle.length; re.lastIndex = last;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
+
+/** Change a post's caption, the accounts tagged in it, or its photo (edited again). */
+export function editPost(state, id, { caption, image, tags }) {
   const p = postById(state, id); if (!p) return null;
   if (caption != null) p.caption = String(caption).trim().slice(0, 2200);
+  if (tags) p.tags = cleanTags(state, tags);
   if (image) { p.image = image; p.imageId = newId(); }
   p.upd = p.edited = Date.now();
   return p;
@@ -144,11 +165,11 @@ export function addComment(state, postId, who, text) {
 
 // ---- Direct messages between accounts.
 
-/** Send a message from one account to another. Returns it, or null (empty, or to yourself). */
-export function sendMessage(state, from, to, text) {
-  const t = String(text ?? '').trim();
-  if (!t || from === to || !accountById(state, from) || !accountById(state, to)) return null;
-  const m = { id: newId(), from, to, text: t.slice(0, 2000), at: Date.now() };
+/** Send a message from one account to another (with a post shared, `post`). Returns it, or null (empty, or to yourself). */
+export function sendMessage(state, from, to, text, { post = null } = {}) {
+  const t = String(text ?? '').trim(); const sh = post && postById(state, post) ? post : null;
+  if ((!t && !sh) || from === to || !accountById(state, from) || !accountById(state, to)) return null;
+  const m = { id: newId(), from, to, text: t.slice(0, 2000), at: Date.now(), ...(sh ? { post: sh } : {}) };
   (state.messages ??= []).push(m); markRead(state, from, to, m.at);
   return m;
 }
@@ -214,10 +235,10 @@ export function normalize(raw) {
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), caption: p.caption ?? '', at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
-  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && ok(m.text) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text, at: m.at ?? 0 }));
+  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}) }));
   s.reads = {};
   if (raw.reads && typeof raw.reads === 'object') for (const [a, o] of Object.entries(raw.reads)) if (ids.has(a) && o && typeof o === 'object') s.reads[a] = Object.fromEntries(Object.entries(o).filter(([b, v]) => ids.has(b) && Number.isFinite(v)));
   return s;

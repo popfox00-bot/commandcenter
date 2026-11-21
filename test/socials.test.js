@@ -2,7 +2,7 @@
 // and state read back from storage made safe.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyState, addAccount, editAccount, removeAccount, toggleFollow, isFollowing, followersOf, addPost, feedFor, toggleLike, addComment, searchAccounts, normalize, cleanHandle, handleProblem, timeAgo, countLabel, postsBy, ownerOf, accountsInOrder, setOwner, editPost, reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, mergeStates } from '../web/apps/socials/socials-core.js';
+import { emptyState, addAccount, editAccount, removeAccount, toggleFollow, isFollowing, followersOf, addPost, feedFor, toggleLike, addComment, searchAccounts, normalize, cleanHandle, handleProblem, timeAgo, countLabel, postsBy, ownerOf, accountsInOrder, setOwner, editPost, reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, mergeStates, taggedIn, captionParts } from '../web/apps/socials/socials-core.js';
 
 test('handles: cleaned as typed, never two the same', () => {
   assert.equal(cleanHandle(' @Maya Shoots!! '), 'mayashoots');
@@ -153,4 +153,16 @@ test('videos: Reels has only them, newest first; a post edited (caption, photo) 
   const old = p1.imageId; editPost(s, p1.id, { caption: 'photo, edited', image: new Blob(['y']) });
   assert.equal(p1.caption, 'photo, edited'); assert.notEqual(p1.imageId, old); assert.ok(p1.edited > 0);
   assert.equal(normalize(JSON.parse(JSON.stringify({ ...s, posts: s.posts.map(({ image, video, ...p }) => p) }))).posts.find((p) => p.id === v2.id).kind, 'video', 'kept a video when its file isn\'t here');
+});
+
+test('tags, @mentions and shared posts: only real accounts; tagged posts per account; a post shared in a message; gone with the account', () => {
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b.c' });
+  const p = addPost(s, a.id, { caption: 'Hi @b.c and @nobody, @B.C.', tags: [b.id, b.id, 'ghost'] });
+  assert.deepEqual(p.tags, [b.id], 'each once, real ones');
+  assert.deepEqual(taggedIn(s, b.id).map((x) => x.id), [p.id]);
+  assert.deepEqual(captionParts(s, p.caption).map((x) => x.handle ?? x.text), ['Hi ', 'b.c', ' and @nobody, ', 'b.c', '.']);
+  assert.equal(sendMessage(s, a.id, b.id, '', { post: 'nope' }), null, 'nothing to send');
+  const m = sendMessage(s, a.id, b.id, '', { post: p.id }); assert.equal(m.post, p.id);
+  assert.equal(normalize(JSON.parse(JSON.stringify(s))).messages[0].post, p.id, 'kept');
+  removeAccount(s, b.id); assert.deepEqual(p.tags, []);
 });

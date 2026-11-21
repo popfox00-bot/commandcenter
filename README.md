@@ -1195,6 +1195,13 @@ Profile, ✈ for messages), where everything is made by you in the app.
   tile. **Reels** (the ▶︎ tab) shows only videos, everyone's, one at a time at full height: swipe up for the
   next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
   💬 beside it. A profile's ▦ / ▶︎ shows its posts or just its reels. In Home, a video plays with its controls.
+- **Tags, mentions, sharing.** Tag your other accounts in a post (👤 Tag people, when posting or from ⋯ →
+  Edit): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its
+  profile. An @handle of one of your accounts in a caption is a link to it. ✈ on a post (or beside a reel)
+  shares it in a message to another account: it shows in the chat as a card that opens the post.
+- **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,
+  🎭 FM or 👕 Fashion (as the base, the person to dress, or as the piece, what to put on) opens a copy of the
+  photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.
 - **Messages.** ✈ (with how many are unread) lists the account in use's chats; start one with any other
   account (or Message on its profile). "Answer as @…" switches to the other account to reply. The account list
   shows each account's unread count.

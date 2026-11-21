@@ -238,3 +238,26 @@ test('stories, comments for new posts, hashtags', async () => {
   assert.deepEqual(c.searchTags(s, 'b'), [{ tag: 'beach', count: 2 }]);
   assert.deepEqual(c.searchTags(s, '').map((t) => t.tag), ['beach', 'sun']);
 });
+
+test('collabs: invited accounts get a request; accepted, the post is on their profile and their followers\' feeds; declined or left, it isn\'t; a draft\'s are asked when it\'s shared', async () => {
+  const c = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b' }); const d = addAccount(s, { handle: 'd' }); const f = addAccount(s, { handle: 'fan' });
+  toggleFollow(s, f.id, b.id); // (fan follows b, not a)
+  const p = addPost(s, a.id, { caption: 'together' });
+  assert.deepEqual(c.setCollabs(s, p.id, [b.id, d.id, a.id, 'ghost']), [b.id, d.id], 'not the poster, real ones');
+  const req = s.messages.filter((m) => m.collab === p.id); assert.deepEqual(req.map((m) => m.to).sort(), [b.id, d.id].sort(), 'a request each');
+  assert.equal(c.unreadCount(s, b.id), 1);
+  assert.ok(!postsBy(s, b.id).some((x) => x.id === p.id), 'not on b\'s profile until accepted');
+  assert.equal(c.answerCollab(s, p.id, b.id, true), true); assert.equal(c.answerCollab(s, p.id, b.id, false), false, 'answered once');
+  c.answerCollab(s, p.id, d.id, false);
+  assert.ok(postsBy(s, b.id).some((x) => x.id === p.id), 'on b\'s profile');
+  assert.ok(!postsBy(s, d.id).some((x) => x.id === p.id), 'not d\'s (declined)');
+  assert.deepEqual(feedFor(s, f.id).map((x) => x.id), [p.id], 'in b\'s followers\' feed');
+  assert.deepEqual(c.collabsOf(p), [b.id]);
+  c.leaveCollab(s, p.id, b.id); assert.ok(!postsBy(s, b.id).some((x) => x.id === p.id), 'left');
+  assert.equal(normalize(JSON.parse(JSON.stringify(s))).messages.filter((m) => m.collab).length, 2, 'requests kept');
+  const dr = addPost(s, a.id, { caption: 'later', draft: true }); c.setCollabs(s, dr.id, [d.id]);
+  assert.equal(s.messages.filter((m) => m.collab === dr.id).length, 0, 'a draft: not asked yet');
+  dr.draft = false; c.sendCollabRequests(s, dr.id); assert.equal(s.messages.filter((m) => m.collab === dr.id).length, 1, 'asked when shared');
+  removeAccount(s, d.id); assert.equal(dr.collab.length, 0);
+});

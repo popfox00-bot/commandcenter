@@ -1540,3 +1540,10 @@ body.se-open { overflow: hidden; }
 .so-trash-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .so-switch-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
 .so-switch-row input { width: 22px; height: 22px; margin-top: 2px; accent-color: var(--accent, #0095f6); flex: none; }
+/* Socials: collabs. */
+.so-and { color: var(--text); font-weight: 600; }
+.so-collab-card { display: grid; gap: 6px; }
+.so-collab-title { font-weight: 700; }
+.so-collab-line { font-size: .88rem; }
+.so-bubble.mine .so-collab-line, .so-bubble.mine .so-collab-title { color: #fff; }
+.so-collab-note { flex-basis: 100%; }

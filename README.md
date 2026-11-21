@@ -939,7 +939,15 @@ the clothes in it: worn by someone, or on its own).
   worn on the base is taken from its other side; cloth cut off by its photo or zone is carried on, mirrored. The
   layer then goes through the same finish as before (light, what's in front, grain, edge shadows). Slivers of
   cloth only a pixel or two thick (the back of a collar glimpsed behind its model's neck) are left out, so
-  they don't land as thin lines across the base's neck. Without both poses, the older ways below are used.
+  they don't land as thin lines across the base's neck, and so are small scraps of it on their own. Past the
+  torso, around each shoulder, it's mapped evenly from that shoulder (scaled as the bodies are, turned as they
+  are), not by the torso's warp carried on, which stretched a sleeve's top into a wing. A side of the piece its
+  photo hides (its arm behind the person beside them) is read whole as a mirror image of its other side (its
+  shoulder, side and sleeve together), from a third of the way out to that shoulder, so its middle stays its
+  own. Only the piece's own colors are its cloth: at its edges, what's none of the colors well inside it (the
+  shaded arm under a sleeve, someone's hair) isn't laid on; and what was rebuilt as cloth under something over
+  it counts only within its torso, so an arm hanging at its model's side isn't taken for more sleeve. Without
+  both poses, the older ways below are used.
 - **Taken off first** (Replace: a top, a dress, an upper body): all of the garment worn there is found, joined
   or not: every bit of clothing in the upper body zone of that person is it (its side seen past a lock of
   hair, a strip by the armhole the person finder called skin, what shows between strands: by its own color,
@@ -947,7 +955,8 @@ the clothes in it: worn by someone, or on its own).
   them; its prints and buttons are part of it. It's made their bare skin (their own skin's tone, from their
   body's clear skin unless that's far from their face's color (a hand, a lock of hair), else their face's lit
   skin; their fine texture, or the photo's own grain; lit as their skin is around it, smoothly, with no steps;
-  round as a body is, darker toward their figure's outline; lighter on the side the light comes from, as their
+  round as a body is, darker toward their figure's outline, each limb by its own width (an arm lit down its
+  middle); lighter on the side the light comes from, as their
   face is; the collarbones and the hollow at the throat softly shaded; their own hand over it left as it is).
   Where it meets their real skin it goes on from it: the old collar's half-and-half edge pixels just outside it
   (a white collar's light top edge) are made again too, and the made skin fades over a few pixels onto the

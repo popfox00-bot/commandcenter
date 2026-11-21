@@ -103,13 +103,25 @@ function prepare(piece) {
   const X0 = Math.max(0, b.x0 - m); const Y0 = Math.max(0, b.y0 - m); const X1 = Math.min(PW, b.x1 + m); const Y1 = Math.min(PH, b.y1 + m);
   const bw = X1 - X0; const bh = Y1 - Y0;
   const cloth = new Uint8Array(PW * PH); const skin = new Uint8Array(PW * PH);
+  // (What was rebuilt as cloth (under hair, under a hand across their front) is cloth only within their torso
+  // or where it isn't their own skin: an arm hanging at their side, taken for something over the garment, is
+  // their arm, not more sleeve.)
+  const q0 = piece.pose; const ok0 = (v) => v && v[2] >= 0.3;
+  let inTorso = () => true;
+  if (q0 && ok0(q0.shoulders?.[0]) && ok0(q0.shoulders?.[1])) {
+    const fh0 = piece.layout?.fh ?? 60; const S0 = q0.shoulders; const H0 = [ok0(q0.hips?.[0]) ? q0.hips[0] : [S0[0][0], S0[0][1] + fh0 * 2.4], ok0(q0.hips?.[1]) ? q0.hips[1] : [S0[1][0], S0[1][1] + fh0 * 2.4]];
+    const quad0 = [S0[0], S0[1], H0[1], H0[0]]; const cx = quad0.reduce((s2, v) => s2 + v[0], 0) / 4; const cy = quad0.reduce((s2, v) => s2 + v[1], 0) / 4;
+    const qs = quad0.map(([x, y]) => [cx + (x - cx) * 0.9, cy + (y - cy) * 1.2]);
+    inTorso = (x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = qs[i]; const [xj, yj] = qs[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+  }
+  const rebuiltCloth = (i, x, y) => !!piece.rebuilt?.[i] && (pp.body[i] < 128 || inTorso(x, y));
   for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
     const i = y * PW + x;
-    const isSkin = (pp.body[i] >= 128 || pp.face[i] >= 128) && !piece.rebuilt?.[i];
+    const isSkin = (pp.body[i] >= 128 || pp.face[i] >= 128) && !rebuiltCloth(i, x, y);
     if (isSkin) { skin[i] = 1; continue; }
     const other = AP.hair[i] >= 110 || AP.face[i] >= 128 || pp.hair[i] >= 110;
     // (Theirs: what the finder says is this person's clothes, or rebuilt under their hair.)
-    if (pm[i] && ((!other && pp.clothes[i] >= 70) || piece.rebuilt?.[i])) cloth[i] = 1;
+    if (pm[i] && ((!other && pp.clothes[i] >= 70) || rebuiltCloth(i, x, y))) cloth[i] = 1;
   }
   // (Below its waist, only the cloth that goes on from above it in that column, by its color (a jacket's
   // sides, a dress's skirt), not a belt or the jeans under a short top that the selection reached.)
@@ -142,10 +154,33 @@ function prepare(piece) {
       hemRow = hem;
     }
   }
+  // (Only its own colors: the colors well inside it (its palette: a print's, lace with its light and shade)
+  // set what it is; at its edges, what's none of them (its model's arm in the shade under a sleeve, a lock of
+  // their hair, the arm of the person beside them) isn't it, and isn't laid on as a dark band at a sleeve's end.
+  // What's left out inside it (a deep fold) is filled back just below, as any hole is.)
+  const notIt = new Uint8Array(PW * PH);
+  {
+    const key = (q) => ((Math.max(0, Math.min(31, Math.floor(q[0] / 6))) * 64 + Math.max(0, Math.min(63, Math.floor((q[1] + 128) / 6)))) * 64 + Math.max(0, Math.min(63, Math.floor((q[2] + 128) / 6))));
+    const r = 3; const count = new Map(); let total = 0; const labs = new Map();
+    const labAt = (i) => { let q = labs.get(i); if (!q) { q = rgbToLab(tex[i * 4], tex[i * 4 + 1], tex[i * 4 + 2]); labs.set(i, q); } return q; };
+    for (let y = b.y0 + r; y < b.y1 - r; y += 2) for (let x = b.x0 + r; x < b.x1 - r; x += 2) {
+      const i = y * PW + x; if (!cloth[i]) continue;
+      if (!cloth[i - r] || !cloth[i + r] || !cloth[i - r * PW] || !cloth[i + r * PW]) continue;
+      const k = key(labAt(i)); count.set(k, (count.get(k) ?? 0) + 1); total++;
+    }
+    if (total > 200) {
+      const pal = new Set([...count].filter(([, c]) => c >= total * 0.002).map(([k]) => k));
+      const near = (q) => { const L = Math.floor(q[0] / 6); const A = Math.floor((q[1] + 128) / 6); const B = Math.floor((q[2] + 128) / 6); for (let dl = -1; dl <= 1; dl++) for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) if (pal.has(((L + dl) * 64 + A + da) * 64 + B + db)) return true; return false; };
+      for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) { const i = y * PW + x; if (cloth[i] && !piece.rebuilt?.[i] && !near(labAt(i))) { cloth[i] = 0; notIt[i] = 1; } }
+    }
+  }
   // (Holes in it that aren't its own skin (hair over it, a speck): cloth. Its neckline, its skin, stays open.)
   const both = new Uint8Array(PW * PH); for (let i = 0; i < both.length; i++) both[i] = cloth[i] || skin[i] ? 1 : 0;
   const bb = boxOf(both, PW, PH);
-  if (bb) { fillHoles(both, PW, PH, bb, 0.06); for (let i = 0; i < both.length; i++) if (both[i] && !skin[i]) cloth[i] = 1; }
+  // (Not what was just found not to be it by its color, enclosed or not: a shaded arm between a sleeve and
+  // its side is no hole in the cloth.) Small spots of it well inside (a fold's deepest shade) still are.
+  if (bb) { fillHoles(both, PW, PH, bb, 0.06); for (let i = 0; i < both.length; i++) if (both[i] && !skin[i] && !notIt[i]) cloth[i] = 1; }
+  { const nb = (i) => cloth[i - 1] + cloth[i + 1] + cloth[i - PW] + cloth[i + PW]; for (let pass = 0; pass < 2; pass++) for (let y = b.y0 + 1; y < b.y1 - 1; y++) for (let x = b.x0 + 1; x < b.x1 - 1; x++) { const i = y * PW + x; if (notIt[i] && !cloth[i] && nb(i) >= 3) cloth[i] = 1; } }
   // (Its colors: the cloth's own where it is, carried smoothly everywhere else in the margin.)
   const val = new Float32Array(bw * bh * 3); const free = new Uint8Array(bw * bh); const a = new Float32Array(bw * bh);
   // (Only the cloth well inside its edge sets the color: its very edge is blended with what's beyond it.)
@@ -253,8 +288,40 @@ export function engineLayer(S) {
   const inQuad = (x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = quad[i]; const [xj, yj] = quad[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
   const torsoDist = (x, y) => (inQuad(x, y) ? 0 : Math.min(...[0, 1, 2, 3].map((i) => onSeg(x, y, quad[i], quad[(i + 1) % 4]).d)));
   const sig = RB.span * 0.12;
+  // (Past the torso, by a shoulder: not the torso's warp carried on (it stretches unevenly there, by the two
+  // bodies' different shapes, ballooning a sleeve's top into a wing), but evenly, as the bodies' sizes are,
+  // turned as the bodies are, from that shoulder.)
+  const axB = Math.atan2((RB.H[0][1] + RB.H[1][1]) / 2 - (RB.S[0][1] + RB.S[1][1]) / 2, (RB.H[0][0] + RB.H[1][0]) / 2 - (RB.S[0][0] + RB.S[1][0]) / 2);
+  const axP = Math.atan2((RP.H[0][1] + RP.H[1][1]) / 2 - (RP.S[0][1] + RP.S[1][1]) / 2, (RP.H[0][0] + RP.H[1][0]) / 2 - (RP.S[0][0] + RP.S[1][0]) / 2);
+  const rc = Math.cos(axP - axB); const rs = Math.sin(axP - axB);
+  const fromShoulder = (k, x, y) => { const vx = (x - RB.S[k][0]) * across; const vy = (y - RB.S[k][1]) * across; return [RP.S[k][0] + vx * rc - vy * rs, RP.S[k][1] + vx * rs + vy * rc]; };
+  // (A side of the piece its photo hides (its arm behind someone): that whole side read from its other, as a
+  // mirror image (the base point mirrored across the base's middle, mapped, its sleeve the other's flipped),
+  // so its shoulder, side and sleeve go together as one, not patched in pixel by pixel.)
+  const bS = [(RB.S[0][0] + RB.S[1][0]) / 2, (RB.S[0][1] + RB.S[1][1]) / 2]; const bH = [(RB.H[0][0] + RB.H[1][0]) / 2, (RB.H[0][1] + RB.H[1][1]) / 2];
+  const bax = bH[0] - bS[0]; const bay = bH[1] - bS[1]; const bal = Math.hypot(bax, bay) || 1;
+  const sideOf = (x, y) => ((x - bS[0]) * bay - (y - bS[1]) * bax) / bal; // (signed distance from the base's middle line)
+  const sideS0 = Math.sign(sideOf(RB.S[0][0], RB.S[0][1])) || -1;
+  const mirB = (x, y) => { const d = sideOf(x, y); return [x - (2 * d * bay) / bal, y + (2 * d * bax) / bal]; };
+  const hid = [0, 1].map((k) => !okArm[k] && !!okArm[1 - k]);
+  const torsoAt = (x, y) => {
+    const T0 = torso(x, y); const d = sideOf(x, y) * sideS0; // (+: the side of shoulder 0)
+    const k = d >= 0 ? 0 : 1; if (!hid[k]) return T0;
+    // (From a third of the way out to that shoulder: its middle stays its own, not a mirror seam down it.)
+    const half = Math.hypot(RB.S[1][0] - RB.S[0][0], RB.S[1][1] - RB.S[0][1]) / 2;
+    const t = Math.max(0, Math.min(1, (Math.abs(d) - half * 0.35) / Math.max(1, sig * 0.8))); const bl = t * t * (3 - 2 * t);
+    if (bl <= 0) return T0; const [mx, my] = mirB(x, y); const Tm = torso(mx, my);
+    return [T0[0] + (Tm[0] - T0[0]) * bl, T0[1] + (Tm[1] - T0[1]) * bl];
+  };
   const inv = (x, y) => {
-    const T = torso(x, y);
+    let T = torsoAt(x, y);
+    { const dq = torsoDist(x, y); if (dq > 0) {
+      const k = Math.hypot(x - RB.S[0][0], y - RB.S[0][1]) < Math.hypot(x - RB.S[1][0], y - RB.S[1][1]) ? 0 : 1;
+      // (Only around the shoulders, above the hips: there the torso's warp is right.)
+      const nearS = Math.max(0, 1 - Math.hypot(x - RB.S[k][0], y - RB.S[k][1]) / (RB.span * 0.9));
+      const b0 = Math.min(1, dq / (sig * 0.8)); const b = b0 * b0 * (3 - 2 * b0) * Math.min(1, nearS * 2);
+      if (b > 0) { let F; if (hid[k]) { const [mx, my] = mirB(x, y); F = fromShoulder(1 - k, mx, my); } else F = fromShoulder(k, x, y); T = [T[0] + (F[0] - T[0]) * b, T[1] + (F[1] - T[1]) * b]; }
+    } }
     const dt = torsoDist(x, y); let wt = Math.exp(-((dt / sig) ** 2)); let X = T[0] * wt; let Y = T[1] * wt; let W = wt;
     for (const k of [0, 1]) { const m = armMap(k, x, y); if (!m) continue; const wa = Math.exp(-((m.d / sig) ** 2)); X += m.p[0] * wa; Y += m.p[1] * wa; W += wa; }
     if (W < 1e-6) return [T[0], T[1], 0];
@@ -327,6 +394,19 @@ export function engineLayer(S) {
       let near = 0; for (let d = -r; d <= r && !near; d++) { const yy = y + d; const xx = x + d; if ((yy >= 0 && yy < ph && er[yy * pw + x]) || (xx >= 0 && xx < pw && er[y * pw + xx])) near = 1; }
       if (!near) { rgba[k * 4 + 3] = 0; n--; }
     }
+  }
+  // (No stray scraps: a bit of it on its own, far smaller than the rest (a glimpse of a sleeve's inside below
+  // its hem), isn't laid on as a blob on their arm.)
+  {
+    const fh = base.layout?.fh ?? h / 7; const lab = new Int32Array(pw * ph).fill(-1); const sizes = []; const stack = [];
+    for (let k0 = 0; k0 < pw * ph; k0++) {
+      if (lab[k0] >= 0 || rgba[k0 * 4 + 3] < 128) continue;
+      const id = sizes.length; let cnt = 0; lab[k0] = id; stack.push(k0);
+      while (stack.length) { const k = stack.pop(); cnt++; const x = k % pw; const y = (k / pw) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= pw || Y >= ph) continue; const kk = Y * pw + X; if (lab[kk] < 0 && rgba[kk * 4 + 3] >= 128) { lab[kk] = id; stack.push(kk); } } }
+      sizes.push(cnt);
+    }
+    const big = Math.max(0, ...sizes); const minA = Math.max(60, fh * fh * 0.02);
+    if (sizes.length > 1) for (let k = 0; k < pw * ph; k++) { const id = lab[k]; if (id >= 0 && sizes[id] < minA && sizes[id] < big * 0.05) rgba[k * 4 + 3] = 0; }
   }
   return n > 50 ? { x0, y0, pw, ph, rgba, engine: true } : null;
 }

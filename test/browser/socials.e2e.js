@@ -530,3 +530,33 @@ test('Socials collab: invite while posting; a collab request in their messages; 
   assert.equal(await page.locator('.so-grid .so-tile').count(), 0, 'left');
   await page.close();
 });
+
+test('Socials: 🔖 saved posts (in your own Saved tab), and views counted (feed, a post opened from a profile, once per account while the app\'s open)', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill('Worth keeping'); await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const post = page.locator('.so-post', { hasText: 'Worth keeping' }); await post.waitFor();
+  // (Seen in the feed for a second: one view.)
+  await post.locator('.so-views').waitFor({ timeout: 8000 });
+  assert.match(await post.locator('.so-views').textContent(), /1 view$/);
+  // Saved: in the Saved tab.
+  await post.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByText('Saved (your profile → 🔖)').waitFor();
+  await page.getByRole('button', { name: 'Profile' }).click(); await page.getByRole('tab', { name: 'Saved' }).click();
+  assert.equal(await page.locator('.so-grid .so-tile').count(), 1);
+  // Opened again by the same account: not counted again; by another account: counted.
+  await page.locator('.so-grid .so-tile').first().click();
+  assert.match(await page.locator('.so-views').textContent(), /1 view$/, 'the same account, once');
+  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
+  assert.match(await page.locator('.so-views').textContent(), /2 views$/, 'another account: counted');
+  // (pal's Saved: their own, empty.)
+  await page.getByRole('button', { name: 'Profile' }).click(); await page.getByRole('tab', { name: 'Saved' }).click();
+  assert.equal(await page.locator('.so-grid .so-tile').count(), 0);
+  await page.close();
+});

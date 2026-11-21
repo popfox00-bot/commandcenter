@@ -1561,3 +1561,10 @@ body.se-open { overflow: hidden; }
 .st-limits { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .88rem; }
 .hid-faceid { margin-top: 14px; display: grid; gap: 6px; justify-items: start; }
 .hid-faceid-btn { margin-top: 8px; }
+/* Socials: saved, views. */
+.so-save { margin-left: auto; }
+.so-save .so-save-icon { filter: grayscale(1) opacity(.65); }
+.so-save.on .so-save-icon, .so-reel-save.on .so-save-icon { filter: none; }
+.so-reel-save .so-save-icon { font-size: 1.5rem; filter: grayscale(1) brightness(2); }
+.so-views { padding: 0 12px; }
+.so-reel-views { color: #fff; font-size: .78rem; font-weight: 600; text-align: center; text-shadow: 0 1px 6px rgba(0,0,0,.6); }

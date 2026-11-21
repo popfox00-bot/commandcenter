@@ -28,6 +28,8 @@ export function makeLock(key, openKey) {
     /** Whether it's open in this tab. */
     isOpen: () => { try { return sessionStorage.getItem(openKey) === '1'; } catch { return false; } },
     lock: () => { try { sessionStorage.removeItem(openKey); } catch { /* private mode */ } },
+    /** Opened by its passkey (Face ID: web/lib/passkey.js) instead of the password. */
+    openWithPasskey: () => open(),
     /** The password set (4 characters at least), and the lock opened. */
     async setPassword(password) {
       if (String(password).length < 4) throw new Error('Use at least 4 characters.');
@@ -54,7 +56,7 @@ export function makeLock(key, openKey) {
 }
 
 const hidden = makeLock('cc.hidden.lock', 'cc.hidden.open');
-export const { hasPassword, isOpen, lock, setPassword, waitLeft, tryPassword } = hidden;
+export const { hasPassword, isOpen, lock, setPassword, waitLeft, tryPassword, openWithPasskey } = hidden;
 
 /** The order of Photo Editor switches that leads to it. */
 export const SEQUENCE = ['cutout', 'photo', 'collage', 'photo', 'cutout', 'collage', 'cutout'];

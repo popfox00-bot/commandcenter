@@ -7,7 +7,7 @@ import { getConfig, setConfig, checkUrl, savedFiles, connectedSecure } from './s
 import { encryptionSettings, openAnywhere } from './vault-ui.js';
 
 /** The newest apps-script/saved-files.gs (its VERSION). */
-const SCRIPT_VERSION = 4;
+const SCRIPT_VERSION = 5;
 
 export function savedFilesSettings() {
   const box = el('section', { class: 'card sv-setup', id: 'saved-files' });
@@ -34,7 +34,7 @@ export function savedFilesSettings() {
         const { folder, version } = await savedFiles({ url: u, key: key.value.trim() }).info();
         setConfig({ url: u, key: key.value.trim() });
         await connectedSecure().refresh().catch(() => {}); // is encryption already on (another device)?
-        render(`Connected to "${folder}". Files → Saved Files is ready.${version < SCRIPT_VERSION ? ` (Your script is version ${version}: paste the new apps-script/saved-files.gs and deploy a new version for the newest features, like moving folders.)` : ''}`);
+        render(`Connected to "${folder}". Files → Saved Files is ready.${version < SCRIPT_VERSION ? ` (Your script is version ${version}: paste the new apps-script/saved-files.gs and deploy a new version for the newest features, like moving folders and seeing your Drive's space in Settings → Storage.)` : ''}`);
       } catch (err) { status.textContent = err.message; status.className = 'small bad-text'; }
     });
     fill(box,

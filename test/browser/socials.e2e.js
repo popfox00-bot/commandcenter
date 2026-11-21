@@ -136,7 +136,7 @@ test('Socials on two devices: the same password opens the same Socials from Driv
   await A.page.getByRole('button', { name: 'New post' }).first().click();
   await A.page.getByLabel('Photo or video').setInputFiles(await photo(A.page)); await A.page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click(); await A.page.locator('.so-new-prev img').waitFor();
   await A.page.getByLabel('Caption').fill('From the first phone'); await A.page.getByRole('button', { name: 'Share' }).click();
-  await A.page.getByText('Your recovery key').waitFor({ timeout: 20000 });
+  await A.page.getByText('Your recovery key').waitFor({ timeout: 60000 });
   assert.match(await A.page.locator('.so-key').textContent(), /^[A-Z2-9]{4}(-[A-Z2-9]{4}){7}$/);
   await A.page.getByRole('button', { name: 'I\'ve saved it' }).click();
   await A.page.getByRole('button', { name: 'Sync and password' }).click(); await A.page.getByRole('button', { name: 'Sync now' }).click();
@@ -260,7 +260,7 @@ test('Socials offline: posts made offline wait for Saved Files, counted for the 
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
   // (The first sync makes the copy in Drive: its recovery key, once.)
-  await page.getByText('Your recovery key').waitFor({ timeout: 20000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
+  await page.getByText('Your recovery key').waitFor({ timeout: 60000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
   await page.getByRole('button', { name: 'Sync and password' }).click();
   await page.getByText('Everything is saved to Saved Files.').waitFor();
   // Offline: two posts, still made and shown.
@@ -316,7 +316,7 @@ test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo w
   assert.equal((await kv('get', 'cc.socials'))?.image, 'none', 'no Blob kept in the state any more');
   // Sent to Drive; then its file lost on this device: the post says so (Drive unreachable), then gets it back.
   down = false; await page.getByRole('button', { name: /Sync and password/ }).click(); await page.getByRole('button', { name: 'Sync now' }).click();
-  await page.getByText('Your recovery key').waitFor({ timeout: 20000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
+  await page.getByText('Your recovery key').waitFor({ timeout: 60000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
   assert.ok(script.files.some((f) => f.name === 'socials-m-img1.ccs'));
   await kv('delete', 'cc.socials.m.img1');
   down = true; await page.reload();

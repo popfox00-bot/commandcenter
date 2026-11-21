@@ -5,7 +5,8 @@
 import { el } from '../../lib/dom.js';
 import { childrenOf } from '../index.js';
 import { renderHub } from '../hub.js';
-import { hasPassword, isOpen, setPassword, tryPassword, waitLeft, lock } from '../../lib/hidden-lock.js';
+import { hasPassword, isOpen, setPassword, tryPassword, waitLeft, lock, openWithPasskey } from '../../lib/hidden-lock.js';
+import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePasskey, removePasskey } from '../../lib/passkey.js';
 
 export function mount(host) {
   const box = el('div', { class: 'hid' });
@@ -20,7 +21,24 @@ export function mount(host) {
     box.replaceChildren(el('section', { class: 'card hid-card' },
       el('h2', { class: 'hid-welcome', text: 'Welcome!' }),
       apps,
-      el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: '🔒 Lock', onclick: () => { lock(); ask(); location.hash = '#/'; } }))));
+      el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: '🔒 Lock', onclick: () => { lock(); ask(); location.hash = '#/'; } })),
+      faceIdSetting()));
+  }
+
+  // (Face ID (a passkey) to open it, as well as the password: set up or turned off here, once it's open.)
+  function faceIdSetting() {
+    const box = el('div', { class: 'hid-faceid' });
+    const drawIt = async () => {
+      if (!passkeysSupported()) { box.replaceChildren(); return; }
+      const on = hasPasskey('hidden'); const note = el('p', { class: 'small muted', 'aria-live': 'polite' });
+      box.replaceChildren(el('p', { class: 'small' }, el('strong', { text: 'Face ID ' }), on ? 'is on: it opens this area as well as your password.' : 'can open this area as well as your password (a passkey, kept in your phone\'s passwords).'),
+        el('button', { type: 'button', class: 'btn', text: on ? 'Turn off Face ID' : 'Set up Face ID', onclick: async () => {
+          if (on) { removePasskey('hidden'); drawIt(); return; }
+          try { await createPasskey('hidden', 'Hidden area'); drawIt(); } catch (e) { note.textContent = e?.name === 'NotAllowedError' ? 'Cancelled.' : e.message; }
+        } }), note);
+      if (!on && !(await deviceCanPasskey())) note.textContent = 'This device may not have Face ID or a fingerprint for passkeys.';
+    };
+    drawIt(); return box;
   }
 
   function ask() {
@@ -46,6 +64,13 @@ export function mount(host) {
     } },
       el('h2', { text: first ? 'Set a password' : 'Password' }),
       pw, again, note, go);
+    // (Face ID, when it's set up: as well as the password.)
+    if (!first && hasPasskey('hidden')) {
+      form.append(el('button', { type: 'button', class: 'btn block hid-faceid-btn', text: '🔓 Use Face ID', onclick: async () => {
+        const r = await usePasskey('hidden');
+        if (r.ok) { openWithPasskey(); welcome(); } else note.textContent = r.reason;
+      } }));
+    }
     box.replaceChildren(form);
     pw.focus();
   }

@@ -13,6 +13,7 @@ import { el, fill, store } from '../../lib/dom.js';
 import { loadState, saveState } from './socials-store.js';
 import { makeLock } from '../../lib/hidden-lock.js';
 import { connected } from '../../lib/saved-files.js';
+import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePasskey, removePasskey, passkeyOf } from '../../lib/passkey.js';
 import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword, pendingFiles } from './socials-sync.js';
 import { sniffType, decodeImage, fitSize, canvasToBlob } from '../../lib/image.js';
 import { editPhoto, prepareVideo } from './socials-editor.js';
@@ -35,6 +36,9 @@ export const socialsLock = makeLock('cc.socials.lock', 'cc.socials.open');
 // The password, once entered, for as long as the app is open (it opens the copy in Drive): forgotten on a
 // reload or when the app is closed, so it's asked again then.
 let sessionPw = null;
+// (Open while the app is: by the password, or by Face ID (a passkey). With Face ID alone on a passkey that can't
+// keep the password, `sessionPw` stays null: Socials is open, and the password is asked for only to sync.)
+let sessionOpen = false;
 // (Reels' sound: off until it's turned on once, then on for each reel while the app is open.)
 let reelSound = false;
 // (Reels' order: shuffled once when the app opens, again on a pull down at the top; a video just posted first.)
@@ -64,7 +68,7 @@ export function mount(host) {
   const soon = () => { clearTimeout(sync.timer); sync.timer = setTimeout(runSync, 3000); };
   async function runSync() {
     clearTimeout(sync.timer);
-    const api = connected(); if (!api || !sessionPw || !alive) { sync.msg = api ? '' : 'Not set up'; return; }
+    const api = connected(); if (!api || !sessionPw || !alive) { sync.msg = !api ? 'Not set up' : sessionOpen && !sessionPw ? 'Opened with Face ID: enter your password below to sync on this device' : ''; drawStatus(); return; }
     if (sync.busy) { sync.again = true; return; }
     // (Offline: nothing tried; it's saved when the connection's back.)
     if (navigator.onLine === false) { sync.ok = false; sync.wrong = false; sync.msg = 'Offline: saved to Saved Files when back online'; drawStatus(); return; }
@@ -767,7 +771,7 @@ export function mount(host) {
     const pw = (label) => el('input', { class: 'so-input', type: 'password', autocomplete: 'off', 'aria-label': label, placeholder: label });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const busy = (b, btn) => { btn.disabled = b; };
-    const opened = (p) => { sessionPw = p; start(); };
+    const opened = (p) => { sessionOpen = true; sessionPw = p || null; start(); };
     // (A new password, after the recovery key opened the copy in Drive.)
     const newPassword = (rk) => {
       const a = pw('New password'); const b = pw('New password again');
@@ -791,7 +795,12 @@ export function mount(host) {
         err.textContent = socialsLock.waitLeft() ? `Too many tries: wait ${socialsLock.waitLeft()}s.` : 'Wrong password.'; busy(false, go2); p.select();
       };
       p.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }); go2.addEventListener('click', submit);
-      box.append(el('p', { class: 'muted', text: 'Enter your Socials password.' }), el('div', { class: 'so-form' }, p, err, go2),
+      // (Face ID, when it's set up: as well as the password.)
+      const face = hasPasskey('socials') ? el('button', { type: 'button', class: 'btn so-faceid', text: '🔓 Use Face ID', onclick: async () => {
+        err.textContent = ''; const r = await usePasskey('socials');
+        if (r.ok) { socialsLock.openWithPasskey(); opened(r.secret); } else err.textContent = r.reason;
+      } }) : null;
+      box.append(el('p', { class: 'muted', text: 'Enter your Socials password.' }), el('div', { class: 'so-form' }, p, err, go2, face),
         el('p', { class: 'muted small', text: 'Forgot it? Enter the recovery key you saved instead (when Socials is synced to your Drive).' }));
       setTimeout(() => p.focus(), 50);
       return;
@@ -841,6 +850,8 @@ export function mount(host) {
       try {
         if (api) await changeRemotePassword(api, cur.value, n1.value);
         await socialsLock.setPassword(n1.value); sessionPw = n1.value;
+        // (Face ID kept the old password: off, to set up again with the new one.)
+        if (hasPasskey('socials') && passkeyOf('socials')?.prf) { removePasskey('socials'); toast('Face ID turned off with the old password: set it up again below.'); }
         cur.value = n1.value = n2.value = ''; done.textContent = api ? 'Password changed, here and for the copy in your Drive: use the new one on your other devices.' : 'Password changed.';
       } catch (e) { err.textContent = navigator.onLine === false ? 'You\'re offline: the password is changed in your Drive too, so it needs a connection.' : e.message; }
       change.disabled = false;
@@ -860,6 +871,13 @@ export function mount(host) {
           : el('p', { class: 'muted small', text: 'To keep Socials on your other devices, set up Saved Files (Settings → Saved Files), then open Socials there with the same password.' }),
         api ? el('button', { type: 'button', class: 'btn primary', text: 'Sync now', onclick: () => runSync() }) : null,
         fix,
+        // (Opened by Face ID without the password: it, once, to sync on this device.)
+        api && sessionOpen && !sessionPw ? (() => {
+          const p = pw('Your Socials password'); const b = el('button', { type: 'button', class: 'btn primary', text: 'Sync with it' }); const e2 = el('p', { class: 'so-err', role: 'alert' });
+          b.addEventListener('click', async () => { e2.textContent = ''; if (await socialsLock.tryPassword(p.value)) { sessionPw = p.value; runSync(); draw(); } else e2.textContent = 'Wrong password.'; });
+          return el('div', { class: 'so-form' }, el('p', { class: 'small', text: 'Socials was opened with Face ID. Your password is needed once (until the app is closed) to sync with your Drive.' }), p, e2, b);
+        })() : null,
+        faceIdSection(),
         el('h3', { text: 'Password' }),
         el('div', { class: 'so-form' }, cur, n1, n2, err, done, change),
         // (What was deleted, for a week: brought back, or deleted for good.)
@@ -877,7 +895,27 @@ export function mount(host) {
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: autoOn() }); c.addEventListener('change', () => store.set(AUTO_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Comments on new posts' }), el('span', { class: 'muted small', text: ' Three of your other accounts leave a kind word (with an emoji) on each new post.' }))) : null,
         el('h3', { text: 'Lock' }),
-        el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
+        el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; sessionOpen = false; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
+  }
+
+  // ---- Face ID (a passkey) to open Socials, as well as its password.
+  function faceIdSection() {
+    if (!passkeysSupported()) return null;
+    const box = el('div', { class: 'so-form so-faceid-set' }); const note = el('p', { class: 'muted small', role: 'status' });
+    const on = hasPasskey('socials'); const k = passkeyOf('socials');
+    const pwIn = !on && !sessionPw ? el('input', { class: 'so-input', type: 'password', autocomplete: 'off', 'aria-label': 'Your Socials password (for Face ID)', placeholder: 'Your Socials password' }) : null;
+    const btn = el('button', { type: 'button', class: 'btn', text: on ? 'Turn off Face ID' : 'Set up Face ID', onclick: async () => {
+      note.textContent = '';
+      if (on) { removePasskey('socials'); draw(); return; }
+      let secret = sessionPw;
+      if (!secret) { if (!(await socialsLock.tryPassword(pwIn.value))) { note.textContent = 'Wrong password.'; return; } secret = pwIn.value; sessionPw = secret; }
+      try { const r = await createPasskey('socials', 'Socials', { secret }); toast(r.prf ? 'Face ID now opens Socials (and syncs).' : 'Face ID now opens Socials.'); draw(); } catch (e) { note.textContent = e?.name === 'NotAllowedError' ? 'Cancelled.' : e.message; }
+    } });
+    box.append(el('h3', { text: 'Face ID' }),
+      el('p', { class: 'small', text: on ? (k?.prf ? 'On: Face ID opens Socials and gives it what it needs to sync; your password works too.' : 'On: Face ID opens Socials; your password works too, and is asked for once to sync (this passkey can\'t keep it).') : 'Open Socials with Face ID (a passkey, kept in your phone\'s passwords) as well as your password.' }),
+      pwIn, btn, note);
+    deviceCanPasskey().then((ok) => { if (!ok && !on) note.textContent = 'This device may not have Face ID or a fingerprint for passkeys.'; });
+    return box;
   }
 
   function recovery(key) {
@@ -890,7 +928,7 @@ export function mount(host) {
 
   function draw() {
     if (!alive) return;
-    if (!sessionPw) { gate(); return; }
+    if (!sessionOpen) { gate(); return; }
     drawBars();
     // (The recovery key, once, as soon as nothing's being made.)
     if (sync.pendingKey && ['feed', 'profile', 'people', 'explore', 'settings'].includes(view.name)) { view = { name: 'recovery', key: sync.pendingKey }; sync.pendingKey = null; }
@@ -914,7 +952,7 @@ export function mount(host) {
     // (If what's kept can't be read, nothing is shown or saved over it: an empty Socials saved now would replace it.)
     loadState().then((r) => { loaded = true; state = r.state; if (emptyOldTrash(state)) save(); draw(); runSync(); }).catch(() => { fill(main, el('div', { class: 'so-pad so-empty' }, el('p', { class: 'so-empty-big', text: 'Socials couldn\'t open what\'s kept on this device' }), el('p', { class: 'muted', text: 'Nothing has been changed. Close the app and open it again.' }), el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: start }))); });
   }
-  if (sessionPw) start(); else gate();
+  if (sessionOpen) start(); else gate();
 
   return () => { alive = false; reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); globalThis.removeEventListener?.('offline', onOffline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
 }

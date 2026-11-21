@@ -49,7 +49,8 @@ test('Socials: accounts, a post, following, the feed, likes and comments, kept a
   assert.match(await page.locator('.so-switch').textContent(), /maya\.shoots/, 'the handle cleaned up, in use');
   // A post from it.
   await page.getByRole('button', { name: 'New post' }).first().click();
-  await page.getByLabel('Photo').setInputFiles(await photo(page));
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page));
+  await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
   await page.locator('.so-new-prev img').waitFor();
   await page.getByLabel('Caption').fill('Sunset at the pier');
   await page.getByRole('button', { name: 'Share' }).click();
@@ -133,7 +134,7 @@ test('Socials on two devices: the same password opens the same Socials from Driv
   await A.page.getByRole('button', { name: 'Set password' }).click();
   await A.page.getByLabel('Username', { exact: true }).fill('maya'); await A.page.getByRole('button', { name: 'Create account' }).click();
   await A.page.getByRole('button', { name: 'New post' }).first().click();
-  await A.page.getByLabel('Photo').setInputFiles(await photo(A.page)); await A.page.locator('.so-new-prev img').waitFor();
+  await A.page.getByLabel('Photo or video').setInputFiles(await photo(A.page)); await A.page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click(); await A.page.locator('.so-new-prev img').waitFor();
   await A.page.getByLabel('Caption').fill('From the first phone'); await A.page.getByRole('button', { name: 'Share' }).click();
   await A.page.getByText('Your recovery key').waitFor({ timeout: 20000 });
   assert.match(await A.page.locator('.so-key').textContent(), /^[A-Z2-9]{4}(-[A-Z2-9]{4}){7}$/);
@@ -163,4 +164,86 @@ test('Socials on two devices: the same password opens the same Socials from Driv
   await A.page.getByRole('button', { name: 'Comments' }).click();
   await A.page.locator('.so-comment', { hasText: 'Seen on the second phone' }).waitFor();
   await A.ctx.close(); await B.ctx.close();
+});
+
+/** A short WebM video with a tone in it, made in the page (canvas + an oscillator, recorded). */
+async function clip(page) {
+  const b64 = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 160; c.height = 284; const x = c.getContext('2d');
+    const ac = new AudioContext(); const osc = ac.createOscillator(); const dest = ac.createMediaStreamDestination(); osc.connect(dest); osc.start();
+    const stream = new MediaStream([...c.captureStream(15).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    const rec = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' }); const parts = []; rec.ondataavailable = (e) => parts.push(e.data);
+    let t = 0; const iv = setInterval(() => { x.fillStyle = `hsl(${(t += 12) % 360} 80% 50%)`; x.fillRect(0, 0, 160, 284); }, 60);
+    rec.start(); await new Promise((r) => setTimeout(r, 1200)); rec.stop(); await new Promise((r) => { rec.onstop = r; }); clearInterval(iv); osc.stop(); ac.close();
+    const s = new Uint8Array(await new Blob(parts, { type: 'video/webm' }).arrayBuffer()); let out = ''; for (const v of s) out += String.fromCharCode(v); return btoa(out);
+  });
+  return { name: 'clip.webm', mimeType: 'video/webm', buffer: Buffer.from(b64, 'base64') };
+}
+
+test('Socials extras: a photo fitted square and filtered Mono in the editor (nothing kept in the Photo Editor); a video with sound in Reels; DMs between accounts; the Owner listed first', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  // A colourful 64×48 photo, made Square and Mono in the editor.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  const colour = await page.evaluate(async () => { const c = new OffscreenCanvas(640, 480); const x = c.getContext('2d'); x.fillStyle = '#e33'; x.fillRect(0, 0, 320, 480); x.fillStyle = '#33e'; x.fillRect(320, 0, 320, 480); const b = await c.convertToBlob({ type: 'image/png' }); const s = new Uint8Array(await b.arrayBuffer()); let t = ''; for (const v of s) t += String.fromCharCode(v); return btoa(t); });
+  await page.getByLabel('Photo or video').setInputFiles({ name: 'c.png', mimeType: 'image/png', buffer: Buffer.from(colour, 'base64') });
+  const ed = page.getByRole('dialog', { name: 'Edit photo' });
+  await ed.getByRole('button', { name: 'Square' }).click();
+  await ed.getByRole('tab', { name: 'Filter' }).click();
+  await ed.getByRole('button', { name: 'Mono' }).click();
+  await ed.getByRole('tab', { name: 'Edit' }).click();
+  await ed.getByRole('button', { name: 'Brightness', exact: true }).click();
+  await ed.getByRole('slider', { name: 'Brightness' }).fill('30');
+  await ed.getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-new-prev img').waitFor();
+  const shot = await page.locator('.so-new-prev img').evaluate(async (img) => { await img.decode(); const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(c.width / 4, c.height / 2, 1, 1).data; return { w: c.width, h: c.height, px: [...d] }; });
+  assert.equal(shot.w, shot.h, 'square');
+  assert.ok(Math.abs(shot.px[0] - shot.px[1]) < 6 && Math.abs(shot.px[1] - shot.px[2]) < 6, `mono: ${shot.px}`);
+  await page.getByLabel('Caption').fill('Squared'); await page.getByRole('button', { name: 'Share' }).click();
+  await page.locator('.so-post', { hasText: 'Squared' }).waitFor();
+  // (Nothing of it in the Photo Editor: no work in progress or recent edit there.)
+  const kept = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').getAllKeys(); g.onsuccess = () => res(g.result); }; }));
+  assert.ok(!kept.includes('editor.session'), `not in the Photo Editor: ${kept}`);
+  // Edit the post's caption from its ⋯.
+  await page.getByRole('button', { name: 'Post options' }).click(); await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Caption').fill('Squared and edited'); await page.getByRole('button', { name: 'Save' }).click();
+  await page.locator('.so-post', { hasText: 'Squared and edited' }).waitFor();
+  assert.match(await page.locator('.so-post .so-dot').first().textContent(), /edited/);
+  // A video, with its sound, shown in Reels.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await clip(page));
+  await page.locator('.so-new-prev video').waitFor();
+  await page.getByLabel('Caption').fill('My first reel'); await page.getByRole('button', { name: 'Share' }).click();
+  await page.locator('.so-reel', { hasText: 'My first reel' }).waitFor();
+  assert.ok(await page.locator('.so-tab.active[aria-label="Reels"]').count(), 'on the Reels tab');
+  await page.waitForFunction(() => { const v = document.querySelector('.so-reel video'); return v && v.readyState >= 2; });
+  await page.getByRole('button', { name: 'Sound on' }).click();
+  // (Its sound kept: audio decoded as it plays.)
+  await page.waitForFunction(() => (document.querySelector('.so-reel video')?.webkitAudioDecodedByteCount ?? 0) > 0, null, { timeout: 10000 });
+  assert.equal(await page.locator('.so-reel video').evaluate((v) => v.muted), false, 'sound turned on');
+  assert.equal(await page.locator('.so-reel').count(), 1, 'only videos in Reels');
+  // A second account; the Owner listed first, on its own.
+  await page.locator('.so-switch').click();
+  await page.getByLabel('Username', { exact: true }).fill('alt.acct'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click();
+  assert.deepEqual(await page.locator('.so-section').allTextContents(), ['Owner', 'Other accounts']);
+  assert.match(await page.locator('.so-person').first().textContent(), /owner\.meOwner/);
+  // A DM from alt.acct to the Owner; the Owner sees it unread, answers.
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Messages' }).click();
+  await page.getByRole('button', { name: 'Message @owner.me' }).click();
+  await page.getByLabel('Message', { exact: true }).fill('Hey owner!'); await page.getByRole('button', { name: 'Send' }).click();
+  await page.locator('.so-bubble.mine', { hasText: 'Hey owner!' }).waitFor();
+  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Messages, 1 unread' }).click();
+  await page.getByRole('button', { name: /Chat with @alt\.acct, 1 unread/ }).click();
+  await page.locator('.so-bubble:not(.mine)', { hasText: 'Hey owner!' }).waitFor();
+  await page.getByLabel('Message', { exact: true }).fill('Hi alt'); await page.getByRole('button', { name: 'Send' }).click();
+  await page.locator('.so-bubble.mine', { hasText: 'Hi alt' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Messages', exact: true }).count(), 1, 'read: no unread badge');
+  await page.close();
 });

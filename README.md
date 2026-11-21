@@ -1176,15 +1176,34 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
 
 ## Socials
 
-A photo feed laid out the way phone photo apps are (a row of accounts across the top, posts with the photo,
-♥ and 💬, likes, caption and comments, a tab bar of Home, Search, New post and Profile), where everything is
-made by you in the app. Make as many accounts as you like (a username, a name, a bio, a profile photo) and
-switch between them from the top bar; post a photo with a caption from whichever one is in use; follow one
-account from another; Home shows the posts of the accounts the one in use follows (and its own), newest first.
-Like (♥, or double-tap the photo) and comment as the account in use; Search finds accounts and shows every
-post as a grid; a profile shows its posts, followers and following. Delete a post from its ⋯, an account
-from Edit profile. All of it, photos included (resized to at most 1440 px), is kept on this phone in
-IndexedDB and is still there after a reload.
+A photo and video feed laid out the way phone photo apps are (a row of accounts across the top, posts with
+the photo or video, ♥ and 💬, likes, caption and comments, a tab bar of Home, Search, New post, Reels and
+Profile, ✈ for messages), where everything is made by you in the app.
+
+- **Accounts.** Make as many as you like (a username, a name, a bio, a profile photo) and switch between them
+  from the top bar. The first is the **Owner** (yours): marked Owner, and always listed first, on its own,
+  when picking the account to use, the others under it. Another account can be made the Owner (Edit profile);
+  the Owner can't be deleted until then.
+- **Posting.** A photo goes through Socials' photo editor first, built from the Photo Editor's own engine
+  (`web/apps/socials/socials-editor.js`): **Fit** (the shape it's shown in: Original, Square, 4:5 portrait or
+  1.91:1 landscape; drag to move it, pinch or slide to zoom, ↻ to turn), **Filter** (the Photo Editor's
+  filters, previewed on the photo, with a strength) and **Edit** (its adjustments: Brightness, Contrast,
+  Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way. Nothing of it is kept
+  in the Photo Editor (no work in progress or recent edit there): only the finished photo, in Socials. A post's
+  ⋯ → Edit changes its caption or edits its photo again (marked "edited"); ⋯ → Delete removes it.
+- **Videos and Reels.** A video posts as it is, with its sound (300 MB at most), with a still from it for its
+  tile. **Reels** (the ▶︎ tab) shows only videos, everyone's, one at a time at full height: swipe up for the
+  next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
+  💬 beside it. A profile's ▦ / ▶︎ shows its posts or just its reels. In Home, a video plays with its controls.
+- **Messages.** ✈ (with how many are unread) lists the account in use's chats; start one with any other
+  account (or Message on its profile). "Answer as @…" switches to the other account to reply. The account list
+  shows each account's unread count.
+- Home shows the posts of the accounts the one in use follows (and its own), newest first. Like (♥, or
+  double-tap the photo) and comment as the account in use; Search finds accounts and shows every post as a
+  grid; a profile shows its posts, followers and following.
+
+All of it, photos (at most 1440 px) and videos included, is kept on this phone in IndexedDB and is still
+there after a reload.
 
 **Password.** Socials has its own password (separate from the hidden area's, kept the same way: only a
 salted PBKDF2 hash on the phone), set the first time it's opened and asked each time the app starts; five
@@ -1195,7 +1214,8 @@ The data on the phone itself isn't encrypted (as the hidden area's isn't): the p
 in a **Socials** folder of your Saved Files folder, encrypted on the phone first with a key that only your
 Socials password (or a recovery key, shown once when the copy is first made) opens: AES-256-GCM, the key
 wrapped as Saved Files' own encryption does (`web/lib/vault.js`). In it: `socials-key.json` (the wrapped
-key), `socials-data.ccs` (accounts and posts) and one `socials-m-<id>.ccs` per photo (sent once). On another
+key), `socials-data.ccs` (accounts, posts and messages) and one `socials-m-<id>.ccs` per photo or video (sent
+once; a video over 24 MB stays on the device it was posted from, as Saved Files takes 25 MB a file). On another
 device with Saved Files set up, opening Socials finds the copy and asks for its password, which becomes that
 device's Socials password too. It syncs a few seconds after each change, when Socials opens and when back
 online; the two copies are merged (each account and post as last changed on either device, deletions kept,

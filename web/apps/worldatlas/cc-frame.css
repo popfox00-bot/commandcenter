@@ -7,8 +7,15 @@
   border-radius: 10px; background: var(--panel, #fff); color: var(--accent, #1d4ed8); border: 1px solid var(--line, #ddd);
   font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; box-shadow: 0 1px 4px rgba(0,0,0,.25);
 }
+/* Tutorials (farm designs: videos, supply lists, 3D layers: tutorials/), above Home (clear of the Legend). */
+.cc-tutorials {
+  position: fixed; left: calc(8px + env(safe-area-inset-left)); bottom: calc(56px + env(safe-area-inset-bottom));
+  z-index: 1200; display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px;
+  border-radius: 10px; background: var(--panel, #fff); color: var(--accent, #1d4ed8); border: 1px solid var(--line, #ddd);
+  font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}
 /* (Out of the way while a panel is up: it would sit over the panel's buttons.) */
-body:has(.sheet.open) .cc-home { display: none; }
+body:has(.sheet.open) .cc-home, body:has(.sheet.open) .cc-tutorials { display: none; }
 
 /* Every text box and picker at 16px: iPhone Safari zooms into smaller ones when they're tapped, and the
    page then stays zoomed in (the map's own pinch zoom is unaffected). */

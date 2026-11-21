@@ -18,7 +18,7 @@ const MEDIA = 'cc.socials.m.';
 /** Every photo and video the state refers to: [item, field, idField]. */
 const slots = (state) => [
   ...state.accounts.map((a) => [a, 'avatar', 'avatarId']),
-  ...state.posts.flatMap((p) => [[p, 'image', 'imageId'], [p, 'video', 'videoId']]),
+  ...state.posts.flatMap((p) => [[p, 'image', 'imageId'], [p, 'video', 'videoId'], ...(p.more ?? []).flatMap((m) => [[m, 'image', 'imageId'], [m, 'video', 'videoId']])]),
 ];
 
 /** A Blob's bytes, or null when they can't be read (lost). */
@@ -70,7 +70,7 @@ export function saveState(state) {
       await idb.set(MEDIA + id, { type: o[k].type || '', buf }); have.add(id);
     }
     const strip = (x, ...ks) => { const c = { ...x }; for (const k of ks) delete c[k]; return c; };
-    await idb.set(KEY, { ...state, accounts: state.accounts.map((a) => strip(a, 'avatar')), posts: state.posts.map((p) => strip(p, 'image', 'video')) });
+    await idb.set(KEY, { ...state, accounts: state.accounts.map((a) => strip(a, 'avatar')), posts: state.posts.map((p) => ({ ...strip(p, 'image', 'video'), more: (p.more ?? []).map((m) => strip(m, 'image', 'video')) })) });
     // (Files nothing refers to any more (a deleted post's): let go.)
     const used = new Set(slots(state).map(([o, , idk]) => o[idk]).filter(Boolean));
     for (const id of [...have]) if (!used.has(id)) { await idb.del(MEDIA + id); have.delete(id); }

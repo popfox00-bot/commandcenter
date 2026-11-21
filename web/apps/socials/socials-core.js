@@ -5,7 +5,8 @@
 // The state: { accounts, posts, messages, reads, me: accountId | null, gone: { id: when } } where
 //   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], at, upd }
 //   Post    = { id, by, kind: 'photo' | 'video', image: Blob | null (the photo, or a video's still), imageId,
-//               video: Blob | null, videoId, caption, tags: [accountId], at, upd, edited, likes: [accountId], comments: [{ id, by, text, at }] }
+//               video: Blob | null, videoId, more: [{ kind, image, imageId, video, videoId }] (a post of several:
+//               its 2nd and later photos or videos), caption, tags: [accountId], at, upd, edited, likes, comments }
 //   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
@@ -95,11 +96,11 @@ export const followingOf = (state, id) => (accountById(state, id)?.following ?? 
 export const postsBy = (state, id) => state.posts.filter((p) => p.by === id).sort((a, b) => b.at - a.at);
 
 /** Add a post by an account: a photo, or a video (with its still, `image`). Returns it. */
-export function addPost(state, by, { image = null, video = null, caption = '', tags = [] }) {
+export function addPost(state, by, { image = null, video = null, caption = '', tags = [], more = [] }) {
   if (!accountById(state, by)) throw new Error('No account to post from.');
   if (!image && !video && !String(caption).trim()) throw new Error('Pick a photo or video first.');
   const now = Date.now();
-  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [] };
+  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, more: (more ?? []).filter((m) => m && (m.image || m.video)).slice(0, 9).map((m) => ({ kind: m.video ? 'video' : 'photo', image: m.image ?? null, imageId: m.image ? newId() : null, video: m.video ?? null, videoId: m.video ? newId() : null })), caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [] };
   state.posts.push(p);
   return p;
 }
@@ -132,6 +133,14 @@ export function editPost(state, id, { caption, image, tags }) {
   if (image) { p.image = image; p.imageId = newId(); }
   p.upd = p.edited = Date.now();
   return p;
+}
+
+/** A post's photos and videos, in order: [{ kind, image, imageId, video, videoId }] (its first, then the rest). */
+export const mediaOf = (p) => [{ kind: p.kind, image: p.image, imageId: p.imageId, video: p.video, videoId: p.videoId }, ...(p.more ?? [])];
+
+/** `items` in a random order (Fisher–Yates; `rand` for tests). */
+export function shuffled(items, rand = Math.random) {
+  const a = [...items]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a;
 }
 
 /** The videos everyone has posted, newest first (Reels). */
@@ -235,7 +244,7 @@ export function normalize(raw) {
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
   s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}) }));

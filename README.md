@@ -1202,9 +1202,13 @@ Profile, ✈ for messages), where everything is made by you in the app.
   Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way. Nothing of it is kept
   in the Photo Editor (no work in progress or recent edit there): only the finished photo, in Socials. A post's
   ⋯ → Edit changes its caption or edits its photo again (marked "edited"); ⋯ → Delete removes it.
+- **Several in one post.** Pick several photos and videos at once (each photo through the editor; Cancel
+  keeps it as it is), add more with ＋ Add more, take one out with its ✕, up to ten. The post shows them as a
+  carousel: swipe across, with "2/3" and dots; its tile shows ❐.
 - **Videos and Reels.** A video posts as it is, with its sound (300 MB at most), with a still from it for its
-  tile. **Reels** (the ▶︎ tab) shows only videos, everyone's, one at a time at full height: swipe up for the
-  next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
+  tile. **Reels** (the ▶︎ tab) shows only videos (posts that start with one), everyone's, in a shuffled order
+  (the same while the app is open; a video just posted comes first); pull down at the top to shuffle again.
+  One at a time at full height: swipe up for the next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
   💬 beside it. A profile's ▦ / ▶︎ shows its posts or just its reels. In Home, a video plays with its controls.
 - **Tags, mentions, sharing.** Tag your other accounts in a post (👤 Tag people, when posting or from ⋯ →
   Edit): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its

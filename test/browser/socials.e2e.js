@@ -72,7 +72,7 @@ test('Socials: accounts, a post, following, the feed, likes and comments, kept a
   // Like it and comment, as jordan.
   await page.getByRole('button', { name: 'Like', exact: true }).click();
   await page.getByText('1 like').waitFor();
-  await page.getByRole('button', { name: 'Comments' }).click();
+  await page.getByRole('button', { name: 'Comments', exact: true }).click();
   await page.getByLabel('Add a comment').fill('Gorgeous!');
   await page.getByRole('button', { name: 'Post', exact: true }).click();
   await page.locator('.so-comment', { hasText: 'jordan Gorgeous!' }).waitFor();
@@ -154,14 +154,14 @@ test('Socials on two devices: the same password opens the same Socials from Driv
   await B.page.locator('.so-post', { hasText: 'From the first phone' }).waitFor({ timeout: 20000 });
   assert.ok(await B.page.locator('.so-pic img').evaluate((i) => i.complete && i.naturalWidth > 0), 'the photo came too');
   // Device 2 comments; device 1, syncing, sees it.
-  await B.page.getByRole('button', { name: 'Comments' }).click();
+  await B.page.getByRole('button', { name: 'Comments', exact: true }).click();
   await B.page.getByLabel('Add a comment').fill('Seen on the second phone'); await B.page.getByRole('button', { name: 'Post', exact: true }).click();
   await B.page.getByRole('button', { name: 'Sync and password' }).click(); await B.page.getByRole('button', { name: 'Sync now' }).click();
   await B.page.waitForFunction(() => /^Synced/.test(document.querySelector('.so-sync-msg')?.textContent ?? ''));
   await A.page.getByRole('button', { name: 'Sync and password' }).click(); await A.page.getByRole('button', { name: 'Sync now' }).click();
   await A.page.waitForFunction(() => /^Synced/.test(document.querySelector('.so-sync-msg')?.textContent ?? ''));
   await A.page.getByRole('button', { name: 'Home' }).click();
-  await A.page.getByRole('button', { name: 'Comments' }).click();
+  await A.page.getByRole('button', { name: 'Comments', exact: true }).click();
   await A.page.locator('.so-comment', { hasText: 'Seen on the second phone' }).waitFor();
   await A.ctx.close(); await B.ctx.close();
 });
@@ -344,6 +344,7 @@ test('Socials: tag accounts in a post (and @mention them), share it in a DM, and
   await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
   await page.locator('.so-new-prev img').waitFor();
   await page.getByLabel('Caption').fill('Beach day with @owner.me!');
+  await page.getByRole('button', { name: /^👤 Tag/ }).click();
   await page.getByRole('group', { name: 'Tag people' }).getByRole('button', { name: '@owner.me' }).click();
   await page.getByRole('button', { name: 'Share', exact: true }).click();
   await page.locator('.so-post .so-tags', { hasText: 'with owner.me' }).waitFor();
@@ -504,7 +505,10 @@ test('Socials collab: invite while posting; a collab request in their messages; 
   await page.getByRole('button', { name: 'New post' }).first().click();
   await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
   await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill('Made together');
+  await page.getByRole('button', { name: /^🤝 Collab/ }).click();
   await page.getByRole('group', { name: 'Collab' }).getByRole('button', { name: 'Collab with @pal' }).click();
+  // (Collab tags them too.)
+  assert.match(await page.getByRole('button', { name: /^👤 Tag/ }).textContent(), /· 1/);
   await page.getByRole('button', { name: 'Share', exact: true }).click();
   await page.locator('.so-post', { hasText: 'Made together' }).waitFor();
   assert.doesNotMatch(await page.locator('.so-post-head').first().textContent(), /and pal/, 'not until pal accepts');
@@ -558,5 +562,63 @@ test('Socials: 🔖 saved posts (in your own Saved tab), and views counted (feed
   // (pal's Saved: their own, empty.)
   await page.getByRole('button', { name: 'Profile' }).click(); await page.getByRole('tab', { name: 'Saved' }).click();
   assert.equal(await page.locator('.so-grid .so-tile').count(), 0);
+  await page.close();
+});
+
+test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Community hashtags by use; the account list by unread then last used; ✨ generated comments and DM replies (Owner only)', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  for (const h of ['zed', 'amy', 'mo']) { await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  // Two posts with hashtags: #beach twice, #sun once.
+  const newPhoto = async (cap) => {
+    await page.getByRole('button', { name: 'New post' }).first().click();
+    await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+    await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill(cap);
+  };
+  await newPhoto('Waves #beach #sun 🌊'); await page.getByRole('button', { name: 'Share', exact: true }).click(); await page.locator('.so-post', { hasText: 'Waves' }).first().waitFor();
+  await newPhoto('Again #beach'); await page.getByRole('button', { name: 'Share', exact: true }).click(); await page.locator('.so-post', { hasText: 'Again' }).first().waitFor();
+  await newPhoto('Pizza night 🍕');
+  assert.equal(await page.getByRole('group', { name: 'Tag people' }).count(), 0, 'folded until opened');
+  await page.getByRole('button', { name: /^👤 Tag/ }).click();
+  assert.deepEqual(await page.getByRole('group', { name: 'Tag people' }).getByRole('button').allTextContents(), ['@amy', '@mo', '@zed'], 'alphabetical');
+  await page.getByRole('button', { name: /^# Community/ }).click();
+  assert.deepEqual((await page.getByRole('group', { name: 'Hashtags used before' }).getByRole('button').allTextContents()).map((t) => t.split(' ')[0]), ['#beach', '#sun'], 'the most used first');
+  await page.getByRole('group', { name: 'Hashtags used before' }).getByRole('button', { name: /#sun/ }).click();
+  assert.equal(await page.getByLabel('Caption').inputValue(), 'Pizza night 🍕 #sun');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  // ✨ Generate comment on the post (as @mo, picked).
+  const post = page.locator('.so-post', { hasText: 'Pizza night' }).first(); await post.waitFor();
+  await post.getByRole('button', { name: 'Comments', exact: true }).click();
+  await page.getByLabel('Comment as').selectOption({ label: '@mo' });
+  await page.getByRole('button', { name: '✨ Generate comment' }).click();
+  await page.locator('.so-comment', { hasText: 'mo' }).first().waitFor();
+  // DMs: the Owner writes to amy; ✨ amy's reply.
+  await page.getByRole('button', { name: 'Messages' }).first().click();
+  await page.getByRole('button', { name: 'Message @amy' }).click();
+  await page.getByLabel('Message', { exact: true }).fill('Thank you so much! 🎉'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: '✨ Generate reply from @amy' }).click();
+  await page.locator('.so-bubble:not(.mine)').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: /Generate reply/ }).count(), 0, 'answered: the button goes until the Owner writes again');
+  // The account list: last used first (mo was made last, then amy (just replied), then zed)…
+  const order = async () => (await page.locator('.so-person-main').evaluateAll((l) => l.map((e) => e.getAttribute('aria-label')))).map((t) => t.replace(/^Use @/, '').replace(/ \(Owner\)$/, ''));
+  await page.locator('.so-switch').click();
+  assert.deepEqual(await order(), ['owner.me', 'mo', 'amy', 'zed']);
+  // …but one with an unread message goes to the top (below the Owner).
+  await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @zed' }).click();
+  await page.getByLabel('Message', { exact: true }).fill('hi zed'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.so-switch').click();
+  assert.deepEqual(await order(), ['owner.me', 'zed', 'mo', 'amy']);
+  await page.getByRole('button', { name: 'Use @amy' }).click(); await page.locator('.so-switch').click();
+  assert.deepEqual(await order(), ['owner.me', 'zed', 'amy', 'mo'], 'used: amy up');
+  // As mo, no Generate buttons (the Owner only).
+  await page.getByRole('button', { name: 'Use @mo' }).click();
+  await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
+  await page.locator('.so-post').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: '✨ Generate comment' }).count(), 0);
   await page.close();
 });

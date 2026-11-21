@@ -276,7 +276,7 @@ test('saved posts (each account\'s own) and views (counted per device, added up,
   c.addView(s, p.id, 'phone'); c.addView(s, p.id, 'phone');
   assert.equal(c.viewsOf(p), 2); assert.equal(p.upd, upd, 'a view isn\'t a change to it');
   const other = JSON.parse(JSON.stringify(s)); other.posts.find((x) => x.id === p.id).viewsBy = { phone: 1, ipad: 3 };
-  toggleLike(other, p.id, b.id); // (the other device also liked it: its version wins…)
+  toggleLike(other, p.id, b.id); other.posts.find((x) => x.id === p.id).upd = p.upd + 1000; // (the other device also liked it, later: its version wins…)
   const m = mergeStates(s, other); const mp = m.posts.find((x) => x.id === p.id);
   assert.equal(c.viewsOf(mp), 5, '…but views from both: phone 2, iPad 3'); assert.deepEqual(mp.likes, [b.id]);
   assert.equal(c.viewsOf(normalize(JSON.parse(JSON.stringify(m))).posts.find((x) => x.id === p.id)), 5, 'kept');

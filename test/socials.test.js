@@ -196,3 +196,45 @@ test('a post of several goes to another phone through Drive whole: every photo a
   assert.deepEqual(await Promise.all(m.map(async (x) => (await x.image.arrayBuffer()).byteLength)), [3, 3, 3]);
   assert.equal(m[2].video.type, 'video/mp4');
 });
+
+test('drafts, pins and the trash: drafts aren\'t shared; three pinned at most, first on the profile; deleted posts come back for a week, then go', async () => {
+  const c = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b' }); toggleFollow(s, b.id, a.id);
+  const old = addPost(s, a.id, { caption: 'old' }); old.at = 1000;
+  const d = addPost(s, a.id, { caption: 'draft #x', draft: true });
+  assert.deepEqual(feedFor(s, b.id).map((p) => p.caption), ['old'], 'a draft isn\'t in the feed');
+  assert.deepEqual(c.draftsOf(s, a.id).map((p) => p.id), [d.id]); assert.equal(c.postsWithTag(s, 'x').length, 0, 'nor under its hashtag');
+  const ps = [1, 2, 3, 4].map((i) => { const p = addPost(s, a.id, { caption: `p${i}` }); p.at = 2000 + i; return p; });
+  c.togglePin(s, old.id); c.togglePin(s, ps[0].id); c.togglePin(s, ps[1].id);
+  assert.throws(() => c.togglePin(s, ps[2].id), /3 posts/);
+  assert.deepEqual(postsBy(s, a.id).slice(0, 3).map((p) => p.caption).sort(), ['old', 'p1', 'p2'], 'pinned first');
+  assert.equal(c.togglePin(s, old.id), false, 'unpinned');
+  c.trashPost(s, ps[3].id, 5000);
+  assert.ok(!postsBy(s, a.id).some((p) => p.id === ps[3].id), 'deleted: off the profile');
+  assert.equal(c.trashOf(s, 5000 + 86400000)[0].daysLeft, 6);
+  c.restorePost(s, ps[3].id); assert.ok(postsBy(s, a.id).some((p) => p.id === ps[3].id), 'brought back');
+  c.trashPost(s, ps[3].id, 5000);
+  assert.equal(c.emptyOldTrash(s, 5000 + 6 * 86400000), 0, 'still there after six days');
+  assert.equal(c.emptyOldTrash(s, 5000 + 8 * 86400000), 1, 'gone after more than seven');
+  assert.equal(c.postById(s, ps[3].id), null); assert.ok(s.gone[ps[3].id], 'and gone from the other devices too');
+});
+
+test('stories, comments for new posts, hashtags', async () => {
+  const c = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); for (const h of ['b', 'c', 'd', 'e']) addAccount(s, { handle: h });
+  const now = 10 * 86400000;
+  const p1 = addPost(s, a.id, { caption: 'yesterday' }); p1.at = now - 25 * 3600000;
+  const p2 = addPost(s, a.id, { caption: 'this morning #Beach' }); p2.at = now - 5 * 3600000;
+  const p3 = addPost(s, a.id, { caption: 'just now #beach #sun' }); p3.at = now - 60000;
+  assert.deepEqual(c.storiesOf(s, a.id, now).map((p) => p.caption), ['this morning #Beach', 'just now #beach #sun'], 'the last 24 hours, oldest first');
+  let seed = 3; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const cm = c.autoComment(s, p3.id, { rand, now });
+  assert.equal(cm.length, 3); assert.equal(new Set(cm.map((x) => x.by)).size, 3, 'three different accounts');
+  assert.ok(cm.every((x) => x.by !== a.id && c.NICE_COMMENTS.includes(x.text)), 'not the poster; from the list');
+  assert.ok(c.NICE_COMMENTS.every((t) => /\p{Extended_Pictographic}/u.test(t)), 'each with an emoji');
+  const solo = emptyState(); const o = addAccount(solo, { handle: 'o' }); const q = addPost(solo, o.id, { caption: 'x' });
+  assert.deepEqual(c.autoComment(solo, q.id), [], 'no one else: none');
+  assert.deepEqual(c.postsWithTag(s, '#BEACH').map((p) => p.id), [p3.id, p2.id]);
+  assert.deepEqual(c.searchTags(s, 'b'), [{ tag: 'beach', count: 2 }]);
+  assert.deepEqual(c.searchTags(s, '').map((t) => t.tag), ['beach', 'sun']);
+});

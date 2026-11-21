@@ -6,7 +6,9 @@
 //   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], at, upd }
 //   Post    = { id, by, kind: 'photo' | 'video', image: Blob | null (the photo, or a video's still), imageId,
 //               video: Blob | null, videoId, more: [{ kind, image, imageId, video, videoId }] (a post of several:
-//               its 2nd and later photos or videos), caption, tags: [accountId], at, upd, edited, likes, comments }
+//               its 2nd and later photos or videos), caption, tags: [accountId], at, upd, edited, likes, comments,
+//               draft: bool (saved, not shared yet), pinned: when (to the top of its profile), trashed: when (deleted:
+//               recoverable for TRASH_DAYS) }
 //   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
@@ -93,14 +95,17 @@ export function toggleFollow(state, who, whom) {
 
 export const followersOf = (state, id) => state.accounts.filter((a) => a.following.includes(id));
 export const followingOf = (state, id) => (accountById(state, id)?.following ?? []).map((f) => accountById(state, f)).filter(Boolean);
-export const postsBy = (state, id) => state.posts.filter((p) => p.by === id).sort((a, b) => b.at - a.at);
+/** Whether a post is shared and showing (not a draft, not deleted). */
+export const live = (p) => !p.draft && !p.trashed;
+/** An account's posts as its profile shows them: pinned first (the latest pinned first), then newest first. */
+export const postsBy = (state, id) => state.posts.filter((p) => p.by === id && live(p)).sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || b.at - a.at);
 
 /** Add a post by an account: a photo, or a video (with its still, `image`). Returns it. */
-export function addPost(state, by, { image = null, video = null, caption = '', tags = [], more = [] }) {
+export function addPost(state, by, { image = null, video = null, caption = '', tags = [], more = [], draft = false }) {
   if (!accountById(state, by)) throw new Error('No account to post from.');
   if (!image && !video && !String(caption).trim()) throw new Error('Pick a photo or video first.');
   const now = Date.now();
-  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, more: (more ?? []).filter((m) => m && (m.image || m.video)).slice(0, 9).map((m) => ({ kind: m.video ? 'video' : 'photo', image: m.image ?? null, imageId: m.image ? newId() : null, video: m.video ?? null, videoId: m.video ? newId() : null })), caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [] };
+  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, more: (more ?? []).filter((m) => m && (m.image || m.video)).slice(0, 9).map((m) => ({ kind: m.video ? 'video' : 'photo', image: m.image ?? null, imageId: m.image ? newId() : null, video: m.video ?? null, videoId: m.video ? newId() : null })), caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [], draft: !!draft, pinned: 0, trashed: 0 };
   state.posts.push(p);
   return p;
 }
@@ -109,12 +114,16 @@ export function addPost(state, by, { image = null, video = null, caption = '', t
 const cleanTags = (state, tags) => [...new Set((tags ?? []).filter((t) => accountById(state, t)))];
 
 /** The posts an account is tagged in, newest first. */
-export const taggedIn = (state, id) => state.posts.filter((p) => (p.tags ?? []).includes(id)).sort((a, b) => b.at - a.at);
+export const taggedIn = (state, id) => state.posts.filter((p) => live(p) && (p.tags ?? []).includes(id)).sort((a, b) => b.at - a.at);
 
-/** A caption cut into text and @mentions of accounts there are: [{ text } | { handle, account }]. */
+/** A caption cut into text, @mentions of accounts there are, and #hashtags: [{ text } | { handle, account } | { tag }]. */
 export function captionParts(state, text) {
-  const out = []; const re = /@([a-z0-9._]+)/gi; let last = 0; let m;
+  const out = []; const re = /@([a-z0-9._]+)|(^|[^\p{L}\p{N}_&])#([\p{L}\p{N}_]{1,50})/giu; let last = 0; let m;
   while ((m = re.exec(text))) {
+    if (m[3]) {
+      const at = m.index + m[2].length; if (at > last) out.push({ text: text.slice(last, at) });
+      out.push({ tag: m[3].toLowerCase(), text: `#${m[3]}` }); last = at + 1 + m[3].length; re.lastIndex = last; continue;
+    }
     const a = state.accounts.find((x) => x.handle === m[1].toLowerCase().replace(/\.+$/, ''));
     if (!a) continue;
     if (m.index > last) out.push({ text: text.slice(last, m.index) });
@@ -144,7 +153,78 @@ export function shuffled(items, rand = Math.random) {
 }
 
 /** The videos everyone has posted, newest first (Reels). */
-export const reelsOf = (state, by = null) => state.posts.filter((p) => p.kind === 'video' && (!by || p.by === by)).sort((a, b) => b.at - a.at);
+export const reelsOf = (state, by = null) => state.posts.filter((p) => p.kind === 'video' && live(p) && (!by || p.by === by)).sort((a, b) => b.at - a.at);
+
+// ---- Drafts, pinning, the trash.
+
+/** An account's drafts, the latest first. */
+export const draftsOf = (state, id) => state.posts.filter((p) => p.by === id && p.draft && !p.trashed).sort((a, b) => b.upd - a.upd);
+
+/** Most posts pinned to a profile at once. */
+export const MAX_PINNED = 3;
+/** Pin a post to the top of its profile, or unpin it. Returns whether it's pinned now; throws when there are already three. */
+export function togglePin(state, id) {
+  const p = postById(state, id); if (!p) return false;
+  if (p.pinned) { p.pinned = 0; p.upd = Date.now(); return false; }
+  if (state.posts.filter((q) => q.by === p.by && q.pinned && live(q)).length >= MAX_PINNED) throw new Error(`${MAX_PINNED} posts can be pinned at most: unpin one first.`);
+  p.pinned = p.upd = Date.now(); return true;
+}
+
+/** How long a deleted post can be brought back. */
+export const TRASH_DAYS = 7;
+/** Delete a post to the trash (it can be brought back for a week). */
+export function trashPost(state, id, now = Date.now()) { const p = postById(state, id); if (!p) return; p.trashed = now; p.pinned = 0; p.upd = now; }
+/** Bring a deleted post back. */
+export function restorePost(state, id) { const p = postById(state, id); if (!p) return; p.trashed = 0; p.upd = Date.now(); }
+/** What's in the trash, the latest deleted first, with how many days each has left. */
+export const trashOf = (state, now = Date.now()) => state.posts.filter((p) => p.trashed).sort((a, b) => b.trashed - a.trashed).map((p) => ({ post: p, daysLeft: Math.max(0, Math.ceil(TRASH_DAYS - (now - p.trashed) / 86400000)) }));
+/** Deleted for good what's been in the trash longer than a week. Returns how many. */
+export function emptyOldTrash(state, now = Date.now()) {
+  const old = state.posts.filter((p) => p.trashed && now - p.trashed > TRASH_DAYS * 86400000);
+  for (const p of old) removePost(state, p.id);
+  return old.length;
+}
+
+// ---- Stories: an account's posts of the last day, one after another.
+
+export const STORY_HOURS = 24;
+/** An account's stories: its posts of the last 24 hours, oldest first. */
+export const storiesOf = (state, id, now = Date.now()) => state.posts.filter((p) => p.by === id && live(p) && now - p.at < STORY_HOURS * 3600000).sort((a, b) => a.at - b.at);
+
+// ---- Comments made for a new post: three of the other accounts, a kind word each.
+
+export const NICE_COMMENTS = [
+  'Love this! 😍', 'Stunning 🔥', 'So good 👏', 'Obsessed 😍😍', 'This is everything ✨', 'Wow 🤩', 'Gorgeous 💕', 'Iconic 🙌',
+  'Goals 💯', 'Amazing shot 📸', 'Beautiful ❤️', 'Yesss 🔥🔥', 'Can\'t stop looking at this 👀', 'Perfection 👌', 'Vibes ✨🌿',
+  'Absolutely love it 💖', 'So pretty 🌸', 'Killing it 💪', 'Need this in my life 😍', 'Such a mood 😎', 'Glowing ✨', 'Obsessed with this 🙌',
+  'Incredible 🤯', 'This made my day 😊', 'Too cute 🥰', 'Love the colors 🎨', 'Wow wow wow 🔥', 'Frame this 🖼️', 'Living for this 💃', 'Best one yet 👏',
+];
+
+/**
+ * A new post commented on by up to three of the other accounts (at random), each a kind word from the list,
+ * a moment apart. Returns the comments.
+ */
+export function autoComment(state, postId, { rand = Math.random, now = Date.now(), count = 3 } = {}) {
+  const p = postById(state, postId); if (!p) return [];
+  const who = shuffled(state.accounts.filter((a) => a.id !== p.by), rand).slice(0, count);
+  const words = shuffled(NICE_COMMENTS, rand);
+  const out = who.map((a, i) => ({ id: newId(), by: a.id, text: words[i % words.length], at: now + (i + 1) * 1000 }));
+  p.comments.push(...out); if (out.length) p.upd = out[out.length - 1].at;
+  return out;
+}
+
+// ---- Hashtags.
+
+/** The #hashtags in a text, lower case, each once (letters, digits and _, from a letter or digit). */
+export const hashtagsIn = (text) => [...new Set([...String(text ?? '').matchAll(/(^|[^\p{L}\p{N}_&])#([\p{L}\p{N}_]{1,50})/gu)].map((m) => m[2].toLowerCase()))];
+/** The shared posts with a hashtag in their caption, newest first. */
+export const postsWithTag = (state, tag) => { const t = String(tag).toLowerCase().replace(/^#/, ''); return state.posts.filter((p) => live(p) && hashtagsIn(p.caption).includes(t)).sort((a, b) => b.at - a.at); };
+/** Hashtags used in shared posts that start with (or contain) `q`, with how many posts each: [{ tag, count }]. */
+export function searchTags(state, q) {
+  const s2 = String(q ?? '').trim().toLowerCase().replace(/^#/, ''); const n = new Map();
+  for (const p of state.posts) if (live(p)) for (const t of hashtagsIn(p.caption)) n.set(t, (n.get(t) ?? 0) + 1);
+  return [...n].filter(([t]) => !s2 || t.includes(s2)).sort((a, b) => (b[0].startsWith(s2) ? 1 : 0) - (a[0].startsWith(s2) ? 1 : 0) || b[1] - a[1]).map(([tag, count]) => ({ tag, count }));
+}
 
 export const removePost = (state, id) => { state.gone ??= {}; state.gone[id] = Date.now(); state.posts = state.posts.filter((p) => p.id !== id); };
 export const postById = (state, id) => state.posts.find((p) => p.id === id) ?? null;
@@ -153,7 +233,7 @@ export const postById = (state, id) => state.posts.find((p) => p.id === id) ?? n
 export function feedFor(state, me) {
   const a = accountById(state, me); if (!a) return [];
   const seen = new Set([me, ...a.following]);
-  return state.posts.filter((p) => seen.has(p.by) && accountById(state, p.by)).sort((x, y) => y.at - x.at);
+  return state.posts.filter((p) => seen.has(p.by) && live(p) && accountById(state, p.by)).sort((x, y) => y.at - x.at);
 }
 
 /** Like or unlike a post as `who`. Returns whether it's now liked. */
@@ -244,7 +324,7 @@ export function normalize(raw) {
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
   s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}) }));

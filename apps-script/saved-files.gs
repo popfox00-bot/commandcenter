@@ -23,7 +23,7 @@
  * deployments → ✎ (edit) → Version: New version → Deploy. The web app URL and the key stay the same.
  */
 
-const VERSION = 4; // 2: uploads can go into a subfolder (the Decryption kit). 3: folders (list, make, rename, delete, move files). 4: move folders
+const VERSION = 5; // 2: uploads can go into a subfolder (the Decryption kit). 3: folders (list, make, rename, delete, move files). 4: move folders. 5: Drive's space (quota)
 
 const KEY_PROPERTY = 'SAVED_FILES_KEY';
 const LOG_SHEET = 'Saved Files';
@@ -63,6 +63,9 @@ function doPost(e) {
       case 'rmdir': rmdir_(req.id); return json_({ ok: true });
       case 'move': return json_({ ok: true, file: move_(req.id, req.to) });
       case 'movedir': return json_({ ok: true, folder: moveFolder_(req.id, req.to) });
+      // (How much of your Drive is used and how much it holds, for the app's storage bar. A limit of -1 or 0:
+      // unlimited, as some Workspace accounts are.)
+      case 'quota': return json_({ ok: true, used: DriveApp.getStorageUsed(), limit: DriveApp.getStorageLimit() });
       default: return json_({ ok: false, error: 'Unknown action' });
     }
   } catch (err) {

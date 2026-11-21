@@ -51,6 +51,7 @@ function google() {
     },
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getId: () => ss.getId(), getSheetByName: (k) => sheets.get(k) ?? null, insertSheet: (k) => { sheets.set(k, sheet); return sheet; } }) },
     DriveApp: {
+      getStorageUsed: () => 6 * 2 ** 30, getStorageLimit: () => 15 * 2 ** 30,
       getFileById: (id) => { const f = files.get(id); if (!f) throw new Error('No item with the given ID could be found'); return f; },
       getFolderById: (id) => { const d = folders[id]; if (!d) throw new Error('No item with the given ID could be found'); return d; },
     },
@@ -136,7 +137,9 @@ test('the decryption kit goes into a "Decryption" folder (saved again, it replac
   const G = google();
   const key = G.g.setup();
   const api = savedFiles({ url: 'https://script.google.com/macros/s/x/exec', key }, { fetch: G.fetch });
-  assert.deepEqual(await api.info(), { folder: 'Command Center', version: 4 });
+  assert.deepEqual(await api.info(), { folder: 'Command Center', version: 5 });
+  // (Version 5: the Drive's space, for Settings → Storage.)
+  assert.deepEqual(await api.quota(), { used: 6 * 2 ** 30, limit: 15 * 2 ** 30 });
   const kitFiles = { 'decrypt.html': '<!doctype html>', 'decrypt.py': 'print(1)', 'FORMAT.md': '# format' };
   const fakeFetch = async (url) => ({ ok: true, blob: async () => new Blob([kitFiles[String(url).split('/').pop()]]) });
   const { saveDecryptionKit } = await import('../web/lib/saved-files.js');

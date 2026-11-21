@@ -1547,3 +1547,17 @@ body.se-open { overflow: hidden; }
 .so-collab-line { font-size: .88rem; }
 .so-bubble.mine .so-collab-line, .so-bubble.mine .so-collab-title { color: #fff; }
 .so-collab-note { flex-basis: 100%; }
+
+/* Settings → Storage: bars against each limit. */
+.st-bar-wrap { display: grid; gap: 6px; margin: 6px 0 10px; }
+.st-bar-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.st-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--text) 10%, transparent); }
+.st-bar-fill { display: block; height: 100%; background: #16a34a; }
+.st-bar-high .st-bar-fill:only-child { background: #f59e0b; }
+.st-bar-full .st-bar-fill:only-child { background: #dc2626; }
+.st-seg-0 { background: #2563eb; } .st-seg-1 { background: #16a34a; } .st-seg-2 { background: #f59e0b; } .st-seg-3 { background: #db2777; } .st-seg-4 { background: #7c3aed; } .st-seg-5 { background: #0891b2; }
+.st-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: 0; }
+.st-storage-h { margin: 14px 0 4px; font-size: .95rem; }
+.st-limits { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .88rem; }
+.hid-faceid { margin-top: 14px; display: grid; gap: 6px; justify-items: start; }
+.hid-faceid-btn { margin-top: 8px; }

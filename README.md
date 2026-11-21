@@ -1257,6 +1257,14 @@ salted PBKDF2 hash on the phone), set the first time it's opened and asked each 
 wrong tries in a row wait 30 seconds. ☁ (top right) → Sync and password: change it, or 🔒 lock Socials now.
 The data on the phone itself isn't encrypted (as the hidden area's isn't): the password keeps the app shut.
 
+**Face ID.** Sync and password → Set up Face ID makes a passkey (kept in the phone's passwords) that opens
+Socials as well as its password (`web/lib/passkey.js`). Where the passkey can give the app a secret of its own
+(WebAuthn's prf: iCloud Keychain on iOS 18 and later, among others), that secret encrypts the Socials password
+on the device, so Face ID alone opens Socials and lets it sync; otherwise Face ID opens it and the password is
+asked for once (until the app is closed) to sync. Changing the password turns that Face ID off, to set up again.
+The hidden area offers the same (Set up Face ID once it's open). Turn either off any time; the passwords
+always work.
+
 **On your other devices (through your Drive).** With [Saved Files](#saved-files) set up, Socials keeps a copy
 in a **Socials** folder of your Saved Files folder, encrypted on the phone first with a key that only your
 Socials password (or a recovery key, shown once when the copy is first made) opens: AES-256-GCM, the key
@@ -1392,6 +1400,13 @@ wake itself up at a set time, so reminders have to come from something that's al
 
 **Saved Files (Google Drive)**: the web app URL and access key for Files → Saved Files are entered
 here (and **Disconnect this phone**).
+
+**Storage** shows bars against each limit: **On this device** (everything the app keeps, against the most this
+browser lets it keep, which depends on the phone's free space; each kind of data its own shade, listed below
+with its size and Clear where it can go), **Protect it** (asks the browser not to clear the app's data when
+the phone's low on space), **Google Drive (Saved Files)** (your whole Drive's used and total space: needs the
+Saved Files script at version 5, which adds a `quota` action), and the app's own **limits** (25 MB a file to
+Saved Files, Socials' video and post limits, Tutorials' design size, and so on).
 
 **Diagnostics** shows what's loaded on the phone (the face mesh, the face-part maps, face-api, the
 upscaler) and how long each took, how long the last face swap took step by step (finding the faces, the

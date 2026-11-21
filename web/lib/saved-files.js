@@ -80,6 +80,8 @@ export function savedFiles({ url, key }, { fetch: f = globalThis.fetch } = {}) {
     rmdir: async (id) => { await call('rmdir', { id }); },
     /** Move a file into a folder ('' : the main folder). */
     move: async (id, to = '') => (await call('move', { id, to })).file,
+    /** How much of the Drive is used and how much it holds, in bytes: { used, limit } (limit ≤ 0: unlimited). Script version 5. */
+    quota: async () => { const r = await call('quota'); return { used: Number(r.used) || 0, limit: Number(r.limit) || 0 }; },
     /** Move a folder (and all in it) into another folder ('' : the main folder). Script version 4. */
     moveFolder: async (id, to = '') => (await call('movedir', { id, to })).folder,
   };

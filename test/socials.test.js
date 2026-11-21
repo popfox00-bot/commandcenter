@@ -166,3 +166,33 @@ test('tags, @mentions and shared posts: only real accounts; tagged posts per acc
   assert.equal(normalize(JSON.parse(JSON.stringify(s))).messages[0].post, p.id, 'kept');
   removeAccount(s, b.id); assert.deepEqual(p.tags, []);
 });
+
+test('posts of several: their photos and videos in order, each its own id; kept and merged; Reels shuffled', async () => {
+  const { mediaOf, shuffled } = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' });
+  const img = (t) => new Blob([t], { type: 'image/jpeg' }); const vid = new Blob(['v'], { type: 'video/mp4' });
+  const p = addPost(s, a.id, { image: img('1'), caption: 'trip', more: [{ image: img('2') }, { image: img('s'), video: vid }, {}] });
+  const m = mediaOf(p); assert.equal(m.length, 3, 'empty ones left out'); assert.deepEqual(m.map((x) => x.kind), ['photo', 'photo', 'video']);
+  assert.equal(new Set(m.flatMap((x) => [x.imageId, x.videoId]).filter(Boolean)).size, 4, 'each its own id');
+  const back = normalize(JSON.parse(JSON.stringify({ ...s, posts: s.posts.map(({ image, video, ...q }) => ({ ...q, more: q.more.map(({ image: i2, video: v2, ...r }) => r) })) })));
+  assert.deepEqual(mediaOf(back.posts[0]).map((x) => x.imageId), m.map((x) => x.imageId), 'ids kept without the files');
+  assert.ok(addPost(s, a.id, { image: img('x'), more: Array.from({ length: 15 }, () => ({ image: img('y') })) }).more.length <= 9, 'ten at most');
+  let seed = 7; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const order = shuffled([1, 2, 3, 4, 5, 6, 7, 8], rand); assert.deepEqual([...order].sort(), [1, 2, 3, 4, 5, 6, 7, 8]); assert.notDeepEqual(order, [1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test('a post of several goes to another phone through Drive whole: every photo and video in it', async () => {
+  const { syncSocials, pendingFiles } = await import('../web/apps/socials/socials-sync.js');
+  const { mediaOf } = await import('../web/apps/socials/socials-core.js');
+  const drive = fakeDrive(); const fast = { iterations: 1000 };
+  const A = emptyState(); const a = addAccount(A, { handle: 'a' });
+  addPost(A, a.id, { image: new Blob([new Uint8Array([0xff, 0xd8, 1])], { type: 'image/jpeg' }), more: [{ image: new Blob([new Uint8Array([0xff, 0xd8, 2])], { type: 'image/jpeg' }) }, { image: new Blob([new Uint8Array([0xff, 0xd8, 3])], { type: 'image/jpeg' }), video: new Blob([new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d])], { type: 'video/mp4' }) }] });
+  assert.equal(pendingFiles(A, [], true), 5, 'four files and the posts');
+  const r1 = await syncSocials(drive, A, 'pw-1234', fast); assert.equal(r1.sent, 4);
+  assert.equal(pendingFiles(r1.state, r1.driveMedia, false), 0);
+  const B = (await syncSocials(drive, emptyState(), 'pw-1234', fast)).state;
+  const m = mediaOf(B.posts[0]);
+  assert.deepEqual(m.map((x) => x.kind), ['photo', 'photo', 'video']);
+  assert.deepEqual(await Promise.all(m.map(async (x) => (await x.image.arrayBuffer()).byteLength)), [3, 3, 3]);
+  assert.equal(m[2].video.type, 'video/mp4');
+});

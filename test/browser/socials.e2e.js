@@ -378,3 +378,50 @@ test('Socials: tag accounts in a post (and @mention them), share it in a DM, and
   assert.equal(await page.getByRole('dialog', { name: 'Post options' }).getByRole('button', { name: 'Open in…' }).count(), 0, 'pal (not the Owner): no Open in');
   await page.close();
 });
+
+test('Socials: several photos and a video in one post (a carousel), and Reels shuffled, again on a pull down at the top', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  // Two photos picked at once (each through the editor), then a video added: three in one post.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  const p1 = await photo(page); const p2 = { ...(await photo(page)), name: 'b.png' };
+  await page.getByLabel('Photo or video').setInputFiles([p1, p2]);
+  for (let i = 0; i < 2; i++) {
+    const d = page.getByRole('dialog', { name: 'Edit photo' }); await d.waitFor(); const h = await d.elementHandle();
+    await d.getByRole('button', { name: 'Done' }).click(); await page.waitForFunction((e) => !e.isConnected, h);
+  }
+  await page.getByLabel('Add more photos or videos').setInputFiles(await clip(page));
+  await page.locator('.so-new-thumb').nth(2).waitFor();
+  assert.equal(await page.locator('.so-new-thumb').count(), 3);
+  await page.getByRole('button', { name: 'Remove 2' }).click();
+  assert.equal(await page.locator('.so-new-thumb').count(), 2, 'one taken out');
+  await page.getByLabel('Caption').fill('A day out'); await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const post = page.locator('.so-post', { hasText: 'A day out' }); await post.waitFor();
+  assert.equal(await post.locator('.so-slide').count(), 2, 'a carousel of two');
+  assert.equal(await post.locator('.so-count').textContent(), '1/2');
+  await post.locator('.so-carousel').evaluate((t) => { t.scrollLeft = t.clientWidth; t.dispatchEvent(new Event('scroll')); });
+  await page.waitForFunction(() => document.querySelector('.so-count')?.textContent === '2/2');
+  assert.equal(await post.locator('.so-slide').nth(1).locator('video').count(), 1, 'the video second');
+  // Reels: six videos; the order shuffled, and shuffled again on a pull down at the top.
+  for (let i = 0; i < 5; i++) {
+    await page.getByRole('button', { name: 'New post' }).first().click();
+    await page.getByLabel('Photo or video').setInputFiles(await clip(page)); await page.locator('.so-new-thumb, .so-new-prev video').first().waitFor();
+    await page.getByLabel('Caption').fill(`Reel ${i}`); await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await page.locator('.so-reel').first().waitFor();
+  }
+  const order = () => page.locator('.so-reel').evaluateAll((els) => els.map((e) => e.dataset.post));
+  const first = await order(); assert.equal(first.length, 5, 'only posts that start with a video');
+  let changed = false;
+  for (let t = 0; t < 4 && !changed; t++) {
+    const box = await page.locator('.so-reels').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 30); await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + 200, { steps: 8 }); await page.mouse.up();
+    await page.getByText('Shuffled').first().waitFor();
+    const now = await order(); assert.deepEqual([...now].sort(), [...first].sort(), 'the same reels'); changed = now.join() !== first.join();
+  }
+  assert.ok(changed, 'a new order after pulling down');
+  await page.close();
+});

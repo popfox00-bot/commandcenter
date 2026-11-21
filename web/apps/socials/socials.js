@@ -20,7 +20,7 @@ import {
   emptyState, normalize, addAccount, editAccount, removeAccount, accountById, toggleFollow, isFollowing,
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost,
-  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts,
+  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
 } from './socials-core.js';
 import { handoff } from '../../lib/handoff.js';
 
@@ -34,6 +34,10 @@ export const socialsLock = makeLock('cc.socials.lock', 'cc.socials.open');
 let sessionPw = null;
 // (Reels' sound: off until it's turned on once, then on for each reel while the app is open.)
 let reelSound = false;
+// (Reels' order: shuffled once when the app opens, again on a pull down at the top; a video just posted first.)
+let reelOrder = null;
+/** Most photos and videos in one post. */
+const MAX_ITEMS = 10;
 /** Videos bigger than this aren't taken (a phone's storage; and only up to 24 MB go to Drive). */
 const MAX_VIDEO = 300 * 1024 * 1024;
 
@@ -66,7 +70,7 @@ export function mount(host) {
       // (Anything changed here while it ran is kept: merged again over what came back.)
       state = mergeStates(state, r.state);
       // (Photos and videos fetched from Drive (one this device had lost, too) put in, by their ids.)
-      const got = new Map(); const each = (st, fn) => { for (const a of st.accounts) fn(a, 'avatar', 'avatarId'); for (const p of st.posts) { fn(p, 'image', 'imageId'); fn(p, 'video', 'videoId'); } };
+      const got = new Map(); const each = (st, fn) => { for (const a of st.accounts) fn(a, 'avatar', 'avatarId'); for (const p of st.posts) for (const o of [p, ...(p.more ?? [])]) { fn(o, 'image', 'imageId'); fn(o, 'video', 'videoId'); } };
       each(r.state, (o, k, idk) => { if (o[k] && o[idk]) got.set(o[idk], o[k]); });
       each(state, (o, k, idk) => { if (!o[k] && o[idk] && got.has(o[idk])) o[k] = got.get(o[idk]); });
       await saveState(state);
@@ -143,15 +147,31 @@ export function mount(host) {
 
   /** A post's photo or video, as the feed shows it. */
   function media(p, by, like) {
-    if (p.kind === 'video') {
-      if (!p.video) return el('div', { class: 'so-pic so-novideo' }, p.image ? el('img', { src: urlOf(p.image), alt: '' }) : null, el('span', { text: 'This video is on the device it was posted from (too big to sync).' }));
-      return el('div', { class: 'so-pic so-vid' }, el('video', { src: urlOf(p.video), poster: urlOf(p.image) ?? undefined, controls: true, playsinline: true, preload: 'metadata', 'aria-label': `Video by ${by.handle}` }));
+    const items = mediaOf(p);
+    if (items.length < 2) return slide(items[0], p, by, like);
+    // (Several: side by side, swiped through one at a time, with dots and "2/3" saying which.)
+    const track = el('div', { class: 'so-carousel', role: 'group', 'aria-roledescription': 'carousel', 'aria-label': `${items.length} photos and videos` }, items.map((it, i) => el('div', { class: 'so-slide', 'aria-label': `${i + 1} of ${items.length}` }, slide(it, p, by, like))));
+    const dots = el('div', { class: 'so-dots', 'aria-hidden': 'true' }, items.map((_, i) => el('span', { class: `so-dot-i${i ? '' : ' on'}` })));
+    const count = el('span', { class: 'so-count', text: `1/${items.length}` });
+    track.addEventListener('scroll', () => {
+      const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+      count.textContent = `${i + 1}/${items.length}`; [...dots.children].forEach((d, j) => d.classList.toggle('on', j === i));
+      for (const v of track.querySelectorAll('video')) if (!v.paused && v.closest('.so-slide') !== track.children[i]) v.pause();
+    }, { passive: true });
+    return el('div', { class: 'so-multi' }, track, count, dots);
+  }
+
+  /** One photo or video of a post. */
+  function slide(it, p, by, like) {
+    if (it.kind === 'video') {
+      if (!it.video) return el('div', { class: 'so-pic so-novideo' }, it.image ? el('img', { src: urlOf(it.image), alt: '' }) : null, el('span', { text: 'This video is on the device it was posted from (too big to sync).' }));
+      return el('div', { class: 'so-pic so-vid' }, el('video', { src: urlOf(it.video), poster: urlOf(it.image) ?? undefined, controls: true, playsinline: true, preload: 'metadata', 'aria-label': `Video by ${by.handle}` }));
     }
     // (A photo whose file couldn't be read on this device: said so, not a broken picture. With Saved Files, the
     // copy in Drive brings it back at the next sync.)
-    if (!p.image) return p.imageId ? lostPhoto() : null;
+    if (!it.image) return it.imageId ? lostPhoto() : null;
     let lastTap = 0;
-    const box = el('div', { class: 'so-pic', ondblclick: () => like(), onpointerup: () => { const t = Date.now(); if (t - lastTap < 300) like(); lastTap = t; } }, el('img', { src: urlOf(p.image), alt: p.caption ? `Photo: ${p.caption.slice(0, 80)}` : `Photo by ${by.handle}`, onerror: () => box.replaceWith(lostPhoto()) }));
+    const box = el('div', { class: 'so-pic', ondblclick: () => like(), onpointerup: () => { const t = Date.now(); if (t - lastTap < 300) like(); lastTap = t; } }, el('img', { src: urlOf(it.image), alt: p.caption ? `Photo: ${p.caption.slice(0, 80)}` : `Photo by ${by.handle}`, onerror: () => box.replaceWith(lostPhoto()) }));
     return box;
   }
 
@@ -314,7 +334,7 @@ export function mount(host) {
 
   const tile = (p) => el('button', { type: 'button', class: 'so-tile', 'aria-label': `${p.kind === 'video' ? 'Video' : 'Post'} by ${accountById(state, p.by)?.handle}${p.caption ? `: ${p.caption.slice(0, 60)}` : ''}`, onclick: () => go(p.kind === 'video' ? { name: 'reels', start: p.id, by: view.name === 'profile' ? p.by : null } : { name: 'post', id: p.id }) },
     p.image ? el('img', { src: urlOf(p.image), alt: '' }) : el('span', { class: 'so-tile-text', text: p.caption }),
-    p.kind === 'video' ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '▶︎' }) : null);
+    p.more?.length ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '❐' }) : p.kind === 'video' ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '▶︎' }) : null);
 
   function profile(id) {
     const a = accountById(state, id); if (!a) return feed();
@@ -411,39 +431,55 @@ export function mount(host) {
     }
   }
 
-  // ---- A new post: a photo (edited first) or a video (with its sound).
+  // ---- A new post: photos (each edited first) and videos (with their sound), up to ten in one post.
   function newPost() {
-    const m = me(); let img = null; let original = null; let vid = null; const tags = new Set();
-    const prev = el('div', { class: 'so-new-prev' }, el('span', { class: 'muted', text: 'Pick a photo or video' }));
-    const file = el('input', { type: 'file', accept: 'image/*,video/*', class: 'so-file', 'aria-label': 'Photo or video' });
+    const m = me(); const tags = new Set();
+    /** Its items: { kind, image (the photo, or a video's still), video, original (the photo as picked) }. */
+    const items = []; let cur = 0;
+    const prev = el('div', { class: 'so-new-prev' }, el('span', { class: 'muted', text: 'Pick photos or videos' }));
+    const strip = el('div', { class: 'so-new-strip', role: 'list', 'aria-label': 'In this post' });
+    const file = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, class: 'so-file', 'aria-label': 'Photo or video' });
+    const more = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, class: 'so-file', 'aria-label': 'Add more photos or videos' });
     const caption = el('textarea', { class: 'so-input', rows: '3', placeholder: 'Write a caption…', 'aria-label': 'Caption', maxlength: '2200' });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const share = el('button', { type: 'button', class: 'btn primary', text: 'Share', disabled: true });
     const again = el('button', { type: 'button', class: 'btn', text: 'Edit photo', hidden: true });
-    const showPhoto = () => { prev.replaceChildren(el('img', { src: urlOf(img), alt: 'Your photo' })); share.disabled = false; again.hidden = false; };
-    const editIt = async () => { const b = await photoFrom(original, false); if (b) { img = b; showPhoto(); } };
-    again.addEventListener('click', () => editIt().catch((e) => { err.textContent = e.message; }));
-    file.addEventListener('change', async () => {
-      const f = file.files?.[0]; file.value = ''; if (!f) return; err.textContent = ''; img = vid = null; share.disabled = true; again.hidden = true;
-      prev.replaceChildren(el('span', { class: 'muted', text: 'Opening…' }));
-      try {
-        if (/^video\//.test(f.type) || /\.(mov|mp4|m4v|webm)$/i.test(f.name)) {
-          if (f.size > MAX_VIDEO) throw new Error(`That video is too big (${Math.round(f.size / 1048576)} MB; ${MAX_VIDEO / 1048576} MB at most).`);
-          vid = await prepareVideo(f);
-          prev.replaceChildren(el('video', { src: urlOf(vid.video), poster: urlOf(vid.still), controls: true, playsinline: true, 'aria-label': 'Your video' }));
-          if (f.size > 24 * 1048576 && connected()) err.textContent = 'This video is over 24 MB: it stays on this device and won\'t play on your other devices.';
-          share.disabled = false;
-        } else {
-          original = f; img = await photoFrom(f, false);
-          if (img) showPhoto(); else prev.replaceChildren(el('span', { class: 'muted', text: 'Pick a photo or video' }));
-        }
-      } catch (e) { img = vid = null; prev.replaceChildren(el('span', { class: 'muted', text: 'Pick a photo or video' })); err.textContent = e.message; }
-    });
+    const addLabel = el('label', { class: 'btn so-add-more', hidden: true }, '＋ Add more', more);
+    const show = () => {
+      const it = items[cur];
+      fill(prev, !it ? el('span', { class: 'muted', text: 'Pick photos or videos' }) : it.kind === 'video' ? el('video', { src: urlOf(it.video), poster: urlOf(it.image), controls: true, playsinline: true, 'aria-label': 'Your video' }) : el('img', { src: urlOf(it.image), alt: 'Your photo' }));
+      fill(strip, items.length > 1 ? items.map((x, i) => el('div', { class: `so-new-thumb${i === cur ? ' on' : ''}`, role: 'listitem' },
+        el('button', { type: 'button', class: 'so-new-thumb-pick', 'aria-label': `${x.kind === 'video' ? 'Video' : 'Photo'} ${i + 1}`, onclick: () => { cur = i; show(); } }, el('img', { src: urlOf(x.image), alt: '' }), x.kind === 'video' ? el('span', { class: 'so-tile-badge', text: '▶︎' }) : null),
+        el('button', { type: 'button', class: 'so-new-thumb-x', 'aria-label': `Remove ${i + 1}`, text: '✕', onclick: () => { items.splice(i, 1); cur = Math.min(cur, items.length - 1); show(); } }))) : null);
+      share.disabled = !items.length; again.hidden = !(it && it.kind === 'photo'); addLabel.hidden = !items.length || items.length >= MAX_ITEMS;
+    };
+    again.addEventListener('click', async () => { const it = items[cur]; try { const b = await photoFrom(it.original, false); if (b) { it.image = b; show(); } } catch (e) { err.textContent = e.message; } });
+    // (Each picked file in turn: a video as it is, a photo through the editor (Cancel: as it is).)
+    const take = async (list) => {
+      err.textContent = ''; const room = MAX_ITEMS - items.length; const files = [...list].slice(0, room);
+      if (list.length > room) err.textContent = `${MAX_ITEMS} at most in one post.`;
+      for (const f of files) {
+        try {
+          if (/^video\//.test(f.type) || /\.(mov|mp4|m4v|webm)$/i.test(f.name)) {
+            if (f.size > MAX_VIDEO) throw new Error(`"${f.name}" is too big (${Math.round(f.size / 1048576)} MB; ${MAX_VIDEO / 1048576} MB at most).`);
+            const v = await prepareVideo(f); items.push({ kind: 'video', image: v.still, video: v.video });
+            if (f.size > 24 * 1048576 && connected()) err.textContent = 'A video over 24 MB stays on this device and won\'t play on your other devices.';
+          } else {
+            const b = (await photoFrom(f, false)) ?? (files.length > 1 ? await prepare(f, 1440, false) : null);
+            if (b) items.push({ kind: 'photo', image: b, original: f });
+          }
+          cur = items.length - 1; show();
+        } catch (e) { err.textContent = e.message; }
+      }
+    };
+    file.addEventListener('change', () => { const l = [...(file.files ?? [])]; file.value = ''; if (l.length) take(l); });
+    more.addEventListener('change', () => { const l = [...(more.files ?? [])]; more.value = ''; if (l.length) take(l); });
     share.addEventListener('click', () => {
-      try { addPost(state, m.id, vid ? { image: vid.still, video: vid.video, caption: caption.value, tags: [...tags] } : { image: img, caption: caption.value, tags: [...tags] }); save(); go(vid ? { name: 'reels' } : { name: 'feed' }); } catch (e) { err.textContent = e.message; }
+      if (!items.length) return; const [first, ...rest] = items;
+      try { addPost(state, m.id, { image: first.image, video: first.kind === 'video' ? first.video : null, caption: caption.value, tags: [...tags], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })) }); save(); go(first.kind === 'video' ? { name: 'reels' } : { name: 'feed' }); } catch (e) { err.textContent = e.message; }
     });
     return el('div', {}, backBar(`New post as @${m.handle}`, { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), again, caption, tagPicker(tags, m.id), err, share));
+      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), strip, el('div', { class: 'so-row' }, again, addLabel), caption, tagPicker(tags, m.id), err, share));
   }
 
   // ---- Editing a post: its caption, and its photo (through the editor again).
@@ -463,7 +499,14 @@ export function mount(host) {
   // in view (its sound on once you turn it on); tap to pause.
   let reelObserver = null;
   function reels() {
-    const list = reelsOf(state, view.by ?? null);
+    // (Everyone's: in a shuffled order, the same while the app's open, new ones first; one account's: newest first.)
+    let list = reelsOf(state, view.by ?? null);
+    if (!view.by) {
+      const ids = list.map((p) => p.id);
+      if (!reelOrder) reelOrder = shuffled(ids);
+      const fresh = ids.filter((id) => !reelOrder.includes(id)); reelOrder = [...fresh, ...reelOrder.filter((id) => ids.includes(id))];
+      const byId = new Map(list.map((p) => [p.id, p])); list = reelOrder.map((id) => byId.get(id)).filter(Boolean);
+    }
     reelObserver?.disconnect();
     if (!list.length) return el('div', { class: 'so-empty' }, el('p', { class: 'so-empty-big', text: 'No reels yet' }), el('p', { class: 'muted', text: 'Videos posted from any of your accounts show here.' }), el('button', { type: 'button', class: 'btn primary', text: 'Post a video', onclick: () => go({ name: 'new' }) }));
     const vids = [];
@@ -483,10 +526,24 @@ export function mount(host) {
           el('button', { type: 'button', class: 'so-reel-by', onclick: () => go({ name: 'profile', id: by.id }) }, avatar(by, 's'), el('strong', { text: by.handle })),
           p.caption ? el('p', { class: 'so-reel-cap' }, ...captionNodes(p.caption)) : null, tagLine(p)));
     }));
+    // (Pulled down at the top: shuffled again.)
+    if (!view.by) {
+      const hint = el('div', { class: 'so-pull', 'aria-hidden': 'true', text: '↻' }); wrap.prepend(hint);
+      let y0 = null; let pulled = 0;
+      const startAt = (y) => { y0 = wrap.scrollTop <= 0 ? y : null; pulled = 0; };
+      const moveTo = (y) => { if (y0 == null) return; pulled = Math.max(0, y - y0); hint.style.height = `${Math.min(80, pulled * 0.6)}px`; hint.classList.toggle('ready', pulled > 90); };
+      const endPull = () => { if (y0 != null && pulled > 90) { reelOrder = shuffled(reelOrder ?? []); toast('Shuffled'); draw(); return; } y0 = null; hint.style.height = '0px'; hint.classList.remove('ready'); };
+      wrap.addEventListener('touchstart', (e) => startAt(e.touches[0].clientY), { passive: true });
+      wrap.addEventListener('touchmove', (e) => moveTo(e.touches[0].clientY), { passive: true });
+      wrap.addEventListener('touchend', endPull);
+      wrap.addEventListener('mousedown', (e) => startAt(e.clientY));
+      wrap.addEventListener('mousemove', (e) => { if (e.buttons & 1) moveTo(e.clientY); });
+      wrap.addEventListener('mouseup', endPull);
+    }
     // (The one in view plays; the others stop.)
     if ('IntersectionObserver' in globalThis) {
       reelObserver = new IntersectionObserver((es) => { for (const e of es) { const v = e.target.querySelector('video'); if (!v) continue; if (e.isIntersecting && e.intersectionRatio > 0.6) { v.removeAttribute('data-off'); v.muted = !reelSound; v.play().catch(() => { v.muted = true; v.play().catch(() => {}); }); } else { v.setAttribute('data-off', ''); v.pause(); } } }, { root: wrap, threshold: [0, 0.6, 1] });
-      requestAnimationFrame(() => { for (const s2 of wrap.children) reelObserver.observe(s2); if (view.start) wrap.querySelector(`[data-post="${view.start}"]`)?.scrollIntoView({ block: 'start' }); });
+      requestAnimationFrame(() => { for (const s2 of wrap.querySelectorAll('.so-reel')) reelObserver.observe(s2); if (view.start) wrap.querySelector(`[data-post="${view.start}"]`)?.scrollIntoView({ block: 'start' }); });
     }
     return el('div', {}, view.by ? backBar(`@${accountById(state, view.by)?.handle ?? ''} · Reels`, { name: 'profile', id: view.by, grid: 'reels' }) : null, wrap);
   }

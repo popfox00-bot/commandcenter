@@ -96,10 +96,10 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
   if (df) remote = JSON.parse(new TextDecoder().decode(await open(key, await download(api, df.id))));
   const blobs = new Map();
   for (const a of local.accounts) if (a.avatar && a.avatarId) blobs.set(a.avatarId, a.avatar);
-  for (const p of local.posts) { if (p.image && p.imageId) blobs.set(p.imageId, p.image); if (p.video && p.videoId) blobs.set(p.videoId, p.video); }
+  for (const p of local.posts) for (const o of [p, ...(p.more ?? [])]) { if (o.image && o.imageId) blobs.set(o.imageId, o.image); if (o.video && o.videoId) blobs.set(o.videoId, o.video); }
   const state = remote ? mergeStates(local, normalize({ ...remote, me: local.me })) : normalize(local);
   // (Every photo it uses: here already, or fetched from Drive.)
-  const needs = [...state.accounts.map((a) => [a, 'avatar', 'avatarId']), ...state.posts.map((p) => [p, 'image', 'imageId']), ...state.posts.map((p) => [p, 'video', 'videoId'])].filter(([o, , idk]) => o[idk]);
+  const needs = [...state.accounts.map((a) => [a, 'avatar', 'avatarId']), ...state.posts.map((p) => [p, 'image', 'imageId']), ...state.posts.map((p) => [p, 'video', 'videoId']), ...state.posts.flatMap((p) => (p.more ?? []).flatMap((m) => [[m, 'image', 'imageId'], [m, 'video', 'videoId']]))].filter(([o, , idk]) => o[idk]);
   let fetched = 0; let sent = 0;
   await pool(needs, 4, async ([o, k, idk]) => {
     const id = o[idk];
@@ -114,7 +114,7 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
   const uniq = new Map(); for (const [o, k, idk] of needs) if (o[k] && o[k].size <= MAX_MEDIA && !files.has(mediaName(o[idk]))) uniq.set(o[idk], o[k]);
   await pool([...uniq], 3, async ([id, blob]) => { await upload(api, mediaName(id), await seal(key, new Uint8Array(await blob.arrayBuffer()))); sent++; });
   // The merged copy, without the photos themselves, back to Drive.
-  const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => p), messages: state.messages, reads: state.reads };
+  const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => ({ ...p, more: (p.more ?? []).map(({ image: i2, video: v2, ...m }) => m) })), messages: state.messages, reads: state.reads };
   await upload(api, DATA_FILE, await seal(key, new TextEncoder().encode(JSON.stringify(wire))));
   // (Which photos and videos Drive has now: what's still to send, until the next sync, is the rest.)
   const driveMedia = [...files.keys()].filter((n) => n.startsWith('socials-m-')).map((n) => n.slice(10, -4)).concat([...uniq.keys()]);
@@ -129,9 +129,9 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
 export function pendingFiles(state, driveMedia, dirty) {
   const have = new Set(driveMedia ?? []); const ids = new Set();
   for (const a of state.accounts) if (a.avatar && a.avatarId && !have.has(a.avatarId)) ids.add(a.avatarId);
-  for (const p of state.posts) {
-    if (p.image && p.imageId && !have.has(p.imageId)) ids.add(p.imageId);
-    if (p.video && p.videoId && p.video.size <= MAX_MEDIA && !have.has(p.videoId)) ids.add(p.videoId);
+  for (const p of state.posts) for (const o of [p, ...(p.more ?? [])]) {
+    if (o.image && o.imageId && !have.has(o.imageId)) ids.add(o.imageId);
+    if (o.video && o.videoId && o.video.size <= MAX_MEDIA && !have.has(o.videoId)) ids.add(o.videoId);
   }
   return ids.size + (dirty ? 1 : 0);
 }

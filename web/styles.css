@@ -1485,3 +1485,23 @@ body.se-open { overflow: hidden; }
 .so-shared-cap { font-size: .82rem; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .so-shared-badge { position: absolute; right: 16px; top: 48px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .so-shared-gone { font-size: .85rem; color: var(--muted); cursor: default; }
+/* Socials: posts of several (a carousel), picking several, Reels' pull to shuffle. */
+.so-multi { position: relative; }
+.so-carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; background: #000; overscroll-behavior-x: contain; }
+.so-carousel::-webkit-scrollbar { display: none; }
+.so-slide { flex: 0 0 100%; scroll-snap-align: center; scroll-snap-stop: always; display: grid; place-items: center; }
+.so-slide > .so-pic { width: 100%; }
+.so-count { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: .78rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; pointer-events: none; }
+.so-dots { display: flex; justify-content: center; gap: 5px; padding: 8px 0 0; }
+.so-dot-i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--text) 25%, transparent); }
+.so-dot-i.on { background: var(--accent, #0095f6); }
+.so-new-strip { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.so-new-strip:empty { display: none; }
+.so-new-thumb { position: relative; flex: none; }
+.so-new-thumb-pick { display: block; position: relative; width: 64px; height: 64px; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--surface); cursor: pointer; }
+.so-new-thumb.on .so-new-thumb-pick { border-color: var(--accent, #0095f6); }
+.so-new-thumb-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.so-new-thumb-x { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0,0,0,.75); color: #fff; font-size: .75rem; cursor: pointer; }
+.so-add-more { position: relative; }
+.so-pull { height: 0; overflow: hidden; display: grid; place-items: center; color: #fff; font-size: 1.6rem; transition: height .15s; flex: none; }
+.so-pull.ready { color: #4aa3ff; }

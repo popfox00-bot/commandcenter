@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "1d85fbadeb91",
+  "version": "9e880f1e8e14",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -77,8 +77,8 @@ const PRECACHE = {
     "apps/weather/weather.js",
     "apps/worldatlas/assets/__vite-browser-external-C-C-2wIn.js",
     "apps/worldatlas/assets/biome.worker-CkyGe44v.js",
-    "apps/worldatlas/assets/index-BCXTmTbM.js",
-    "apps/worldatlas/assets/index-ntVSwRAk.css",
+    "apps/worldatlas/assets/index-BXKEfvEt.css",
+    "apps/worldatlas/assets/index-CdJtVfRg.js",
     "apps/worldatlas/cc-frame.css",
     "apps/worldatlas/index.html",
     "apps/worldatlas/tutorials/blocks.js",

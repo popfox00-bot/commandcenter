@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "732c23cca03f",
+  "version": "88a2a655dca1",
   "files": [
     "app.js",
     "apps/calendar/calendar-core.js",
@@ -56,6 +56,7 @@ const PRECACHE = {
     "apps/settings/settings.js",
     "apps/socials/socials-core.js",
     "apps/socials/socials-editor.js",
+    "apps/socials/socials-store.js",
     "apps/socials/socials-sync.js",
     "apps/socials/socials.js",
     "apps/sports/sports.js",

@@ -1292,8 +1292,16 @@ function makeSkin(S, z) {
   const fig = new Float32Array(bw * bh);
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = (Y0 + y) * w + X0 + x; fig[y * bw + x] = z.mask[i] || Math.max(p.body[i], p.clothes[i], p.face[i]) >= 128 || p.hair[i] >= 128 ? 1e9 : 0; }
   chamfer(fig, bw, bh);
+  // (Each limb by its own width: how far in a pixel is over how far in the middle of that part of them is (the
+  // most of it nearby), so an arm is round as an arm is (lit down its middle, darker toward its sides), not
+  // flat because it's narrower than a body.)
+  const R0 = Math.max(4, Math.round(fw0 * 0.5)); const capF = new Float32Array(bw * bh);
+  for (let k = 0; k < bw * bh; k++) capF[k] = Math.min(fig[k], R0 * 2);
+  const mx1 = new Float32Array(bw * bh); const mx2 = new Float32Array(bw * bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { let m = 0; for (let d = -R0; d <= R0; d += 2) { const xx = x + d; if (xx >= 0 && xx < bw) { const v = capF[y * bw + xx]; if (v > m) m = v; } } mx1[y * bw + x] = m; }
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { let m = 0; for (let d = -R0; d <= R0; d += 2) { const yy = y + d; if (yy >= 0 && yy < bh) { const v = mx1[yy * bw + x]; if (v > m) m = v; } } mx2[y * bw + x] = m; }
   let rnd = new Float32Array(bw * bh);
-  for (let k = 0; k < bw * bh; k++) { const t = Math.min(1, fig[k] / (fw0 * 0.55)); rnd[k] = 1 - 0.17 * (1 - t * t * (3 - 2 * t)); }
+  for (let k = 0; k < bw * bh; k++) { const t = Math.min(1, capF[k] / Math.max(2, Math.min(mx2[k], fw0 * 0.55))); rnd[k] = 1 - 0.17 * (1 - Math.sqrt(Math.max(0, Math.sin((Math.PI / 2) * t)))); }
   { const rr = Math.max(2, Math.round(fh * 0.06)); rnd = boxBlur(boxBlur(boxBlur(rnd, all1, bw, bh, rr), all1, bw, bh, rr), all1, bw, bh, rr); }
   // (The light's side: which half of their face is brighter, carried gently across the body.)
   let lit = 0; let lcx = (b.x0 + b.x1) / 2;

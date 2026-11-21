@@ -492,3 +492,41 @@ test('Socials: stories (new posts, on their circle), drafts, pinning, Recently d
   assert.equal(names.filter((n) => /\.(jpg|png)$/.test(n)).length, 2, `two photos: ${names}`); assert.ok(names.includes('captions.txt'));
   await ctx.close();
 });
+
+test('Socials collab: invite while posting; a collab request in their messages; accepted, the same post on both profiles, "a and b"', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill('Made together');
+  await page.getByRole('group', { name: 'Collab' }).getByRole('button', { name: 'Collab with @pal' }).click();
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.so-post', { hasText: 'Made together' }).waitFor();
+  assert.doesNotMatch(await page.locator('.so-post-head').first().textContent(), /and pal/, 'not until pal accepts');
+  // As pal: the request, accepted.
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @pal' }).click();
+  await page.getByRole('button', { name: 'Messages, 1 unread' }).click();
+  assert.match(await page.locator('.so-person').first().textContent(), /Collab request/);
+  await page.getByRole('button', { name: /Chat with @owner\.me/ }).click();
+  await page.getByText('@owner.me invited you to collaborate on this post').waitFor();
+  await page.getByRole('button', { name: 'Accept' }).click();
+  await page.getByText('You accepted: it\'s on your profile').waitFor();
+  // On pal's profile, the same post, "owner.me and pal".
+  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Profile' }).click();
+  assert.equal(await page.locator('.so-grid .so-tile').count(), 1, 'on pal\'s profile');
+  await page.locator('.so-grid .so-tile').first().click();
+  assert.match(await page.locator('.so-post-head').textContent(), /owner\.me and pal/);
+  // pal leaves it: off pal's profile.
+  await page.getByRole('button', { name: 'Post options' }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Remove me from this collab' }).click();
+  await page.getByRole('button', { name: 'Profile' }).click();
+  assert.equal(await page.locator('.so-grid .so-tile').count(), 0, 'left');
+  await page.close();
+});

@@ -8,7 +8,8 @@
 //               video: Blob | null, videoId, more: [{ kind, image, imageId, video, videoId }] (a post of several:
 //               its 2nd and later photos or videos), caption, tags: [accountId], at, upd, edited, likes, comments,
 //               draft: bool (saved, not shared yet), pinned: when (to the top of its profile), trashed: when (deleted:
-//               recoverable for TRASH_DAYS) }
+//               recoverable for TRASH_DAYS), collab: [{ id: accountId, status: 'pending' | 'accepted' | 'declined', at }]
+//               (accounts invited to share it: accepted, it's on their profile and in their followers' feeds too) }
 //   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
@@ -78,7 +79,7 @@ export function removeAccount(state, id) {
   state.accounts = state.accounts.filter((a) => a.id !== id);
   state.posts = state.posts.filter((p) => p.by !== id);
   for (const a of state.accounts) if (a.following.includes(id)) { a.following = a.following.filter((f) => f !== id); a.upd = now; }
-  for (const p of state.posts) if (p.likes.includes(id) || p.comments.some((c) => c.by === id) || (p.tags ?? []).includes(id)) { p.likes = p.likes.filter((l) => l !== id); p.comments = p.comments.filter((c) => c.by !== id); p.tags = (p.tags ?? []).filter((t) => t !== id); p.upd = now; }
+  for (const p of state.posts) if (p.likes.includes(id) || p.comments.some((c) => c.by === id) || (p.tags ?? []).includes(id) || (p.collab ?? []).some((c) => c.id === id)) { p.likes = p.likes.filter((l) => l !== id); p.comments = p.comments.filter((c) => c.by !== id); p.tags = (p.tags ?? []).filter((t) => t !== id); p.collab = (p.collab ?? []).filter((c) => c.id !== id); p.upd = now; }
   if (wasOwner && state.accounts.length) { const next = [...state.accounts].sort((a, b) => a.at - b.at)[0]; next.owner = true; next.upd = now; }
   if (state.me === id) state.me = ownerOf(state)?.id ?? state.accounts[0]?.id ?? null;
 }
@@ -95,10 +96,13 @@ export function toggleFollow(state, who, whom) {
 
 export const followersOf = (state, id) => state.accounts.filter((a) => a.following.includes(id));
 export const followingOf = (state, id) => (accountById(state, id)?.following ?? []).map((f) => accountById(state, f)).filter(Boolean);
+/** The accounts a post is a collab with (those who accepted, or with `status`, those). */
+export const collabsOf = (p, status = 'accepted') => (p.collab ?? []).filter((c) => c.status === status).map((c) => c.id);
+
 /** Whether a post is shared and showing (not a draft, not deleted). */
 export const live = (p) => !p.draft && !p.trashed;
 /** An account's posts as its profile shows them: pinned first (the latest pinned first), then newest first. */
-export const postsBy = (state, id) => state.posts.filter((p) => p.by === id && live(p)).sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || b.at - a.at);
+export const postsBy = (state, id) => state.posts.filter((p) => (p.by === id || collabsOf(p).includes(id)) && live(p)).sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || b.at - a.at);
 
 /** Add a post by an account: a photo, or a video (with its still, `image`). Returns it. */
 export function addPost(state, by, { image = null, video = null, caption = '', tags = [], more = [], draft = false }) {
@@ -189,7 +193,7 @@ export function emptyOldTrash(state, now = Date.now()) {
 
 export const STORY_HOURS = 24;
 /** An account's stories: its posts of the last 24 hours, oldest first. */
-export const storiesOf = (state, id, now = Date.now()) => state.posts.filter((p) => p.by === id && live(p) && now - p.at < STORY_HOURS * 3600000).sort((a, b) => a.at - b.at);
+export const storiesOf = (state, id, now = Date.now()) => state.posts.filter((p) => (p.by === id || collabsOf(p).includes(id)) && live(p) && now - p.at < STORY_HOURS * 3600000).sort((a, b) => a.at - b.at);
 
 // ---- Comments made for a new post: three of the other accounts, a kind word each.
 
@@ -233,7 +237,7 @@ export const postById = (state, id) => state.posts.find((p) => p.id === id) ?? n
 export function feedFor(state, me) {
   const a = accountById(state, me); if (!a) return [];
   const seen = new Set([me, ...a.following]);
-  return state.posts.filter((p) => seen.has(p.by) && live(p) && accountById(state, p.by)).sort((x, y) => y.at - x.at);
+  return state.posts.filter((p) => (seen.has(p.by) || collabsOf(p).some((c) => seen.has(c))) && live(p) && accountById(state, p.by)).sort((x, y) => y.at - x.at);
 }
 
 /** Like or unlike a post as `who`. Returns whether it's now liked. */
@@ -252,13 +256,50 @@ export function addComment(state, postId, who, text) {
   p.comments.push(c); p.upd = c.at; return c;
 }
 
+// ---- Collabs: a post shared by its account and up to three others, each invited and saying yes.
+
+export const MAX_COLLAB = 3;
+/**
+ * Invite accounts to a post as collaborators: each new one gets a collab request in their messages. Those
+ * no longer in `ids` are taken off it. Returns the accounts newly invited.
+ */
+export function setCollabs(state, postId, ids) {
+  const p = postById(state, postId); if (!p) return [];
+  const want = [...new Set(ids ?? [])].filter((id) => id !== p.by && accountById(state, id)).slice(0, MAX_COLLAB);
+  const before = p.collab ?? [];
+  const keep = before.filter((c) => want.includes(c.id));
+  const fresh = want.filter((id) => !keep.some((c) => c.id === id));
+  const now = Date.now();
+  p.collab = [...keep, ...fresh.map((id) => ({ id, status: 'pending', at: now }))];
+  if (fresh.length || keep.length !== before.length) p.upd = now;
+  // (A request each, in their messages, unless it's a draft: they're asked when it's shared.)
+  if (!p.draft) for (const id of fresh) sendMessage(state, p.by, id, '', { collab: p.id });
+  return fresh;
+}
+/** Send the requests of a draft's collaborators, now that it's shared. */
+export function sendCollabRequests(state, postId) {
+  const p = postById(state, postId); if (!p || p.draft) return;
+  for (const c of p.collab ?? []) if (c.status === 'pending' && !(state.messages ?? []).some((m) => m.collab === p.id && m.to === c.id)) sendMessage(state, p.by, c.id, '', { collab: p.id });
+}
+/** `who` answers a collab request: yes (the post's on their profile too) or no. Returns whether it changed. */
+export function answerCollab(state, postId, who, accept) {
+  const p = postById(state, postId); const c = p?.collab?.find((x) => x.id === who);
+  if (!c || c.status !== 'pending') return false;
+  c.status = accept ? 'accepted' : 'declined'; c.at = p.upd = Date.now(); return true;
+}
+/** A collaborator leaves a post (it's off their profile). */
+export function leaveCollab(state, postId, who) {
+  const p = postById(state, postId); if (!p?.collab?.some((c) => c.id === who)) return false;
+  p.collab = p.collab.filter((c) => c.id !== who); p.upd = Date.now(); return true;
+}
+
 // ---- Direct messages between accounts.
 
 /** Send a message from one account to another (with a post shared, `post`). Returns it, or null (empty, or to yourself). */
-export function sendMessage(state, from, to, text, { post = null } = {}) {
-  const t = String(text ?? '').trim(); const sh = post && postById(state, post) ? post : null;
-  if ((!t && !sh) || from === to || !accountById(state, from) || !accountById(state, to)) return null;
-  const m = { id: newId(), from, to, text: t.slice(0, 2000), at: Date.now(), ...(sh ? { post: sh } : {}) };
+export function sendMessage(state, from, to, text, { post = null, collab = null } = {}) {
+  const t = String(text ?? '').trim(); const sh = post && postById(state, post) ? post : null; const co = collab && postById(state, collab) ? collab : null;
+  if ((!t && !sh && !co) || from === to || !accountById(state, from) || !accountById(state, to)) return null;
+  const m = { id: newId(), from, to, text: t.slice(0, 2000), at: Date.now(), ...(sh ? { post: sh } : {}), ...(co ? { collab: co } : {}) };
   (state.messages ??= []).push(m); markRead(state, from, to, m.at);
   return m;
 }
@@ -324,10 +365,10 @@ export function normalize(raw) {
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], collab: Array.isArray(p.collab) ? p.collab.filter((c) => c && ids.has(c.id) && c.id !== p.by && ['pending', 'accepted', 'declined'].includes(c.status)).slice(0, MAX_COLLAB).map((c) => ({ id: c.id, status: c.status, at: c.at ?? 0 })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
-  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}) }));
+  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post) || ok(m.collab)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}), ...(ok(m.collab) ? { collab: m.collab } : {}) }));
   s.reads = {};
   if (raw.reads && typeof raw.reads === 'object') for (const [a, o] of Object.entries(raw.reads)) if (ids.has(a) && o && typeof o === 'object') s.reads[a] = Object.fromEntries(Object.entries(o).filter(([b, v]) => ids.has(b) && Number.isFinite(v)));
   return s;

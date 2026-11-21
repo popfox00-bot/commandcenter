@@ -1230,6 +1230,11 @@ Profile, ✈ for messages), where everything is made by you in the app.
   Edit): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its
   profile. An @handle of one of your accounts in a caption is a link to it. ✈ on a post (or beside a reel)
   shares it in a message to another account: it shows in the chat as a card that opens the post.
+- **Collab.** 🤝 Collab when posting (or ⋯ → Edit) invites up to three of your other accounts: each gets a collab
+  request in their messages, with Accept and Decline. Once accepted, the same post (the identical photo) is on
+  their profile too and in their followers' feeds, its header "you and them"; likes and comments are shared.
+  A collaborator can take it off their profile (⋯ → Remove me from this collab). A draft's collaborators are
+  asked when it's shared.
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,
   🎭 FM or 👕 Fashion (as the base, the person to dress, or as the piece, what to put on) opens a copy of the
   photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.

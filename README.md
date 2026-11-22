@@ -965,7 +965,9 @@ the clothes in it: worn by someone, or on its own).
   shadow under the real one; and the real skin's color carries much further in than its light, so the made
   skin keeps the real neck's warmth (no greyer band below the collar line). Where their hair falls over a
   colorful part of what was worn (a red stole under its tips, or in its shade), that color is taken out of
-  the hair's tips (their lightness kept, their hair's own color from just beyond), and the shade beside the
+  the hair's tips (their lightness kept, their hair's own color from just beyond; right at the garment's edge
+  too, fully), the made skin's last pixel or two against the hair takes the made skin just inside it (no thin
+  line of the garment's color along the hair), and the shade beside the
   neck is their hair and what's behind it without it; that shade is only just beside the neck, so the
   shoulders out past it are skin, not the old garment's light rim. Real skin counts for the made skin's color
   only where it's skin-colored. An arm made bare is shaded round by the pose (shoulder → elbow → wrist), a

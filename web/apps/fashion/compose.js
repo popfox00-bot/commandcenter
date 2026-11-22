@@ -1253,7 +1253,9 @@ function cleanHairTips(S, z, patch) {
   const out = new Uint8ClampedArray(bw * bh * 4); let n = 0;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const k = y * bw + x; const i = (y0 + y) * w + x0 + x;
-    if (d[k] === 0 || d[k] > D || p.hair[i] < 40 || p.face[i] >= 100 || y0 + y < L.chin) continue;
+    // (In their hair; and right at the garment's edge whatever it was taken for: the garment's last pixels,
+    // half its color, would be a line.)
+    if (d[k] === 0 || d[k] > D || (p.hair[i] < 40 && d[k] > 2.5) || p.face[i] >= 100 || y0 + y < L.chin) continue;
     const xa = Math.max(0, x - R); const xb = Math.min(bw, x + R + 1); const ya = Math.max(0, y - R); const yb = Math.min(bh, y + R + 1);
     const cnt = boxSum(SN, xa, ya, xb, yb); if (cnt < 12) continue;
     const ha = boxSum(SA, xa, ya, xb, yb) / cnt; const hb = boxSum(SB, xa, ya, xb, yb) / cnt;
@@ -1266,15 +1268,33 @@ function cleanHairTips(S, z, patch) {
       const perp = Math.abs((qa - ha) * vb - (qb - hb) * va) / Math.sqrt(vv);
       if (t > best && perp < 18) { best = Math.min(1, t); ga = va; gb = vb; }
     }
-    if (best < 0.12) continue;
+    const edge = d[k] <= 2.5;
+    if (best < (edge ? 0.04 : 0.12)) continue;
     // (Its garment part taken out, then half way to their hair's color there, so what's left of the mix
     // isn't another tint.)
     const na = (qa - best * ga + ha) / 2; const nb = (qb - best * gb + hb) / 2;
     const rgb = labToRgb(lab[k * 3], na, nb);
     const o = k * 4; out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2];
     // (Fully at the tips, less toward the far end, so it meets the hair beyond without an edge.)
-    out[o + 3] = Math.round(255 * Math.min(1, 1.25 - d[k] / D) * Math.min(1, best * 3));
+    out[o + 3] = edge ? 255 : Math.round(255 * Math.min(1, 1.25 - d[k] / D) * Math.min(1, best * 3));
     n++;
+  }
+  // (The made skin's own last pixel or two against their hair: what's just inside it, so its edge there
+  // carries nothing of what was outside (the garment's color mixed into it), and draws no line.)
+  if (patch) {
+    const din = new Float32Array(bw * bh);
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) din[y * bw + x] = z.mask[(y0 + y) * w + x0 + x] ? 1e9 : 0;
+    chamfer(din, bw, bh);
+    const pAt = (X, Y) => { const x = X - patch.x0; const y = Y - patch.y0; return x < 0 || y < 0 || x >= patch.pw || y >= patch.ph ? -1 : (y * patch.pw + x) * 4; };
+    const nearHair = (x, y) => { for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x0 + x + dx; const Y = y0 + y + dy; if (X >= 0 && Y >= 0 && X < w && Y < h && !z.mask[Y * w + X] && p.hair[Y * w + X] >= 40) return true; } return false; };
+    const fixes = [];
+    for (let y = 2; y < bh - 2; y++) for (let x = 2; x < bw - 2; x++) {
+      const k = y * bw + x; if (din[k] === 0 || din[k] > 2.2 || y0 + y < L.chin || !nearHair(x, y)) continue;
+      let r = 0; let g = 0; let bb = 0; let c = 0;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const kk = (y + dy) * bw + x + dx; if (y + dy < 0 || y + dy >= bh || x + dx < 0 || x + dx >= bw || din[kk] < 3 || din[kk] > 6) continue; const o = pAt(x0 + x + dx, y0 + y + dy); if (o < 0 || patch.rgba[o + 3] < 200) continue; r += patch.rgba[o]; g += patch.rgba[o + 1]; bb += patch.rgba[o + 2]; c++; }
+      if (c >= 3) fixes.push([pAt(x0 + x, y0 + y), r / c, g / c, bb / c]);
+    }
+    for (const [o, r, g, bb] of fixes) if (o >= 0) { patch.rgba[o] = r; patch.rgba[o + 1] = g; patch.rgba[o + 2] = bb; }
   }
   if (!n) return patch;
   // (Merged: the cleaned tips under the made skin, which is laid over them where it reaches.)
@@ -1580,7 +1600,7 @@ function makeSkin(S, z) {
       if (z.mask[i] || sk[k] || rim[k]) { fr2[k] = 1; continue; }
       // (Not the garment's colorful part left under the tips of their hair (a red stole): what's around is
       // their hair and what's behind it, without that.)
-      if (z.vivid?.length) { const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); if (Math.hypot(q[1], q[2]) > 14 && z.vivid.some((g) => Math.hypot(q[1] - g[1], q[2] - g[2]) < 28)) { fr2[k] = 1; continue; } }
+      if (z.vivid?.length) { const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); if (Math.hypot(q[1], q[2]) > 14 && z.vivid.some((g) => Math.hypot(q[1] - g[1], q[2] - g[2]) < 40)) { fr2[k] = 1; continue; } }
       for (let c = 0; c < 3; c++) around[k * 3 + c] = base.rgba[i * 4 + c];
     }
     membrane(around, fr2, bw, bh);

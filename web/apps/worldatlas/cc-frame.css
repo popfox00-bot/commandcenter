@@ -43,3 +43,7 @@ input, select, textarea { font-size: 16px !important; }
   .tabs { order: 2; }
   .goto { order: 3; flex: 1 1 100%; }
 }
+/* On a narrow phone the map's readout sits above 📚 Tutorials and ‹ Home (it was under Tutorials). */
+@media (max-width: 759px) {
+  body:not(:has(.sheet.open)) .readout { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 104px); }
+}

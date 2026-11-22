@@ -1344,11 +1344,15 @@ in the app go into Fox Games; WorldAtlas is its own app.
 
 ## WorldAtlas
 
-**WorldAtlas** opens the Minecraft Bedrock world map (biomes from the seed, structures, your own markers,
-measuring, the Nether and End; optional sync through its own Apps Script) as its own page, with a **‹ Home**
+**WorldAtlas** opens the Minecraft Bedrock world map (Overworld biomes from the seed, your own markers,
+measuring, the Nether and End (without terrain there: the generator's Nether and End don't match Bedrock),
+experimental structure suggestions learnt from your finds (Overworld villages, outposts, monuments, mansions and
+temples, checked against the biomes; Nether bastions and fortresses; End Cities), Bedrock slime chunks, a portal
+planner; optional sync through its own Apps Script) as its own page, with a **‹ Home**
 link at the bottom left. `web/apps/worldatlas/` is the build of the `minecraft` repository (`npm ci && npm run
 build`, its `dist/`), with the Home link and a phone layout (`cc-frame.css`: bigger buttons, the tools in one row,
-every text box at 16px so iPhone Safari doesn't zoom in; the viewport's `maximum-scale=1`) and Command Center's icon added; Command Center's
+every text box at 16px so iPhone Safari doesn't zoom in; the viewport's `maximum-scale=1`; the readout above
+📚 Tutorials and ‹ Home) and Command Center's icon added; Command Center's
 service worker keeps it offline. Its markers and settings are kept in the browser under this site, so they're
 the same as the standalone WorldAtlas on the same site. To bring in a newer WorldAtlas, build that repository
 again, replace the folder's `index.html` and `assets/`, and make the same additions.

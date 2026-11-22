@@ -174,6 +174,39 @@ function prepare(piece) {
       for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) { const i = y * PW + x; if (cloth[i] && !piece.rebuilt?.[i] && !near(labAt(i))) { cloth[i] = 0; notIt[i] = 1; } }
     }
   }
+  // (A sheer cloth (lace) over its model's arm: at a sleeve's end the arm shows through it smooth, where the
+  // lace itself is full of fine detail. There, a smooth patch reaching the cloth's edge is the arm, not the
+  // cloth (laid on, it would be a flat blue patch past the lace's hem). Only for a cloth that's detailed
+  // all over, and only by its arms: a plain cloth is smooth everywhere, and a satin sash isn't an arm.)
+  {
+    const PWn = PW; const lum = (i) => 0.299 * tex[i * 4] + 0.587 * tex[i * 4 + 1] + 0.114 * tex[i * 4 + 2];
+    const r2 = 2; const sd = new Float32Array(PW * PH); const sds = [];
+    for (let y = b.y0 + r2; y < b.y1 - r2; y++) for (let x = b.x0 + r2; x < b.x1 - r2; x++) {
+      const i = y * PWn + x; if (!cloth[i]) continue; let s1 = 0; let s2 = 0; let n = 0;
+      for (let dy = -r2; dy <= r2; dy++) for (let dx = -r2; dx <= r2; dx++) { const v = lum(i + dy * PWn + dx); s1 += v; s2 += v * v; n++; }
+      const v = Math.sqrt(Math.max(0, s2 / n - (s1 / n) ** 2)); sd[i] = v; if ((x + y) % 3 === 0) sds.push(v);
+    }
+    sds.sort((p2, q2) => p2 - q2); const medSd = sds.length > 200 ? sds[sds.length >> 1] : 0;
+    const qp = piece.pose; const span = seen(qp?.shoulders?.[0]) && seen(qp?.shoulders?.[1]) ? Math.hypot(qp.shoulders[1][0] - qp.shoulders[0][0], qp.shoulders[1][1] - qp.shoulders[0][1]) : 0;
+    const armSegs = [];
+    if (span) for (const k of [0, 1]) { if (!seen(qp.elbows?.[k])) continue; const S0 = qp.shoulders[k]; const E0 = qp.elbows[k]; armSegs.push([[S0[0] + (E0[0] - S0[0]) * 0.4, S0[1] + (E0[1] - S0[1]) * 0.4], E0]); if (seen(qp.wrists?.[k])) armSegs.push([E0, qp.wrists[k]]); }
+    if (medSd > 7 && armSegs.length) {
+      const R = span * 0.16; const byArm = (x, y) => armSegs.some(([A, B]) => onSeg(x, y, A, B).d < R);
+      const smoothAt = (i) => cloth[i] && sd[i] < medSd * 0.4;
+      const st = []; const mark = new Uint8Array(PW * PH);
+      for (let y = b.y0 + 1; y < b.y1 - 1; y++) for (let x = b.x0 + 1; x < b.x1 - 1; x++) { const i = y * PWn + x; if (smoothAt(i) && byArm(x, y) && (!cloth[i - 1] || !cloth[i + 1] || !cloth[i - PWn] || !cloth[i + PWn])) { mark[i] = 1; st.push(i); } }
+      for (let a2 = 0; a2 < st.length; a2++) { const i = st[a2]; const x = i % PWn; const y = (i / PWn) | 0; for (const t of [i - 1, i + 1, i - PWn, i + PWn]) { const tx = t % PWn; const ty = (t / PWn) | 0; if (tx < b.x0 || ty < b.y0 || tx >= b.x1 || ty >= b.y1 || mark[t] || !smoothAt(t) || !byArm(tx, ty)) continue; mark[t] = 1; st.push(t); } void x; void y; }
+      // (Only a patch of some size: a fold's shadow beside a sleeve's edge, a speck, stays cloth.)
+      const minA = Math.max(60, (span * 0.12) ** 2); const lab2 = new Int32Array(PW * PH).fill(-1); let n = 0;
+      for (let i0 = 0; i0 < mark.length; i0++) {
+        if (!mark[i0] || lab2[i0] >= 0) continue;
+        const comp = [i0]; lab2[i0] = i0;
+        for (let a3 = 0; a3 < comp.length; a3++) { const i = comp[a3]; for (const t of [i - 1, i + 1, i - PWn, i + PWn]) if (t >= 0 && t < mark.length && mark[t] && lab2[t] < 0) { lab2[t] = i0; comp.push(t); } }
+        if (comp.length < minA) continue;
+        for (const i of comp) { cloth[i] = 0; notIt[i] = 1; n++; }
+      }
+    }
+  }
   // (Holes in it that aren't its own skin (hair over it, a speck): cloth. Its neckline, its skin, stays open.)
   const both = new Uint8Array(PW * PH); for (let i = 0; i < both.length; i++) both[i] = cloth[i] || skin[i] ? 1 : 0;
   const bb = boxOf(both, PW, PH);

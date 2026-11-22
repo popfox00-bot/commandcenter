@@ -970,7 +970,11 @@ the clothes in it: worn by someone, or on its own).
   shoulders out past it are skin, not the old garment's light rim. Real skin counts for the made skin's color
   only where it's skin-colored. An arm made bare is shaded round by the pose (shoulder → elbow → wrist), a
   lit cylinder darkening toward each side, the side against the body too; and the made skin's outer edge is
-  blended a pixel or two with what's behind them,
+  blended a pixel or two with what's behind them. The piece's edges lying on made skin (its neckline, a short
+  top's hem over a bare midriff, a jacket's open front) cast a soft shadow just next to them on it, so the skin
+  sits under the piece rather than looking cut out. A sheer piece (lace) shows its model's arm through it at a
+  sleeve's end, smooth where the lace is full of detail: there, by the arms, a sizeable smooth patch reaching
+  the cloth's edge is taken as the arm, not the cloth (no flat blue patch past the lace's hem),
   and the piece is laid
   onto that: its own color and texture kept (no folds or color taken from what was worn there), only the
   photo's light and the light and shade on their bare skin under it (a sleeve over a lit arm). Under strands

@@ -24,7 +24,7 @@ import { handoff } from '../../lib/handoff.js';
 import { colorRegion, sampleShade, strokeShape, strokeMask, membrane } from '../../tools/editor/cleanup.js';
 import { rgbToLab } from '../../lib/color-match.js';
 import { armSkin, strayClothes, KINDS, ZONES, isZone, boxOf, resample, peopleAt, bodyLayout, kindZone, kindRegion, bodyRegion, bodyPlace, garmentPlace, solidify, closeMask, mainParts, fillHoles, rowSpans, rigidPlace, splitSleeves, splitPair, scaleLayout, splitPeople, matteBand, refineOutline } from '../../tools/fashion/fashion-core.js';
-import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps, erasing, garmentZone, eraseGarment, underStrands } from './compose.js';
+import { buildLayer, finish, uncovered, fillUncovered, lay, leftovers, recolor, isTrace, straps, erasing, garmentZone, eraseGarment, underStrands, shadeUnder } from './compose.js';
 
 const WORK_MAX = 1024;
 const SAVE_MAX = 2560;      // the saved picture's longest side (and no more than ~6 MP: a phone's memory)
@@ -954,6 +954,7 @@ export function mount(host) {
       }
       if (fillCache.patch) lay(out, w, h, fillCache.patch);
       try { underStrands(out, w, layer, garmentZone(S), base.people); } catch (e) { noteError('Fashion: under the hair', e); }
+      try { shadeUnder(out, w, h, layer, fillCache.patch, base.layout?.fh ?? h / 7); } catch (e) { noteError('Fashion: shade under it', e); }
     } else if (mode === 'replace' && target && !target.body) {
       const key = layer ? `${layer.x0},${layer.y0},${layer.pw},${layer.ph},${JSON.stringify(tune)}` : `none,${tune.front},${tune.arms}`;
       if (fillCache?.target !== target || (fillCache.key !== key && !interacting)) {
@@ -1188,6 +1189,7 @@ export function mount(host) {
         // What was taken off (worked out at the working size), brought up and laid where the piece doesn't cover.
         if (bigPatch) lay(out, W, H, bigPatch);
         if (layer && fillCache?.erase && bBig.people) { try { underStrands(out, W, layer, garmentZone(S), bBig.people); } catch (e) { noteError('Fashion: under the hair', e); } }
+        if (layer && fillCache?.erase && bigPatch) { try { shadeUnder(out, W, H, layer, bigPatch, (base.layout?.fh ?? base.h / 7) * k); } catch (e) { noteError('Fashion: shade under it', e); } }
         if (layer) lay(out, W, H, layer);
         // (The old garment's straps, recolored: worked out at the working size, brought up.)
         const rest = mode === 'replace' ? fillCache?.rest : null;

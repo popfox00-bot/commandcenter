@@ -1159,6 +1159,30 @@ export function underStrands(out, w, layer, z, people) {
   }
 }
 
+/**
+ * The piece's edges lying on the skin made where the garment was taken off (a short top's hem over a bare
+ * midriff, a jacket's open front beside it): a soft shadow just next to them on that skin, as cloth casts on
+ * skin, so the skin sits under the piece instead of looking cut out flat. On `out` (w×h, after the made skin
+ * `patch` and before the `layer` is laid), only on made skin, only where the layer doesn't cover it. In place.
+ */
+export function shadeUnder(out, w, h, layer, patch, fh) {
+  if (!layer || !patch) return;
+  const D = Math.max(2, Math.round(fh * 0.14));
+  const x0 = Math.max(0, layer.x0 - D); const y0 = Math.max(0, layer.y0 - D); const x1 = Math.min(w, layer.x0 + layer.pw + D); const y1 = Math.min(h, layer.y0 + layer.ph + D);
+  const bw = x1 - x0; const bh = y1 - y0; if (bw <= 0 || bh <= 0) return;
+  const la = (X, Y) => { const x = X - layer.x0; const y = Y - layer.y0; return x < 0 || y < 0 || x >= layer.pw || y >= layer.ph ? 0 : layer.rgba[(y * layer.pw + x) * 4 + 3]; };
+  const pa = (X, Y) => { const x = X - patch.x0; const y = Y - patch.y0; return x < 0 || y < 0 || x >= patch.pw || y >= patch.ph ? 0 : patch.rgba[(y * patch.pw + x) * 4 + 3]; };
+  const d = new Float32Array(bw * bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) d[y * bw + x] = la(x0 + x, y0 + y) >= 200 ? 0 : 1e9;
+  chamfer(d, bw, bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; if (d[k] === 0 || d[k] >= D) continue;
+    const X = x0 + x; const Y = y0 + y; if (pa(X, Y) < 128 || la(X, Y) >= 128) continue;
+    const t = 1 - d[k] / D; const f = 1 - 0.38 * t * t;
+    const i = (Y * w + X) * 4; out[i] *= f; out[i + 1] *= f; out[i + 2] *= f;
+  }
+}
+
 /** An outline (`u`: { mask, box, spans, ... }) with the garment zone's pixels added (its other fields kept). */
 function withZone(u, z, w, h) {
   if (!z) return u;

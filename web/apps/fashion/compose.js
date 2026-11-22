@@ -6,7 +6,7 @@
 import { renderPiece, mergeLayers, finishLayer, lightGains, formMap, armsInFront, boxOf, traceTransfer, foldMap, rowSpans, upperParts, bareArm, isZone, matteBand, skinTexture, fillHoles, findPrints, kindZone } from '../../tools/fashion/fashion-core.js';
 import { boxBlur } from '../../lib/geometry.js';
 import { softenMask } from '../../lib/geometry.js';
-import { rgbToLab } from '../../lib/color-match.js';
+import { rgbToLab, labToRgb } from '../../lib/color-match.js';
 import { cleanUp, membrane } from '../../tools/editor/cleanup.js';
 import { engineFor, engineLayer } from './engine.js';
 
@@ -1027,11 +1027,27 @@ export function garmentZone(S) {
   const c = A0.length > 30 ? [med(A0), med(A1), med(A2)] : null;
   const tone = skinTone(base); const sk = tone ? rgbToLab(tone[0], tone[1], tone[2]) : null;
   const dark = c && c[0] < 30;
-  const like = (q) => {
-    if (!c) return false;
-    const dL = dark && q[0] < c[0] ? 0 : Math.max(0, Math.abs(q[0] - c[0]) - (dark ? 14 : 6));
-    return Math.hypot(dL * 0.7, q[1] - c[1], q[2] - c[2]) < 16;
-  };
+  // (Its main colors, not only the median: a white top under a red stole is white and red, and the red is
+  // the garment too where it peeks out under their hair.)
+  const pal = [];
+  if (c) {
+    const bins = new Map();
+    for (let k = 0; k < A0.length; k++) { const key = `${Math.round(A0[k] / 12)},${Math.round(A1[k] / 10)},${Math.round(A2[k] / 10)}`; const e = bins.get(key) ?? [0, 0, 0, 0]; e[0]++; e[1] += A0[k]; e[2] += A1[k]; e[3] += A2[k]; bins.set(key, e); }
+    for (const e of bins.values()) if (e[0] >= A0.length * 0.06) pal.push([e[1] / e[0], e[2] / e[0], e[3] / e[0]]);
+  }
+  const near = (q, g) => { const dk = g[0] < 30; const dL = dk && q[0] < g[0] ? 0 : Math.max(0, Math.abs(q[0] - g[0]) - (dk ? 14 : 6)); return Math.hypot(dL * 0.7, q[1] - g[1], q[2] - g[2]); };
+  const like = (q) => !!c && (near(q, c) < 16 || pal.some((g) => near(q, g) < 16));
+  // (Their hair's own color, to tell a lock of hair from the garment showing through its tips.)
+  let hairC = null;
+  { const H0 = []; const H1 = []; const H2 = []; const F = L.face;
+    if (F) for (let y = Math.max(0, Math.floor(F.y0)); y < Math.min(h, Math.floor(L.chin + L.fh * 0.3)); y += 2) for (let x = Math.max(0, Math.floor(F.x0 - L.fw * 0.6)); x < Math.min(w, Math.ceil(F.x1 + L.fw * 0.6)); x += 2) { const i = y * w + x; if (p.hair[i] < 220) continue; const q = lab(i); H0.push(q[0]); H1.push(q[1]); H2.push(q[2]); }
+    if (H0.length > 40) hairC = [med(H0), med(H1), med(H2)]; }
+  // (A colorful part of the garment (a red stole) by its hue, which stays the same in the shade of a lock of
+  // hair over it, unlike its lightness; and not their hair's hue.)
+  const hue = (q) => Math.atan2(q[2], q[1]); const chroma = (q) => Math.hypot(q[1], q[2]);
+  const angle = (a, b) => { const d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
+  const vivid = pal.filter((g) => chroma(g) > 22);
+  const garmentHue = (q) => chroma(q) > 14 && vivid.some((g) => angle(hue(q), hue(g)) < 0.26) && (!hairC || chroma(hairC) < 6 || angle(hue(q), hue(hairC)) > 0.45) && !skinish(q);
   const skinish = (q) => sk && q[0] > 30 && Math.hypot((q[0] - sk[0]) * 0.5, q[1] - sk[1], q[2] - sk[2]) < 18;
   // Down to where it really ends (a long top on someone sitting: past the waist line).
   const ext = byHand ? { mask: target.mask, box: tb } : downToHem(S, { mask: target.mask, box: tb });
@@ -1120,7 +1136,7 @@ export function garmentZone(S) {
   fillHoles(m, w, h, box1, 0.05);
   const box = boxOf(m, w, h);
   // (`seen`: where it was found between strands of hair, by its own color.)
-  const z = { mask: m, box, spans: rowSpans(m, w, box, Math.max(14, Math.round((box.y1 - box.y0) / 14))), seen, on: personOn };
+  const z = { mask: m, box, spans: rowSpans(m, w, box, Math.max(14, Math.round((box.y1 - box.y0) / 14))), seen, on: personOn, vivid: pal.filter((g) => Math.hypot(g[1], g[2]) > 20) };
   target.zoneOf = { base, kind, layout: L, z };
   return z;
 }
@@ -1174,8 +1190,82 @@ function chamfer(d, W, H) {
 
 export function eraseGarment(S, z) {
   if (!z) return null;
-  if (z.erased === undefined) z.erased = makeSkin(S, z);
+  if (z.erased === undefined) { z.erased = makeSkin(S, z); try { z.erased = cleanHairTips(S, z, z.erased); } catch { /* as it was */ } }
   return z.erased;
+}
+
+/**
+ * The tips of their hair over where the garment was, cleaned of its color: a lock lying over a red stole
+ * is a mix of hair and red at its ends (and in its shade), which stays when the stole is taken off. There,
+ * near the garment and only in hair, the garment's colorful part is taken out of each pixel's color (its
+ * lightness kept), leaving their hair's own color as it is just beyond. Merged into `patch` (made bigger to
+ * reach them); `patch` as it was when there's nothing to clean.
+ */
+function cleanHairTips(S, z, patch) {
+  const { base, kind } = S; const { w, h } = base; const p = base.people; const L = base.layout;
+  if (kind !== 'upper' && kind !== 'top' && kind !== 'dress') return patch;
+  if (!z.vivid?.length || !L) return patch;
+  const D = Math.max(4, Math.round(L.fh * 0.3));
+  const b = z.box; const x0 = Math.max(0, b.x0 - D); const y0 = Math.max(0, Math.min(b.y0, Math.floor(L.chin)) - D); const x1 = Math.min(w, b.x1 + D); const y1 = Math.min(h, b.y1 + D);
+  const bw = x1 - x0; const bh = y1 - y0; if (bw <= 0 || bh <= 0) return patch;
+  // (How far each pixel is from the garment.)
+  const d = new Float32Array(bw * bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) d[y * bw + x] = z.mask[(y0 + y) * w + x0 + x] ? 0 : 1e9;
+  chamfer(d, bw, bh);
+  // (Their hair's color just beyond the tips (D to 2.5 D out), carried to each tip: a box average.)
+  const lab = new Float32Array(bw * bh * 3);
+  const SA = new Float64Array((bw + 1) * (bh + 1)); const SB = new Float64Array((bw + 1) * (bh + 1)); const SN = new Float64Array((bw + 1) * (bh + 1));
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; const i = (y0 + y) * w + x0 + x;
+    const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); lab[k * 3] = q[0]; lab[k * 3 + 1] = q[1]; lab[k * 3 + 2] = q[2];
+    const far = p.hair[i] >= 180 && d[k] > D * 0.8 && d[k] < D * 2.5 && p.face[i] < 100;
+    const o = (y + 1) * (bw + 1) + x + 1;
+    SA[o] = SA[o - 1] + SA[o - bw - 1] - SA[o - bw - 2] + (far ? q[1] : 0);
+    SB[o] = SB[o - 1] + SB[o - bw - 1] - SB[o - bw - 2] + (far ? q[2] : 0);
+    SN[o] = SN[o - 1] + SN[o - bw - 1] - SN[o - bw - 2] + (far ? 1 : 0);
+  }
+  const R = Math.round(D * 1.5);
+  const boxSum = (S2, xa, ya, xb, yb) => S2[yb * (bw + 1) + xb] - S2[ya * (bw + 1) + xb] - S2[yb * (bw + 1) + xa] + S2[ya * (bw + 1) + xa];
+  const out = new Uint8ClampedArray(bw * bh * 4); let n = 0;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const k = y * bw + x; const i = (y0 + y) * w + x0 + x;
+    if (d[k] === 0 || d[k] > D || p.hair[i] < 40 || p.face[i] >= 100 || y0 + y < L.chin) continue;
+    const xa = Math.max(0, x - R); const xb = Math.min(bw, x + R + 1); const ya = Math.max(0, y - R); const yb = Math.min(bh, y + R + 1);
+    const cnt = boxSum(SN, xa, ya, xb, yb); if (cnt < 12) continue;
+    const ha = boxSum(SA, xa, ya, xb, yb) / cnt; const hb = boxSum(SB, xa, ya, xb, yb) / cnt;
+    const qa = lab[k * 3 + 1]; const qb = lab[k * 3 + 2];
+    // (How much of the garment's colorful part is in it: along the line from their hair's color to it.)
+    let best = 0; let ga = 0; let gb = 0;
+    for (const g of z.vivid) {
+      const va = g[1] - ha; const vb = g[2] - hb; const vv = va * va + vb * vb; if (vv < 100) continue;
+      const t = ((qa - ha) * va + (qb - hb) * vb) / vv;
+      const perp = Math.abs((qa - ha) * vb - (qb - hb) * va) / Math.sqrt(vv);
+      if (t > best && perp < 18) { best = Math.min(1, t); ga = va; gb = vb; }
+    }
+    if (best < 0.12) continue;
+    // (Its garment part taken out, then half way to their hair's color there, so what's left of the mix
+    // isn't another tint.)
+    const na = (qa - best * ga + ha) / 2; const nb = (qb - best * gb + hb) / 2;
+    const rgb = labToRgb(lab[k * 3], na, nb);
+    const o = k * 4; out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2];
+    // (Fully at the tips, less toward the far end, so it meets the hair beyond without an edge.)
+    out[o + 3] = Math.round(255 * Math.min(1, 1.25 - d[k] / D) * Math.min(1, best * 3));
+    n++;
+  }
+  if (!n) return patch;
+  // (Merged: the cleaned tips under the made skin, which is laid over them where it reaches.)
+  const X0 = Math.min(x0, patch?.x0 ?? x0); const Y0 = Math.min(y0, patch?.y0 ?? y0);
+  const X1 = Math.max(x1, patch ? patch.x0 + patch.pw : x1); const Y1 = Math.max(y1, patch ? patch.y0 + patch.ph : y1);
+  const pw = X1 - X0; const ph = Y1 - Y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const s2 = (y * bw + x) * 4; if (!out[s2 + 3]) continue; const t = ((y0 + y - Y0) * pw + x0 + x - X0) * 4; rgba.set(out.subarray(s2, s2 + 4), t); }
+  if (patch) for (let y = 0; y < patch.ph; y++) for (let x = 0; x < patch.pw; x++) {
+    const s2 = (y * patch.pw + x) * 4; const a = patch.rgba[s2 + 3] / 255; if (!a) continue;
+    const t = ((patch.y0 + y - Y0) * pw + patch.x0 + x - X0) * 4; const b0 = rgba[t + 3] / 255;
+    const ao = a + b0 * (1 - a);
+    for (let c = 0; c < 3; c++) rgba[t + c] = (patch.rgba[s2 + c] * a + rgba[t + c] * b0 * (1 - a)) / Math.max(1e-6, ao);
+    rgba[t + 3] = Math.round(ao * 255);
+  }
+  return { ...patch, x0: X0, y0: Y0, pw, ph, rgba };
 }
 
 function makeSkin(S, z) {
@@ -1302,6 +1392,38 @@ function makeSkin(S, z) {
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { let m = 0; for (let d = -R0; d <= R0; d += 2) { const yy = y + d; if (yy >= 0 && yy < bh) { const v = mx1[yy * bw + x]; if (v > m) m = v; } } mx2[y * bw + x] = m; }
   let rnd = new Float32Array(bw * bh);
   for (let k = 0; k < bw * bh; k++) { const t = Math.min(1, capF[k] / Math.max(2, Math.min(mx2[k], fw0 * 0.55))); rnd[k] = 1 - 0.17 * (1 - Math.sqrt(Math.max(0, Math.sin((Math.PI / 2) * t)))); }
+  // (An arm by the pose: across it from its bone line out, a lit cylinder, as bright as the cosine of how far
+  // it has turned from the light, darker steadily toward each side, also the side against the body, which
+  // the figure's outline doesn't show. Its radius: from its line to its outer edge, where it meets what's
+  // behind them.)
+  {
+    const q = base.pose; const seenP = (v) => v && v[2] >= 0.3;
+    const sw = q && seenP(q.shoulders?.[0]) && seenP(q.shoulders?.[1]) ? Math.hypot(q.shoulders[1][0] - q.shoulders[0][0], q.shoulders[1][1] - q.shoulders[0][1]) : fw0 * 2;
+    const segs = [];
+    for (const k of [0, 1]) {
+      if (!q || !seenP(q.shoulders?.[k]) || !seenP(q.elbows?.[k])) continue;
+      segs.push([q.shoulders[k], q.elbows[k]]); if (seenP(q.wrists?.[k])) segs.push([q.elbows[k], q.wrists[k]]);
+    }
+    const inFig = (X, Y) => X >= 0 && Y >= 0 && X < w && Y < h && (z.mask[Y * w + X] || Math.max(p.body[Y * w + X], p.clothes[Y * w + X]) >= 128);
+    for (const [A, B] of segs) {
+      const dx = B[0] - A[0]; const dy = B[1] - A[1]; const len = Math.hypot(dx, dy); if (len < 4) continue;
+      const nx = -dy / len; const ny = dx / len;
+      // (Its radius: the shorter run out from its middle to the figure's edge, one side or the other.)
+      const run = (sg) => { let r = 0; const mx = A[0] + dx * 0.6; const my = A[1] + dy * 0.6; while (r < sw * 0.3 && inFig(Math.round(mx + nx * r * sg), Math.round(my + ny * r * sg))) r++; return r; };
+      const r = Math.max(sw * 0.06, Math.min(sw * 0.16, Math.min(run(1), run(-1))));
+      const xa = Math.max(X0, Math.floor(Math.min(A[0], B[0]) - r * 1.4)); const xb = Math.min(X0 + bw, Math.ceil(Math.max(A[0], B[0]) + r * 1.4));
+      const ya = Math.max(Y0, Math.floor(Math.min(A[1], B[1]) - r * 1.4)); const yb = Math.min(Y0 + bh, Math.ceil(Math.max(A[1], B[1]) + r * 1.4));
+      for (let Y = ya; Y < yb; Y++) for (let X = xa; X < xb; X++) {
+        const t = ((X - A[0]) * dx + (Y - A[1]) * dy) / (len * len); if (t < 0 || t > 1.08) continue;
+        const d = Math.abs((X - A[0]) * nx + (Y - A[1]) * ny); if (d > r * 1.35) continue;
+        const k = (Y - Y0) * bw + X - X0; const u = Math.min(1, d / r);
+        const cyl = 0.64 + 0.36 * Math.sqrt(Math.max(0, 1 - u * u));
+        // (All of it within the arm, fading out just past it; and not where the shoulder joins the chest.)
+        const wgt = Math.min(1, Math.max(0, (r * 1.35 - d) / (r * 0.35))) * Math.min(1, t / 0.15);
+        rnd[k] = Math.min(rnd[k], rnd[k] * (1 - wgt) + cyl * wgt);
+      }
+    }
+  }
   { const rr = Math.max(2, Math.round(fh * 0.06)); rnd = boxBlur(boxBlur(boxBlur(rnd, all1, bw, bh, rr), all1, bw, bh, rr), all1, bw, bh, rr); }
   // (The light's side: which half of their face is brighter, carried gently across the body.)
   let lit = 0; let lcx = (b.x0 + b.x1) / 2;
@@ -1366,7 +1488,10 @@ function makeSkin(S, z) {
   const rs = Math.max(1, Math.round(fh / 120));
   const sk = new Uint8Array(bw * bh); const ch = [0, 1, 2].map(() => new Float32Array(bw * bh));
   // (The underside of the jaw counts here too, though the finder calls it face: it's the skin the neck meets.)
-  const touchSkin = (i) => !z.mask[i] && p.hair[i] < 90 && Math.max(p.body[i], p.face[i]) >= 60 && p.body[i] + p.face[i] > p.hair[i] + p.clothes[i];
+  // (And skin-colored: a white top's lit rim, which the finder can call skin, would tint the made skin white.)
+  const toneLab = rgbToLab(tone[0], tone[1], tone[2]);
+  const skinColored = (i) => { const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); return Math.hypot((q[0] - toneLab[0]) * 0.35, q[1] - toneLab[1], q[2] - toneLab[2]) < 24; };
+  const touchSkin = (i) => !z.mask[i] && p.hair[i] < 90 && Math.max(p.body[i], p.face[i]) >= 60 && p.body[i] + p.face[i] > p.hair[i] + p.clothes[i] && skinColored(i);
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = (Y0 + y) * w + X0 + x; const k = y * bw + x; if (touchSkin(i)) { sk[k] = 1; for (let c = 0; c < 3; c++) ch[c][k] = base.rgba[i * 4 + c]; } }
   const smooth = ch.map((v) => boxBlur(v, sk, bw, bh, rs));
   // The difference (real less made-up) fixed on their skin, nothing on anything else that isn't the zone, and
@@ -1429,6 +1554,9 @@ function makeSkin(S, z) {
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
       const k = y * bw + x; const i = (Y0 + y) * w + X0 + x;
       if (z.mask[i] || sk[k] || rim[k]) { fr2[k] = 1; continue; }
+      // (Not the garment's colorful part left under the tips of their hair (a red stole): what's around is
+      // their hair and what's behind it, without that.)
+      if (z.vivid?.length) { const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); if (Math.hypot(q[1], q[2]) > 14 && z.vivid.some((g) => Math.hypot(q[1] - g[1], q[2] - g[2]) < 28)) { fr2[k] = 1; continue; } }
       for (let c = 0; c < 3; c++) around[k * 3 + c] = base.rgba[i * 4 + c];
     }
     membrane(around, fr2, bw, bh);
@@ -1470,7 +1598,16 @@ function makeSkin(S, z) {
     // (Beside the neck, above the shoulders: shadow, what's behind it, deepening away from its edge.)
     if (neck && y >= neck.y0 && y < neck.y1) {
       const { c, hw } = neck.at(y); const out2 = Math.abs(x + 0.5 - c) - hw;
-      if (out2 > -soft * 2 && around) { const t0 = Math.max(0, Math.min(1, (out2 + soft * 2) / (4 * soft))); const t = t0 * t0 * (3 - 2 * t0); const fall = y1Fade(y); for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = rgba[o + c2] * (1 - t * fall) + around[kk * 3 + c2] * t * fall; }
+      // (Only just beside it, where its shadow and what's behind it show: fading out going away from it, so
+      // the shoulders out past it are skin, not what's behind them.)
+      if (out2 > -soft * 2 && around) { const t0 = Math.max(0, Math.min(1, (out2 + soft * 2) / (4 * soft))); const u0 = Math.max(0, Math.min(1, (out2 - hw * 0.45) / (hw * 0.6))); const t = t0 * t0 * (3 - 2 * t0) * (1 - u0 * u0 * (3 - 2 * u0)); const fall = y1Fade(y); for (let c2 = 0; c2 < 3; c2++) rgba[o + c2] = rgba[o + c2] * (1 - t * fall) + around[kk * 3 + c2] * t * fall; }
+    }
+    // (Its outer edge against what's behind them soft, a pixel or two, as the photo's own edges are.)
+    if (z.mask[i] && fig[k] <= 2) {
+      // (Blended with what's just outside them, not see-through: under it is the old garment's edge.)
+      let sr = 0; let sg = 0; let sb = 0; let sn = 0;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const kk2 = (Y - Y0) * bw + X - X0; if (kk2 < 0 || kk2 >= bw * bh || fig[kk2] > 0) continue; const j = (Y * w + X) * 4; sr += base.rgba[j]; sg += base.rgba[j + 1]; sb += base.rgba[j + 2]; sn++; }
+      if (sn) { const t = fig[k] <= 1 ? 0.4 : 0.15; rgba[o] = rgba[o] * (1 - t) + (sr / sn) * t; rgba[o + 1] = rgba[o + 1] * (1 - t) + (sg / sn) * t; rgba[o + 2] = rgba[o + 2] * (1 - t) + (sb / sn) * t; }
     }
     rgba[o + 3] = z.mask[i] ? 255 : ring ? Math.round(255 * 0.55 * Math.max(0, 1 - dz[kk] / (rimR + 1))) : Math.round(255 * Math.min(1, 1.3 - dz[kk] / (rimR + 1)));
     // (Their own hand there (over where the garment was) is left as it is: it's in front, not taken off.)

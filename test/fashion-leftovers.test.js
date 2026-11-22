@@ -360,3 +360,18 @@ test('the tips of their hair over a colorful part of the garment (a red stole) a
   const before = rgbToLab(...rgba.slice((101 * w + 50) * 4, (101 * w + 50) * 4 + 3)); const after = rgbToLab(tip[0], tip[1], tip[2]);
   assert.ok(Math.abs(before[0] - after[0]) < 8, `its lightness kept: ${before[0].toFixed(0)} → ${after[0].toFixed(0)}`);
 });
+
+test('the piece\'s edge over made skin (a short top\'s hem over a bare midriff) casts a soft shadow just next to it, on made skin only', async () => {
+  const { shadeUnder } = await import('../web/apps/fashion/compose.js');
+  const w = 60; const h = 60; const out = new Uint8ClampedArray(w * h * 4).fill(200);
+  // (The piece: its top half; the made skin: everywhere but the left quarter.)
+  const layer = { x0: 0, y0: 0, pw: w, ph: 30, rgba: new Uint8ClampedArray(w * 30 * 4).fill(255) };
+  const prgba = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 15; x < w; x++) prgba[(y * w + x) * 4 + 3] = 255;
+  shadeUnder(out, w, h, layer, { x0: 0, y0: 0, pw: w, ph: h, rgba: prgba }, 60);
+  const v = (x, y) => out[(y * w + x) * 4];
+  assert.ok(v(40, 30) < 150, `darker right under the hem: ${v(40, 30)}`);
+  assert.ok(v(40, 33) > v(40, 30) && v(40, 33) < 200, 'lighter going away from it');
+  assert.equal(v(40, 45), 200, 'none further down');
+  assert.equal(v(5, 30), 200, 'not on what isn\'t made skin');
+  assert.equal(v(40, 10), 200, 'not under the piece itself');
+});

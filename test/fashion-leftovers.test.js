@@ -334,3 +334,29 @@ test('where their real neck meets the made one: the old collar\'s light edge jus
   assert.ok(r(88) > FACE[0] / FACE[2] + 0.15, `warmer than the face just below the collar: ${r(88).toFixed(2)}`);
   assert.ok(r(84) >= r(92) && r(92) >= r(120) - 0.02, `easing: ${[84, 92, 120].map((y) => r(y).toFixed(2))}`);
 });
+
+test('the tips of their hair over a colorful part of the garment (a red stole) are cleaned of its color when it is taken off, their lightness kept', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const { rgbToLab } = await import('../web/lib/color-match.js');
+  const w = 200; const h = 240; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const FACE = [222, 176, 150]; const HAIR = [170, 130, 80]; const RED = [180, 30, 45];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 70 && x >= 75 && x < 125) { people.face[i] = 255; put(FACE); }
+    // (A lock of hair down the left side, its last rows over the stole: a mix of hair and red.)
+    else if (x >= 30 && x < 70 && y >= 20 && y < 104) { people.hair[i] = 255; const t = y >= 90 ? (y - 90) / 14 * 0.7 : 0; put(HAIR.map((c, k) => Math.round(c * (1 - t) + RED[k] * t))); }
+    else if (y >= 104 && y < 230 && x >= 20 && x < 180) { people.clothes[i] = 255; zm[i] = 1; put(x < 80 ? RED : [235, 235, 232]); }
+  }
+  const S = { base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 70, face: { x0: 75, y0: 10, x1: 125, y1: 70 } } }, target: {}, kind: 'upper', mode: 'replace' };
+  const z = { mask: zm, box: { x0: 20, y0: 104, x1: 180, y1: 230 }, vivid: [rgbToLab(...RED)] };
+  const e = eraseGarment(S, z);
+  const at = (x, y) => { const o = ((y - e.y0) * e.pw + x - e.x0) * 4; return Array.from(e.rgba.slice(o, o + 4)); };
+  const hueGap = (c, ref) => { const a = rgbToLab(c[0], c[1], c[2]); const b = rgbToLab(...ref); return Math.hypot(a[1] - b[1], a[2] - b[2]); };
+  const tip = at(50, 101);
+  assert.ok(tip[3] > 150, `the tip is covered: alpha ${tip[3]}`);
+  assert.ok(hueGap(tip, HAIR) < hueGap(tip, RED) * 0.5, `as their hair, not the stole: ${tip}`);
+  const before = rgbToLab(...rgba.slice((101 * w + 50) * 4, (101 * w + 50) * 4 + 3)); const after = rgbToLab(tip[0], tip[1], tip[2]);
+  assert.ok(Math.abs(before[0] - after[0]) < 8, `its lightness kept: ${before[0].toFixed(0)} → ${after[0].toFixed(0)}`);
+});

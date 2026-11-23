@@ -239,7 +239,7 @@ function prepare(piece) {
   // (Or its photo ending just past its hem (the top of the trousers under it, then the edge): how long it
   // really is isn't seen; carried on from its hem the same way.)
   if (cutY == null && hemRow != null && PH - hemRow < (L?.fh ?? 60) * 0.6) cutY = hemRow - 1;
-  piece.engine = { of: pm, w: PW, X0, Y0, bw, bh, val, a: a2, sm, hm, cutY, garmentLab, cloth, tex, quad: [q.shoulders[0], q.shoulders[1], seen(q.hips?.[1]) ? q.hips[1] : [q.shoulders[1][0], q.shoulders[1][1] + (L?.fh ?? 60) * 2.4], seen(q.hips?.[0]) ? q.hips[0] : [q.shoulders[0][0], q.shoulders[0][1] + (L?.fh ?? 60) * 2.4]] };
+  piece.engine = { of: pm, w: PW, X0, Y0, bw, bh, val, a: a2, sm, hm, cutY, garmentLab, cloth, skin, tex, quad: [q.shoulders[0], q.shoulders[1], seen(q.hips?.[1]) ? q.hips[1] : [q.shoulders[1][0], q.shoulders[1][1] + (L?.fh ?? 60) * 2.4], seen(q.hips?.[0]) ? q.hips[0] : [q.shoulders[0][0], q.shoulders[0][1] + (L?.fh ?? 60) * 2.4]] };
   return piece.engine;
 }
 
@@ -388,7 +388,20 @@ export function engineLayer(S) {
   const pq = E.quad.map((v) => [v[0], v[1]]); const pcx = pq.reduce((a2, v) => a2 + v[0], 0) / 4; const pcy = pq.reduce((a2, v) => a2 + v[1], 0) / 4;
   const pqs = pq.map(([x, y]) => [pcx + (x - pcx) * 0.85, pcy + (y - pcy) * 0.95]);
   const inPieceTorso = (x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = pqs[i]; const [xj, yj] = pqs[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
-  const zEnd = S.kind === 'upper' && z ? z.box.y1 : null; const zFade = Math.max(2, (base.layout?.fh ?? 60) * 0.06);
+  // (Not where the zone runs to the bottom of the photo: what's cut off there goes on past it.)
+  const zEnd = S.kind === 'upper' && z && z.box.y1 < h - 2 ? z.box.y1 : null; const zFade = Math.max(2, (base.layout?.fh ?? 60) * 0.06);
+  // (Below the piece's waist, inside the opening of what it is (between an open jacket's fronts, under a
+  // short top), what its model wears there (a belt, jeans) is laid on as it is, where the person wore the
+  // garment taken off: not their bare skin carried on down past their waist.)
+  const PWp = piece.w; const ppp = piece.people; const texP = E.tex;
+  const torsoLen = (RP.H[0][1] + RP.H[1][1]) / 2 - (RP.S[0][1] + RP.S[1][1]) / 2;
+  const waistP = (RP.H[0][1] + RP.H[1][1]) / 2 - torsoLen * 0.22;
+  const lowerAt = (X, Y) => {
+    if (Y < waistP) return null;
+    const xi = Math.round(X); const yi = Math.round(Y); if (xi < 0 || yi < 0 || xi >= PWp || yi >= piece.h) return null;
+    const i = yi * PWp + xi; if (E.skin[i] || ppp.clothes[i] < 150 || ppp.face[i] >= 60 || ppp.hair[i] >= 60) return null;
+    return [texP[i * 4], texP[i * 4 + 1], texP[i * 4 + 2]];
+  };
   const smooth = (v) => (v <= 0.25 ? 0 : v >= 0.75 ? 1 : (v - 0.25) / 0.5);
   const rgba = new Uint8ClampedArray(pw * ph * 4); let n = 0;
   for (let y = 0; y < ph; y++) {
@@ -406,7 +419,12 @@ export function engineLayer(S) {
       if (al < 0.5 && inZone) { const [mx, my] = mirror(sx, sy); const am = bil(a, false, mx, my); if (am > al) { al = am; sx = mx; sy = my; } }
       // (An upper body ends where the zone does: the waist line, as found or moved by hand.)
       if (zEnd != null && y0 + y > zEnd - zFade) al *= Math.max(0, (zEnd - (y0 + y)) / zFade);
-      const A = smooth(al); if (A <= 0) continue;
+      const A = smooth(al);
+      if (A < 1 && inZone && S.kind === 'upper' && inPieceTorso(sx0, sy0)) {
+        const lc = lowerAt(sx0, sy0);
+        if (lc) { const o = (y * pw + x) * 4; const c0 = A > 0 ? bil(val, true, sx, sy) : null; for (let ch = 0; ch < 3; ch++) rgba[o + ch] = c0 ? c0[ch] * A + lc[ch] * (1 - A) : lc[ch]; rgba[o + 3] = 255; n++; continue; }
+      }
+      if (A <= 0) continue;
       const c = bil(val, true, sx, sy); if (!c) continue;
       const o = (y * pw + x) * 4; rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = Math.round(255 * A); n++;
     }

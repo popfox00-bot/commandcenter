@@ -1537,6 +1537,16 @@ function makeSkin(S, z) {
   const skinColored = (i) => { const q = rgbToLab(base.rgba[i * 4], base.rgba[i * 4 + 1], base.rgba[i * 4 + 2]); return Math.hypot((q[0] - toneLab[0]) * 0.35, q[1] - toneLab[1], q[2] - toneLab[2]) < 24; };
   const touchSkin = (i) => !z.mask[i] && p.hair[i] < 90 && Math.max(p.body[i], p.face[i]) >= 60 && p.body[i] + p.face[i] > p.hair[i] + p.clothes[i] && skinColored(i);
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { const i = (Y0 + y) * w + X0 + x; const k = y * bw + x; if (touchSkin(i)) { sk[k] = 1; for (let c = 0; c < 3; c++) ch[c][k] = base.rgba[i * 4 + c]; } }
+  // (Their skin's color taken from a few pixels away from the garment, not right against it: there it's in
+  // the old collar's own shadow and half its color (darker, greener), which carried down would tint the
+  // made neck below the collar's line.)
+  {
+    const dz0 = new Float32Array(bw * bh); for (let k = 0; k < bw * bh; k++) { const i = (Y0 + ((k / bw) | 0)) * w + X0 + (k % bw); dz0[k] = z.mask[i] ? 0 : 1e9; }
+    chamfer(dz0, bw, bh);
+    const far = new Uint8Array(bw * bh); for (let k = 0; k < bw * bh; k++) if (sk[k] && dz0[k] >= 3 && dz0[k] <= 8) far[k] = 1;
+    const fc = ch.map((v) => boxBlur(v, far, bw, bh, 5)); const fn = boxBlur(Float32Array.from(far), Uint8Array.from(far, () => 1), bw, bh, 5);
+    for (let k = 0; k < bw * bh; k++) if (sk[k] && dz0[k] < 3 && fn[k] > 0.02) for (let c = 0; c < 3; c++) ch[c][k] = fc[c][k];
+  }
   const smooth = ch.map((v) => boxBlur(v, sk, bw, bh, rs));
   // The difference (real less made-up) fixed on their skin, nothing on anything else that isn't the zone, and
   // spread smoothly over the zone.
@@ -1611,7 +1621,9 @@ function makeSkin(S, z) {
   extraOn = true;
   const sd = skinDetailOf(base) ?? grainOf(base);
   const hwr = (base.pose?.wrists ?? []).filter((v) => v && v[2] >= 0.2); const handAt = (x, y) => hwr.some((v) => Math.hypot(x - v[0], y - v[1]) < fh * 0.8);
-  const ob = { x0: Math.max(0, b.x0 - rimR), y0: Math.max(0, b.y0 - rimR), x1: Math.min(w, b.x1 + rimR), y1: Math.min(h, b.y1 + rimR) };
+  // (A little more than its rim: the blend across its edge with their real skin reads a few pixels further out.)
+  const obR = rimR + 8;
+  const ob = { x0: Math.max(0, b.x0 - obR), y0: Math.max(0, b.y0 - obR), x1: Math.min(w, b.x1 + obR), y1: Math.min(h, b.y1 + obR) };
   const pw = ob.x1 - ob.x0; const ph = ob.y1 - ob.y0; const rgba = new Uint8ClampedArray(pw * ph * 4);
   for (let y = ob.y0; y < ob.y1; y++) for (let x = ob.x0; x < ob.x1; x++) {
     const i = y * w + x; const kk = (y - Y0) * bw + x - X0;
@@ -1653,9 +1665,34 @@ function makeSkin(S, z) {
       for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = x + dx; const Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const kk2 = (Y - Y0) * bw + X - X0; if (kk2 < 0 || kk2 >= bw * bh || fig[kk2] > 0) continue; const j = (Y * w + X) * 4; sr += base.rgba[j]; sg += base.rgba[j + 1]; sb += base.rgba[j + 2]; sn++; }
       if (sn) { const t = fig[k] <= 1 ? 0.4 : 0.15; rgba[o] = rgba[o] * (1 - t) + (sr / sn) * t; rgba[o + 1] = rgba[o + 1] * (1 - t) + (sg / sn) * t; rgba[o + 2] = rgba[o + 2] * (1 - t) + (sb / sn) * t; }
     }
-    rgba[o + 3] = z.mask[i] ? 255 : ring ? Math.round(255 * 0.55 * Math.max(0, 1 - dz[kk] / (rimR + 1))) : Math.round(255 * Math.min(1, 1.3 - dz[kk] / (rimR + 1)));
+    rgba[o + 3] = z.mask[i] ? 255 : ring ? Math.round(255 * (dz[kk] <= 1.5 ? 0.85 : 0.55 * Math.max(0, 1 - dz[kk] / (rimR + 1)))) : Math.round(255 * Math.min(1, 1.3 - dz[kk] / (rimR + 1)));
     // (Their own hand there (over where the garment was) is left as it is: it's in front, not taken off.)
     if (handAt(x, y) && p.body[i] >= 160 && p.face[i] < 100 && p.clothes[i] < 100) rgba[o + 3] = 0;
+  }
+  // (Where it meets their real skin, across the edge: a few pixels each side made a smooth blend of the real
+  // skin just outside and the made skin just inside, so no line is left where the old collar's edge was.)
+  {
+    const din = new Float32Array(pw * ph); const dout = new Float32Array(pw * ph);
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) { const i = (ob.y0 + y) * w + ob.x0 + x; const k = y * pw + x; din[k] = z.mask[i] ? 1e9 : 0; dout[k] = z.mask[i] ? 0 : 1e9; }
+    chamfer(din, pw, ph); chamfer(dout, pw, ph);
+    const real = (i) => !z.mask[i] && p.hair[i] < 60 && p.face[i] < 200 && Math.max(p.body[i], p.face[i]) >= 100;
+    const sets = [];
+    for (let y = 3; y < ph - 3; y++) for (let x = 3; x < pw - 3; x++) {
+      const k = y * pw + x; const inside = din[k] > 0; const d = inside ? din[k] : dout[k];
+      if (d > (inside ? 2.2 : 3.5)) continue;
+      let ri = 0; let gi = 0; let bi = 0; let ni = 0; let ro = 0; let go = 0; let bo = 0; let no = 0;
+      for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+        if (y + dy < 0 || y + dy >= ph || x + dx < 0 || x + dx >= pw) continue;
+        const kk = (y + dy) * pw + x + dx; const i = (ob.y0 + y + dy) * w + ob.x0 + x + dx;
+        if (din[kk] >= 3 && din[kk] <= 5 && rgba[kk * 4 + 3] >= 250) { ri += rgba[kk * 4]; gi += rgba[kk * 4 + 1]; bi += rgba[kk * 4 + 2]; ni++; }
+        else if (dout[kk] >= 4 && dout[kk] <= 7 && real(i)) { ro += base.rgba[i * 4]; go += base.rgba[i * 4 + 1]; bo += base.rgba[i * 4 + 2]; no++; }
+      }
+      if (ni < 3 || no < 3) continue;
+      // (0 well outside, 1 well inside.)
+      const t = Math.max(0, Math.min(1, inside ? 0.5 + din[k] / 6 : 0.5 - dout[k] / 8));
+      sets.push([k, (ro / no) * (1 - t) + (ri / ni) * t, (go / no) * (1 - t) + (gi / ni) * t, (bo / no) * (1 - t) + (bi / ni) * t]);
+    }
+    for (const [k, r, g, bb] of sets) { rgba[k * 4] = r; rgba[k * 4 + 1] = g; rgba[k * 4 + 2] = bb; rgba[k * 4 + 3] = 255; }
   }
   return { x0: ob.x0, y0: ob.y0, pw, ph, rgba };
 }

@@ -976,7 +976,13 @@ the clothes in it: worn by someone, or on its own).
   top's hem over a bare midriff, a jacket's open front) cast a soft shadow just next to them on it, so the skin
   sits under the piece rather than looking cut out. A sheer piece (lace) shows its model's arm through it at a
   sleeve's end, smooth where the lace is full of detail: there, by the arms, a sizeable smooth patch reaching
-  the cloth's edge is taken as the arm, not the cloth (no flat blue patch past the lace's hem),
+  the cloth's edge is taken as the arm, not the cloth (no flat blue patch past the lace's hem). Where the
+  made skin meets their real skin (the neck above an old collar), its color is read from their skin a few
+  pixels away from the old garment, not from the collar's shadow right against it, and across the edge a few
+  pixels each side are a smooth blend of the two, so no line or greyer band is left. An upper body put on
+  over a longer garment: below the piece's waist, inside its opening (between an open jacket's fronts, under
+  a short top), what its model wears there (a belt, jeans) is laid on as it is, not their bare skin carried
+  on down; and the piece isn't faded out at the bottom edge of the photo,
   and the piece is laid
   onto that: its own color and texture kept (no folds or color taken from what was worn there), only the
   photo's light and the light and shade on their bare skin under it (a sleeve over a lit arm). Under strands

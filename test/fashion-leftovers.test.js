@@ -375,3 +375,23 @@ test('the piece\'s edge over made skin (a short top\'s hem over a bare midriff) 
   assert.equal(v(5, 30), 200, 'not on what isn\'t made skin');
   assert.equal(v(40, 10), 200, 'not under the piece itself');
 });
+
+test('where the real neck meets the made skin below an old collar, the collar\'s shadow on the neck right above it leaves no dark line', async () => {
+  const { eraseGarment } = await import('../web/apps/fashion/compose.js');
+  const w = 200; const h = 240; const n = w * h;
+  const people = { w, h, face: new Uint8Array(n), hair: new Uint8Array(n), body: new Uint8Array(n), clothes: new Uint8Array(n), others: new Uint8Array(n) };
+  const rgba = new Uint8ClampedArray(n * 4).fill(240); const zm = new Uint8Array(n);
+  const FACE = [222, 172, 142]; const NECK = [205, 150, 120]; const SHADE = [150, 118, 92];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; const put = (c) => rgba.set([...c, 255], i * 4);
+    if (y >= 10 && y < 70 && x >= 75 && x < 125) { people.face[i] = 255; put(FACE); }
+    else if (y >= 70 && y < 100 && x >= 82 && x < 118) { people.body[i] = 255; put(y >= 97 ? SHADE : NECK); }
+    else if (y >= 100 && y < 230 && x >= 40 && x < 160) { people.clothes[i] = 255; zm[i] = 1; put([235, 235, 230]); }
+  }
+  const S = { base: { w, h, rgba, people, layout: { fw: 50, fh: 60, chin: 70, face: { x0: 75, y0: 10, x1: 125, y1: 70 } } }, target: {}, kind: 'top', mode: 'replace' };
+  const e = eraseGarment(S, { mask: zm, box: { x0: 40, y0: 100, x1: 160, y1: 230 } });
+  // (What shows: the patch over the photo.)
+  const shown = (x, y) => { const inP = x >= e.x0 && y >= e.y0 && x < e.x0 + e.pw && y < e.y0 + e.ph; const o = inP ? ((y - e.y0) * e.pw + x - e.x0) * 4 : 0; const a = inP ? e.rgba[o + 3] / 255 : 0; const i = (y * w + x) * 4; return 0.299 * (e.rgba[o] * a + rgba[i] * (1 - a)) + 0.587 * (e.rgba[o + 1] * a + rgba[i + 1] * (1 - a)) + 0.114 * (e.rgba[o + 2] * a + rgba[i + 2] * (1 - a)); };
+  const lo = Math.min(shown(100, 92), shown(100, 106));
+  for (let y = 95; y <= 103; y++) assert.ok(shown(100, y) > lo - 8, `no dark line at row ${y}: ${shown(100, y).toFixed(0)} vs ${lo.toFixed(0)}`);
+});

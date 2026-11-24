@@ -1255,12 +1255,15 @@ Profile, ✈ for messages), where everything is made by you in the app.
   or delete it for good; after 7 days it's gone (on your other devices too).
 - **Several in one post.** Pick several photos and videos at once (each photo through the editor; Cancel
   keeps it as it is), add more with ＋ Add more, take one out with its ✕, up to ten. The post shows them as a
-  carousel: swipe across, with "2/3" and dots; its tile shows ❐.
+  carousel: swipe across, with "2/3" and dots; a video that ends goes on to the next. Its tile shows ❐ and opens
+  the post to swipe through (from a profile too, not Reels' single video). While posting, a progress bar shows
+  each file being prepared, the post saved to the phone, then each file uploaded to Saved Files, and Posted ✓.
 - **Videos and Reels.** A video posts as it is, with its sound (300 MB at most), with a still from it for its
   tile. **Reels** (the ▶︎ tab) shows only videos (posts that start with one), everyone's, in a shuffled order
   (the same while the app is open; a video just posted comes first); pull down at the top to shuffle again.
   One at a time at full height: swipe up for the next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
-  💬 beside it. A profile's ▦ / ▶︎ shows its posts or just its reels. In Home, a video plays with its controls.
+  💬 beside it. A post with several videos plays them one after another in its reel (a bar for each at the top),
+  then from the first again. A profile's ▦ / ▶︎ shows its posts or just its reels. In Home, a video plays with its controls.
 - **Tags, mentions, sharing.** Tag your other accounts in a post (👤 Tag, a small button when posting or from ⋯ →
   Edit that opens the accounts in alphabetical order; it shows how many are tagged): it shows "with @…" under the post, and the post is in each tagged account's 👤 Tagged grid on its
   profile. An @handle of one of your accounts in a caption is a link to it. ✈ on a post (or beside a reel)

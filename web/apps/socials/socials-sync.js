@@ -76,7 +76,7 @@ export const isRecoveryKey = (s) => !!cleanRecoveryKey(s);
  * with Blobs), recoveryKey (only when the copy in Drive was made just now: show it once), sent, fetched }.
  * Throws WrongPassword when the copy in Drive has another password; other errors when Drive can't be reached.
  */
-export async function syncSocials(api, local, password, { iterations = ITERATIONS } = {}) {
+export async function syncSocials(api, local, password, { iterations = ITERATIONS, onProgress = null } = {}) {
   let files = await listFolder(api);
   // The key: Drive's, opened with the password; or a new one, made now.
   let key; let recoveryKey = null;
@@ -112,10 +112,14 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
   });
   // (Each photo Drive doesn't have yet, sent once.)
   const uniq = new Map(); for (const [o, k, idk] of needs) if (o[k] && o[k].size <= MAX_MEDIA && !files.has(mediaName(o[idk]))) uniq.set(o[idk], o[k]);
-  await pool([...uniq], 3, async ([id, blob]) => { await upload(api, mediaName(id), await seal(key, new Uint8Array(await blob.arrayBuffer()))); sent++; });
+  // (How far along: each file sent, then the accounts and posts themselves.)
+  const total = uniq.size + 1; const tell = () => { try { onProgress?.({ done: sent, total }); } catch { /* the caller's */ } };
+  tell();
+  await pool([...uniq], 3, async ([id, blob]) => { await upload(api, mediaName(id), await seal(key, new Uint8Array(await blob.arrayBuffer()))); sent++; tell(); });
   // The merged copy, without the photos themselves, back to Drive.
   const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => ({ ...p, more: (p.more ?? []).map(({ image: i2, video: v2, ...m }) => m) })), messages: state.messages, reads: state.reads };
   await upload(api, DATA_FILE, await seal(key, new TextEncoder().encode(JSON.stringify(wire))));
+  try { onProgress?.({ done: total, total }); } catch { /* the caller's */ }
   // (Which photos and videos Drive has now: what's still to send, until the next sync, is the rest.)
   const driveMedia = [...files.keys()].filter((n) => n.startsWith('socials-m-')).map((n) => n.slice(10, -4)).concat([...uniq.keys()]);
   return { state, recoveryKey, sent, fetched, driveMedia };

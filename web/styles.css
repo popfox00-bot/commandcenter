@@ -1756,3 +1756,13 @@ body.se-open { overflow: hidden; }
 .sp-lrows { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
 .sp-lrows li { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: baseline; font-size: .82rem; min-width: 0; }
 .sp-lrows .sp-lstat { font-size: .66rem; }
+/* Socials: a post's upload progress; a reel's several videos. */
+.so-upbar { position: sticky; top: 0; z-index: 30; margin: 0 0 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); display: grid; gap: 6px; box-shadow: 0 2px 10px rgba(0, 0, 0, .12); }
+.so-upbar[hidden] { display: none; }
+.so-upbar-label { font-size: .85rem; font-weight: 600; }
+.so-upbar-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.so-upbar-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #6366f1, #ec4899); transition: width .35s ease; }
+.so-upbar-done .so-upbar-fill { background: #16a34a; }
+.so-reel-segs { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 3; display: flex; gap: 4px; pointer-events: none; }
+.so-reel-seg { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .35); overflow: hidden; }
+.so-reel-seg i { display: block; height: 100%; width: 0; background: #fff; }

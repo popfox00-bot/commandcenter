@@ -94,7 +94,7 @@ function mountAdmin(host) {
     sync.busy = true; sync.msg = 'Syncing…'; sync.ok = null; drawStatus();
     const editsAt = edits;
     try {
-      const r = await syncSocials(api, state, sessionPw);
+      const r = await syncSocials(api, state, sessionPw, { onProgress: ({ done, total }) => { if (posting) showUp(total > 1 ? `Uploading to Saved Files… ${Math.min(done, total - 1)} of ${total - 1} file${total - 1 === 1 ? '' : 's'}` : 'Uploading to Saved Files…', 0.4 + 0.6 * (done / total)); } });
       if (!alive) return;
       store.set(DRIVE_KEY, JSON.stringify({ media: r.driveMedia, at: Date.now() }));
       if (edits === editsAt) store.set(DIRTY_KEY, '');
@@ -106,10 +106,12 @@ function mountAdmin(host) {
       each(state, (o, k, idk) => { if (!o[k] && o[idk] && got.has(o[idk])) o[k] = got.get(o[idk]); });
       await saveState(state);
       sync.ok = true; sync.wrong = false; sync.msg = `Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+      if (posting) { posting = false; showUp('Posted ✓ Saved to Saved Files', 1, true); hideUp(2600); }
       if (r.recoveryKey) sync.pendingKey = r.recoveryKey;
       // (Shown again only where nothing's being typed or picked: a post being made, a comment, a form stay as they are.)
       if (['feed', 'profile', 'people', 'inbox'].includes(view.name) || (sync.pendingKey && ['settings', 'explore'].includes(view.name))) draw(); else { drawStatus(); drawBars(); }
     } catch (e) {
+      if (posting) { posting = false; showUp('Posted on this phone ✓ It uploads to Saved Files when it can.', 1, true); hideUp(4000); }
       sync.ok = false; sync.wrong = e instanceof WrongPassword;
       sync.msg = sync.wrong ? 'The copy in your Drive has a different password' : navigator.onLine === false ? 'Offline: syncs when back online' : `Couldn't sync: ${e.message}`;
     } finally { sync.busy = false; drawStatus(); if (sync.again) { sync.again = false; soon(); } }
@@ -143,7 +145,15 @@ function mountAdmin(host) {
   const main = el('div', { class: 'so-main' });
   const top = el('header', { class: 'so-top' });
   const tabs = el('nav', { class: 'so-tabs', 'aria-label': 'Socials' });
-  const root = el('div', { class: 'so' }, top, main, tabs);
+  // (A post's progress: preparing its files, saving it to the phone, then uploading to Saved Files.)
+  const upbar = el('div', { class: 'so-upbar', hidden: true, role: 'status', 'aria-live': 'polite' });
+  let upHide = 0; let posting = false;
+  function showUp(label, frac, done = false) {
+    clearTimeout(upHide); upbar.hidden = false; upbar.classList.toggle('so-upbar-done', done);
+    fill(upbar, el('span', { class: 'so-upbar-label', text: label }), el('div', { class: 'so-upbar-track', role: 'progressbar', 'aria-label': 'Post upload', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(frac * 100)) }, el('span', { class: 'so-upbar-fill', style: { width: `${Math.max(3, Math.round(frac * 100))}%` } })));
+  }
+  const hideUp = (ms) => { clearTimeout(upHide); upHide = setTimeout(() => { upbar.hidden = true; }, ms); };
+  const root = el('div', { class: 'so' }, top, upbar, main, tabs);
   host.append(root);
 
   const go = (v) => { view = v; draw(); try { window.scrollTo(0, 0); } catch { /* jsdom */ } };
@@ -189,6 +199,12 @@ function mountAdmin(host) {
       count.textContent = `${i + 1}/${items.length}`; [...dots.children].forEach((d, j) => d.classList.toggle('on', j === i));
       for (const v of track.querySelectorAll('video')) if (!v.paused && v.closest('.so-slide') !== track.children[i]) v.pause();
     }, { passive: true });
+    // (A video that ends: on to the next one, which plays.)
+    [...track.children].forEach((sl, i) => sl.querySelector('video')?.addEventListener('ended', () => {
+      const next = track.children[i + 1]; if (!next) return;
+      track.scrollTo({ left: (i + 1) * track.clientWidth, behavior: 'smooth' });
+      next.querySelector('video')?.play().catch(() => {});
+    }));
     return el('div', { class: 'so-multi' }, track, count, dots);
   }
 
@@ -493,7 +509,7 @@ function mountAdmin(host) {
       mine ? el('span', { class: 'muted small', text: 'You' }) : el('button', { type: 'button', class: `btn small${f ? '' : ' primary'}`, text: f ? 'Following' : 'Follow', onclick: () => { toggleFollow(state, state.me, a.id); save(); draw(); } }));
   }
 
-  const tile = (p) => el('button', { type: 'button', class: 'so-tile', 'aria-label': `${p.draft ? 'Draft' : p.kind === 'video' ? 'Video' : 'Post'} by ${accountById(state, p.by)?.handle}${p.pinned ? ' (pinned)' : ''}${p.caption ? `: ${p.caption.slice(0, 60)}` : ''}`, onclick: () => go(p.draft ? { name: 'new', draft: p.id } : p.kind === 'video' ? { name: 'reels', start: p.id, by: view.name === 'profile' ? p.by : null } : { name: 'post', id: p.id }) },
+  const tile = (p) => el('button', { type: 'button', class: 'so-tile', 'aria-label': `${p.draft ? 'Draft' : p.kind === 'video' ? 'Video' : 'Post'} by ${accountById(state, p.by)?.handle}${p.pinned ? ' (pinned)' : ''}${p.caption ? `: ${p.caption.slice(0, 60)}` : ''}`, onclick: () => go(p.draft ? { name: 'new', draft: p.id } : mediaOf(p).length > 1 ? { name: 'post', id: p.id } : p.kind === 'video' ? { name: 'reels', start: p.id, by: view.name === 'profile' ? p.by : null } : { name: 'post', id: p.id }) },
     p.pinned && view.name === 'profile' ? el('span', { class: 'so-tile-pin', 'aria-hidden': 'true', text: '📌' }) : null,
     p.image ? el('img', { src: urlOf(p.image), alt: '' }) : el('span', { class: 'so-tile-text', text: p.caption }),
     p.more?.length ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '❐' }) : p.kind === 'video' ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '▶︎' }) : null);
@@ -736,7 +752,8 @@ function mountAdmin(host) {
     const take = async (list) => {
       err.textContent = ''; const room = MAX_ITEMS - items.length; const files = [...list].slice(0, room);
       if (list.length > room) err.textContent = `${MAX_ITEMS} at most in one post.`;
-      for (const f of files) {
+      for (const [fi, f] of files.entries()) {
+        if (files.length > 1) showUp(`Preparing ${fi + 1} of ${files.length}…`, fi / files.length);
         try {
           if (/^video\//.test(f.type) || /\.(mov|mp4|m4v|webm)$/i.test(f.name)) {
             if (f.size > MAX_VIDEO) throw new Error(`"${f.name}" is too big (${Math.round(f.size / 1048576)} MB; ${MAX_VIDEO / 1048576} MB at most).`);
@@ -749,6 +766,7 @@ function mountAdmin(host) {
           cur = items.length - 1; show();
         } catch (e) { err.textContent = e.message; }
       }
+      if (files.length > 1) { showUp(`${files.length} ready to post`, 1, true); hideUp(1500); }
     };
     file.addEventListener('change', () => { const l = [...(file.files ?? [])]; file.value = ''; if (l.length) take(l); });
     more.addEventListener('change', () => { const l = [...(more.files ?? [])]; more.value = ''; if (l.length) take(l); });
@@ -761,14 +779,20 @@ function mountAdmin(host) {
       setCollabs(state, p.id, [...collabs]);
       return p;
     };
-    share.addEventListener('click', () => {
+    share.addEventListener('click', async () => {
       if (!items.length) return;
+      share.disabled = true;
       try {
+        showUp('Posting… saving to this phone', 0.15);
         const p = make(false);
         // (A few of the other accounts say something nice about it.)
         if (autoOn()) autoComment(state, p.id);
-        save(); go(items[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
-      } catch (e) { err.textContent = e.message; }
+        await saveState(state); edits++; store.set(DIRTY_KEY, '1');
+        go(items[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
+        // (Then to Saved Files straight away, its progress shown; else it's posted here.)
+        if (connected() && sessionPw && navigator.onLine !== false) { posting = true; showUp('Uploading to Saved Files…', 0.4); runSync(); }
+        else { showUp(connected() ? 'Posted ✓ (it uploads to Saved Files when it can)' : 'Posted ✓', 1, true); hideUp(2400); }
+      } catch (e) { err.textContent = e.message; share.disabled = false; upbar.hidden = true; }
     });
     saveDraft.addEventListener('click', () => { try { make(true); save(); toast('Saved to your drafts (your profile → ✎)'); go({ name: 'profile', id: m.id, grid: 'drafts' }); } catch (e) { err.textContent = e.message; } });
     if (items.length) requestAnimationFrame(show);
@@ -808,10 +832,26 @@ function mountAdmin(host) {
     const vids = [];
     const wrap = el('div', { class: 'so-reels' }, list.map((p) => {
       const by = accountById(state, p.by); const liked = p.likes.includes(state.me);
-      const v = p.video ? el('video', { class: 'so-reel-video', src: urlOf(p.video), poster: urlOf(p.image) ?? undefined, playsinline: true, loop: true, preload: 'metadata', 'aria-label': `Reel by ${by.handle}` }) : null;
+      // (Several videos in one post: played one after another, then from the first again; a bar for each.)
+      const clips = mediaOf(p).filter((it) => it.kind === 'video' && it.video);
+      const v = clips.length ? el('video', { class: 'so-reel-video', src: urlOf(clips[0].video), poster: urlOf(clips[0].image) ?? undefined, playsinline: true, loop: clips.length < 2, preload: 'metadata', 'aria-label': `Reel by ${by.handle}${clips.length > 1 ? `, 1 of ${clips.length}` : ''}` }) : null;
+      let segs = null;
       if (v) { v.muted = !reelSound; vids.push(v); v.addEventListener('click', () => { if (v.paused) v.play().catch(() => {}); else v.pause(); }); }
+      if (v && clips.length > 1) {
+        let at = 0;
+        segs = el('div', { class: 'so-reel-segs', 'aria-hidden': 'true' }, clips.map(() => el('span', { class: 'so-reel-seg' }, el('i', {}))));
+        const paint = () => [...segs.children].forEach((sg, j) => { sg.firstChild.style.width = j < at ? '100%' : j > at ? '0%' : `${v.duration ? Math.min(100, (v.currentTime / v.duration) * 100) : 0}%`; });
+        v.addEventListener('timeupdate', paint);
+        v.addEventListener('ended', () => {
+          at = (at + 1) % clips.length; const c = clips[at];
+          v.src = urlOf(c.video); v.poster = urlOf(c.image) ?? ''; v.setAttribute('aria-label', `Reel by ${by.handle}, ${at + 1} of ${clips.length}`); v.dataset.clip = String(at);
+          paint(); if (!v.hasAttribute('data-off')) v.play().catch(() => {});
+        });
+        paint();
+      }
       const sound = el('button', { type: 'button', class: 'so-reel-btn so-reel-sound', 'aria-label': reelSound ? 'Sound off' : 'Sound on', text: reelSound ? '🔊' : '🔇', onclick: () => { reelSound = !reelSound; for (const x of vids) x.muted = !reelSound; for (const b of wrap.querySelectorAll('.so-reel-sound')) { b.textContent = reelSound ? '🔊' : '🔇'; b.setAttribute('aria-label', reelSound ? 'Sound off' : 'Sound on'); } if (reelSound) wrap.querySelector('video:not([data-off])')?.play().catch(() => {}); } });
       return el('section', { class: 'so-reel', 'data-post': p.id },
+        segs,
         v ?? el('div', { class: 'so-reel-missing' }, p.image ? el('img', { src: urlOf(p.image), alt: '' }) : null, el('p', { text: 'This video is on the device it was posted from (too big to sync).' })),
         el('div', { class: 'so-reel-side' },
           el('button', { type: 'button', class: `so-reel-btn${liked ? ' on' : ''}`, 'aria-label': liked ? 'Unlike' : 'Like', 'aria-pressed': String(liked), onclick: (e) => { const on = toggleLike(state, p.id, state.me); save(); const b = e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Unlike' : 'Like'); b.querySelector('.so-reel-icon').textContent = on ? '♥' : '♡'; b.querySelector('.so-reel-n').textContent = countLabel(p.likes.length); } }, el('span', { class: 'so-reel-icon', text: liked ? '♥' : '♡' }), el('span', { class: 'so-reel-n', text: countLabel(p.likes.length) })),

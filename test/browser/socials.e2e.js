@@ -721,3 +721,33 @@ test('Socials opens to its Sports front: games as posts in team colors (final, l
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials: two videos in one post: Reels plays them one after the other (a bar for each); from the profile the post opens to swipe through; a progress bar while posting', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  const a = await clip(page); const b = { ...(await clip(page)), name: 'clip2.webm' };
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles([a, b]);
+  await page.locator('.so-new-strip').locator('img, video, .so-strip-item, button').nth(1).waitFor({ timeout: 20000 });
+  await page.getByLabel('Caption').fill('Two clips');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  // (The progress bar: posted.)
+  await page.locator('.so-upbar', { hasText: 'Posted' }).waitFor();
+  // Reels: the first clip with two bars, then the second.
+  await page.locator('.so-reel-segs').waitFor();
+  assert.equal(await page.locator('.so-reel-seg').count(), 2);
+  await page.waitForFunction(() => document.querySelector('.so-reel-video')?.dataset.clip === '1', null, { timeout: 15000 });
+  assert.match(await page.locator('.so-reel-video').getAttribute('aria-label'), /2 of 2/);
+  // The profile: its tile opens the post, two slides to swipe through.
+  await page.getByRole('button', { name: 'Profile' }).click();
+  await page.locator('.so-grid .so-tile').first().click();
+  await page.locator('.so-carousel').waitFor();
+  assert.equal(await page.locator('.so-carousel .so-slide').count(), 2);
+  assert.equal(await page.locator('.so-carousel video').count(), 2);
+  await page.locator('.so-carousel').evaluate((t) => t.scrollTo({ left: t.clientWidth }));
+  await page.waitForFunction(() => document.querySelector('.so-count')?.textContent === '2/2');
+  await page.close();
+});

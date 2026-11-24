@@ -10,6 +10,7 @@
 import { el, fill, store } from '../../lib/dom.js';
 import { DEFAULT_CLOCKS, searchPlaces, partsIn, offsetMin, diffLabel, dayLabel, hm12, validZone } from '../../lib/places.js';
 import { dragHandle, sortable, moved } from '../../lib/drag-sort.js';
+import { sceneOf, skyOf, sceneSvg } from './scenes.js';
 
 const PLACES_KEY = 'cc.clock.places';
 const TIMER_KEY = 'cc.clock.timer';
@@ -40,7 +41,7 @@ export function mount(host) {
   let tab = store.get(TAB_KEY) || 'world';
   let places = loadPlaces();
   let editing = false; let picking = null; // null | { replace: index } | { add: true }
-  const tabs = el('div', { class: 'chips ck-tabs', role: 'tablist', 'aria-label': 'Clock' });
+  const tabs = el('div', { class: 'ck-tabs', role: 'tablist', 'aria-label': 'Clock' });
   const body = el('div', { class: 'ck-body' });
   let tick = 0;
 
@@ -63,7 +64,9 @@ export function mount(host) {
       const pt = partsIn(p.zone, now);
       const sub = big ? `${pt.wd}, ${new Date(Date.UTC(pt.y, pt.mo - 1, pt.d)).toLocaleDateString([], { timeZone: 'UTC', month: 'long', day: 'numeric' })}` : `${dayLabel(p.zone, first.zone, now)}, ${diffLabel(offsetMin(p.zone, now) - offsetMin(first.zone, now))}`;
       const [t, ap] = hm12(pt).split(' ');
-      return el('div', { class: `ck-card${big ? ' ck-big' : ''}`, 'data-zone': p.zone },
+      // (Its picture behind it, the sky as it is there now; the time over a shade, white.)
+      const scene = el('div', { class: 'ck-scene', 'data-sky': skyOf(pt.h) }); scene.innerHTML = sceneSvg(sceneOf(p), skyOf(pt.h));
+      return el('div', { class: `ck-card${big ? ' ck-big' : ''}`, 'data-zone': p.zone, 'data-scene': sceneOf(p) }, scene, el('div', { class: 'ck-shade', 'aria-hidden': 'true' }),
         el('div', { class: 'ck-name', text: p.name }),
         el('div', { class: 'ck-time' }, el('span', { class: 'ck-hm', text: t }), big ? el('span', { class: 'ck-sec', text: `:${String(pt.s).padStart(2, '0')}` }) : null, el('span', { class: 'ck-ap', text: ap })),
         el('div', { class: 'ck-sub small muted', text: sub }));
@@ -151,6 +154,8 @@ export function mount(host) {
         const z = c.dataset.zone; const pt = partsIn(z, now); const [t, ap] = hm12(pt).split(' ');
         c.querySelector('.ck-hm').textContent = t; c.querySelector('.ck-ap').textContent = ap;
         const s = c.querySelector('.ck-sec'); if (s) s.textContent = `:${String(pt.s).padStart(2, '0')}`;
+        // (Its sky turning with the time there: night, sunrise, day, sunset.)
+        const sc = c.querySelector('.ck-scene'); const sky = skyOf(pt.h); if (sc && sc.dataset.sky !== sky) { sc.dataset.sky = sky; sc.innerHTML = sceneSvg(c.dataset.scene, sky); }
       }
     } else if (tab === 'timer' && timer) {
       const l = left();
@@ -164,7 +169,7 @@ export function mount(host) {
   }
 
   function draw() {
-    fill(tabs, [['world', '🌎 World Clock'], ['timer', '⏲️ Timer'], ['stopwatch', '⏱️ Stopwatch']].map(([id, label]) => el('button', { type: 'button', role: 'tab', class: `chip${tab === id ? ' active' : ''}`, 'aria-selected': String(tab === id), text: label, onclick: () => { tab = id; store.set(TAB_KEY, id); editing = false; picking = null; draw(); } })));
+    fill(tabs, [['world', '🌎', 'World Clock'], ['timer', '⏲️', 'Timer'], ['stopwatch', '⏱️', 'Stopwatch']].map(([id, icon, label]) => el('button', { type: 'button', role: 'tab', 'aria-label': label, class: `ck-seg${tab === id ? ' on' : ''}`, 'aria-selected': String(tab === id), onclick: () => { tab = id; store.set(TAB_KEY, id); editing = false; picking = null; draw(); } }, el('span', { class: 'ck-seg-ic', 'aria-hidden': 'true', text: icon }), el('span', { class: 'ck-seg-tx', text: label }))));
     fill(body, tab === 'timer' ? timerView() : tab === 'stopwatch' ? stopwatchView() : world());
   }
 

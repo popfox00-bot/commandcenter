@@ -709,7 +709,7 @@ test('Socials opens to its Sports front: games as posts in team colors (final, l
   await page.getByRole('button', { name: 'Refresh' }).click();
   await page.waitForFunction(() => /FINAL/.test(document.querySelector('.sp-post[data-id="nba:1"] .sp-state')?.textContent ?? ''));
   assert.equal(await nba.locator('.sp-caption').textContent(), 'NBA Nuggets beat Lakers 112-104, behind N. Jokic\'s 34 PTS.');
-  assert.match(await nba.locator('.sp-leaders').textContent(), /PTS.*N\. Jokic.*34/);
+  assert.match(await nba.locator('.sp-lteam', { hasText: 'Nuggets' }).textContent(), /PTS.*N\. Jokic.*34/);
   // Like.
   await nba.getByRole('button', { name: 'Like' }).click();
   assert.equal(await nba.getByRole('button', { name: 'Unlike' }).count(), 1);

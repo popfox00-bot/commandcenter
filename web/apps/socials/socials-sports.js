@@ -5,7 +5,7 @@
 // the leagues and hold Admin.
 
 import { el, fill, store } from '../../lib/dom.js';
-import { SPORTS_LEAGUES, boardUrls, postsFrom, mergeFeed, feedOrder, likesOf, lightness } from './socials-sports-core.js';
+import { SPORTS_LEAGUES, boardUrls, postsFrom, mergeFeed, feedOrder, likesOf, lightness, cardColor } from './socials-sports-core.js';
 
 const FEED_KEY = 'cc.socials.sports';
 const PREFS_KEY = 'cc.socials.sports.prefs';
@@ -66,15 +66,20 @@ export function sportsFront(host, { onAdmin }) {
   function post(p) {
     const [, label, emoji] = SPORTS_LEAGUES.find(([id]) => id === p.league) ?? ['', p.league.toUpperCase(), '🏟️'];
     const done = p.state === 'post'; const liked = likes.has(p.id);
-    const card = el('div', { class: 'sp-card', role: 'img', 'aria-label': `${p.away.name} ${p.away.score}, ${p.home.name} ${p.home.score}, ${p.detail}`, style: { background: `linear-gradient(118deg, ${p.away.color} 0%, ${p.away.color} 47%, ${p.home.color} 53%, ${p.home.color} 100%)` } },
+    const card = el('div', { class: 'sp-card', role: 'img', 'aria-label': `${p.away.name} ${p.away.score}, ${p.home.name} ${p.home.score}, ${p.detail}`, style: { background: `linear-gradient(118deg, ${cardColor(p.away)} 0%, ${cardColor(p.away)} 47%, ${cardColor(p.home)} 53%, ${cardColor(p.home)} 100%)` } },
       el('div', { class: 'sp-card-in' },
         el('div', { class: `sp-state${done ? '' : ' sp-live'}`, text: done ? (p.detail || 'Final').toUpperCase() : `● LIVE · ${p.detail}` }),
         teamRow(p.away, p.home, done), teamRow(p.home, p.away, done),
         p.venue ? el('div', { class: 'sp-venue', text: p.venue }) : null));
-    const leaders = p.leaders.length ? el('ul', { class: 'sp-leaders', 'aria-label': 'Stat leaders' }, p.leaders.map((l) => {
-      const team = [p.home, p.away].find((t) => t.abbr === l.team);
-      return el('li', {}, el('span', { class: 'sp-lstat', text: l.stat }), team ? badge(team) : el('span', {}), el('span', { class: 'sp-lwho', text: l.who }), el('strong', { class: 'sp-lval', text: l.value }));
-    })) : null;
+    // (Each team's leaders, side by side; else the game's.)
+    const side = (t, l) => el('div', { class: 'sp-lteam', 'aria-label': `${t.short} leaders` }, el('div', { class: 'sp-lhead' }, badge(t), el('strong', { text: t.short })),
+      el('ul', { class: 'sp-lrows' }, l.length ? l.map((x) => el('li', {}, el('span', { class: 'sp-lstat', text: x.stat }), el('span', { class: 'sp-lwho', text: x.who }), el('strong', { class: 'sp-lval', text: x.value }))) : el('li', { class: 'muted small', text: 'No leaders yet' })));
+    const bt = p.byTeam ?? { home: [], away: [] };
+    const leaders = bt.home.length || bt.away.length ? el('div', { class: 'sp-leaders2', 'aria-label': 'Stat leaders' }, side(p.away, bt.away), side(p.home, bt.home))
+      : p.leaders.length ? el('ul', { class: 'sp-leaders', 'aria-label': 'Stat leaders' }, p.leaders.map((l) => {
+        const team = [p.home, p.away].find((t) => t.abbr === l.team);
+        return el('li', {}, el('span', { class: 'sp-lstat', text: l.stat }), team ? badge(team) : el('span', {}), el('span', { class: 'sp-lwho', text: l.who }), el('strong', { class: 'sp-lval', text: l.value }));
+      })) : null;
     const n = likesOf(p.id, p.league === 'nfl') + (liked ? 1 : 0);
     const heart = el('button', { type: 'button', class: `sp-act${liked ? ' on' : ''}`, 'aria-pressed': String(liked), 'aria-label': liked ? 'Unlike' : 'Like', text: liked ? '♥' : '♡', onclick: () => { if (likes.has(p.id)) likes.delete(p.id); else likes.add(p.id); store.set(LIKES_KEY, JSON.stringify([...likes].slice(-500))); draw(); } });
     return el('article', { class: 'sp-post', 'data-id': p.id },

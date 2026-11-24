@@ -1208,9 +1208,10 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
 
 **Sports front.** Socials opens to a sports feed (`web/apps/socials/socials-sports.js`, `socials-sports-core.js`):
 each NBA, NFL, MLB, NHL and college football game that's on or over is a post from its league's account, a card
-in the two teams' colors (a diagonal split, each team's badge in its colors and record, the score, the loser
-dimmed, FINAL, FINAL/OT or ● LIVE with the period and clock, the venue), the stat leaders (the best of each stat
-across both teams, with the team's badge), likes and a caption: ESPN's recap headline when it has one, else
+in the two teams' colors (a diagonal split, each team's color dark enough for white text on it (its other color,
+or darkened, when it's light) under a shade, each team's badge in its colors and record, the score, the loser
+dimmed, FINAL, FINAL/OT or ● LIVE with the period and clock, the venue), each team's stat leaders side by side
+under its badge (football's lines made short: "341 YDS, 3 TD"), likes and a caption: ESPN's recap headline when it has one, else
 written from the result ("Nuggets beat Lakers 118-109, behind N. Jokic's 34 PTS."). Live games first, then
 results, newest first; chips filter by league. From ESPN's public scoreboards (no key, as the Sports app):
 today's and yesterday's games for the daily leagues, the current week for football; it updates itself while
@@ -1387,7 +1388,8 @@ KB and MB, and in GB from 1,000 MB (1 GB = 1,024 MB):
 
 **Units** converts lengths, weights, temperatures, volumes, areas, speeds, times and data sizes, and money:
 type an amount, pick From and To (⇅ swaps them); the answer, and the amount in every other unit under it.
-Currency by the day's rates (the European Central Bank's, from frankfurter.app, else open.er-api.com),
+Each tab has its icon (📏 Length, ⚖️ Weight, 🌡️ Temperature, 🧪 Volume, 📐 Area, 🚀 Speed, ⏱️ Time, 💾 Data,
+💱 Currency, 🌐 Time Zone). Currency by the day's rates (the European Central Bank's, from frankfurter.app, else open.er-api.com),
 kept on the phone so it works offline with the last ones loaded. **Time Zone**: a time and date, a place to
 start from and a destination (US states, countries and cities, or any time zone by name; ⇅ swaps them, Now
 sets the current time there); the time there, its day (the next day / the day before) and the difference,
@@ -1397,12 +1399,18 @@ daylight saving counted for that date, and the same moment in the world clock's 
 ## Clock
 
 **Clock** (Productivity, 🕐; `web/apps/clock/`):
-- **World Clock:** the first place large at the top (Colorado to start) with its seconds and date, the others
+- The three tabs (🌎 World Clock, ⏲️ Timer, ⏱️ Stopwatch) are one card across the width, divided by lines.
+- **World Clock:** each place over a picture of it, drawn in the app (`apps/clock/scenes.js`, vector art, offline):
+  mountains for Colorado, the Golden Gate Bridge for California, the Statue of Liberty for New York, palms and a
+  volcano for Hawaii, Big Ben for London, the Brandenburg Gate for Germany, the Carpathians and Bran Castle for
+  Romania, the Eiffel Tower, Mount Fuji, a desert, else a city skyline; its sky follows the time there (day,
+  sunrise or sunset, night with stars), and the time is white over a dark shade, clear on any of them. The first
+  place large at the top (Colorado to start) with its seconds and date, the others
   in two columns below (California, New York, Hawaii, London, Germany, Romania to start), each with its day
   (Today / Tomorrow / Yesterday) and how far it is from the first. **+ Add New** searches a state, country,
   city or any time zone; **Edit** reorders them (drag ☰; the first is the large one), changes one (tap its
   name) or removes one (✕). Kept on this phone.
-- **Timer:** hours, minutes and seconds, or a preset (1 to 60 minutes); a ring counts down; Pause, Resume,
+- **Timer:** hours, minutes and seconds (fitting the phone's width), or a preset (1 to 60 minutes); a ring counts down; Pause, Resume,
   Cancel; when it's done it rings (a tone, and a buzz where the phone allows) while the app is open (a web
   app can't ring when the phone is locked). It keeps counting if you leave the Clock.
 - **Stopwatch:** Start, Stop, Lap (the fastest lap green, the slowest red), Reset; it keeps running if you leave.

@@ -25,6 +25,8 @@ export const APPS = [
   { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Reverse Fill · Fashion', href: '#/magic', parent: 'hidden', home: false, locked: true, load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
+  { id: 'clock', name: 'Clock', icon: '🕐', tint: 'blue', note: 'World clock · Timer · Stopwatch', href: '#/clock', cat: 'productivity', load: () => import('./clock/clock.js') },
+  { id: 'calculator', name: 'Calculator', icon: '🧮', tint: 'amber', note: 'Standard', href: '#/calculator', cat: 'productivity', load: () => import('./calculator/calculator.js') },
   { id: 'storage', name: 'Storage', icon: '💾', tint: 'slate', note: 'This device · Google Drive', href: '#/storage', cat: 'productivity', load: () => import('./storage/storage.js') },
   { id: 'laundrytimer', name: 'Laundry Timer', icon: '🧺', tint: 'blue', note: 'Washer · Dryer', href: 'apps/laundrytimer/index.html', cat: 'productivity' },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },

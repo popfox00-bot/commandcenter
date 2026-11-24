@@ -624,24 +624,36 @@ export function mount(host) {
       el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Use @${a.handle}${a.owner ? ' (Owner)' : ''}`, onclick: () => { useAccount(a.id); save(); go({ name: 'feed' }); } }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', {}, a.handle, a.owner ? el('span', { class: 'so-owner', text: 'Owner' }) : null), el('span', { class: 'muted small', text: a.name || ' ' }))),
       unreadCount(state, a.id) ? el('span', { class: 'so-badge so-badge-inline', 'aria-label': `${unreadCount(state, a.id)} unread messages`, text: String(unreadCount(state, a.id)) }) : null,
       a.id === state.me ? el('span', { class: 'so-check', 'aria-label': 'In use', text: '✓' }) : null);
-    const list = switcherOrder(state, usedTimes()); const owner = list.filter((a) => a.owner); const others = list.filter((a) => !a.owner);
+    // (The Owner, then Friends and Celebrities, each in the same order: unread first, then last used.)
+    const list = switcherOrder(state, usedTimes()); const owner = list.filter((a) => a.owner);
+    const friends = list.filter((a) => !a.owner && a.kind !== 'celebrity'); const celebs = list.filter((a) => !a.owner && a.kind === 'celebrity');
+    const group = (title, l, none) => [el('h3', { class: 'so-section', text: `${title}${l.length ? ` · ${l.length}` : ''}` }), l.length ? el('div', { class: 'so-people' }, l.map(row)) : el('p', { class: 'muted so-pad small', text: none })];
     return el('div', {}, backBar('Accounts', { name: 'feed' }),
       el('h3', { class: 'so-section', text: 'Owner' }), el('div', { class: 'so-people' }, owner.map(row)),
-      el('h3', { class: 'so-section', text: 'Other accounts' }),
-      others.length ? el('div', { class: 'so-people' }, others.map(row)) : el('p', { class: 'muted so-pad', text: 'None yet: add one below.' }),
-      el('div', { class: 'so-pad' }, el('h3', { text: 'Add account' }), accountForm(null)));
+      el('div', { class: 'so-pad so-add-new' }, el('button', { type: 'button', class: 'btn primary', text: '+ Add New', onclick: () => go({ name: 'newaccount' }) })),
+      ...group('Friends', friends, 'No friends yet.'),
+      ...group('Celebrities', celebs, 'No celebrities yet.'));
+  }
+
+  function newAccount() {
+    return el('div', {}, backBar('New account', { name: 'accounts' }), el('div', { class: 'so-pad' }, accountForm(null)));
   }
 
   // ---- Making or editing an account.
   function accountForm(a) {
-    let pic = a?.avatar ?? null; let changed = false;
+    let pic = a?.avatar ?? null; let changed = false; let full = null;
+    let kind = a?.kind === 'celebrity' ? 'celebrity' : 'friend';
+    const kindPick = a?.owner || !state.accounts.length ? null : el('div', { class: 'so-kind', role: 'radiogroup', 'aria-label': 'Kind of account' });
+    const drawKind = () => kindPick && fill(kindPick, [['friend', '👥 Friend'], ['celebrity', '⭐ Celebrity']].map(([k, label]) => el('button', { type: 'button', role: 'radio', class: `so-chip${kind === k ? ' on' : ''}`, 'aria-checked': String(kind === k), text: label, onclick: () => { kind = k; drawKind(); } })));
+    drawKind();
     const prev = el('span', { class: 'so-form-av' });
     const showPic = () => fill(prev, pic ? el('img', { class: 'so-av so-av-l', src: urlOf(pic), alt: '' }) : el('span', { class: 'so-av so-av-l so-av-none', text: '+' }));
     showPic();
     const file = el('input', { type: 'file', accept: 'image/*', class: 'so-file', 'aria-label': 'Profile picture' });
     file.addEventListener('change', async () => {
       const f = file.files?.[0]; file.value = ''; if (!f) return;
-      try { const b = await photoFrom(f, true); if (b) { pic = b; changed = true; showPic(); } } catch (e) { err.textContent = e.message; }
+      // (The photo as it is, uncropped, too: it's posted when the account is saved.)
+      try { const b = await photoFrom(f, true); if (b) { pic = b; changed = true; showPic(); try { full = await prepare(f, 1440, false); } catch { full = null; } } } catch (e) { err.textContent = e.message; }
     });
     const handle = el('input', { class: 'so-input', type: 'text', placeholder: 'Username', 'aria-label': 'Username', autocapitalize: 'none', autocomplete: 'off', spellcheck: 'false', maxlength: '30', value: a?.handle ?? '' });
     const name = el('input', { class: 'so-input', type: 'text', placeholder: 'Name', 'aria-label': 'Name', maxlength: '60', value: a?.name ?? '' });
@@ -650,12 +662,14 @@ export function mount(host) {
     const submit = () => {
       err.textContent = '';
       const p = handleProblem(state, handle.value, a?.id ?? null); if (p) { err.textContent = p; return; }
-      if (a) { editAccount(state, a.id, { handle: handle.value, name: name.value, bio: bio.value, ...(changed ? { avatar: pic } : {}) }); save(); go({ name: 'profile', id: a.id }); }
-      else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic }); useAccount(n.id); save(); go({ name: 'feed' }); }
+      // (A new profile photo is also posted, whole, as it was picked.)
+      const postPic = (id) => { if (changed && pic && full) addPost(state, id, { image: full, caption: 'New profile picture 📸' }); };
+      if (a) { editAccount(state, a.id, { handle: handle.value, name: name.value, bio: bio.value, ...(a.owner ? {} : { kind }), ...(changed ? { avatar: pic } : {}) }); postPic(a.id); save(); go({ name: 'profile', id: a.id }); }
+      else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic, kind }); postPic(n.id); useAccount(n.id); save(); go({ name: 'feed' }); }
     };
     return el('div', { class: 'so-form' },
       el('label', { class: 'so-form-pic' }, prev, el('span', { class: 'so-link', text: a?.avatar ? 'Change profile photo' : 'Add profile photo' }), file),
-      handle, name, bio, err,
+      handle, name, bio, kindPick, err,
       el('button', { type: 'button', class: 'btn primary', text: a ? 'Done' : 'Create account', onclick: submit }));
   }
 
@@ -1074,7 +1088,7 @@ export function mount(host) {
     // (Reels and a chat fill the screen below the bars: how far down they start.)
     if (v.name === 'reels' || v.name === 'chat') root.style.setProperty('--so-reels-top', `${Math.round(main.getBoundingClientRect().top + (globalThis.scrollY || 0))}px`);
     fill(main, v.name === 'settings' ? settings() : v.name === 'reels' ? reels() : v.name === 'inbox' ? inbox() : v.name === 'chat' ? chat(v.id) : v.name === 'editpost' ? editPostView(v.id) : v.name === 'tag' ? tagView(v.tag) : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
-      : v.name === 'post' ? onePost(v.id) : v.name === 'accounts' ? accounts() : v.name === 'edit' ? edit() : v.name === 'people' ? people(v.id, v.kind) : feed());
+      : v.name === 'post' ? onePost(v.id) : v.name === 'accounts' ? accounts() : v.name === 'newaccount' ? newAccount() : v.name === 'edit' ? edit() : v.name === 'people' ? people(v.id, v.kind) : feed());
   }
 
   // Opened: what's on this device, then a sync.

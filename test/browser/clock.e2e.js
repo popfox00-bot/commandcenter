@@ -70,7 +70,7 @@ test('Units: Time Zone converts a time between places; Calculator: precedence an
   const page = await ctx.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${origin}${BASE}index.html#/units`);
   await page.getByRole('tab', { name: 'Time Zone' }).click();
-  await page.getByLabel('Time', { exact: true }).fill('15:00'); await page.getByLabel('Date', { exact: true }).fill('2026-11-24');
+  await page.getByLabel('Time to convert').fill('15:00'); await page.getByLabel('Date', { exact: true }).fill('2026-11-24');
   await page.getByLabel('From place').fill('Colorado'); await page.getByLabel('To place').fill('Romania');
   assert.match(await page.locator('.un-tz .un-result').textContent(), /12:00 AM in Romania.*the next day.*\+9h/);
   await page.getByRole('button', { name: 'Swap the places' }).click();

@@ -8,6 +8,8 @@ import { KINDS, CURRENCIES, convert, convertMoney, show, parseRates } from './un
 import { PLACES, DEFAULT_CLOCKS, searchPlaces, localZone, partsIn, instantOf, offsetMin, diffLabel, hm12 } from '../../lib/places.js';
 
 const PREFS = 'cc.units.prefs';
+/** Each kind's icon on its tab. */
+const ICONS = { length: '📏', weight: '⚖️', temperature: '🌡️', volume: '🧪', area: '📐', speed: '🚀', time: '⏱️', data: '💾', currency: '💱', timezone: '🌐' };
 const RATES = 'cc.units.rates';
 
 export function mount(host) {
@@ -35,7 +37,7 @@ export function mount(host) {
   }
   function draw() {
     const k = prefs.kind;
-    chips.replaceChildren(...kinds.map(([id, name]) => el('button', { type: 'button', class: `chip${id === k ? ' active' : ''}`, role: 'tab', 'aria-selected': String(id === k), text: name, onclick: () => { prefs.kind = id; keep(); draw(); if (id === 'currency') loadRates(); } })));
+    chips.replaceChildren(...kinds.map(([id, name]) => el('button', { type: 'button', class: `chip${id === k ? ' active' : ''}`, role: 'tab', 'aria-selected': String(id === k), 'aria-label': name, text: `${ICONS[id] ?? ''} ${name}`.trim(), onclick: () => { prefs.kind = id; keep(); draw(); if (id === 'currency') loadRates(); } })));
     std.hidden = k === 'timezone'; tzBox.hidden = k !== 'timezone';
     if (k === 'timezone') { tzCompute(); return; }
     const [f, t] = pick(k); const list = unitsOf(k);
@@ -83,7 +85,7 @@ export function mount(host) {
   const here = localZone(); const hereName = PLACES.find(([, z]) => z === here)?.[0] ?? here.split('/').pop().replace(/_/g, ' ');
   const tz = { from: prefs.tzFrom ?? hereName, to: prefs.tzTo ?? (hereName === 'London' ? 'Colorado' : 'London') };
   const now = new Date(); const pad = (n) => String(n).padStart(2, '0');
-  const tzTime = el('input', { type: 'time', class: 'un-select', 'aria-label': 'Time', value: `${pad(now.getHours())}:${pad(now.getMinutes())}` });
+  const tzTime = el('input', { type: 'time', class: 'un-select', 'aria-label': 'Time to convert', value: `${pad(now.getHours())}:${pad(now.getMinutes())}` });
   const tzDate = el('input', { type: 'date', class: 'un-select', 'aria-label': 'Date', value: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` });
   const placeList = el('datalist', { id: 'un-places' }, PLACES.map(([n]) => el('option', { value: n })));
   const tzFrom = el('input', { type: 'text', class: 'un-select', list: 'un-places', 'aria-label': 'From place', value: tz.from, autocomplete: 'off' });

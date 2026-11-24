@@ -40,3 +40,20 @@ test('the feed: a live game\'s post replaced by its final, old games let go, liv
   assert.equal(boardUrls('nfl').length, 1);
   assert.equal(likesOf('nba:1'), likesOf('nba:1'), 'the same each time');
 });
+
+test('each team\'s own leaders; football lines made short; a card color dark enough for white text', async () => {
+  const { teamLeaders, compact, cardColor, lightness } = await import('../web/apps/socials/socials-sports-core.js');
+  const comp = { competitors: [
+    { homeAway: 'home', team: { id: '1' }, leaders: [L('points', 'PTS', 'N. Jokic', '34'), L('rebounds', 'REB', 'N. Jokic', '15')] },
+    { homeAway: 'away', team: { id: '2' }, leaders: [L('points', 'PTS', 'L. James', '28')] }] };
+  const t = teamLeaders(comp);
+  assert.deepEqual(t.home.map((x) => `${x.stat} ${x.who} ${x.value}`), ['PTS N. Jokic 34', 'REB N. Jokic 15']);
+  assert.deepEqual(t.away.map((x) => x.who), ['L. James']);
+  // (Football: the game's leaders that name each team.)
+  const fb = teamLeaders({ leaders: [{ name: 'passingYards', shortDisplayName: 'PASS', leaders: [{ displayValue: '24/31, 302 YDS, 3 TD', athlete: { shortName: 'B. Nix' }, team: { id: '7' } }] }], competitors: [{ homeAway: 'home', team: { id: '7' } }, { homeAway: 'away', team: { id: '12' } }] });
+  assert.deepEqual(fb.home, [{ stat: 'PASS', who: 'B. Nix', value: '302 YDS, 3 TD' }]); assert.deepEqual(fb.away, []);
+  assert.equal(compact('18 CAR, 96 YDS'), '96 YDS');
+  assert.equal(cardColor({ color: '#0e2240', alt: '#fec524' }), '#0e2240', 'dark: its own');
+  assert.equal(cardColor({ color: '#ffffff', alt: '#002244' }), '#002244', 'white: its other color');
+  assert.ok(lightness(cardColor({ color: '#f2f2f2', alt: '#ffffff' })) <= 0.45, 'both light: darkened');
+});

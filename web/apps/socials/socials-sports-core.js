@@ -35,6 +35,9 @@ function side(c) {
   };
 }
 
+/** A stat line made short: football's "27/35, 341 YDS, 3 TD" → "341 YDS, 3 TD", "18 CAR, 96 YDS" → "96 YDS". */
+export const compact = (v) => String(v ?? '').replace(/^\d+\/\d+,\s*/, '').replace(/^\d+\s*(CAR|REC|ATT),\s*/i, '');
+
 /** The first number in a stat ("181 YDS" → 181, "32" → 32), for picking the best. */
 const amount = (v) => { const m = String(v ?? '').match(/(\d+(?:\.\d+)?)\s*(?:YDS|yds)?/); const y = String(v ?? '').match(/(\d+)\s*YDS/i); return y ? Number(y[1]) : m ? Number(m[1]) : 0; };
 
@@ -50,6 +53,33 @@ export function topLeaders(comp, n = 4) {
   return [...best.values()].filter((l) => !/rating/i.test(l.key)).slice(0, n);
 }
 
+/**
+ * Each team's own leaders: { home: [...], away: [...] } (each [{ stat, who, value }], at most `n`), from the
+ * teams' leader groups, else the game's leaders that name the team.
+ */
+export function teamLeaders(comp, n = 3) {
+  const out = { home: [], away: [] };
+  const read = (groups) => (groups ?? []).map((g) => { const top = g.leaders?.[0]; const who = top?.athlete?.shortName ?? top?.athlete?.displayName ?? ''; const value = top?.displayValue ?? (top?.value != null ? String(top.value) : ''); return who && value && !/rating/i.test(g.name ?? '') ? { stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value: compact(value) } : null; }).filter(Boolean);
+  for (const c of comp?.competitors ?? []) {
+    const k = c.homeAway === 'home' ? 'home' : 'away'; const id = String(c.team?.id ?? c.id ?? '');
+    let l = read(c.leaders);
+    if (!l.length && id) l = (comp.leaders ?? []).flatMap((g) => (g.leaders ?? []).filter((x) => String(x.team?.id ?? x.athlete?.team?.id ?? '') === id).slice(0, 1).map((x) => ({ stat: g.shortDisplayName ?? g.name ?? '', who: x.athlete?.shortName ?? x.athlete?.displayName ?? '', value: compact(x.displayValue ?? '') }))).filter((x) => x.who && x.value);
+    out[k] = l.slice(0, n);
+  }
+  return out;
+}
+
+/**
+ * A team's color for the card, dark enough for white text on it: its own, else its other color, else its own
+ * darkened.
+ */
+export function cardColor(t) {
+  for (const c of [t.color, t.alt]) if (c && lightness(c) <= 0.5) return c;
+  const c = t.color ?? '#3a3f47'; const n = parseInt(c.slice(1), 16); const L = Math.max(0.01, lightness(c)); const k = 0.38 / L;
+  const ch = (v) => Math.round(Math.max(0, Math.min(255, v * k))).toString(16).padStart(2, '0');
+  return `#${ch((n >> 16) & 255)}${ch((n >> 8) & 255)}${ch(n & 255)}`;
+}
+
 /** One game as a post, or null for a game not started. */
 export function gamePost(ev, league) {
   const comp = ev?.competitions?.[0]; if (!comp) return null;
@@ -57,12 +87,12 @@ export function gamePost(ev, league) {
   const state = st.state ?? 'pre'; if (state === 'pre') return null;
   const home = side(comp.competitors?.find((c) => c.homeAway === 'home')); const away = side(comp.competitors?.find((c) => c.homeAway === 'away'));
   if (!home || !away) return null;
-  const leaders = topLeaders(comp);
+  const leaders = topLeaders(comp); const byTeam = teamLeaders(comp);
   const head = comp.headlines?.[0]; const headline = head?.shortLinkText ?? head?.description ?? '';
   const done = !!st.completed || state === 'post';
   return {
     id: `${league}:${ev.id}`, league, date: ev.date ?? comp.date, state: done ? 'post' : 'in', detail: st.shortDetail ?? st.detail ?? (done ? 'Final' : ''),
-    home, away, leaders, headline, caption: captionOf({ state: done ? 'post' : 'in', home, away, leaders, headline, detail: st.shortDetail ?? '' }), venue: comp.venue?.fullName ?? '',
+    home, away, leaders, byTeam, headline, caption: captionOf({ state: done ? 'post' : 'in', home, away, leaders, headline, detail: st.shortDetail ?? '' }), venue: comp.venue?.fullName ?? '',
   };
 }
 
@@ -75,7 +105,8 @@ export function captionOf(g) {
   if (hs === as) return `${g.away.short} and ${g.home.short} tie ${as}-${hs}.`;
   const [w, l, ws, ls] = hs > as ? [g.home, g.away, hs, as] : [g.away, g.home, as, hs];
   const ot = /OT|SO|\/\d+/.test(g.detail ?? '') ? ` (${g.detail.replace(/^Final\/?/, '') || 'OT'})` : '';
-  return `${w.short} beat ${l.short} ${ws}-${ls}${ot}${top ? `, behind ${top.who}'s ${top.value} ${top.stat}` : ''}.`;
+  const tv = top ? compact(top.value) : '';
+  return `${w.short} beat ${l.short} ${ws}-${ls}${ot}${top ? `, behind ${top.who}'s ${tv}${/[A-Z]{2,}/.test(tv) ? '' : ` ${top.stat}`}` : ''}.`;
 }
 
 /** Every post from a scoreboard response. */

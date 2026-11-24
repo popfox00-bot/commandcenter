@@ -25,6 +25,7 @@ import {
   toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComment, generateReply } from './socials-predict.js';
+import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
 import { handoff } from '../../lib/handoff.js';
@@ -61,7 +62,17 @@ const feedOrder = new Map();
 /** Videos bigger than this aren't taken (a phone's storage; and only up to 24 MB go to Drive). */
 const MAX_VIDEO = 300 * 1024 * 1024;
 
+/**
+ * Socials opens to its Sports front (socials-sports.js). Its accounts (everything below) are reached from the
+ * front's settings, Admin, behind Socials' own password or Face ID.
+ */
 export function mount(host) {
+  if ((location.hash.split('/')[2] ?? '') === 'admin') return mountAdmin(host);
+  let undo = sportsFront(host, { onAdmin: () => { undo?.(); host.replaceChildren(); undo = mountAdmin(host); } });
+  return () => undo?.();
+}
+
+function mountAdmin(host) {
   let state = emptyState();
   let view = { name: 'feed' };
   let alive = true;

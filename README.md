@@ -1206,7 +1206,20 @@ Write lyrics on the phone, offline, with rhymes and suggestions as you go.
 
 ## Socials
 
-A photo and video feed laid out the way phone photo apps are (a row of accounts across the top, posts with
+**Sports front.** Socials opens to a sports feed (`web/apps/socials/socials-sports.js`, `socials-sports-core.js`):
+each NBA, NFL, MLB, NHL and college football game that's on or over is a post from its league's account, a card
+in the two teams' colors (a diagonal split, each team's badge in its colors and record, the score, the loser
+dimmed, FINAL, FINAL/OT or ● LIVE with the period and clock, the venue), the stat leaders (the best of each stat
+across both teams, with the team's badge), likes and a caption: ESPN's recap headline when it has one, else
+written from the result ("Nuggets beat Lakers 118-109, behind N. Jokic's 34 PTS."). Live games first, then
+results, newest first; chips filter by league. From ESPN's public scoreboards (no key, as the Sports app):
+today's and yesterday's games for the daily leagues, the current week for football; it updates itself while
+open (every minute while a game is on, else every few minutes) and on ↻, so a live game's post becomes its
+final with its leaders; kept for offline (four days). Its ⚙ settings choose the leagues. Your own Socials
+(below) is reached from its settings, behind Socials' password or Face ID; leaving Socials goes back to the
+front.
+
+**Your Socials.** A photo and video feed laid out the way phone photo apps are (a row of accounts across the top, posts with
 the photo or video, ♥ and 💬, likes, caption and comments, a tab bar of Home, Search, New post, Reels and
 Profile, ✈ for messages), where everything is made by you in the app.
 

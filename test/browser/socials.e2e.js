@@ -1,6 +1,6 @@
 // Socials: behind its own password; make two accounts, post a photo from one, follow it from the other and
 // see the post in that one's feed; like and comment; everything is still there after a reload (the password
-// asked again); nothing is fetched from outside. With Saved Files set up: a second device opens the same
+// asked again); nothing is fetched from outside (but the Sports front's scores). With Saved Files set up: a second device opens the same
 // Socials with the same password, encrypted in Drive, and changes go both ways.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,9 +34,15 @@ async function photo(page) {
 
 test('Socials: accounts, a post, following, the feed, likes and comments, kept after a reload, all local', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  const outside = []; page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) outside.push(r.url()); });
+  const outside = []; page.on('request', (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:') && !r.url().startsWith('https://site.api.espn.com/')) outside.push(r.url()); });
+  // (The Sports front's scores: answered here, no games.)
+  await page.route('https://site.api.espn.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"events":[]}' }));
   await page.goto(`${origin}${BASE}index.html`);
   await page.locator('.app-name', { hasText: 'Socials' }).click();
+  // It opens to its Sports front; the accounts are behind ⚙ → Admin.
+  await page.locator('.sp-feed').waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Admin' }).click();
   // Its own password, set the first time.
   await page.getByLabel('Password', { exact: true }).fill('heron42');
   await page.getByLabel('Password again').fill('heron42');
@@ -81,7 +87,9 @@ test('Socials: accounts, a post, following, the feed, likes and comments, kept a
   await page.waitForFunction(() => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').get('cc.socials'); g.onsuccess = () => res(!!g.result?.posts?.some((p) => p.comments.some((c) => c.text === 'Gorgeous!'))); g.onerror = () => res(false); }; r.onerror = () => res(false); }));
   // A reload: the accounts, who follows whom, the post, its like and comment all still there.
   await page.reload();
-  // (Asked for the password again: a wrong one refused, the right one opens it.)
+  // (The Sports front again; ⚙ → Admin; asked for the password again: a wrong one refused, the right one opens it.)
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Admin' }).click();
   await page.getByLabel('Password', { exact: true }).fill('nope');
   await page.getByRole('button', { name: 'Open' }).click();
   await page.getByText('Wrong password.').waitFor();
@@ -126,7 +134,7 @@ test('Socials on two devices: the same password opens the same Socials from Driv
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await ctx.addInitScript(([u]) => { localStorage.setItem('cc.savedFiles', JSON.stringify({ url: u, key: 'k'.repeat(24) })); }, [URL_]);
     await ctx.route(URL_, async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(script.handle(JSON.parse(route.request().postData()))) }));
-    const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials`);
+    const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials/admin`);
     return { ctx, page };
   };
   // Device 1: a password (Drive has no Socials yet), an account, a post; sent to Drive, a recovery key shown once.
@@ -183,7 +191,7 @@ async function clip(page) {
 
 test('Socials extras: a photo fitted square and filtered Mono in the editor (nothing kept in the Photo Editor); a video with sound in Reels; DMs between accounts; the Owner listed first', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -257,7 +265,7 @@ test('Socials offline: posts made offline wait for Saved Files, counted for the 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await ctx.addInitScript(([u]) => { localStorage.setItem('cc.savedFiles', JSON.stringify({ url: u, key: 'k'.repeat(24) })); }, [URL_]);
   await ctx.route(URL_, async (route) => (down ? route.abort('internetdisconnected') : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(script.handle(JSON.parse(route.request().postData()))) })));
-  const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials`);
+  const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -302,7 +310,7 @@ test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo w
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await ctx.addInitScript(([u]) => { localStorage.setItem('cc.savedFiles', JSON.stringify({ url: u, key: 'k'.repeat(24) })); }, [URL_]);
   await ctx.route(URL_, async (route) => (down ? route.abort('internetdisconnected') : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(script.handle(JSON.parse(route.request().postData()))) })));
-  const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials`);
+  const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   // (The app's storage, read or changed directly: `op` 'get' or 'delete' on `key`.)
   const kv = (op, key) => page.evaluate(([o, k]) => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const q = r.result.transaction('kv', 'readwrite').objectStore('kv')[o](k); q.onsuccess = () => res(o === 'get' ? (q.result && (q.result.buf ? { bytes: q.result.buf.byteLength } : q.result.posts ? { image: q.result.posts[0].image === undefined ? 'none' : 'kept' } : null)) : true); q.onerror = () => res(null); }; r.onerror = () => res(null); }), [op, key]);
   // (Kept the older way, before this version: a Blob inside the one key.)
@@ -336,7 +344,7 @@ test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo w
 
 test('Socials: tag accounts in a post (and @mention them), share it in a DM, and on the Owner account open any photo in the Photo Editor, FM or Fashion', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -374,7 +382,7 @@ test('Socials: tag accounts in a post (and @mention them), share it in a DM, and
   await page.locator('#view-app canvas').first().waitFor({ timeout: 20000 });
   // (Not offered to an account that isn't the Owner, on someone else's post.)
   // (Back in Socials in the same session: still open, no password asked.)
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @pal' }).click();
   await page.locator('.so-post').first().waitFor();
   await page.getByRole('button', { name: 'Post options' }).first().click();
@@ -384,7 +392,7 @@ test('Socials: tag accounts in a post (and @mention them), share it in a DM, and
 
 test('Socials: several photos and a video in one post (a carousel), and Reels shuffled, again on a pull down at the top', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -432,7 +440,7 @@ test('Socials: several photos and a video in one post (a carousel), and Reels sh
 test('Socials: stories (new posts, on their circle), drafts, pinning, Recently deleted, comments on new posts, hashtags, and a zip of an account', async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
   const page = await ctx.newPage();
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -498,7 +506,7 @@ test('Socials: stories (new posts, on their circle), drafts, pinning, Recently d
 
 test('Socials collab: invite while posting; a collab request in their messages; accepted, the same post on both profiles, "a and b"', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -539,7 +547,7 @@ test('Socials collab: invite while posting; a collab request in their messages; 
 
 test('Socials: 🔖 saved posts (in your own Saved tab), and views counted (feed, a post opened from a profile, once per account while the app\'s open)', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -569,7 +577,7 @@ test('Socials: 🔖 saved posts (in your own Saved tab), and views counted (feed
 
 test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Community hashtags by use; the account list by unread then last used; ✨ generated comments and DM replies (Owner only)', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -627,7 +635,7 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
 
 test('Socials: + Add New under the Owner; Friends and Celebrities listed apart; a new profile photo posted whole; a custom crop shape, the frame dragged over the photo', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
@@ -663,5 +671,53 @@ test('Socials: + Add New under the Owner; Friends and Celebrities listed apart; 
   await page.locator('.so-new-prev img').waitFor();
   const nd = await page.locator('.so-new-prev img').evaluate((im) => new Promise((ok) => { if (im.complete) ok([im.naturalWidth, im.naturalHeight]); else im.onload = () => ok([im.naturalWidth, im.naturalHeight]); }));
   assert.ok(Math.abs(nd[0] / nd[1] - 3) < 0.1, `cropped 3:1: ${nd}`);
+  await page.close();
+});
+
+test('Socials opens to its Sports front: games as posts in team colors (final, live), filtered by league, updated as games go on; Admin leads to the accounts', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  const team = (abbr, name, short, color, alt) => ({ abbreviation: abbr, displayName: name, shortDisplayName: short, color, alternateColor: alt });
+  const L = (name, short, who, v) => ({ name, shortDisplayName: short, leaders: [{ displayValue: v, athlete: { shortName: who } }] });
+  const ev = (id, state, detail, hs, as, home, away, extra = {}) => ({ id, date: new Date(Date.now() - 3600e3).toISOString(), competitions: [{ status: { type: { state, completed: state === 'post', shortDetail: detail } }, headlines: [], leaders: extra.leaders ?? [], competitors: [
+    { homeAway: 'home', team: home, score: hs, records: [{ summary: '12-5' }], leaders: extra.hl ?? [] }, { homeAway: 'away', team: away, score: as, records: [{ summary: '10-7' }], leaders: [] }] }] });
+  const DEN = team('DEN', 'Denver Nuggets', 'Nuggets', '0e2240', 'fec524'); const LAL = team('LAL', 'Los Angeles Lakers', 'Lakers', '552583', 'fdb927');
+  let nbaState = 'in';
+  await page.route('https://site.api.espn.com/**', (r) => {
+    const u = r.request().url();
+    const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const today = ymd(new Date()); const yest = ymd(new Date(Date.now() - 86400e3));
+    const body = u.includes('/nba/') && u.endsWith(`dates=${today}`) ? { events: [nbaState === 'in' ? ev('1', 'in', '3rd 4:12', '78', '71', DEN, LAL, { hl: [L('points', 'PTS', 'N. Jokic', '24')] }) : ev('1', 'post', 'Final', '112', '104', DEN, LAL, { hl: [L('points', 'PTS', 'N. Jokic', '34')] })] }
+      : u.includes('/nhl/') && u.endsWith(`dates=${yest}`) ? { events: [ev('2', 'post', 'Final/SO', '3', '2', team('COL', 'Colorado Avalanche', 'Avalanche', '6f263d', '236192'), team('DAL', 'Dallas Stars', 'Stars', '006847', '8f8f8c'))] }
+      : { events: [] };
+    r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+  });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  const nba = page.locator('.sp-post[data-id="nba:1"]');
+  await nba.waitFor();
+  assert.match(await nba.locator('.sp-state').textContent(), /LIVE · 3rd 4:12/);
+  assert.match(await nba.locator('.sp-caption').textContent(), /Lakers 71, Nuggets 78/);
+  const bg = await nba.locator('.sp-card').evaluate((c) => c.style.background);
+  assert.match(bg, /rgb\(85, 37, 131\).*rgb\(14, 34, 64\)/, 'the two teams\' colors');
+  assert.ok(await page.locator('.sp-post[data-id^="nhl:"]').count() >= 1, 'yesterday\'s NHL final');
+  // Only the NHL.
+  await page.getByRole('tab', { name: /NHL/ }).click();
+  assert.equal(await page.locator('.sp-post[data-id^="nba:"]').count(), 0);
+  await page.getByRole('tab', { name: /All/ }).click();
+  // The game ends; on the next update its post is the final, with the stat leaders.
+  nbaState = 'post';
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.waitForFunction(() => /FINAL/.test(document.querySelector('.sp-post[data-id="nba:1"] .sp-state')?.textContent ?? ''));
+  assert.equal(await nba.locator('.sp-caption').textContent(), 'NBA Nuggets beat Lakers 112-104, behind N. Jokic\'s 34 PTS.');
+  assert.match(await nba.locator('.sp-leaders').textContent(), /PTS.*N\. Jokic.*34/);
+  // Like.
+  await nba.getByRole('button', { name: 'Like' }).click();
+  assert.equal(await nba.getByRole('button', { name: 'Unlike' }).count(), 1);
+  // ⚙ → Admin: Socials' own password, then the accounts.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Admin' }).click();
+  await page.getByLabel('Password', { exact: true }).waitFor();
+  assert.equal(await page.locator('.sp-feed').count(), 0, 'the front gone');
+  assert.deepEqual(errors, []);
   await page.close();
 });

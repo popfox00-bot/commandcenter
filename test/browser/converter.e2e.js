@@ -59,7 +59,7 @@ test('home screen of apps: Files holds the others; Magic and Saved Files only on
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const { page, errors } = await openApp(context);
   await page.waitForSelector('.app-tile');
-  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Notes', 'Files', 'Draw', 'Units', 'Laundry Timer', 'Rap', 'Socials', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
+  assert.deepEqual(await page.$$eval('.app-name', (els) => els.map((e) => e.textContent)), ['Notes', 'Files', 'Draw', 'Units', 'Storage', 'Laundry Timer', 'Rap', 'Socials', 'Inkling', 'Trade Desk', 'Games', 'WorldAtlas']);
   assert.equal(await page.textContent('#title'), 'Command Center');
   // Files: a page of its apps; each opens with its own name, back to Files.
   await page.click('.app-tile >> text=Files');

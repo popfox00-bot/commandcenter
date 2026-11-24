@@ -13,7 +13,8 @@
 // and Laundry Timer (web/apps/laundrytimer/) and Inkling (web/apps/inkling/, its browser version: your own
 // Anthropic key in its settings), copied from their repositories with a ‹ Home link. Games played in the
 // app go into Fox Games; WorldAtlas stays its own app (a Minecraft companion, not a game played here).
-// Socials (Creativity) is a photo feed of accounts you make yourself, all kept on this phone.
+// Socials (Creativity) is a photo feed of accounts you make yourself, all kept on this phone. Storage
+// (Productivity) shows all of the app's storage, on this device and in Google Drive, with pie charts.
 export const APPS = [
   { id: 'calendar', name: 'Calendar', icon: '📅', tint: 'red', note: 'Your events', href: '#/calendar', cat: 'updates', home: false, parent: 'updates', load: () => import('./calendar/calendar.js') },
   { id: 'weather', name: 'Weather', icon: '⛅', tint: 'amber', note: 'Alerts · Forecast', href: '#/weather', cat: 'updates', home: false, parent: 'updates', load: () => import('./weather/weather.js') },
@@ -24,6 +25,7 @@ export const APPS = [
   { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Reverse Fill · Fashion', href: '#/magic', parent: 'hidden', home: false, locked: true, load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
+  { id: 'storage', name: 'Storage', icon: '💾', tint: 'slate', note: 'This device · Google Drive', href: '#/storage', cat: 'productivity', load: () => import('./storage/storage.js') },
   { id: 'laundrytimer', name: 'Laundry Timer', icon: '🧺', tint: 'blue', note: 'Washer · Dryer', href: 'apps/laundrytimer/index.html', cat: 'productivity' },
   { id: 'rap', name: 'Rap', icon: '🎤', tint: 'purple', note: 'Write · Rhymes · Saved Songs', href: '#/rap', cat: 'creativity', load: () => import('./rap/rap.js') },
   { id: 'socials', name: 'Socials', icon: '📸', tint: 'pink', note: 'Your accounts · Posts · Feed', href: '#/socials', cat: 'creativity', load: () => import('./socials/socials.js') },

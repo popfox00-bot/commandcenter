@@ -22,11 +22,15 @@ function sizeOf(v, seen = new Set()) {
   return n;
 }
 
-/** Bytes as a phone shows them: "12 KB", "3.4 MB". */
+/** Bytes as a phone shows them: "12 KB", "3.4 MB", and from 1,000 MB on "1.2 GB" (1 GB = 1,024 MB). */
 export function human(n) {
+  n = Math.max(0, Math.round(Number(n) || 0));
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  const mb = n / 1024 / 1024;
+  if (mb < 1000) return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(gb < 10 ? 2 : 1)} GB`;
 }
 
 /**
@@ -46,17 +50,17 @@ const GROUPS = [
   ['Settings and small data', () => true, false],
 ];
 
-/** What's stored, grouped: [{ name, bytes, keys: [{ key, where }], clear, what }]. */
+/** What's stored, grouped: [{ name, bytes, keys: [{ key, where, bytes }], clear, what }]. */
 export async function usage() {
   const rows = GROUPS.map(([name, test, clear, what]) => ({ name, test, clear, what, bytes: 0, keys: [] }));
-  const put = (key, where, bytes) => { const r = rows.find((g) => g.test(key)); r.bytes += bytes; r.keys.push({ key, where }); };
+  const put = (key, where, bytes) => { const r = rows.find((g) => g.test(key)); r.bytes += bytes; r.keys.push({ key, where, bytes }); };
   for (const key of await idb.keys()) put(String(key), 'idb', sizeOf(await idb.get(key)) + String(key).length * 2);
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); put(k, 'ls', (k.length + (localStorage.getItem(k) ?? '').length) * 2); } } catch { /* private mode */ }
   return rows.filter((r) => r.keys.length);
 }
 
 /** Every key of a group deleted. */
-async function clearGroup(r) {
+export async function clearGroup(r) {
   for (const { key, where } of r.keys) {
     if (where === 'idb') await idb.del(key);
     else try { localStorage.removeItem(key); } catch { /* private mode */ }
@@ -64,7 +68,7 @@ async function clearGroup(r) {
 }
 
 /** A bar: `part` of `whole`, its label, colored as it fills (green, then amber, red near the limit). */
-function bar(part, whole, label, { segments = null } = {}) {
+export function bar(part, whole, label, { segments = null } = {}) {
   const k = whole > 0 ? Math.min(1, part / whole) : 0; const pct = Math.round(k * 1000) / 10;
   const level = k >= 0.9 ? 'full' : k >= 0.7 ? 'high' : 'ok';
   const track = el('div', { class: `st-bar st-bar-${level}`, role: 'progressbar', 'aria-label': label, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)), 'aria-valuetext': `${human(part)} of ${human(whole)} (${pct}%)` });
@@ -128,5 +132,6 @@ export function storageSettings() {
   return el('section', { class: 'card' },
     el('h2', { text: 'Storage' }),
     el('p', { class: 'small muted', text: 'What the app keeps on this device and online, against the most each allows.' }),
+    el('p', {}, el('a', { class: 'btn small', href: '#/storage', text: '💾 Open the Storage app: pie charts, every detail, Drive\'s limits and encryption explained' })),
     body);
 }

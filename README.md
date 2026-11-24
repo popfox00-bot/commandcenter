@@ -1336,6 +1336,36 @@ Live status comes through your own Worker (the Jobs setup: `POST /api/track`), w
 (`npx wrangler secret put TRACK17_KEY`); the key never reaches the phone. Without it, each package has a
 button to its carrier's own tracking page. Kept on this phone.
 
+## Storage
+
+**Storage** (Productivity, 💾; `web/apps/storage/`) shows all of the app's storage in one place, sizes in
+KB and MB, and in GB from 1,000 MB (1 GB = 1,024 MB):
+- **On this device:** a pie chart of everything the app keeps (Socials, drawings, notes, Characters,
+  Fashion's pieces, work in progress, caches, settings, its files for offline use, and the browser's own
+  share), each with its size and share; the total in the middle. Against the most this browser allows (a
+  bar), and the small-settings store against its own ~5 MB. Whether the phone may clear the app's data, with
+  **Protect it**. Each kind opens to its largest items; what can safely go has **Clear** (asked first).
+- **Google Drive** (with Saved Files set up): the whole Drive's space (a bar), and a pie of what's in it:
+  Saved Files' own files, Socials' copy, the encryption keys and Decryption kit (counted folder by folder
+  through the Saved Files script), and the rest of the Drive (Gmail, Photos, other files); how much of the
+  app's part encryption adds.
+- **Uploading to Google Drive: the limits.** 25 MB a file in Saved Files: the app has no server, so each
+  file goes through your own Saved Files script (Apps Script) as text (base64, a third bigger), and Google
+  takes requests to a script up to about 50 MB (held in memory to turn back into the file); 25 MB (about 33
+  MB on the way) stays safely under it, downloads too. Socials copies photos and videos up to 24 MB (a
+  bigger video stays on the phone it was posted from). One file at a time, each within Google's 6 minutes a
+  script run; everything counts against the Google account's space (15 GB free, shared with Gmail and
+  Photos); Google's daily limits (750 GB of uploads a day) are far beyond normal use; nothing uploads
+  offline (Socials copies it once back online).
+- **How encryption affects storage.** In Drive, almost nothing: each encrypted Saved File is the file plus
+  about 430 bytes (its header with the wrapped keys, the encrypted name, type and size, the check tag), each
+  Socials file 32 bytes. Encrypted data can't be compressed, but Drive doesn't compress and photos, videos
+  and PDFs already are, so they take the same room. The keys file (a few KB) and the Decryption kit (about 15
+  KB) are kept in Drive so files can always be opened. Sending a file as text adds a third on the way (and
+  counts toward the 25 MB), not in Drive. On this device it makes no difference: the app keeps things as they
+  are (Socials too; its copy in Drive is what's encrypted).
+- **Limits in the app** (as in Settings → Storage).
+
 ## Units
 
 **Units** converts lengths, weights, temperatures, volumes, areas, speeds, times and data sizes, and money:
@@ -1615,7 +1645,7 @@ from Saved Files or Draw) opens it.
 **Settings → Storage** shows what the app keeps on the phone, by kind (notes, drawings, Characters,
 Fashion's pieces, work in progress, cached weather and sports, the diagnostics log), with its size; what
 can safely go has a **Clear** button (asked first). Notes, drawings and the calendar are deleted only from
-their own apps.
+their own apps. It links to the **Storage** app (Productivity) for all of it.
 
 The version is shown small at the top right of the home screen; tap it for the version history (what
 changed in each, newest first: `web/version.js`, an entry added with each update).

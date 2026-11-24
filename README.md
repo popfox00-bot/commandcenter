@@ -1375,7 +1375,32 @@ KB and MB, and in GB from 1,000 MB (1 GB = 1,024 MB):
 **Units** converts lengths, weights, temperatures, volumes, areas, speeds, times and data sizes, and money:
 type an amount, pick From and To (⇅ swaps them); the answer, and the amount in every other unit under it.
 Currency by the day's rates (the European Central Bank's, from frankfurter.app, else open.er-api.com),
-kept on the phone so it works offline with the last ones loaded.
+kept on the phone so it works offline with the last ones loaded. **Time Zone**: a time and date, a place to
+start from and a destination (US states, countries and cities, or any time zone by name; ⇅ swaps them, Now
+sets the current time there); the time there, its day (the next day / the day before) and the difference,
+daylight saving counted for that date, and the same moment in the world clock's places
+(`web/lib/places.js`, the browser's own time zone data, offline).
+
+## Clock
+
+**Clock** (Productivity, 🕐; `web/apps/clock/`):
+- **World Clock:** the first place large at the top (Colorado to start) with its seconds and date, the others
+  in two columns below (California, New York, Hawaii, London, Germany, Romania to start), each with its day
+  (Today / Tomorrow / Yesterday) and how far it is from the first. **+ Add New** searches a state, country,
+  city or any time zone; **Edit** reorders them (drag ☰; the first is the large one), changes one (tap its
+  name) or removes one (✕). Kept on this phone.
+- **Timer:** hours, minutes and seconds, or a preset (1 to 60 minutes); a ring counts down; Pause, Resume,
+  Cancel; when it's done it rings (a tone, and a buzz where the phone allows) while the app is open (a web
+  app can't ring when the phone is locked). It keeps counting if you leave the Clock.
+- **Stopwatch:** Start, Stop, Lap (the fastest lap green, the slowest red), Reset; it keeps running if you leave.
+
+## Calculator
+
+**Calculator** (Productivity, 🧮; `web/apps/calculator/`): a standard calculator laid out as a phone's: C /
+AC, ±, %, ÷ × − +, =, with the sum so far shown small above the number and ⌫ to take back a digit. × and ÷
+before + and − (2 + 3 × 4 = 14); % of the number before it when adding or taking away (50 + 10% = 55); = again
+repeats the last step; results rounded to 12 significant digits (0.1 + 0.2 = 0.3); ÷ 0 shows Error. The
+keyboard works too (digits, + - * /, Enter, Backspace, Esc).
 
 ## Suggest Improvements
 

@@ -79,7 +79,7 @@ for (const prf of [true, false]) {
       else if (q.action === 'download') { const f = files.find((x) => x.id === q.id); out = { ok: true, name: f.name, type: f.type, data: f.data }; }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(out) });
     });
-    await page.goto(`${origin}${BASE}index.html#/socials`);
+    await page.goto(`${origin}${BASE}index.html#/socials/admin`);
     await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
     await page.getByRole('button', { name: 'Set password' }).click();
     await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();

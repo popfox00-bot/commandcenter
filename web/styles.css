@@ -1602,3 +1602,13 @@ body.se-open { overflow: hidden; }
 .stg-items li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0 4px 12px; font-size: .85rem; overflow-wrap: anywhere; }
 .stg-explain { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
 .stg-explain li { line-height: 1.45; }
+.so-kind { display: flex; gap: 8px; flex-wrap: wrap; }
+.so-add-new { padding-top: 4px; padding-bottom: 4px; }
+.so-add-new .btn { width: 100%; }
+.se-cropbox { position: absolute; display: none; pointer-events: none; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55); outline: 1px solid rgba(0, 0, 0, 0.3); }
+.se-fitting .se-cropbox { display: block; }
+.se-round .se-cropbox { border-radius: 50%; }
+.se-round.se-fitting .se-canvas { border-radius: 0; }
+.se-frame { overflow: hidden; touch-action: none; }
+.se-num { width: 4.5em; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card, #fff); color: var(--text); font-size: 16px; }
+.se-custom { gap: 8px; align-items: center; }

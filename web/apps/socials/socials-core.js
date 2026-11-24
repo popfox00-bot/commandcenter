@@ -35,10 +35,14 @@ export function handleProblem(state, handle, exceptId = null) {
 export const accountById = (state, id) => state.accounts.find((a) => a.id === id) ?? null;
 
 /** Add an account (the first is the Owner, and the one in use). Returns it, or throws why not. */
-export function addAccount(state, { handle, name = '', bio = '', avatar = null }) {
+/** An account's kind: a friend or a celebrity (the Owner is neither). */
+export const KINDS = ['friend', 'celebrity'];
+const kindOf = (k) => (k === 'celebrity' ? 'celebrity' : 'friend');
+
+export function addAccount(state, { handle, name = '', bio = '', avatar = null, kind = 'friend' }) {
   const p = handleProblem(state, handle); if (p) throw new Error(p);
   const now = Date.now();
-  const a = { id: newId(), handle: cleanHandle(handle), name: String(name).trim().slice(0, 60), bio: String(bio).trim().slice(0, 300), avatar, avatarId: avatar ? newId() : null, owner: !state.accounts.some((x) => x.owner), following: [], at: now, upd: now };
+  const a = { id: newId(), handle: cleanHandle(handle), name: String(name).trim().slice(0, 60), bio: String(bio).trim().slice(0, 300), avatar, avatarId: avatar ? newId() : null, owner: !state.accounts.some((x) => x.owner), kind: kindOf(kind), following: [], at: now, upd: now };
   state.accounts.push(a);
   if (!state.me) state.me = a.id;
   return a;
@@ -51,6 +55,7 @@ export function editAccount(state, id, changes) {
   if (changes.name != null) a.name = String(changes.name).trim().slice(0, 60);
   if (changes.bio != null) a.bio = String(changes.bio).trim().slice(0, 300);
   if (changes.avatar !== undefined) { a.avatar = changes.avatar; a.avatarId = changes.avatar ? newId() : null; }
+  if (changes.kind != null) a.kind = kindOf(changes.kind);
   a.upd = Date.now();
   return a;
 }
@@ -419,7 +424,7 @@ export function countLabel(n) {
 export function normalize(raw) {
   const s = emptyState(); if (!raw || typeof raw !== 'object') return s;
   const ok = (v) => typeof v === 'string' && v.length > 0;
-  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
   // (Exactly one Owner: the one made so last, else the oldest account.)
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));

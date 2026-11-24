@@ -46,3 +46,15 @@ test('the account list: Owner first, then unread (most, then latest), then last 
   markRead(s, c.id, a.id, 1000); markRead(s, c.id, d.id, 1000);
   assert.deepEqual(switcherOrder(s, { [d.id]: 50 }).map((x) => x.handle), ['a', 'b', 'd', 'c']);
 });
+
+test('accounts: a friend or a celebrity (kept, changed, read back)', async () => {
+  const { emptyState, addAccount, editAccount, normalize } = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState();
+  const o = addAccount(s, { handle: 'me' }); const f = addAccount(s, { handle: 'pal' }); const c = addAccount(s, { handle: 'star', kind: 'celebrity' });
+  assert.equal(f.kind, 'friend'); assert.equal(c.kind, 'celebrity'); assert.equal(o.owner, true);
+  editAccount(s, f.id, { kind: 'celebrity' }); assert.equal(f.kind, 'celebrity');
+  editAccount(s, f.id, { kind: 'nonsense' }); assert.equal(f.kind, 'friend');
+  const back = normalize(JSON.parse(JSON.stringify(s)));
+  assert.deepEqual(back.accounts.map((a) => a.kind), ['friend', 'friend', 'celebrity']);
+  assert.equal(normalize({ accounts: [{ id: 'x', handle: 'old' }] }).accounts[0].kind, 'friend', 'older accounts: friends');
+});

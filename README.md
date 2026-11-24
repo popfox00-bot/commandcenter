@@ -1215,10 +1215,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
   when picking the account to use, the others under it. Another account can be made the Owner (Edit profile);
   the Owner can't be deleted until then.
 - **Posting.** A photo goes through Socials' photo editor first, built from the Photo Editor's own engine
-  (`web/apps/socials/socials-editor.js`): **Fit** (the shape it's shown in: Original, Square, 4:5 portrait or
-  1.91:1 landscape; drag to move it, pinch or slide to zoom, ↻ to turn), **Filter** (the Photo Editor's
+  (`web/apps/socials/socials-editor.js`): **Fit** (the whole photo with the frame of what's kept over it, the
+  rest dimmed: Original, Square, Portrait 4:5, 3:4, Story 9:16, Landscape 1.91:1, 16:9, 4:3 or Custom (your own
+  width : height); drag the frame over the photo, pinch or slide to zoom, ↻ to turn), **Filter** (the Photo Editor's
   filters, previewed on the photo, with a strength) and **Edit** (its adjustments: Brightness, Contrast,
-  Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way. Nothing of it is kept
+  Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way, and also posted, whole
+  as it was picked (not the circle), when the account is saved ("New profile picture 📸"). Nothing of it is kept
   in the Photo Editor (no work in progress or recent edit there): only the finished photo, in Socials. A post's
   ⋯ → Edit changes its caption or edits its photo again (marked "edited"); ⋯ → Delete removes it.
 - **Stories.** Any post from the last 24 hours is also that account's story: a ring round its circle in the row
@@ -1277,8 +1279,10 @@ Profile, ✈ for messages), where everything is made by you in the app.
   photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.
 - **Messages.** ✈ (with how many are unread) lists the account in use's chats; start one with any other
   account (or Message on its profile). "Answer as @…" switches to the other account to reply. The account list
-  shows each account's unread count: the Owner first, then those with unread messages (the most first, then the
-  latest), then the rest by when each was last switched to on this device, the latest first.
+  shows each account's unread count: the Owner first, with **+ Add New** under it (a new account: Friend or
+  Celebrity), then **Friends** and **Celebrities**, each listed apart in the same order: those with unread
+  messages (the most first, then the latest), then the rest by when each was last switched to on this device,
+  the latest first. An account's kind can be changed in Edit profile; older accounts are Friends.
 - Home shows the posts of the accounts the one in use follows (and its own), newest first. Like (♥, or
   double-tap the photo) and comment as the account in use; Search finds accounts and shows every post as a
   grid; a profile shows its posts, followers and following.

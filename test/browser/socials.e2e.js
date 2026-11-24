@@ -58,6 +58,7 @@ test('Socials: accounts, a post, following, the feed, likes and comments, kept a
   assert.match(await page.locator('.so-post .so-caption').textContent(), /maya\.shoots Sunset at the pier/);
   // A second account: its feed is empty until it follows the first.
   await page.locator('.so-switch').click();
+  await page.getByRole('button', { name: '+ Add New' }).click();
   await page.getByLabel('Username', { exact: true }).fill('jordan');
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByText('Welcome to your feed').waitFor();
@@ -229,9 +230,10 @@ test('Socials extras: a photo fitted square and filtered Mono in the editor (not
   assert.equal(await page.locator('.so-reel').count(), 1, 'only videos in Reels');
   // A second account; the Owner listed first, on its own.
   await page.locator('.so-switch').click();
+  await page.getByRole('button', { name: '+ Add New' }).click();
   await page.getByLabel('Username', { exact: true }).fill('alt.acct'); await page.getByRole('button', { name: 'Create account' }).click();
   await page.locator('.so-switch').click();
-  assert.deepEqual(await page.locator('.so-section').allTextContents(), ['Owner', 'Other accounts']);
+  assert.deepEqual(await page.locator('.so-section').allTextContents(), ['Owner', 'Friends · 1', 'Celebrities']);
   assert.match(await page.locator('.so-person').first().textContent(), /owner\.meOwner/);
   // A DM from alt.acct to the Owner; the Owner sees it unread, answers.
   await page.getByRole('button', { name: 'Back' }).click();
@@ -283,7 +285,7 @@ test('Socials offline: posts made offline wait for Saved Files, counted for the 
   await page.getByRole('button', { name: /3 files waiting/ }).click();
   await page.getByText('⏳ 3 files waiting to be saved to Saved Files').waitFor();
   // Not shown to an account that isn't the Owner.
-  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('alt.acct'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('alt.acct'); await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('button', { name: /Sync and password/ }).click();
   assert.equal(await page.locator('.so-waiting:not([hidden])').count(), 0, 'only on the Owner account');
   // Back online: saved; nothing waiting.
@@ -338,7 +340,7 @@ test('Socials: tag accounts in a post (and @mention them), share it in a DM, and
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
-  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
   // As pal: a photo, tagging the Owner, mentioning them in the caption.
   await page.getByRole('button', { name: 'New post' }).first().click();
   await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
@@ -434,7 +436,7 @@ test('Socials: stories (new posts, on their circle), drafts, pinning, Recently d
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
-  for (const h of ['ann', 'ben', 'cat']) { await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
+  for (const h of ['ann', 'ben', 'cat']) { await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   const newPhoto = async (cap, { draft = false } = {}) => {
     await page.getByRole('button', { name: 'New post' }).first().click();
@@ -500,7 +502,7 @@ test('Socials collab: invite while posting; a collab request in their messages; 
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
-  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   await page.getByRole('button', { name: 'New post' }).first().click();
   await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
@@ -556,7 +558,7 @@ test('Socials: 🔖 saved posts (in your own Saved tab), and views counted (feed
   // Opened again by the same account: not counted again; by another account: counted.
   await page.locator('.so-grid .so-tile').first().click();
   assert.match(await page.locator('.so-views').textContent(), /1 view$/, 'the same account, once');
-  await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
   assert.match(await page.locator('.so-views').textContent(), /2 views$/, 'another account: counted');
   // (pal's Saved: their own, empty.)
@@ -571,7 +573,7 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
-  for (const h of ['zed', 'amy', 'mo']) { await page.locator('.so-switch').click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
+  for (const h of ['zed', 'amy', 'mo']) { await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   // Two posts with hashtags: #beach twice, #sun once.
   const newPhoto = async (cap) => {
@@ -620,5 +622,46 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
   await page.locator('.so-post').first().waitFor();
   assert.equal(await page.getByRole('button', { name: '✨ Generate comment' }).count(), 0);
+  await page.close();
+});
+
+test('Socials: + Add New under the Owner; Friends and Celebrities listed apart; a new profile photo posted whole; a custom crop shape, the frame dragged over the photo', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  // A celebrity, with a profile photo (a wide one: it's posted whole, not the square crop).
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
+  const wide = await page.evaluate(async () => { const c = new OffscreenCanvas(300, 100); const x = c.getContext('2d'); x.fillStyle = '#36c'; x.fillRect(0, 0, 300, 100); const b = await c.convertToBlob({ type: 'image/png' }); const s = new Uint8Array(await b.arrayBuffer()); let t = ''; for (const v of s) t += String.fromCharCode(v); return btoa(t); });
+  await page.getByLabel('Profile picture').setInputFiles({ name: 'wide.png', mimeType: 'image/png', buffer: Buffer.from(wide, 'base64') });
+  await page.getByRole('dialog', { name: 'Profile photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('star');
+  await page.getByRole('radio', { name: '⭐ Celebrity' }).click();
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-post', { hasText: 'New profile picture' }).waitFor();
+  const dims = await page.locator('.so-post', { hasText: 'New profile picture' }).locator('.so-pic img').first().evaluate((im) => new Promise((ok) => { if (im.complete) ok([im.naturalWidth, im.naturalHeight]); else im.onload = () => ok([im.naturalWidth, im.naturalHeight]); }));
+  assert.equal(dims[0] / dims[1], 3, `posted whole (3:1), not cropped: ${dims}`);
+  // A friend.
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click();
+  assert.deepEqual(await page.locator('.so-section').allTextContents(), ['Owner', 'Friends · 1', 'Celebrities · 1']);
+  const sections = await page.evaluate(() => [...document.querySelectorAll('.so-section')].map((h) => [h.textContent, h.nextElementSibling?.textContent ?? '']));
+  assert.match(sections[1][1], /pal/); assert.match(sections[2][1], /star/);
+  // A post with a custom crop: 3:1 of a 64×48 photo.
+  await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page));
+  const dlg = page.getByRole('dialog', { name: 'Edit photo' });
+  await dlg.getByRole('button', { name: 'Custom' }).click();
+  await dlg.getByLabel('Custom width').fill('3'); await dlg.getByLabel('Custom height').fill('1');
+  assert.equal(await dlg.locator('.se-cropbox').isVisible(), true, 'the frame shows over the whole photo');
+  const fb = await dlg.locator('.se-cropbox').boundingBox(); const cb = await dlg.locator('.se-canvas').boundingBox();
+  assert.ok(Math.abs(fb.width / fb.height - 3) < 0.1 && fb.width <= cb.width + 1, 'a 3:1 frame inside the photo');
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-new-prev img').waitFor();
+  const nd = await page.locator('.so-new-prev img').evaluate((im) => new Promise((ok) => { if (im.complete) ok([im.naturalWidth, im.naturalHeight]); else im.onload = () => ok([im.naturalWidth, im.naturalHeight]); }));
+  assert.ok(Math.abs(nd[0] / nd[1] - 3) < 0.1, `cropped 3:1: ${nd}`);
   await page.close();
 });

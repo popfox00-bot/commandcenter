@@ -1298,7 +1298,17 @@ Profile, ✈ for messages), where everything is made by you in the app.
   caption: what it's about (a beach, food, a pet, a birthday…), the places and things it names ("Denver looks
   amazing", "Love the bike"), what it counts ("Happy 21st!!", "10 years!!", "5k?! Legend"), a question it asks
   ("Tacos, no question"), its hashtags ("#goldenhour indeed") and the people tagged ("@sam you two!!"; a
-  tagged account itself thanks you for the tag), its own emoji mirrored, never repeating a comment already there. In a chat, after the Owner sends a message, ✨
+  tagged account itself thanks you for the tag), its own emoji mirrored, never repeating a comment already there.
+  It also reads the photo itself, on the phone (`web/apps/socials/socials-vision.js`; nothing sent anywhere,
+  offline once cached): what it shows (MediaPipe's image classifier, EfficientNet-Lite0, which knows ImageNet's
+  1,000 kinds of thing: a dog's breed, pizza, a beach, mountains, a car, a guitar…), how many faces (a selfie,
+  the two of you, a group), its light (a sunset's warm sky, night, snow), and from the file's EXIF when it was
+  taken (an early start, a night out) and where (the nearest known place: "Boulder looks amazing"). The comments
+  left on a new post when it's shared are made the same way. A photo posted before is read the first time
+  ✨ Generate is used on it.
+- **✨ Suggest caption.** When posting, a caption from what the first photo shows (and when and where): words
+  for it, an emoji, 📍 the place and a few hashtags; tap again for another (it replaces the last suggestion,
+  else goes under what you wrote). In a chat, after the Owner sends a message, ✨
   Generate reply from @… answers it as the other account, fitting what was said (thanks, a question, a plan,
   hello, something sad, a laugh…) and its emoji. The other accounts don't get the buttons.
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,

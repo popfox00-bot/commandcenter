@@ -111,13 +111,29 @@ export const live = (p) => !p.draft && !p.trashed;
 export const postsBy = (state, id) => state.posts.filter((p) => (p.by === id || collabsOf(p).includes(id)) && live(p)).sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || b.at - a.at);
 
 /** Add a post by an account: a photo, or a video (with its still, `image`). Returns it. */
-export function addPost(state, by, { image = null, video = null, caption = '', tags = [], more = [], draft = false }) {
+export function addPost(state, by, { image = null, video = null, caption = '', tags = [], more = [], draft = false, scene = null }) {
   if (!accountById(state, by)) throw new Error('No account to post from.');
   if (!image && !video && !String(caption).trim()) throw new Error('Pick a photo or video first.');
   const now = Date.now();
-  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, more: (more ?? []).filter((m) => m && (m.image || m.video)).slice(0, 9).map((m) => ({ kind: m.video ? 'video' : 'photo', image: m.image ?? null, imageId: m.image ? newId() : null, video: m.video ?? null, videoId: m.video ? newId() : null })), caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [], draft: !!draft, pinned: 0, trashed: 0 };
+  const p = { id: newId(), by, kind: video ? 'video' : 'photo', image, imageId: image ? newId() : null, video, videoId: video ? newId() : null, more: (more ?? []).filter((m) => m && (m.image || m.video)).slice(0, 9).map((m) => ({ kind: m.video ? 'video' : 'photo', image: m.image ?? null, imageId: m.image ? newId() : null, video: m.video ?? null, videoId: m.video ? newId() : null })), caption: String(caption).trim().slice(0, 2200), tags: cleanTags(state, tags), at: now, upd: now, edited: 0, likes: [], comments: [], draft: !!draft, pinned: 0, trashed: 0, scene: scene == null ? undefined : cleanScene(scene) };
   state.posts.push(p);
   return p;
+}
+
+/**
+ * What a post's photo shows, as read on the phone (socials-vision.js), kept made safe: { labels: [[name,
+ * score]], faces, tone, place, hour, taken }, each only when it's sound; null for nothing.
+ */
+export function cleanScene(x) {
+  if (!x || typeof x !== 'object') return null;
+  const out = {};
+  if (Array.isArray(x.labels)) { const l = x.labels.filter((v) => Array.isArray(v) && typeof v[0] === 'string' && v[0].length < 60 && Number.isFinite(v[1])).slice(0, 5).map(([n, k]) => [n, Math.max(0, Math.min(1, k))]); if (l.length) out.labels = l; }
+  if (Number.isInteger(x.faces) && x.faces >= 0 && x.faces < 50) out.faces = x.faces;
+  if (['night', 'sunset', 'snow', 'blue', 'green'].includes(x.tone)) out.tone = x.tone;
+  if (typeof x.place === 'string' && x.place && x.place.length <= 60) out.place = x.place;
+  if (Number.isInteger(x.hour) && x.hour >= 0 && x.hour < 24) out.hour = x.hour;
+  if (typeof x.taken === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(x.taken)) out.taken = x.taken;
+  return Object.keys(out).length ? out : null;
 }
 
 /** The accounts tagged in a post: real ones, each once. */
@@ -232,11 +248,13 @@ export const NICE_COMMENTS = [
  * A new post commented on by up to three of the other accounts (at random), each a kind word from the list,
  * a moment apart. Returns the comments.
  */
-export function autoComment(state, postId, { rand = Math.random, now = Date.now(), count = 3 } = {}) {
+export function autoComment(state, postId, { rand = Math.random, now = Date.now(), count = 3, write = null } = {}) {
   const p = postById(state, postId); if (!p) return [];
   const who = shuffled(state.accounts.filter((a) => a.id !== p.by), rand).slice(0, count);
   const words = shuffled(NICE_COMMENTS, rand);
-  const out = who.map((a, i) => ({ id: newId(), by: a.id, text: words[i % words.length], at: now + (i + 1) * 1000 }));
+  // (`write(accounts)`: their words (made for the post); else kind words from the list.)
+  const made = write ? write(who) : null;
+  const out = who.map((a, i) => ({ id: newId(), by: a.id, text: (made?.[i] && String(made[i]).trim().slice(0, 500)) || words[i % words.length], at: now + (i + 1) * 1000 }));
   p.comments.push(...out); if (out.length) p.upd = out[out.length - 1].at;
   return out;
 }
@@ -447,7 +465,7 @@ export function normalize(raw) {
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));
   for (const a of s.accounts) a.following = a.following.filter((f) => ids.has(f) && f !== a.id);
-  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], viewsBy: p.viewsBy && typeof p.viewsBy === 'object' ? Object.fromEntries(Object.entries(p.viewsBy).filter(([k, v]) => ok(k) && Number.isFinite(v) && v > 0).map(([k, v]) => [k, Math.floor(v)])) : {}, collab: Array.isArray(p.collab) ? p.collab.filter((c) => c && ids.has(c.id) && c.id !== p.by && ['pending', 'accepted', 'declined'].includes(c.status)).slice(0, MAX_COLLAB).map((c) => ({ id: c.id, status: c.status, at: c.at ?? 0 })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
+  s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null) })) : [], viewsBy: p.viewsBy && typeof p.viewsBy === 'object' ? Object.fromEntries(Object.entries(p.viewsBy).filter(([k, v]) => ok(k) && Number.isFinite(v) && v > 0).map(([k, v]) => [k, Math.floor(v)])) : {}, collab: Array.isArray(p.collab) ? p.collab.filter((c) => c && ids.has(c.id) && c.id !== p.by && ['pending', 'accepted', 'declined'].includes(c.status)).slice(0, MAX_COLLAB).map((c) => ({ id: c.id, status: c.status, at: c.at ?? 0 })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, scene: p.scene === undefined ? undefined : cleanScene(p.scene), caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
   s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post) || ok(m.collab)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}), ...(ok(m.collab) ? { collab: m.collab } : {}) }));

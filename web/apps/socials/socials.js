@@ -24,9 +24,10 @@ import {
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
-  toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
+  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
-import { generateComments, generateReply } from './socials-predict.js';
+import { generateComments, generateReply, suggestCaption } from './socials-predict.js';
+import { readPhoto } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
@@ -444,7 +445,13 @@ function mountAdmin(host) {
     if (genWho && !others.some((a) => a.id === genWho)) genWho = '';
     const pick = el('select', { class: 'so-input so-gen-who', 'aria-label': 'Comment as' }, el('option', { value: '', text: '🎲 Random accounts' }), others.map((a) => el('option', { value: a.id, text: `@${a.handle}` })));
     pick.value = genWho; pick.addEventListener('change', () => { genWho = pick.value; });
-    const run = (n) => {
+    const run = async (n, btn) => {
+      // (What its photo shows: read once, the first time (posts from before kept it too).)
+      if (p.scene === undefined && p.image) {
+        const label = btn.textContent; btn.textContent = '…'; btn.disabled = true;
+        try { p.scene = cleanScene(await readPhoto(p.image)); } catch { p.scene = null; }
+        btn.textContent = label; btn.disabled = false;
+      }
       let who;
       if (genWho) who = Array(n).fill(genWho);
       else {
@@ -453,14 +460,14 @@ function mountAdmin(host) {
         const order = [...fresh, ...rest]; who = Array.from({ length: n }, (_, i) => order[i % order.length]);
       }
       const tagged = (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean);
-      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? '') });
+      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), photo: p.scene });
       let added = 0;
       texts.forEach((t, i) => { if (addComment(state, p.id, who[i], t)) added++; });
       if (added) { save(); draw(); }
     };
     return el('div', { class: 'so-gen', role: 'group', 'aria-label': 'Generate comments' },
       el('span', { class: 'so-gen-label', text: '✨ Generate' }),
-      ...[1, 3, 5].map((n) => el('button', { type: 'button', class: 'btn so-gen-btn', 'aria-label': `Generate ${n} comment${n === 1 ? '' : 's'}`, text: String(n), onclick: () => run(n) })),
+      ...[1, 3, 5].map((n) => el('button', { type: 'button', class: 'btn so-gen-btn', 'aria-label': `Generate ${n} comment${n === 1 ? '' : 's'}`, text: String(n), onclick: (e) => run(n, e.currentTarget) })),
       pick);
   }
 
@@ -749,7 +756,7 @@ function mountAdmin(host) {
     const first = input('Photo or video'); const more = input('Add more photos or videos');
     const addLabel = el('label', { class: 'btn so-add-more' }, '＋ Add photos or videos', more);
     const again = el('button', { type: 'button', class: 'btn', text: 'Edit photo', hidden: true });
-    again.addEventListener('click', async () => { const x = items[cur]; if (!x || x.kind !== 'photo' || !x.image) return; try { const b = await photoFrom(x.original ?? x.image, false); if (b) { x.image = b; x.imageId = null; draw(); onChange(); } } catch (e) { err.textContent = e.message; } });
+    again.addEventListener('click', async () => { const x = items[cur]; if (!x || x.kind !== 'photo' || !x.image) return; try { const b = await photoFrom(x.original ?? x.image, false); if (b) { x.image = b; x.imageId = null; x.sceneP = null; x.scene = undefined; draw(); onChange(); } } catch (e) { err.textContent = e.message; } });
     sortable(list, (from, to) => { const [x] = items.splice(from, 1); items.splice(to, 0, x); cur = to; draw(); onChange(); });
     const changed = () => { draw(); onChange(); };
     const statusText = (x) => (x.status === 'reading' ? `Loading… ${Math.round((x.pct ?? 0) * 100)}%` : x.status === 'read' ? 'Loaded · waiting' : x.status === 'preparing' ? (x.kind === 'video' ? 'Preparing video…' : 'Editing photo…') : x.status === 'failed' ? x.error || 'Couldn\'t load' : `Ready ✓${x.file?.size ? ` · ${mb(x.file.size)}` : ''}`);
@@ -799,9 +806,17 @@ function mountAdmin(host) {
           if (!b) { const k = items.indexOf(x); if (k >= 0) items.splice(k, 1); cur = Math.min(cur, Math.max(0, items.length - 1)); changed(); return; }
           x.image = b; x.original = x.file; x.imageId = null;
         }
-        x.status = 'ready';
+        x.status = 'ready'; x.sceneP = null; x.scene = undefined;
+        // (The first one's photo read straight away, for comments and a caption.)
+        if (items.find((y) => y.status === 'ready' && y.image) === x) sceneOf(x);
       } catch (e) { x.status = 'failed'; x.stage = 'prep'; x.error = e.message; }
       changed();
+    }
+    /** What a file's photo shows (read once, in the background): a promise of its scene. */
+    function sceneOf(x) {
+      if (!x?.image) return Promise.resolve(null);
+      x.sceneP ??= readPhoto(x.image, { file: x.kind === 'photo' && x.file instanceof Blob ? x.file : null }).then((v) => (x.scene = v), () => (x.scene = null));
+      return x.sceneP;
     }
     async function retry(x) { if (x.stage === 'read') await load(x); if (x.status === 'read' || x.stage === 'prep') await prep(x, false); }
     async function take(picked) {
@@ -822,6 +837,9 @@ function mountAdmin(host) {
       ready: () => items.filter((x) => x.status === 'ready' && (x.image || x.video)),
       busy: () => items.some((x) => ['reading', 'read', 'preparing'].includes(x.status)),
       failed: () => items.filter((x) => x.status === 'failed').length,
+      /** The first one's scene (what its photo shows), waited for at most `ms`. */
+      scene: (ms = 15000) => { const x = items.find((y) => y.status === 'ready' && y.image); if (!x) return Promise.resolve(null); if (x.scene !== undefined) return Promise.resolve(x.scene); return Promise.race([sceneOf(x), new Promise((ok) => setTimeout(() => ok(null), ms))]); },
+      first: () => items.find((y) => y.status === 'ready' && y.image) ?? null,
     };
   }
 
@@ -849,10 +867,24 @@ function mountAdmin(host) {
     };
     const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video })) : [], { onChange: () => sync() });
     caption.addEventListener('input', sync);
-    const make = (asDraft) => {
+    // (✨ Suggest caption: from what the photo shows (and when and where); again for another.)
+    let suggested = []; let lastSuggestion = '';
+    const suggest = el('button', { type: 'button', class: 'btn so-suggest', text: '✨ Suggest caption' });
+    suggest.addEventListener('click', async () => {
+      if (!mx.first()) { err.textContent = 'Pick a photo or video first.'; return; }
+      suggest.disabled = true; suggest.textContent = 'Reading the photo…';
+      try {
+        const sc = await mx.scene();
+        const c = suggestCaption(sc, { avoid: suggested }); suggested.push(c);
+        const cur = caption.value.trim();
+        caption.value = !cur || cur === lastSuggestion ? c : `${cur}\n${c}`; lastSuggestion = caption.value.trim();
+        sync();
+      } finally { suggest.disabled = false; suggest.textContent = '✨ Suggest caption'; }
+    });
+    const make = (asDraft, scene = null) => {
       const [first, ...rest] = mx.ready();
       const all = new Set([...tags, ...collabs]); if (owner && owner.id !== m.id) all.add(owner.id);
-      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...all], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft });
+      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...all], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft, scene: scene ?? mx.first()?.scene ?? null });
       if (draft?.draft) removePost(state, draft.id); // (the draft it was: replaced)
       // (Its collaborators: asked now if it's shared; when a draft is, they're asked when it's shared.)
       setCollabs(state, p.id, [...collabs]);
@@ -863,10 +895,12 @@ function mountAdmin(host) {
       if (mx.failed() && !confirm(`${mx.failed()} file${mx.failed() === 1 ? '' : 's'} couldn't load. Share without ${mx.failed() === 1 ? 'it' : 'them'}?`)) return;
       share.disabled = true;
       try {
+        showUp('Posting… reading the photo', 0.1);
+        const scene = autoOn() ? await mx.scene(6000) : mx.first()?.scene ?? null;
         showUp('Posting… saving to this phone', 0.15);
-        const p = make(false);
-        // (A few of the other accounts say something nice about it.)
-        if (autoOn()) autoComment(state, p.id);
+        const p = make(false, scene);
+        // (A few of the other accounts say something about it, made for its photo and caption.)
+        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle) }) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
         // (Then to Saved Files straight away, its progress shown; else it's posted here.)
@@ -877,7 +911,7 @@ function mountAdmin(host) {
     saveDraft.addEventListener('click', () => { try { make(true); save(); toast('Saved to your drafts (your profile → ✎)'); go({ name: 'profile', id: m.id, grid: 'drafts' }); } catch (e) { err.textContent = e.message; } });
     sync();
     return el('div', {}, backBar(draft?.draft ? `Draft · @${m.handle}` : `New post as @${m.handle}`, draft?.draft ? { name: 'profile', id: m.id, grid: 'drafts' } : { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, mx.box, caption, communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
+      el('div', { class: 'so-pad so-new' }, mx.box, caption, el('div', { class: 'so-row' }, suggest), communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
         draft?.draft ? el('button', { type: 'button', class: 'so-link so-danger-link', text: 'Delete draft', onclick: () => { if (confirm('Delete this draft?')) { removePost(state, draft.id); save(); go({ name: 'profile', id: m.id, grid: 'drafts' }); } } }) : null));
   }
 
@@ -896,6 +930,8 @@ function mountAdmin(host) {
       try {
         setMedia(state, id, mx.ready().map((x) => ({ kind: x.kind, image: x.image, imageId: x.imageId, video: x.kind === 'video' ? x.video : null, videoId: x.kind === 'video' ? x.videoId : null })));
         editPost(state, id, { caption: caption.value, tags: [...new Set([...tags, ...collabs])] });
+        // (A new first photo: what it shows.)
+        const f1 = mx.first(); if (f1 && !f1.imageId && f1.scene !== undefined) p.scene = cleanScene(f1.scene);
         const sent = setCollabs(state, id, [...collabs]);
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         if (sent.length) toast(`Collab request sent to ${sent.map((x) => `@${accountById(state, x)?.handle}`).join(', ')}`);

@@ -777,6 +777,9 @@ test('Socials: each file shown loading then ready; reordered by dragging (or ↑
   await page.mouse.move(hb.x + hb.width / 2, hb.y - 60, { steps: 6 }); await page.mouse.up();
   assert.match(await page.locator('.so-mrow').first().textContent(), /1\. Photo/);
   assert.match(await page.getByRole('button', { name: /^👤 Tag/ }).textContent(), /1/, 'the Owner tagged already');
+  // ✨ Suggest caption: made from the photo (read on the phone), with hashtags; again for another.
+  await page.getByRole('button', { name: '✨ Suggest caption' }).click();
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="Caption"]')?.value.includes('#'), null, { timeout: 30000 });
   await page.getByLabel('Caption').fill('Trip to Denver #mountains');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
   const post = page.locator('.so-post', { hasText: 'Trip to Denver' }).first(); await post.waitFor();

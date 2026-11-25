@@ -88,148 +88,296 @@ export function numbersIn(text) {
 /** Whether a caption asks something (its viewers are to answer). */
 export const asks = (text) => /\?\s*(\p{Extended_Pictographic}|\s)*$|\b(which one|what do you think|thoughts\?|should i|would you|or\b.*\?)/iu.test(String(text ?? ''));
 
-/**
- * A comment for a post, from its caption: about what it shows, in a few words, with fitting emojis, made for
- * that caption: its hashtags, the places and things it names, what it counts (an age, years, a distance),
- * a question it asks, and the accounts tagged in it. `tagged`: their handles; `as`: the handle commenting
- * (tagged itself: it says so). `avoid`: comments already on it (not said again).
- */
-export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', photo = null } = {}) {
-  // (What the photo shows, as words read with the caption's: its topics count, its things and place are named.)
-  const seen = sceneWords(photo);
-  const r = readText(`${caption ?? ''} ${seen.words.join(' ')}`); r.emojis = emojisIn(caption); const tp = r.topics[0]; const T = tp ?? GENERAL;
-  const noun = pick(T.nouns, rand); const adj = pick(T.adj, rand); const e = () => emojiFor(r, rand);
-  const forms = [
-    () => `This ${noun} is ${adj} ${e()}`, () => `${cap(adj)}! ${e()}`, () => `Obsessed with this ${noun} ${e()}`, () => `Wow, ${adj} ${e()}`,
-    () => `Okay this is ${adj} ${e()}`, () => `Need more of this ${e()}`, () => `${cap(adj)} as always ${e()}`, () => `Love love love this ${e()}`,
-  ];
-  // (Made for this caption: likelier than anything general.)
-  const own = [];
-  // (A word from the caption only when it says what's in it (a topic's word): "Love the pizza", never "Love the random".)
-  const capWords = new Set(readText(caption).keywords);
-  const kw = tp ? r.keywords.filter((w) => capWords.has(w)).find((w) => tp.words.includes(w) && w.length < 16 && !['birthday', 'bday', 'celebrate', 'celebrating', 'turning', 'finally', 'done', 'first', 'love', 'summer', 'winter', 'spring', 'fall', 'autumn'].includes(w)) : null;
-  if (kw) own.push(() => `Love the ${kw} ${e()}`, () => `That ${kw} though ${e()}`);
-  const things = [...new Set([...thingsIn(caption), ...seen.things])].filter((w) => w !== kw);
-  if (things.length) { const th = () => pick(things, rand); own.push(() => `Love the ${th()} ${e()}`, () => `Obsessed with the ${th()} ${e()}`, () => `That ${th()} is ${adj} ${e()}`); }
-  const places = placesIn(caption).length ? placesIn(caption) : seen.place ? [seen.place] : [];
-  if (places.length) { const pl = () => pick(places, rand); own.push(() => `${pl()} looks ${pick(['amazing', 'unreal', 'so good on you', 'like a dream', 'incredible'], rand)} ${e()}`, () => `Missing ${pl()} so much ${e()}`, () => `${pl()}!! Take me with you next time ${e()}`, () => `Enjoy ${pl()}! ${e()}`); }
-  const n = numbersIn(caption);
-  if (n.age) own.push(() => `Happy ${ordinal(n.age)}!! ${e()}`, () => `${n.age} looks good on you ${e()}`, () => `Happy ${ordinal(n.age)} birthday! Have the best year ${e()}`);
-  if (n.years && !n.age) own.push(() => `${n.years} year${n.years === 1 ? '' : 's'}!! Congrats ${e()}`, () => `Here's to ${n.years} more ${e()}`);
-  if (n.km) own.push(() => `${n.km}k?! Legend ${e()}`, () => `Crushing that ${n.km}k ${e()}`);
-  if (asks(caption)) {
-    const opts = String(caption).match(/\b([\p{L}]+)\s+or\s+([\p{L}]+)\b[^?]*\?/iu);
-    own.push(...(opts ? [() => `${cap(opts[2].toLowerCase())}, no question ${e()}`, () => `${cap(opts[1].toLowerCase())} all the way ${e()}`, () => `Team ${opts[pick([1, 2], rand)].toLowerCase()} ${e()}`] : /which one|which\b/i.test(caption) ? [() => `The first one for sure ${e()}`, () => `Second one!! ${e()}`] : [() => `Definitely yes!! ${e()}`, () => `Honestly? Go for it ${e()}`, () => `100% do it ${e()}`]));
-  }
-  if (r.tags.length) {
-    // (Its hashtags: the ones that say what it's about first.)
-    const best = r.tags.filter((t) => tp?.words.some((w) => t.includes(w))); const tg = () => pick(best.length ? best : r.tags, rand);
-    own.push(() => `#${tg()} indeed ${e()}`, () => `The #${tg()} energy here ${e()}`, () => `Peak #${tg()} ${e()}`, () => `Living for the #${tg()} content ${e()}`);
-  }
-  // (Who's in it, and when: a selfie, the two of them, a group; a night out, an early start.)
-  if (seen.faces === 1 && (!tp || ['style', 'friends'].includes(tp.id))) own.push(() => `This smile!! ${e()}`, () => `Main character energy ${e()}`, () => `Glowing ${e()}`, () => `Okay you look amazing ${e()}`);
-  if (seen.faces === 2) own.push(() => `You two are the cutest ${e()}`, () => `Love this pic of you two ${e()}`, () => `Cutest duo ${e()}`);
-  if (seen.faces >= 3) own.push(() => `The whole crew!! ${e()}`, () => `Best group pic ${e()}`, () => `Love all these faces ${e()}`);
-  if (seen.night) own.push(() => `What a night ${e()}`, () => `Night out vibes ${e()}`);
-  if (seen.morning) own.push(() => `Early start! ${e()}`, () => `Morning views like this ${e()}`);
-  // (The people tagged: now and then.)
-  const people = [];
-  const handles = [...new Set(tagged.filter(Boolean).map((h) => String(h).replace(/^@/, '')))];
-  const me = String(as ?? '').replace(/^@/, '');
-  if (me && handles.includes(me)) people.push(() => `Thanks for the tag! ${e()}`, () => `So glad I was there for this ${e()}`, () => `Best day with you ${e()}`);
-  const others = handles.filter((h) => h !== me);
-  if (others.length) { const h = () => pick(others, rand); people.push(() => `@${h()} you two!! ${e()}`, () => `@${h()} look at this ${e()}`, () => `Love seeing you with @${h()} ${e()}`); }
-  // (By topic: what someone would say to it.)
-  const byTopic = {
-    beach: [() => `Take me with you next time ${e()}`, () => `I can almost hear the waves ${e()}`],
-    sunset: [() => `That sky is unreal ${e()}`, () => `Golden hour hits different ${e()}`],
-    food: [() => `Save me a bite! ${e()}`, () => `Recipe please ${e()}`, () => `Now I'm hungry ${e()}`],
-    birthday: [() => `Happy birthday!! ${e()}`, () => `Happiest birthday! Hope it was the best ${e()}`],
-    pet: [() => `I need to meet this cutie ${e()}`, () => `Give them a hug from me ${e()}`],
-    travel: [() => `Where is this?? ${e()}`, () => `Adding this to my list ${e()}`, () => `Living the dream ${e()}`],
-    fitness: [() => `Putting in the work! ${e()}`, () => `Goals right here ${e()}`],
-    style: [() => `Where's that from?! ${e()}`, () => `Serving looks ${e()}`, () => `This fit!! ${e()}`],
-    friends: [() => `Love you guys ${e()}`, () => `Best crew ${e()}`],
-    nature: [() => `So peaceful ${e()}`, () => `Nature is the best ${e()}`],
-    music: [() => `Wish I was there! ${e()}`, () => `What a night ${e()}`],
-    art: [() => `You're so talented ${e()}`, () => `This is next level ${e()}`],
-    win: [() => `Congrats!! So proud of you ${e()}`, () => `You deserve this! ${e()}`],
-    game: [() => `This build is insane ${e()}`, () => `How long did this take?! ${e()}`],
-    car: [() => `Clean ride ${e()}`, () => `Take me for a spin! ${e()}`, () => `Dream car right here ${e()}`],
-  };
-  const topical = (tp && byTopic[tp.id]) || [];
-  // (A place named: "Where is this??" makes no sense.)
-  const fit = places.length ? topical.filter((f) => !/Where is this/.test(f())) : topical;
-  forms.push(...fit, ...fit, ...own, ...own, ...own, ...people);
-  const said = new Set(avoid.map((a) => String(a).trim().toLowerCase()));
-  for (let i = 0; i < 20; i++) { const c = pick(forms, rand)().replace(/\s+/g, ' ').trim(); if (!said.has(c.toLowerCase())) return c; }
-  return pick(forms, rand)().replace(/\s+/g, ' ').trim();
-}
+// ---- What a photo shows (socials-vision.js reads it, socials-scene.js works out its people and background),
+// as facts to talk about: each with how specific it is (the more, the likelier it's what's said and the
+// caption), its emojis, things to say to it and captions for it.
 
-/** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn). */
-export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], photo = null } = {}) {
-  const out = []; const seen = [...avoid];
-  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', photo }); out.push(c); seen.push(c); }
-  return out;
-}
-
-// ---- What a photo shows (socials-vision.js reads it): its classifier labels as topics and things, its faces,
-// light and colour, and when and where it was taken.
-
-// [what the label says (ImageNet's names), topic, what to call it ('' : not named)].
+// What the classifier's labels (ImageNet's names) are: { re, kind, topic, name } (name '' : not named).
+const L = (re, kind, topic, name = '') => ({ re, kind, topic, name });
 const LABELS = [
-  [/\b(retriever|terrier|spaniel|poodle|shepherd|hound|collie|corgi|pug|beagle|husky|chihuahua|dachshund|bulldog|labrador|schnauzer|setter|pointer|malamute|samoyed|pomeranian|shih-tzu|maltese|papillon|boxer|rottweiler|doberman|dalmatian|great dane|mastiff|newfoundland|pinscher|vizsla|weimaraner|basset|bloodhound|whippet|greyhound|chow|sheepdog|bernese|saint bernard|keeshond|pekinese|lhasa|basenji|spitz|pyrenees|kelpie|borzoi|wolfhound|coonhound|foxhound|brittany|griffon|yorkshire|cardigan|pembroke|bichon|havanese|cocker)\b/, 'pet', 'dog'],
-  [/\b(tabby|tiger cat|persian cat|siamese cat|egyptian cat)\b/, 'pet', 'kitty'],
-  [/\b(pizza)\b/, 'food', 'pizza'], [/\b(cheeseburger)\b/, 'food', 'burger'], [/\b(hotdog|hot dog)\b/, 'food', 'hot dog'], [/\b(ice cream|ice lolly)\b/, 'food', 'ice cream'],
-  [/\b(espresso|coffee mug|cup)\b/, 'food', 'coffee'], [/\b(burrito)\b/, 'food', 'burrito'], [/\b(bagel)\b/, 'food', 'bagel'], [/\b(pretzel)\b/, 'food', 'pretzel'], [/\b(guacamole)\b/, 'food', 'guac'],
-  [/\b(carbonara)\b/, 'food', 'pasta'], [/\b(trifle|chocolate sauce|custard)\b/, 'food', 'dessert'], [/\b(red wine|wine bottle)\b/, 'food', 'wine'], [/\b(beer glass|beer bottle)\b/, 'food', 'beer'],
-  [/\b(strawberry|pineapple|banana|pomegranate|lemon|orange|fig)\b/, 'food', ''], [/\b(plate|meat loaf|french loaf|potpie|hot pot|consomme|mashed potato|bakery|restaurant|dough|waffle iron|frying pan|wok)\b/, 'food', ''],
-  [/\b(seashore|sandbar|coral reef)\b/, 'beach', 'beach'], [/\b(snorkel|scuba diver|swimming trunks|bikini|maillot|catamaran|paddle)\b/, 'beach', ''],
-  [/\b(alp)\b/, 'travel', 'mountains'], [/\b(volcano)\b/, 'travel', 'volcano'], [/\b(valley)\b/, 'travel', 'valley'], [/\b(cliff|promontory)\b/, 'travel', 'cliffs'], [/\b(lakeside)\b/, 'travel', 'lake'],
-  [/\b(castle|palace)\b/, 'travel', 'castle'], [/\b(suspension bridge|steel arch bridge|viaduct)\b/, 'travel', 'bridge'], [/\b(geyser|dock|boathouse|monastery|church|mosque|triumphal arch|airliner|liner|canoe|mountain tent|backpack|obelisk)\b/, 'travel', ''],
-  [/\b(daisy|rapeseed|yellow lady's slipper|pot)\b/, 'nature', 'flowers'], [/\b(mushroom|agaric|acorn|hip|buckeye)\b/, 'nature', ''], [/\b(ski|snowmobile|dogsled|snowplow)\b/, 'nature', 'snow'],
-  [/\b(dumbbell|barbell|balance beam|horizontal bar|parallel bars)\b/, 'fitness', ''],
-  [/\b(sunglass|sunglasses)\b/, 'style', 'sunglasses'], [/\b(cowboy hat|sombrero)\b/, 'style', 'hat'], [/\b(gown|overskirt|hoopskirt)\b/, 'style', 'dress'], [/\b(suit|bow tie|windsor tie)\b/, 'style', 'suit'],
-  [/\b(fur coat|trench coat)\b/, 'style', 'coat'], [/\b(jean)\b/, 'style', 'jeans'], [/\b(jersey|miniskirt|cardigan|kimono|sweatshirt|sandal|cowboy boot|loafer|running shoe|lipstick)\b/, 'style', ''],
-  [/\b(acoustic guitar|electric guitar)\b/, 'music', 'guitar'], [/\b(drum)\b/, 'music', 'drums'], [/\b(grand piano|upright)\b/, 'music', 'piano'], [/\b(violin|cello|banjo|sax|harmonica|microphone|stage)\b/, 'music', ''],
-  [/\b(joystick|monitor|desktop computer|screen)\b/, 'game', 'setup'],
-  [/\b(sports car|racer)\b/, 'car', 'car'], [/\b(convertible)\b/, 'car', 'convertible'], [/\b(jeep)\b/, 'car', 'jeep'], [/\b(pickup)\b/, 'car', 'truck'], [/\b(limousine|minivan|cab|grille|car wheel|beach wagon)\b/, 'car', ''],
-  [/\b(mountain bike|moped|motor scooter)\b/, 'car', 'bike'],
-  [/\b(mortarboard|academic gown)\b/, 'win', 'grad cap'], [/\b(candle|balloon)\b/, 'birthday', ''],
+  L(/\b(retriever|terrier|spaniel|poodle|shepherd|hound|collie|corgi|pug|beagle|husky|chihuahua|dachshund|bulldog|labrador|schnauzer|setter|pointer|malamute|samoyed|pomeranian|shih-tzu|maltese|papillon|boxer|rottweiler|doberman|dalmatian|great dane|mastiff|newfoundland|pinscher|vizsla|weimaraner|basset|bloodhound|whippet|greyhound|chow|sheepdog|bernese|saint bernard|keeshond|pekinese|lhasa|basenji|spitz|pyrenees|kelpie|borzoi|wolfhound|coonhound|foxhound|brittany|griffon|yorkshire|pembroke|bichon|havanese|cocker)\b/, 'pet', 'pet', 'dog'),
+  L(/\b(tabby|tiger cat|persian cat|siamese cat|egyptian cat)\b/, 'pet', 'pet', 'cat'),
+  L(/\b(pizza)\b/, 'food', 'food', 'pizza'), L(/\b(cheeseburger)\b/, 'food', 'food', 'burger'), L(/\b(hotdog|hot dog)\b/, 'food', 'food', 'hot dog'), L(/\b(ice cream|ice lolly)\b/, 'food', 'food', 'ice cream'),
+  L(/\b(espresso|coffee mug)\b/, 'food', 'food', 'coffee'), L(/\b(burrito)\b/, 'food', 'food', 'burrito'), L(/\b(bagel)\b/, 'food', 'food', 'bagel'), L(/\b(pretzel)\b/, 'food', 'food', 'pretzel'), L(/\b(guacamole)\b/, 'food', 'food', 'guac'),
+  L(/\b(carbonara)\b/, 'food', 'food', 'pasta'), L(/\b(trifle|chocolate sauce|custard)\b/, 'food', 'food', 'dessert'), L(/\b(red wine|wine bottle)\b/, 'food', 'food', 'wine'), L(/\b(beer glass|beer bottle)\b/, 'food', 'food', 'beer'),
+  L(/\b(strawberry|pineapple|banana|pomegranate|fig)\b/, 'food', 'food'), L(/\b(plate|meat loaf|french loaf|potpie|hot pot|consomme|mashed potato|bakery|restaurant|dough|waffle iron|frying pan|wok)\b/, 'food', 'food'),
+  L(/\b(seashore|sandbar|coral reef)\b/, 'beach', 'beach', 'beach'), L(/\b(snorkel|scuba diver|catamaran|paddle)\b/, 'beach', 'beach'),
+  L(/\b(alp)\b/, 'mountain', 'travel', 'mountains'), L(/\b(volcano)\b/, 'mountain', 'travel', 'volcano'), L(/\b(valley)\b/, 'mountain', 'travel', 'valley'), L(/\b(cliff|promontory)\b/, 'mountain', 'travel', 'cliffs'),
+  L(/\b(lakeside)\b/, 'lake', 'travel', 'lake'), L(/\b(castle|palace)\b/, 'sight', 'travel', 'castle'), L(/\b(suspension bridge|steel arch bridge|viaduct)\b/, 'sight', 'travel', 'bridge'),
+  L(/\b(geyser|dock|boathouse|monastery|church|mosque|triumphal arch|airliner|liner|canoe|mountain tent|obelisk)\b/, 'sight', 'travel'),
+  L(/\b(daisy|rapeseed|yellow lady's slipper)\b/, 'flowers', 'nature', 'flowers'), L(/\b(ski|snowmobile|dogsled|snowplow)\b/, 'snow', 'nature', 'snow'),
+  L(/\b(dumbbell|barbell|balance beam|horizontal bar|parallel bars)\b/, 'gym', 'fitness'),
+  // (What they wear.)
+  L(/\b(mortarboard|academic gown)\b/, 'grad', 'win', 'cap and gown'),
+  L(/\b(swimming trunks|bikini|maillot)\b/, 'cloth:summer', 'style', 'swimsuit'), L(/\b(sandal)\b/, 'cloth:summer', 'style', 'sandals'), L(/\b(sunglass|sunglasses)\b/, 'cloth:summer', 'style', 'shades'), L(/\b(sombrero|cowboy hat)\b/, 'cloth', 'style', 'hat'),
+  L(/\b(fur coat|trench coat|parka)\b/, 'cloth:winter', 'style', 'coat'), L(/\b(ski mask|mitten|wool|stole)\b/, 'cloth:winter', 'style', 'winter gear'), L(/\b(cardigan)\b/, 'cloth:cozy', 'style', 'cardigan'), L(/\b(sweatshirt)\b/, 'cloth:cozy', 'style', 'hoodie'),
+  L(/\b(suit|bow tie|windsor tie)\b/, 'cloth:formal', 'style', 'suit'), L(/\b(gown|overskirt|hoopskirt)\b/, 'cloth:formal', 'style', 'dress'), L(/\b(miniskirt)\b/, 'cloth', 'style', 'skirt'),
+  L(/\b(jean)\b/, 'cloth', 'style', 'jeans'), L(/\b(jersey)\b/, 'cloth', 'style', 'tee'), L(/\b(military uniform)\b/, 'cloth', 'style', 'uniform'), L(/\b(kimono)\b/, 'cloth', 'style', 'kimono'), L(/\b(pajama)\b/, 'cloth:cozy', 'style', 'pjs'),
+  L(/\b(running shoe)\b/, 'cloth', 'style', 'sneakers'), L(/\b(cowboy boot)\b/, 'cloth', 'style', 'boots'), L(/\b(lipstick)\b/, 'cloth', 'style', 'lipstick'),
+  L(/\b(acoustic guitar|electric guitar)\b/, 'music', 'music', 'guitar'), L(/\b(drum)\b/, 'music', 'music', 'drums'), L(/\b(grand piano|upright)\b/, 'music', 'music', 'piano'), L(/\b(violin|cello|banjo|sax|harmonica|microphone|stage)\b/, 'music', 'music'),
+  L(/\b(joystick|monitor|desktop computer|screen)\b/, 'game', 'game', 'setup'),
+  L(/\b(sports car|racer)\b/, 'car', 'car', 'car'), L(/\b(convertible)\b/, 'car', 'car', 'convertible'), L(/\b(jeep)\b/, 'car', 'car', 'jeep'), L(/\b(pickup)\b/, 'car', 'car', 'truck'), L(/\b(limousine|minivan|cab|grille|car wheel|beach wagon)\b/, 'car', 'car'),
+  L(/\b(mountain bike|moped|motor scooter)\b/, 'car', 'car', 'bike'),
+  L(/\b(candle|balloon)\b/, 'party', 'birthday'),
 ];
+const labelOf = (name) => LABELS.find((x) => x.re.test(name)) ?? null;
 
 /**
- * A photo as words for the predictor: { words (its topics', to read with the caption), things (to name),
- * place, faces, night, morning, topics (ids, best first) }.
+ * A photo read as what's in it, checked against itself: { topics, things, labels: [{ ...label, score }],
+ * people, poses, bg, outfit, brand, place, night, morning, grad, season, faces }. A beach only with sand or
+ * water to be seen (a blue sky alone isn't one), clothes only on someone, a pet's face not a person.
  */
 export function sceneWords(photo) {
-  const out = { words: [], things: [], place: null, faces: 0, night: false, morning: false, topics: [] };
+  const out = { words: [], things: [], topics: [], labels: [], people: 0, faces: 0, poses: [], bg: [], outfit: null, brand: null, place: null, night: false, morning: false, grad: false, season: null, formal: false, items: [] };
   if (!photo || typeof photo !== 'object') return out;
-  const add = (id, n = 1) => { const tp = TOPICS.find((t) => t.id === id); if (!tp) return; for (let i = 0; i < n; i++) out.words.push(tp.words[0]); if (!out.topics.includes(id)) out.topics.push(id); };
-  for (const [i, [name, score]] of (photo.labels ?? []).entries()) {
-    if (!(score >= 0.12)) continue;
-    const hit = LABELS.find(([re]) => re.test(name)); if (!hit) continue;
-    add(hit[1], score >= 0.4 ? 2 : 1);
-    // (Named only when it's sure: a dog's breed when very sure, else "dog".)
-    if (hit[2] && (i === 0 || score >= 0.3)) out.things.push(hit[1] === 'pet' && score >= 0.55 && i === 0 && !/\bcat\b/.test(name) ? name.replace(/-/g, ' ') : hit[2]);
-  }
-  // (Warm light counts as a sunset only where one could be: not over a plate of food or a pet.)
-  const sure = (photo.labels ?? []).find(([n, k]) => k >= 0.3 && LABELS.some(([re]) => re.test(n)));
-  const sureTopic = sure ? LABELS.find(([re]) => re.test(sure[0]))[1] : null;
-  if (photo.tone === 'sunset' && (!sureTopic || ['beach', 'travel', 'nature', 'car'].includes(sureTopic))) add('sunset', 2);
-  if (photo.tone === 'snow') { add('nature'); out.things.push('snow'); }
-  if (photo.tone === 'green' && !out.topics.length) add('nature');
-  if (photo.tone === 'night' || (photo.hour != null && (photo.hour >= 21 || photo.hour < 4))) out.night = true;
-  if (photo.hour != null && photo.hour >= 5 && photo.hour < 9) out.morning = true;
-  // (An animal's face can pass for a person's: none counted with a pet in it.)
-  const pet = (photo.labels ?? []).some(([n, k]) => k >= 0.05 && LABELS.some(([re, id]) => id === 'pet' && re.test(n)));
+  out.bg = Array.isArray(photo.bg) ? photo.bg : [];
+  const hasBg = Array.isArray(photo.bg);
+  // (A pet: one sure label, or several breeds that add up (the classifier unsure which dog it is).)
+  const petScore = (photo.labels ?? []).filter(([n]) => labelOf(n)?.kind === 'pet').reduce((t, [, k]) => t + k, 0);
+  const pet = petScore >= 0.15 || (photo.labels ?? []).some(([n, k]) => k >= 0.1 && labelOf(n)?.kind === 'pet');
   out.faces = Number.isFinite(photo.faces) && !pet ? photo.faces : 0;
-  if (pet && !out.topics.length) add('pet');
-  if (out.faces >= 2 && !out.topics.length) add('friends');
+  out.people = pet ? 0 : Math.max(out.faces, Number.isFinite(photo.people) ? photo.people : 0);
+  out.poses = out.people ? photo.poses ?? [] : [];
+  const add = (topic, n = 1) => { const tp = TOPICS.find((t) => t.id === topic); if (!tp) return; for (let i = 0; i < n; i++) out.words.push(tp.words[0]); if (!out.topics.includes(topic)) out.topics.push(topic); };
+  for (const [i, [name, score]] of (photo.labels ?? []).entries()) {
+    const lb = labelOf(name); if (!lb || !(score >= 0.1)) continue;
+    // (Checked: a beach needs its sand or water; a lake its water or green; clothes someone to wear them.)
+    if (lb.kind === 'beach' && hasBg && !out.bg.some((b) => b === 'sand' || b === 'water')) continue;
+    if (lb.kind === 'beach' && !hasBg && score < 0.5) continue;
+    if (lb.kind === 'lake' && hasBg && !out.bg.some((b) => b === 'water' || b === 'green')) continue;
+    if (lb.kind.startsWith('cloth') && !out.people && score < 0.5) continue;
+    if (lb.kind.startsWith('cloth') && score < (lb.name === 'tee' ? 0.3 : 0.18)) continue;
+    if (lb.kind === 'grad' && score < 0.15) continue;
+    out.labels.push({ ...lb, score, label: name });
+    add(lb.topic, score >= 0.4 ? 2 : 1);
+    if (lb.name && (i === 0 || score >= 0.25)) {
+      if (lb.kind.startsWith('cloth')) out.items.push(lb.name);
+      else out.things.push(lb.kind === 'pet' && score >= 0.55 && i === 0 && lb.name === 'dog' ? name.replace(/-/g, ' ') : lb.name);
+    }
+    if (lb.kind === 'grad') out.grad = true;
+    if (lb.kind === 'cloth:formal') out.formal = true;
+  }
+  // (The background, apart from the people: what's behind them.)
+  // (Warm light over food or a pet, with no sky: a lamp, not a sunset. Snow only seen under a sky, or a ski.)
+  const indoorWarm = out.labels.some((l) => ['food', 'pet'].includes(l.kind)) && !out.bg.includes('sky');
+  if (!indoorWarm && (out.bg.includes('sunset') || (!hasBg && photo.tone === 'sunset' && !out.people))) add('sunset', 2);
+  if (out.bg.includes('snow') || out.labels.some((l) => l.kind === 'snow')) { add('nature'); out.things.push('snow'); }
+  if (out.bg.includes('sand') && out.bg.includes('water') && !out.topics.includes('beach')) add('beach');
+  if (out.bg.includes('green') && !out.topics.length) add('nature');
+  if (out.bg.includes('night') || photo.tone === 'night' || (photo.hour != null && (photo.hour >= 21 || photo.hour < 4))) out.night = true;
+  if (photo.hour != null && photo.hour >= 5 && photo.hour < 9) out.morning = true;
+  if (pet && !out.labels.some((l) => l.kind === 'pet')) { const top = (photo.labels ?? []).find(([n]) => labelOf(n)?.kind === 'pet'); out.labels.push({ ...labelOf(top[0]), score: petScore, label: top[0] }); out.things.push(labelOf(top[0]).name); add('pet'); }
+
+  if (out.people >= 2 && !out.topics.length) add('friends');
+  // (What they wear: its colour, and the season it says.)
+  if (out.people && photo.outfit) out.outfit = photo.outfit;
+  const kinds = out.labels.map((l) => l.kind); const month = Number(String(photo.taken ?? '').slice(5, 7)) || 0;
+  if (out.people) {
+    if (kinds.includes('cloth:winter') || (out.bg.includes('snow')) || (photo.outfit?.skin != null && photo.outfit.skin < 0.06 && [11, 12, 1, 2].includes(month))) out.season = 'winter';
+    else if (kinds.includes('cloth:summer') || (photo.outfit?.skin ?? 0) >= 0.38 || out.bg.includes('sand')) out.season = 'summer';
+    else if (kinds.includes('cloth:cozy')) out.season = 'cozy';
+  }
+  if (typeof photo.brand === 'string' && out.people) out.brand = photo.brand;
   if (typeof photo.place === 'string' && photo.place) out.place = photo.place;
-  out.things = [...new Set(out.things)];
+  out.things = [...new Set(out.things)]; out.items = [...new Set(out.items)];
   return out;
 }
+
+const nospace = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const HEARTS = { black: '🖤', white: '🤍', red: '❤️', orange: '🧡', yellow: '💛', green: '💚', 'dark green': '💚', olive: '💚', teal: '🩵', blue: '💙', navy: '💙', purple: '💜', pink: '🩷', magenta: '💗', brown: '🤎', beige: '🤎', gray: '🩶' };
+const ITEM_EMOJI = { shades: '😎', sneakers: '👟', hat: '🤠', dress: '👗', suit: '🕴️', swimsuit: '👙', coat: '🧥', hoodie: '🧢', boots: '👢', jeans: '👖', tee: '👕', lipstick: '💄', skirt: '👗', sandals: '🩴', cardigan: '🧶', pjs: '😴', 'winter gear': '🧣', kimono: '👘', uniform: '🎖️' };
+const FOOD_EMOJI = { pizza: '🍕', burger: '🍔', 'hot dog': '🌭', 'ice cream': '🍦', coffee: '☕', burrito: '🌯', wine: '🍷', beer: '🍺', pasta: '🍝', dessert: '🍰', bagel: '🥯', pretzel: '🥨', guac: '🥑' };
+// (Colours named on clothes: ones that read well before an item.)
+const WEARABLE = new Set(['tee', 'hoodie', 'dress', 'suit', 'coat', 'jeans', 'skirt', 'cardigan', 'swimsuit', 'kimono']);
+
+/** A fact: { id, w (how specific), emoji, say (comments), cap (captions), tags }. */
+const fact = (id, w, emoji, say, cap = [], tags = []) => ({ id, w, emoji, say, cap, tags });
+
+/** What a photo gives to talk about, most specific first (see sceneWords). */
+export function photoFacts(photo, { year = new Date().getFullYear() } = {}) {
+  const sw = sceneWords(photo); const F = []; const P = sw.people;
+  const yr = Number(String(photo?.taken ?? '').slice(0, 4)) || year;
+  if (sw.grad) F.push(fact('grad', 10, ['🎓', '🎉', '👏', '🥳', '🙌'], ['Congrats grad!!', 'The cap and gown suits you', 'So proud of you, graduate', 'All that hard work paid off', 'Officially a grad!! Huge'], ['Cap, gown, done', 'Officially a graduate', `Class of ${yr}`, 'We did it'], ['graduation', `classof${yr}`, 'grad']));
+  if (sw.brand) { const B = sw.brand; F.push(fact('brand', 9, ['🔥', '💯', '😎', '👟'], [`Repping ${B} I see`, `The ${B} fit is clean`, `${B} on point`, `Head to toe ${B}?`, `Love the ${B} look`], [`Repping ${B}`, `${B} kind of day`], [nospace(B)])); }
+  const petLabel = sw.labels.find((l) => l.kind === 'pet');
+  if (petLabel) {
+    const isCat = petLabel.name === 'cat'; const t = sw.things.find((x) => x !== 'snow') ?? (isCat ? 'kitty' : 'pup'); const breed = !['dog', 'cat'].includes(t);
+    F.push(fact('pet', breed ? 9 : 7, isCat ? ['🐱', '🐾', '😻', '🥰'] : ['🐶', '🐾', '🥰', '🐕'], [`Love the ${t}`, `That ${t} is the cutest`, `I need to meet this ${t}`, 'Look at that face!!', `Give the ${t} a hug from me`, breed ? `${cap(t)}s are the best` : 'Who\'s a good one?!'], ['My favorite coworker', 'Look at this face', isCat ? 'Best kitty ever' : 'Best pup ever', 'Living with a celebrity'], [isCat ? 'catsofinstagram' : 'dogsofinstagram', 'petlove']));
+  }
+  if (sw.place) { const pl = sw.place; F.push(fact('place', 8, ['📍', '✈️', '🗺️', '😍'], [`${pl} looks amazing`, ...(P ? [`${pl} looks so good on you`] : []), `Missing ${pl} so much`, `${pl}!! Take me with you next time`, `Enjoy ${pl}!`], [`${pl} days`, `Postcard from ${pl}`, `Can't get enough of ${pl}`], [nospace(pl)])); }
+  const food = sw.labels.find((l) => l.kind === 'food' && l.name);
+  if (food) { const f = food.name; F.push(fact('food', 8, [FOOD_EMOJI[f] ?? '😋', '😋', '🤤', '🍽️'], [`That ${f} looks incredible`, /^(burger|hot dog|burrito|bagel|pretzel)$/.test(f) ? `Save me a bite of that ${f}!` : `Save me some ${f}!`, `Okay now I want ${/^(burger|hot dog|burrito|bagel|pretzel)$/.test(f) ? 'a ' : ''}${f}`, `Where is this ${f} from?!`, 'Recipe please'], [`${cap(f)} o'clock`, 'Treat yourself', 'Worth every bite', `${cap(f)} > everything`], ['foodie', nospace(f)])); } else if (sw.topics.includes('food')) F.push(fact('food', 5, ['😋', '🤤', '🍽️'], ['Save me a bite!', 'Now I\'m hungry', 'This looks so good', 'Recipe please'], ['Eating good tonight', 'Treat yourself'], ['foodie', 'yum']));
+  const color = sw.outfit?.color;
+  for (const [k, i] of sw.items.slice(0, 2).entries()) {
+    const c = color && WEARABLE.has(i) && k === 0 ? `${color} ` : '';
+    F.push(fact(`item:${i}`, 7 - k, [ITEM_EMOJI[i] ?? '🔥', '🔥', '😍', '✨', '💅'], [`That ${c}${i} though`, `Love the ${i}`, `The ${i} is everything`, `Where's the ${i} from?!`, `Obsessed with the ${c}${i}`], [`${cap(c)}${i} kind of day`, `Fit check: the ${i}`], ['ootd', 'fitcheck']));
+  }
+  if (color && P && !sw.grad && !sw.items.some((i) => WEARABLE.has(i))) F.push(fact('color', 5, [HEARTS[color] ?? '✨', '✨', '😍'], color === 'black' ? ['All black everything', 'The all-black look is so good', 'Black on black, love it'] : [`${cap(color)} looks so good on you`, `That ${color} is your color`, `Loving the ${color}`], [color === 'black' ? 'All black everything' : `Wearing ${color} today`], []));
+  if (sw.season === 'summer') F.push(fact('summer', 6, ['☀️', '😎', '🌴', '🕶️'], ['Summer fit on point', 'Dressed for the sunshine', 'Giving summer vibes', 'Perfect warm-weather look'], ['Summer state of mind', 'Sun\'s out', 'Summer uniform'], ['summervibes', 'summerfit']));
+  if (sw.season === 'winter') F.push(fact('winter', 6, ['❄️', '🧣', '🧥', '☃️'], ['Bundled up and still stylish', 'Cozy winter look', 'Love the layers', 'Stay warm out there!'], ['Bundled up', 'Layers on layers', 'Cold outside, cozy inside'], ['winterfit', 'winterstyle']));
+  if (sw.season === 'cozy') F.push(fact('cozy', 5, ['🧸', '☕', '🤎'], ['So cozy!', 'Comfy and cute', 'Cozy season is the best'], ['Cozy mode', 'Comfy is the vibe'], ['cozy']));
+  if (sw.formal && !sw.grad) F.push(fact('formal', 6, ['🕴️', '✨', '👔', '💫'], ['Dressed to impress', 'So sharp', 'Looking like a million bucks', 'What\'s the occasion?! You look amazing'], ['All dressed up', 'Dressed up, nowhere to be'], ['dressedup']));
+  // (What's behind them.)
+  const behind = P ? ' behind you' : '';
+  const kinds = sw.labels.map((l) => l.kind); const bg = sw.bg;
+  if (kinds.includes('mountain')) F.push(fact('mountains', 6, ['🏔️', '⛰️', '🌲'], ['Those mountains!!', `That view${behind}`, 'Mountain air hits different', 'Okay this view is unreal'], ['Mountains are calling', 'Views for days', 'Up in the mountains'], ['mountains', 'views']));
+  if (sw.topics.includes('beach')) F.push(fact('beach', 6, ['🌊', '🏖️', '☀️', '🐚'], ['Take me with you next time', 'I can almost hear the waves', 'Beach days are the best days', 'That water!!'], ['Salt in the air, sand in my hair', 'Vitamin sea', 'Beach days'], ['beach', 'vitaminsea']));
+  if (kinds.includes('lake')) F.push(fact('lake', 6, ['🏞️', '🌲', '💧'], ['That lake view!!', 'So peaceful by the water', 'Lake days are the best'], ['Lake days', 'By the water'], ['lakelife']));
+  if (sw.things.includes('snow')) F.push(fact('snow', 6, ['❄️', '☃️', '🏂'], ['Snow day!!', 'Winter wonderland', 'All that snow!'], ['Snow days', 'Winter wonderland'], ['snow', 'winter']));
+  if (sw.topics.includes('sunset')) F.push(fact('sunset', 6, ['🌅', '🧡', '✨', '🌇'], ['That sky is unreal', 'Golden hour hits different', `The sky${behind}!!`, 'Perfect lighting'], ['Chasing sunsets', 'Golden hour', 'The sky put on a show'], ['sunset', 'goldenhour']));
+  const scenic = F.some((f) => ['mountains', 'beach', 'lake', 'snow', 'sunset'].includes(f.id));
+  if (!scenic && bg.includes('sky')) F.push(fact('sky', 4, ['☀️', '💙', '🌤️'], ['Blue skies and good vibes', 'Not a cloud in the sky', 'What a gorgeous day', 'Perfect weather for it'], ['Blue skies', 'Perfect day for it', 'Sunny days'], ['bluesky', 'sunnyday']));
+  if (!scenic && bg.includes('green')) F.push(fact('green', 4, ['🌿', '🌳', '💚'], ['So green and peaceful', ...(P ? ['Nature looks good on you'] : []), 'Love all the green'], ['Outside is free', 'Fresh air'], ['outdoors', 'nature']));
+  if (!scenic && bg.includes('city')) F.push(fact('city', 4, ['🏙️', '🌆', '✨'], ['City vibes', 'Love the city backdrop', 'Big city energy'], ['City days', 'Out in the city'], ['citylife']));
+  // (Other things in it.)
+  for (const [k, emoji, say, capn, tags] of [
+    ['car', ['🚗', '🏎️', '😎'], ['Clean ride', 'Take me for a spin!', 'Dream car right here'], ['New ride', 'Weekend drives'], ['cars']],
+    ['music', ['🎶', '🎸', '🎤'], ['Wish I was there!', 'Live music hits different', 'What a night'], ['Live music hits different', 'Turn it up'], ['livemusic']],
+    ['game', ['🎮', '🕹️', '😎'], ['This setup is insane', 'One more game?', 'Gaming goals'], ['New setup', 'Late night sessions'], ['gaming']],
+    ['gym', ['💪', '🔥', '🏋️'], ['Putting in the work!', 'Goals right here', 'Beast mode'], ['No days off', 'Stronger every day'], ['fitness']],
+    ['flowers', ['🌸', '🌷', '💐'], ['So pretty!', 'Love the flowers', 'Spring vibes'], ['Stop and smell the flowers'], ['flowers']],
+    ['sight', ['📸', '🗺️', '✨'], ['What a spot!', 'Adding this to my list', 'Where is this?!'], ['Out here exploring', 'Collecting moments'], ['travel']],
+    ['party', ['🎉', '🎈', '🥳'], ['Party time!', 'Looks like so much fun', 'Happy celebrating!'], ['Make a wish', 'Celebrating'], ['celebrate']],
+  ]) if (kinds.includes(k)) { const nm = sw.labels.find((l) => l.kind === k && l.name)?.name; F.push(fact(k, 5, emoji, nm ? [...say, `Love the ${nm}`] : say, capn, tags)); }
+  // (How they stand.)
+  const po = sw.poses;
+  if (po.includes('allarmsup')) F.push(fact('allarmsup', 5, ['🙌', '🎉', '🥳'], ['Everyone\'s arms up, love it', 'The energy in this group!!', 'This is pure joy'], ['Arms up', 'Pure joy'], []));
+  else if (po.includes('armsup')) F.push(fact('armsup', 5, ['🙌', '🥳', '🎉'], ['Arms up, love the energy', 'Living your best life', 'The joy in this!!', 'Celebration mode'], ['Arms up', 'Pure joy'], []));
+  if (po.includes('wave')) F.push(fact('wave', 4, ['👋', '😄'], ['Hi to you too!', 'Love the wave', 'Waving back!'], ['Hi from here'], []));
+  if (po.includes('hips')) F.push(fact('hips', 5, ['💁', '🔥', '💪'], ['Power pose activated', 'Owning it', 'The confidence!!', 'Strike a pose'], ['Owning it', 'Strike a pose'], []));
+  if (po.includes('sitting')) F.push(fact('sitting', 5, ['😌', '✨', '☕'], ['So relaxed', 'Chilling in style', 'The perfect spot', 'Love this candid'], ['Sitting pretty', 'Taking a breather'], []));
+  if (po.includes('full') && !sw.items.length) F.push(fact('full', 4, ['🔥', '✨', '👀'], ['Head to toe perfect', 'The whole look!!', 'Full fit, no notes'], ['Head to toe', 'Full look'], []));
+  if (po.includes('close') || (P === 1 && sw.faces === 1 && !po.length)) F.push(fact('close', 4, ['😍', '✨', '💫', '🥹'], ['This smile!!', 'Glowing', 'That face!!', 'Okay you look amazing'], ['Feeling myself today', 'Good hair day', 'Just me'], []));
+  // (How many.)
+  if (P === 2) F.push(fact('two', 5, ['🥰', '👯', '❤️', '💕'], ['You two are the cutest', 'Love this pic of you two', 'Cutest duo', 'Double the fun'], ['My other half', 'Partners in crime', 'Two of a kind'], ['bestfriends']));
+  else if (P >= 3 && P <= 5) F.push(fact('group', 5, ['👯', '🥳', '🤗', '❤️'], ['The whole crew!!', 'Best group pic', 'Love all these faces', `All ${P} of you!!`], ['My people', 'Good times with the best crew', 'Squad goals'], ['squad', 'friends']));
+  else if (P >= 6) F.push(fact('crowd', 5, ['🎉', '🙌', '🥳', '👏'], ['The whole squad came out', 'What a crowd!', 'Everyone looks so happy', `${P} people and everyone looks great`], ['The whole gang', 'Full house'], ['squad', 'goodtimes']));
+  else if (P === 1 && !F.some((f) => ['close', 'armsup', 'hips', 'sitting', 'full', 'wave'].includes(f.id))) F.push(fact('one', 3, ['😍', '✨', '📸'], ['Love this pic of you', 'Looking great!', 'Such a good photo'], ['Just me', 'Me, myself and I'], []));
+  // (When.)
+  if (sw.night) F.push(fact('night', 3, ['🌙', '✨', '🌃'], ['What a night', 'Night out vibes', 'The night is young'], ['Nights like these', 'After dark'], ['nightout']));
+  if (sw.morning) F.push(fact('morning', 3, ['☀️', '🌅', '☕'], ['Early start!', 'Morning views like this', 'Rise and shine'], ['Rise and shine', 'Early bird'], []));
+  return F.sort((a, b) => b.w - a.w);
+}
+
+/** What a caption gives to talk about: what it names, counts, asks, its hashtags and the people tagged. */
+function captionFacts(caption, { tagged = [], as = '', rand }) {
+  const F = []; const r = readText(caption); const tp = r.topics[0];
+  const kw = tp ? r.keywords.find((w) => tp.words.includes(w) && w.length < 16 && !['birthday', 'bday', 'celebrate', 'celebrating', 'turning', 'finally', 'done', 'first', 'love', 'summer', 'winter', 'spring', 'fall', 'autumn'].includes(w)) : null;
+  const things = [...new Set([kw, ...thingsIn(caption)].filter(Boolean))];
+  const E = tp?.emoji ?? GENERAL.emoji;
+  if (things.length) { const t = things[0]; const t2 = things[1] ?? t; F.push(fact('cap:thing', 6, E, [`Love the ${t}`, `That ${t} though`, `Obsessed with the ${t2}`, `The ${t2} is ${pick(tp?.adj ?? GENERAL.adj, rand)}`])); }
+  const places = placesIn(caption);
+  if (places.length) { const pl = places[0]; F.push(fact('cap:place', 8, ['📍', '✈️', '😍', '🗺️'], [`${pl} looks ${pick(['amazing', 'unreal', 'like a dream', 'incredible'], rand)}`, `Missing ${pl} so much`, `${pl}!! Take me with you next time`, `Enjoy ${pl}!`])); }
+  const n = numbersIn(caption);
+  if (n.age) F.push(fact('cap:age', 9, ['🎂', '🎉', '🥳', '🎈'], [`Happy ${ordinal(n.age)}!!`, `${n.age} looks good on you`, `Happy ${ordinal(n.age)} birthday! Have the best year`]));
+  if (n.years && !n.age) F.push(fact('cap:years', 8, ['🥂', '❤️', '🎉'], [`${n.years} year${n.years === 1 ? '' : 's'}!! Congrats`, `Here's to ${n.years} more`]));
+  if (n.km) F.push(fact('cap:km', 8, ['🏃', '🔥', '💪', '🏅'], [`${n.km}k?! Legend`, `Crushing that ${n.km}k`]));
+  if (asks(caption)) {
+    const opts = String(caption).match(/\b([\p{L}]+)\s+or\s+([\p{L}]+)\b[^?]*\?/iu);
+    F.push(fact('cap:ask', 7, ['🤔', '👀', '🙌', '💯'], opts ? [`${cap(opts[2].toLowerCase())}, no question`, `${cap(opts[1].toLowerCase())} all the way`, `Team ${opts[pick([1, 2], rand)].toLowerCase()}`] : /which one|which\b/i.test(caption) ? ['The first one for sure', 'Second one!!'] : ['Definitely yes!!', 'Honestly? Go for it', '100% do it']));
+  }
+  if (r.tags.length) { const best = r.tags.filter((t) => tp?.words.some((w) => t.includes(w))); const tg = best[0] ?? r.tags[0]; const tg2 = r.tags.find((t) => t !== tg) ?? tg; F.push(fact('cap:tag', 4, E, [`#${tg} indeed`, `The #${tg} energy here`, `Peak #${tg2}`, `Living for the #${tg2} content`])); }
+  const handles = [...new Set(tagged.filter(Boolean).map((h) => String(h).replace(/^@/, '')))]; const me = String(as ?? '').replace(/^@/, '');
+  if (me && handles.includes(me)) F.push(fact('cap:me', 4, ['🥰', '❤️', '🙌'], ['Thanks for the tag!', 'So glad I was there for this', 'Best day with you']));
+  const others = handles.filter((h) => h !== me);
+  if (others.length) F.push(fact('cap:people', 3, ['🥰', '👯', '😍'], [`@${others[0]} you two!!`, `@${others[others.length - 1]} look at this`, `Love seeing you with @${others[0]}`]));
+  if (tp) {
+    const byTopic = {
+      beach: ['Take me with you next time', 'I can almost hear the waves'], sunset: ['That sky is unreal', 'Golden hour hits different'], food: ['Save me a bite!', 'Recipe please', 'Now I\'m hungry'],
+      birthday: ['Happy birthday!!', 'Happiest birthday! Hope it was the best'], pet: ['I need to meet this cutie', 'Give them a hug from me'], travel: ['Where is this??', 'Adding this to my list', 'Living the dream'],
+      fitness: ['Putting in the work!', 'Goals right here'], style: ['Where\'s that from?!', 'Serving looks', 'This fit!!'], friends: ['Love you guys', 'Best crew'], nature: ['So peaceful', 'Nature is the best'],
+      music: ['Wish I was there!', 'What a night'], art: ['You\'re so talented', 'This is next level'], win: ['Congrats!! So proud of you', 'You deserve this!'], game: ['This build is insane', 'How long did this take?!'], car: ['Clean ride', 'Take me for a spin!', 'Dream car right here'],
+    }[tp.id] ?? [];
+    const say = places.length ? byTopic.filter((x) => !/Where is this/.test(x)) : byTopic;
+    if (say.length) F.push(fact(`cap:topic:${tp.id}`, 5, tp.emoji, say));
+  }
+  return F;
+}
+
+/** The general things to say (any post), for its topic. */
+function generalFact(caption, photo, rand) {
+  const r = readText(`${caption ?? ''} ${sceneWords(photo).words.join(' ')}`); const T = r.topics[0] ?? GENERAL;
+  const noun = pick(T.nouns, rand); const adj = pick(T.adj, rand);
+  return fact('general', 1, [...(r.emojis.length ? r.emojis : []), ...T.emoji, ...GENERAL.emoji], [`This ${noun} is ${adj}`, `${cap(adj)}!`, `Obsessed with this ${noun}`, `Wow, ${adj}`, `Okay this is ${adj}`, 'Need more of this', `${cap(adj)} as always`, 'Love love love this']);
+}
+
+/** A batch's memory: what's been said, in what words and with what emojis, so the next is different. */
+const newBatch = () => ({ keys: new Set(), facts: new Map(), emojis: new Set(), starts: new Set() });
+const opening = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}@# ]+/gu, '').split(/\s+/).slice(0, 2).join(' ');
+
+/**
+ * A comment for a post, made for what it shows (its photo, read on the phone: `photo`) and its caption: the
+ * most specific things likeliest (a cap and gown, a brand, a dog's breed, the place, the food, what they wear,
+ * what's behind them, how they pose, how many), then its hashtags, the people tagged (`tagged`; `as`: who's
+ * commenting), general words least. `avoid`: comments already on it; `batch`: kept across a batch so each is
+ * different (words, what it's about, emojis).
+ */
+export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', photo = null, batch = newBatch() } = {}) {
+  const facts = [...photoFacts(photo), ...captionFacts(caption, { tagged, as, rand }), generalFact(caption, photo, rand)];
+  const said = new Set(avoid.map((a) => String(a).trim().toLowerCase())); const saidStarts = new Set(avoid.map(opening));
+  const cands = [];
+  // (While there are things not yet talked about (specific ones), those only.)
+  const freshLeft = facts.some((f) => f.w >= 3 && !batch.facts.get(f.id) && f.say.some((x, i) => !batch.keys.has(`${f.id}:${i}`)));
+  for (const f of facts) for (const [i, s] of f.say.entries()) {
+    if (freshLeft && batch.facts.get(f.id)) continue;
+    const key = `${f.id}:${i}`; if (batch.keys.has(key) || said.has(s.toLowerCase())) continue;
+    let w = f.w * f.w; // (the more specific, much the likelier)
+    w *= 0.12 ** (batch.facts.get(f.id) ?? 0); // (a thing already talked about: rarely again)
+    if (batch.starts.has(opening(s)) || saidStarts.has(opening(s))) w *= 0.2;
+    w /= f.say.length; // (a fact counts once, however many ways it can be said)
+    cands.push({ f, s, key, w });
+  }
+  // (Emojis: ones not used yet in the batch; mirrored from the caption now and then.)
+  const capEmoji = emojisIn(caption);
+  const emojiFor2 = (f) => {
+    const pool = [...new Set([...f.emoji, ...(rand() < 0.35 ? capEmoji : [])])]; const fresh = pool.filter((x) => !batch.emojis.has(x));
+    const from = fresh.length ? fresh : [...new Set([...pool, ...GENERAL.emoji])].filter((x) => !batch.emojis.has(x));
+    const list = from.length ? from : pool; const k = rand() < 0.3 && list.length > 1 ? 2 : 1; const out = [];
+    for (let i = 0; i < k; i++) { const e = pick(list.filter((x) => !out.includes(x)), rand); if (e) out.push(e); }
+    return out;
+  };
+  for (let tries = 0; tries < 30 && cands.length; tries++) {
+    const total = cands.reduce((a, c) => a + c.w, 0); let x = rand() * total; let c = cands[cands.length - 1];
+    for (const k of cands) { x -= k.w; if (x <= 0) { c = k; break; } }
+    const es = emojisIn(c.s).length ? [] : emojiFor2(c.f);
+    const text = `${c.s}${es.length ? ` ${es.join('')}` : ''}`.replace(/\s+/g, ' ').trim();
+    if (said.has(text.toLowerCase())) { cands.splice(cands.indexOf(c), 1); continue; }
+    batch.keys.add(c.key); batch.facts.set(c.f.id, (batch.facts.get(c.f.id) ?? 0) + 1); batch.starts.add(opening(c.s)); for (const e of es) batch.emojis.add(e);
+    return text;
+  }
+  const g = generalFact(caption, photo, rand); return `${pick(g.say, rand)} ${pick(g.emoji, rand)}`;
+}
+
+/** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn): different words, things and emojis. */
+export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], photo = null } = {}) {
+  const out = []; const seen = [...avoid]; const batch = newBatch();
+  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', photo, batch }); out.push(c); seen.push(c); }
+  return out;
+}
+
+/**
+ * A caption for a photo from what it shows, the most specific thing first (a cap and gown, a brand, the pet,
+ * the place, the food, what they wear, the season, the scenery, the pose, how many): its words, an emoji,
+ * 📍 the place and a few hashtags from what it's about. `avoid`: captions already suggested (the next most
+ * specific then).
+ */
+export function suggestCaption(photo, { rand = Math.random, avoid = [] } = {}) {
+  const facts = photoFacts(photo).filter((f) => f.cap.length);
+  const said = new Set(avoid.map((a) => String(a).trim().toLowerCase()));
+  const sw = sceneWords(photo); const place = sw.place;
+  const build = (f, line) => {
+    const second = facts.find((g) => g !== f && g.id !== 'place' && g.tags.length);
+    const tags = [...new Set([...f.tags.slice(0, 2), ...(second ? second.tags.slice(0, 1) : []), ...(place && f.id !== 'place' ? [nospace(place)] : [])])].slice(0, 3);
+    return `${line} ${f.emoji[0]}${place && f.id !== 'place' ? ` 📍 ${place}` : ''}${tags.length ? ` ${tags.map((t) => `#${t}`).join(' ')}` : ''}`.replace(/\s+/g, ' ').trim();
+  };
+  // (The most specific first; the same how-specific in a random order; each of its captions in turn.)
+  const order = facts.map((f) => ({ f, k: f.w + rand() * 0.5 })).sort((a, b) => b.k - a.k).map((x) => x.f);
+  for (const f of order) for (const line of shuffled2(f.cap, rand)) { const c = build(f, line); if (!said.has(c.toLowerCase())) return c; }
+  const pool = sw.night ? ['Nights like these', 'After dark'] : ['Good vibes only', 'A little moment', 'Just because', 'Today was a good day'];
+  for (const line of shuffled2(pool, rand)) { const c = `${line} ${pick(['✨', '📸', '💫'], rand)}${place ? ` 📍 ${place}` : ''}`; if (!said.has(c.toLowerCase())) return c; }
+  return pick(pool, rand);
+}
+const shuffled2 = (a, rand) => { const o = [...a]; for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; };
 
 /**
  * A photo's light and colour from its pixels (RGBA, w×h): 'night' (dark), 'sunset' (a warm orange-pink sky
@@ -253,48 +401,6 @@ export function toneFromPixels(data, w, h) {
   if (blue / n > 0.35) return 'blue';
   if (green / n > 0.35) return 'green';
   return null;
-}
-
-// Captions to suggest, by what the photo's about.
-const CAPTIONS = {
-  beach: ['Salt in the air, sand in my hair', 'Beach days are the best days', 'Vitamin sea', 'Happy place', 'Sun, sand and nowhere to be'],
-  sunset: ['Chasing sunsets', 'Golden hour, every hour', 'The sky put on a show tonight', 'Sunset therapy'],
-  food: ['Food first', 'Treat yourself', 'Worth every bite', 'Eating good tonight', 'Calories don\'t count today'],
-  pet: ['My favorite coworker', 'Look at this face', 'Living with a celebrity', 'Unconditional love'],
-  travel: ['Take me back', 'Collecting moments, not things', 'Views for days', 'Out here exploring', 'Mountains are calling'],
-  fitness: ['No days off', 'Stronger every day', 'Sweat now, shine later'],
-  style: ['Fit check', 'Dressed up for no reason', 'Outfit of the day', 'Feeling cute today'],
-  friends: ['My people', 'Good times with the best crew', 'Never a dull moment with these', 'Making memories'],
-  nature: ['Stop and smell the flowers', 'Nature is the best therapy', 'Fresh air, clear mind'],
-  music: ['Live music hits different', 'Still not over last night', 'Turn it up'],
-  art: ['Made this', 'Creating again', 'A little something I made'],
-  win: ['We did it', 'Hard work pays off', 'Big day'],
-  game: ['New setup, who dis', 'One more game', 'Late night sessions'],
-  car: ['New ride, who dis', 'Weekend drives', 'Clean and ready to roll'],
-  birthday: ['Another trip around the sun', 'Birthday mood', 'Make a wish'],
-};
-const TAGS = { beach: ['beach', 'summer', 'vitaminsea'], sunset: ['sunset', 'goldenhour', 'skyporn'], food: ['foodie', 'yum', 'eatgood'], pet: ['petsofinstagram', 'cutie', 'bestfriend'], travel: ['travel', 'wanderlust', 'explore'], fitness: ['fitness', 'gymlife', 'nodaysoff'], style: ['ootd', 'style', 'fitcheck'], friends: ['friends', 'squad', 'memories'], nature: ['nature', 'outdoors', 'naturelovers'], music: ['livemusic', 'concert', 'music'], art: ['art', 'creative', 'handmade'], win: ['proud', 'milestone', 'grad'], game: ['gaming', 'setup', 'gamer'], car: ['carsofinstagram', 'ride', 'cars'], birthday: ['birthday', 'bday', 'celebrate'] };
-
-/**
- * A caption for a photo from what it shows (and when and where): words for its topic (or who's in it, or the
- * night), its place, an emoji or two and a few hashtags. `avoid`: captions already suggested.
- */
-export function suggestCaption(photo, { rand = Math.random, avoid = [] } = {}) {
-  const sw = sceneWords(photo); const id = sw.topics[0]; const tp = TOPICS.find((t) => t.id === id);
-  const pool = id && CAPTIONS[id] ? CAPTIONS[id]
-    : sw.faces === 1 ? ['Feeling myself today', 'Main character energy', 'Just me', 'Good hair day']
-      : sw.faces >= 2 ? CAPTIONS.friends : sw.night ? ['Nights like these', 'After dark', 'City lights'] : ['Good vibes only', 'A little moment', 'Just because', 'Today was a good day'];
-  const emoji = (tp?.emoji ?? (sw.faces === 1 ? ['✨', '😎', '💫'] : sw.faces >= 2 ? ['🥰', '👯', '❤️'] : sw.night ? ['🌙', '✨'] : GENERAL.emoji));
-  const said = new Set(avoid.map((a) => String(a).trim().toLowerCase()));
-  for (let k = 0; k < 12; k++) {
-    let line = pick(pool, rand);
-    const thing = sw.things[0];
-    if (thing && /dog|retriever|terrier|spaniel|poodle|shepherd|kitty/.test(thing) && rand() < 0.3) line = `${line} (my ${thing === 'kitty' ? 'kitty' : 'pup'})`;
-    const tags = [...new Set([...(TAGS[id] ?? (sw.faces >= 2 ? TAGS.friends : ['photooftheday', 'vibes'])).filter(() => rand() < 0.7), ...(sw.place ? [sw.place.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')] : [])])].slice(0, 3);
-    const out = `${line} ${pick(emoji, rand)}${sw.place ? ` 📍 ${sw.place}` : ''}${tags.length ? ` ${tags.map((t) => `#${t}`).join(' ')}` : ''}`.replace(/\s+/g, ' ').trim();
-    if (!said.has(out.toLowerCase())) return out;
-  }
-  return pick(pool, rand);
 }
 
 // What kind of message: checked in order, the first that fits answers.

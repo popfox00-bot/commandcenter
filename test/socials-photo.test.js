@@ -54,7 +54,7 @@ test('comments and captions made from the photo', () => {
   assert.match(all({ labels: [['seashore', 0.7]], place: 'Maui' }), /Maui/);
   assert.match(all({ labels: [['sports car', 0.7]] }, 'Saturday'), /ride|car|spin/i);
   const caps = new Set(); for (let i = 0; i < 30; i++) caps.add(suggestCaption({ labels: [['pizza', 0.9]], place: 'Denver' }));
-  for (const c of caps) { assert.match(c, /📍 Denver/); assert.match(c, /#/); }
+  for (const c of caps) { assert.match(c, /Denver/); assert.match(c, /#/); }
   assert.ok(caps.size > 3, 'varied');
   assert.match(suggestCaption({ faces: 1 }), /\S/); assert.match(suggestCaption({}), /\S/);
   const a = suggestCaption({ labels: [['alp', 0.8]] }); assert.notEqual(suggestCaption({ labels: [['alp', 0.8]] }, { avoid: [a] }), a);
@@ -83,4 +83,66 @@ test('videos: several frames read as one; a phone video\'s own record of when an
   assert.equal(x.taken, '2026-11-25T18:34:55'); assert.equal(x.hour, 18); assert.equal(x.lat, 39.7392); assert.equal(x.lon, -104.9903);
   assert.equal(readVideoMeta(enc('udta ©xyz +48.8577+002.2950/')).lat, 48.8577);
   assert.deepEqual(readVideoMeta(enc('nothing here')), {});
+});
+
+test('the scene from pixels: colours named, the background apart from people, the outfit, poses, brands', async () => {
+  const { colorName, backgroundOf, outfitOf, posesOf, brandIn } = await import('../web/apps/socials/socials-scene.js');
+  assert.equal(colorName(10, 10, 12), 'black'); assert.equal(colorName(245, 245, 245), 'white'); assert.equal(colorName(200, 30, 30), 'red'); assert.equal(colorName(20, 40, 110), 'navy');
+  assert.equal(colorName(40, 90, 200), 'blue'); assert.equal(colorName(230, 210, 175), 'beige'); assert.equal(colorName(128, 128, 128), 'gray'); assert.equal(colorName(30, 140, 50), 'green');
+  const img = (w, h, fn) => { const d = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) { const [r, g, b] = fn(i % w / w, Math.floor(i / w) / h); d.set([r, g, b, 255], i * 4); } return d; };
+  const W = 40; const H = 40;
+  // A blue sky over grass: sky and green, not a beach.
+  assert.deepEqual(backgroundOf(img(W, H, (x, y) => (y < 0.5 ? [90, 150, 230] : [60, 150, 60])), W, H).sort(), ['green', 'sky']);
+  // Sky over sand and water.
+  const beach = backgroundOf(img(W, H, (x, y) => (y < 0.4 ? [100, 160, 235] : y < 0.7 ? [40, 110, 170] : [225, 200, 160])), W, H);
+  assert.ok(beach.includes('sky') && beach.includes('water') && beach.includes('sand'), beach.join());
+  assert.ok(backgroundOf(img(W, H, (x, y) => (y < 0.5 ? [250, 140, 70] : [40, 30, 30])), W, H).includes('sunset'));
+  assert.ok(backgroundOf(img(W, H, () => [8, 8, 15]), W, H).includes('night'));
+  // A person (the middle) in red, over a blue sky: only the sky is the background.
+  const person = new Uint8Array(W * H); const clothes = new Uint8Array(W * H); const skin = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) { const x = i % W; const y = Math.floor(i / W); if (x > 12 && x < 28 && y > 8) { person[i] = 255; if (y > 16) clothes[i] = 255; else skin[i] = 255; } }
+  const px = img(W, H, (x, y) => (x > 0.3 && x < 0.7 && y > 0.4 ? [200, 30, 40] : [90, 150, 230]));
+  assert.deepEqual(backgroundOf(px, W, H, person), ['sky']);
+  const o = outfitOf(px, W, H, clothes, skin); assert.equal(o.color, 'red'); assert.ok(o.skin > 0.1 && o.skin < 0.5); assert.ok(o.area > 0.1);
+  assert.equal(outfitOf(px, W, H, new Uint8Array(W * H), skin), null);
+  // Poses: arms up; hands on hips; sitting; head to toe; a group with arms up.
+  const P = (o = {}) => ({ shoulders: [[40, 40, 1], [60, 40, 1]], elbows: [[35, 55, 1], [65, 55, 1]], wrists: [[35, 70, 1], [65, 70, 1]], hips: [[43, 75, 1], [57, 75, 1]], knees: [[43, 100, 1], [57, 100, 1]], ankles: [[43, 125, 1], [57, 125, 1]], nose: [50, 30, 1], ...o });
+  assert.ok(posesOf([P({ wrists: [[35, 15, 1], [65, 15, 1]] })], 100, 130).includes('armsup'));
+  assert.ok(posesOf([P({ wrists: [[35, 15, 1], [65, 70, 1]] })], 100, 130).includes('wave'));
+  assert.ok(posesOf([P({ wrists: [[44, 73, 1], [56, 73, 1]], elbows: [[25, 58, 1], [75, 58, 1]] })], 100, 130).includes('hips'));
+  assert.ok(posesOf([P({ knees: [[43, 80, 1], [57, 80, 1]] })], 100, 130).includes('sitting'));
+  assert.ok(posesOf([P()], 100, 130).includes('full'));
+  assert.ok(posesOf([0, 1, 2].map(() => P({ wrists: [[35, 15, 1], [65, 15, 1]] })), 100, 130).includes('allarmsup'));
+  assert.deepEqual(posesOf([], 100, 130), []);
+  assert.equal(brandIn('JUST DO IT  nike'), 'Nike'); assert.equal(brandIn('the NORTH FACE'), 'The North Face'); assert.equal(brandIn('DENVER BRONCOS'), 'Broncos'); assert.equal(brandIn('nikeland pumas'), null);
+});
+
+test('photo facts checked against each other: a blue sky isn\'t a beach; clothes, seasons, graduation, brands, poses and counts', () => {
+  const sky = { labels: [['seashore', 0.35]], people: 1, faces: 1, bg: ['sky', 'green'] };
+  const all = (photo, n = 40) => { const out = []; for (let i = 0; i < n; i++) out.push(...generateComments('', 3, { photo })); return out.join('\n'); };
+  assert.doesNotMatch(all(sky), /beach|waves|water/i, 'no sand or water: no beach'); assert.match(all(sky), /sky|day|weather|green|nature/i);
+  assert.match(all({ labels: [['seashore', 0.5]], bg: ['sky', 'sand', 'water'] }), /beach|waves|water/i);
+  assert.doesNotMatch(all({ faces: 1, people: 1, poses: ['close'] }), /fit|ootd|outfit/i, 'nothing worn named: no fit talk');
+  assert.match(suggestCaption({ labels: [['academic gown', 0.6]], people: 1, taken: '2026-05-20T10:00:00' }), /grad|gown|Class of 2026|did it/i);
+  assert.match(suggestCaption({ labels: [['academic gown', 0.6]], people: 1, taken: '2026-05-20T10:00:00' }), /#classof2026|#graduation/);
+  assert.match(all({ labels: [['parka', 0.4]], people: 1, bg: ['snow'], outfit: { color: 'black', skin: 0.03 } }), /layers|bundled|winter|warm|snow|coat/i);
+  assert.match(all({ people: 1, outfit: { color: 'blue', skin: 0.5 }, bg: ['sand', 'water'] }), /summer|sunshine|warm/i);
+  assert.match(all({ people: 1, brand: 'Nike' }), /Nike/); assert.match(suggestCaption({ people: 1, brand: 'Nike' }), /Nike.*#nike/);
+  assert.match(all({ people: 4, poses: ['allarmsup'] }), /crew|group|faces|arms|energy|joy/i);
+  assert.match(all({ people: 1, outfit: { color: 'red' }, labels: [['gown', 0.5]] }), /red dress/);
+  // The most specific first: graduation over the sky and the group; the brand over the colour.
+  assert.match(suggestCaption({ labels: [['mortarboard', 0.5]], people: 3, bg: ['sky'] }), /🎓/);
+  assert.match(suggestCaption({ people: 1, brand: 'Adidas', outfit: { color: 'black' } }), /Adidas/);
+});
+
+test('a batch of comments: each about something different, worded differently, with different emojis', () => {
+  const photo = { labels: [['golden retriever', 0.8]], place: 'Boulder', bg: ['green', 'sky'], hour: 8 };
+  for (let k = 0; k < 30; k++) {
+    const b = generateComments('Saturday walk 🥰', 5, { photo });
+    assert.equal(new Set(b).size, 5);
+    const openings = b.map((c) => c.toLowerCase().split(/\s+/).slice(0, 2).join(' ')); assert.ok(new Set(openings).size >= 4, `openings: ${b.join(' | ')}`);
+    const emojis = b.flatMap((c) => c.match(/\p{Extended_Pictographic}/gu) ?? []); assert.ok(new Set(emojis).size >= Math.min(emojis.length, 5) - 1, `emojis: ${b.join(' | ')}`);
+  }
+  const b = generateComments('', 3, { photo: { labels: [['golden retriever', 0.8]], place: 'Boulder', people: 0 } });
+  assert.ok(b.some((c) => /retriever|cutest|face|hug|good one/i.test(c)) && b.some((c) => /Boulder/.test(c)), b.join(' | '));
 });

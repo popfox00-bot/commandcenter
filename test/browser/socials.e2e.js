@@ -839,3 +839,33 @@ test('Socials: picking and posting a video never widens the page (nothing pushed
   for (const [at, w] of widths) assert.ok(w <= 390, `${at}: the page is ${w}px wide`);
   await page.close();
 });
+
+test('Socials: ✓ Accept All in Messages accepts every collab request at once', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('pal'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  for (const cap of ['One together', 'Two together']) {
+    await page.getByRole('button', { name: 'New post' }).first().click();
+    await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+    await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill(cap);
+    await page.getByRole('button', { name: /^🤝 Collab/ }).click();
+    await page.getByRole('group', { name: 'Collab' }).getByRole('button', { name: 'Collab with @pal' }).click();
+    await page.getByRole('button', { name: 'Share', exact: true }).click(); await page.locator('.so-post', { hasText: cap }).first().waitFor();
+  }
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @pal' }).click();
+  await page.getByRole('button', { name: /^Messages/ }).first().click();
+  const bar = page.getByRole('group', { name: 'Collab requests' });
+  assert.match(await bar.textContent(), /2 collab requests.*@owner\.me/);
+  await bar.getByRole('button', { name: 'Accept All' }).click();
+  assert.equal(await page.getByRole('group', { name: 'Collab requests' }).count(), 0, 'none left');
+  await page.getByRole('button', { name: /Chat with @owner\.me/ }).click();
+  assert.equal(await page.getByText('You accepted: it\'s on your profile').count(), 2);
+  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Profile' }).click();
+  assert.equal(await page.locator('.so-grid .so-tile').count(), 2, 'both on pal\'s profile');
+  await page.close();
+});

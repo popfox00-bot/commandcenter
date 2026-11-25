@@ -1798,8 +1798,18 @@ body.se-open { overflow: hidden; }
 /* ---- The Dock: along the bottom of every screen. Home in the middle (a rounded square), two Favorites each side. */
 :root { --dock-h: 0px; }
 body.has-dock { --dock-h: calc(56px + env(safe-area-inset-bottom)); padding-bottom: calc(var(--dock-h) + 8px); }
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; height: var(--dock-h); padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left)); box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: clamp(10px, 5vw, 28px); background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-top: 1px solid var(--border); }
-body.dock-typing .dock { display: none; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 max(50px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(50px, env(safe-area-inset-left)); transition: transform .22s ease, visibility .22s; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: clamp(10px, 5vw, 28px); background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-top: 1px solid var(--border); }
+body.dock-typing .dock, body.dock-typing .dock-toggle { display: none; }
+/* (Tucked away: just the logo at the bottom left; tap it to open the Dock, again to close it.) */
+body.has-dock.dock-tucked { --dock-h: 0px; padding-bottom: calc(env(safe-area-inset-bottom) + 8px); }
+body.dock-tucked .dock { transform: translateY(110%); visibility: hidden; }
+.dock-toggle { position: fixed; z-index: 46; left: max(10px, env(safe-area-inset-left)); bottom: calc(env(safe-area-inset-bottom) + 12px); width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 2px 8px rgb(0 0 0 / .22); cursor: pointer; opacity: .9; transition: bottom .22s ease, transform .12s; }
+.dock-toggle:active { transform: scale(.9); }
+.dock-toggle img { width: 22px; height: 22px; border-radius: 6px; display: block; }
+.dock-toggle[aria-expanded="true"] { opacity: .75; }
+/* (Socials tucked: the logo just above its tab bar, not over it.) */
+body.dock-tucked:has(.so-tabs) .dock-toggle { bottom: calc(56px + env(safe-area-inset-bottom) + 10px); }
+@media (max-width: 360px) { .dock { gap: 6px; } .dock-fav { width: 40px; height: 40px; } .dock-home { margin: 0 4px; } }
 .dock-fav, .dock-home { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; text-decoration: none; color: inherit; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
 .dock-icon.app-icon { width: 36px; height: 36px; border-radius: 10px; font-size: 1.15rem; box-shadow: 0 2px 6px rgb(0 0 0 / .18), inset 0 1px 0 rgb(255 255 255 / .25); }
 .dock-fav:active .dock-icon, .dock-home:active { transform: scale(.92); }
@@ -1820,9 +1830,16 @@ body.dock-typing .dock { display: none; }
 .st-dock-slot .dock-icon { grid-row: span 2; }
 .st-dock-sel { width: 100%; min-width: 0; }
 /* (Room for the Dock in what sits at the bottom of a screen: Socials' tab bar above it, full-height views shorter.) */
-body.has-dock .so-tabs { bottom: var(--dock-h); height: 56px; padding-bottom: 0; }
+body.has-dock:not(.dock-tucked) .so-tabs { bottom: var(--dock-h); height: 56px; padding-bottom: 0; }
 body.has-dock .so-toast { bottom: calc(76px + var(--dock-h)); }
 body.has-dock .so-reels { height: calc(100dvh - 56px - var(--dock-h) - var(--so-reels-top, 150px)); }
 body.has-dock .so-chat-wrap { height: calc(100dvh - var(--dock-h) - var(--so-reels-top, 150px)); }
 body.has-dock .rap-create { height: calc(100dvh - 190px - var(--dock-h)); }
 body.has-dock .scroll-rail { bottom: var(--dock-h); }
+.so-acceptall { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.so-acceptall-text { min-width: 0; }
+.so-acceptall .btn { flex: none; }
+body.has-dock.dock-tucked .so-reels { height: calc(100dvh - 56px - env(safe-area-inset-bottom) - var(--so-reels-top, 150px)); }
+.st-dock-modes { display: grid; gap: 6px; margin-top: 8px; }
+.st-dock-mode { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.st-dock-mode select { width: auto; min-width: 0; }

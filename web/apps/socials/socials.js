@@ -24,7 +24,7 @@ import {
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
-  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
+  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, generateReply, suggestCaption } from './socials-predict.js';
 import { readPhoto, readVideo } from './socials-vision.js';
@@ -1032,6 +1032,7 @@ function mountAdmin(host) {
     const m = me(); const chats = conversationsOf(state, m.id);
     const others = accountsInOrder(state).filter((a) => a.id !== m.id && !chats.some((c) => c.other.id === a.id));
     return el('div', {}, backBar(`Messages · @${m.handle}`, { name: 'feed' }),
+      acceptAllBar(m),
       chats.length ? el('div', { class: 'so-people' }, chats.map((c) => el('div', { class: 'so-person' },
         el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Chat with @${c.other.handle}${c.unread ? `, ${c.unread} unread` : ''}`, onclick: () => go({ name: 'chat', id: c.other.id }) }, avatar(c.other, 'm'),
           el('span', { class: 'so-person-text' }, el('strong', { text: c.other.handle }), el('span', { class: `small${c.unread ? ' so-unread' : ' muted'}`, text: `${c.last.from === m.id ? 'You: ' : ''}${c.last.text ? c.last.text.slice(0, 60) : c.last.collab ? '🤝 Collab request' : 'Shared a post'} · ${timeAgo(c.last.at)}` }))),
@@ -1040,6 +1041,16 @@ function mountAdmin(host) {
       others.length ? el('div', {}, el('h3', { class: 'so-section', text: 'New message' }), el('div', { class: 'so-people' }, others.map((a) => el('div', { class: 'so-person' },
         el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Message @${a.handle}`, onclick: () => go({ name: 'chat', id: a.id }) }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', {}, a.handle, a.owner ? el('span', { class: 'so-owner', text: 'Owner' }) : null), el('span', { class: 'muted small', text: a.name || 'Send a message' }))))))) : null,
       state.accounts.length < 2 ? el('p', { class: 'muted so-pad small', text: 'Make another account to message it (Accounts → Add account); switch to it to answer.' }) : null);
+  }
+
+  /** ✓ Accept All: every collab request the account in use hasn't answered (`from`: that one's only), at once. */
+  function acceptAllBar(m, from = null) {
+    const pending = pendingCollabsFor(state, m.id, from);
+    if (!pending.length || (from && pending.length < 2)) return null;
+    const who = [...new Set(pending.map((p) => accountById(state, p.by)?.handle).filter(Boolean))];
+    return el('div', { class: 'so-acceptall', role: 'group', 'aria-label': 'Collab requests' },
+      el('span', { class: 'so-acceptall-text' }, el('strong', { text: `🤝 ${pending.length} collab request${pending.length === 1 ? '' : 's'}` }), el('span', { class: 'small muted', text: from ? ` from @${who[0]}` : ` from ${who.slice(0, 3).map((h) => `@${h}`).join(', ')}${who.length > 3 ? ` and ${who.length - 3} more` : ''}` })),
+      el('button', { type: 'button', class: 'btn small primary', text: 'Accept All', onclick: () => { const n = acceptAllCollabs(state, m.id, from); if (n) { save(); toast(`Accepted ${n} collab${n === 1 ? '' : 's'}: on your profile now`); draw(); } } }));
   }
 
   /** A collab request in a message: the post, and for the one asked, Accept and Decline. */
@@ -1098,6 +1109,7 @@ function mountAdmin(host) {
       el('div', { class: 'so-back' }, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Back', text: '‹', onclick: () => go({ name: 'inbox' }) }),
         el('button', { type: 'button', class: 'so-chat-who', onclick: () => go({ name: 'profile', id: o.id }) }, avatar(o, 's'), el('strong', { text: o.handle })),
         el('button', { type: 'button', class: 'so-link so-chat-as', text: `Answer as @${o.handle}`, onclick: () => { useAccount(o.id); save(); go({ name: 'chat', id: m.id }); } })),
+      acceptAllBar(m, o.id),
       list,
       el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send })));
   }

@@ -27,6 +27,10 @@ Calculator on the right. Hold one down (or right-click it) to pick another app f
 The hidden area's apps are never offered. It steps out of the way while you type (the keyboard's up), and
 anything full screen sits over it; Socials' own tab bar sits just above it (`web/lib/dock.js`). Apps with a page
 of their own (WorldAtlas, Trade Desk, Inkling, Laundry Timer, Games) keep their own look, without it.
+It can be **tucked away**: then only a small Command logo shows at the bottom left; tap it to open the Dock, and
+again to close it. Each app remembers its own choice (tapping the logo in it, or Settings → Dock → **Show the
+Dock in…**: Shown or Tucked away for the home screen and each app). Socials starts tucked away, its logo just above
+its own tab bar.
 
 - **No zooming in on a phone**: every text box and picker is 16px at least, app-wide (`styles.css`, each imported page's `cc-frame.css`), and each page's viewport has `maximum-scale=1`, so iPhone Safari never zooms in when one is tapped; `test/browser/converter.e2e.js` checks every app and page.
 - **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
@@ -1298,7 +1302,8 @@ Profile, ✈ for messages), where everything is made by you in the app.
   request in their messages, with Accept and Decline. Once accepted, the same post (the identical photo) is on
   their profile too and in their followers' feeds, its header "you and them"; likes and comments are shared.
   A collaborator can take it off their profile (⋯ → Remove me from this collab). A draft's collaborators are
-  asked when it's shared.
+  asked when it's shared. With several requests waiting, **Accept All** at the top of Messages (or in a chat with
+  several from the same account) accepts them all at once.
 - **# Community.** When posting (or editing), # Community opens the hashtags any account has used before, the
   most used first, with how many posts each; a tap adds it to the caption.
 - **✨ Generate (the Owner account).** A small text predictor, all on the phone (works offline). On an opened

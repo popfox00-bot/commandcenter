@@ -306,3 +306,13 @@ test('setMedia: a post\'s photos and videos added, removed and reordered; those 
   assert.equal(now[2].imageId, one.imageId); assert.ok(p.edited > 0);
   assert.throws(() => setMedia(s, p.id, []), /at least one/);
 });
+
+test('collab requests: the ones not answered, and Accept All', async () => {
+  const { emptyState, addAccount, addPost, setCollabs, pendingCollabsFor, acceptAllCollabs, collabsOf } = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const o = addAccount(s, { handle: 'own' }); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b' });
+  const p1 = addPost(s, o.id, { image: new Blob(['1']) }); const p2 = addPost(s, b.id, { image: new Blob(['2']) }); const d = addPost(s, o.id, { image: new Blob(['3']), draft: true });
+  setCollabs(s, p1.id, [a.id]); setCollabs(s, p2.id, [a.id]); setCollabs(s, d.id, [a.id]);
+  assert.equal(pendingCollabsFor(s, a.id).length, 2, 'not the draft'); assert.equal(pendingCollabsFor(s, a.id, b.id).length, 1);
+  assert.equal(acceptAllCollabs(s, a.id, o.id), 1); assert.deepEqual(collabsOf(p1), [a.id]); assert.equal(pendingCollabsFor(s, a.id).length, 1);
+  assert.equal(acceptAllCollabs(s, a.id), 1); assert.equal(pendingCollabsFor(s, a.id).length, 0); assert.equal(acceptAllCollabs(s, a.id), 0);
+});

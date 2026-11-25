@@ -53,21 +53,44 @@ test('the Dock: Home in the middle, four Favorites; open an app, go Home, change
   await page.reload(); assert.deepEqual(await labels(), ['Units', 'Clock', 'Home', 'Socials', 'Draw'], 'kept');
   // Typing: the Dock steps out of the way.
   await page.goto(`${origin}${BASE}index.html#/units`); const box2 = page.locator('#app-host input[type="number"], #app-host input[type="text"], #app-host input[inputmode]').first(); await box2.waitFor();
-  await box2.focus(); assert.equal(await dock.isVisible(), false, 'hidden while typing');
+  await page.waitForTimeout(300); await box2.click();
+  await page.waitForFunction(() => document.body.classList.contains('dock-typing'), null, { timeout: 3000 });
+  assert.equal(await dock.isVisible(), false, 'hidden while typing');
   await box2.blur(); await page.waitForTimeout(100); assert.equal(await dock.isVisible(), true);
   assert.deepEqual(errors, []);
   await page.close();
 });
 
-test('the Dock and Socials: Socials\' tab bar sits just above the Dock, nothing under it', async () => {
+test('the Dock in Socials: tucked away behind the logo at the bottom left (above its tab bar); the logo opens it and closes it, remembered per app; Settings chooses for each app', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.route('https://**', (r) => r.abort());
   await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
-  const tabs = await page.locator('.so-tabs').boundingBox(); const dock = await page.locator('#dock').boundingBox();
-  assert.ok(Math.abs(tabs.y + tabs.height - dock.y) < 1.5, `tabs end where the Dock starts (${tabs.y + tabs.height} vs ${dock.y})`);
-  await page.getByRole('button', { name: 'New post' }).first().click(); await page.getByLabel('Caption').waitFor();
+  const dock = page.locator('#dock'); const logo = page.locator('.dock-toggle');
+  await page.waitForTimeout(300);
+  assert.equal(await dock.isVisible(), false, 'tucked away in Socials');
+  assert.equal(await logo.getAttribute('aria-label'), 'Show the Dock');
+  const tabs = await page.locator('.so-tabs').boundingBox(); const lb = await logo.boundingBox();
+  assert.ok(Math.abs(tabs.y + tabs.height - 844) < 1.5, 'its tab bar at the bottom');
+  assert.ok(lb.x < 20 && lb.y + lb.height <= tabs.y, 'the logo at the left, above the tab bar');
+  await logo.click(); await page.waitForTimeout(300);
+  assert.equal(await dock.isVisible(), true, 'opened'); assert.equal(await logo.getAttribute('aria-expanded'), 'true');
+  const tabs2 = await page.locator('.so-tabs').boundingBox(); const db = await dock.boundingBox();
+  assert.ok(Math.abs(tabs2.y + tabs2.height - db.y) < 1.5, 'the tab bar just above the Dock');
+  await logo.click(); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), false, 'closed again');
+  // Elsewhere it's shown; the logo there tucks it away, for that app only.
+  await page.goto(`${origin}${BASE}index.html#/clock`); await page.waitForTimeout(300);
+  assert.equal(await dock.isVisible(), true, 'shown in the Clock');
+  await logo.click(); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), false);
+  await page.goto(`${origin}${BASE}index.html#/calculator`); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), true, 'still shown in the Calculator');
+  await page.goto(`${origin}${BASE}index.html#/clock`); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), false, 'the Clock remembers');
+  // Settings → Dock: Socials shown.
+  await page.goto(`${origin}${BASE}index.html#/settings/dock`);
+  assert.equal(await page.getByLabel('Dock in Clock').inputValue(), 'tucked');
+  await page.getByLabel('Dock in Socials').selectOption('shown');
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`); await page.waitForTimeout(500);
+  assert.equal(await dock.isVisible(), true, 'shown in Socials now');
   await page.close();
 });

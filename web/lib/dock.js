@@ -2,10 +2,28 @@
 // rounded square that goes back to the home screen; two Favorites on each side, each going straight to an
 // app. Which four is yours: hold one down (or right-click it) to change it, or Settings → Dock. Kept on this
 // phone. Hidden while typing (the keyboard's up), and under anything full screen.
+//
+// It can be tucked away: a small Command logo at the bottom left opens it, and closes it again. Each app keeps
+// its own choice (tap the logo in it, or Settings → Dock → Show the Dock in…); Socials starts tucked away.
 
 import { el, store } from './dom.js';
 
 export const DOCK_KEY = 'cc.dock';
+export const DOCK_MODE_KEY = 'cc.dock.mode';
+/** The apps whose Dock starts tucked away (behind the logo). */
+export const DEFAULT_TUCKED = ['socials'];
+
+/** Whether the Dock is tucked away (just the logo) in an app ('' : the home screen). */
+export function dockTucked(appId, saved = store.json(DOCK_MODE_KEY, {})) {
+  const v = saved && typeof saved === 'object' ? saved[appId || 'home'] : undefined;
+  return v === 'tucked' ? true : v === 'shown' ? false : DEFAULT_TUCKED.includes(appId);
+}
+/** Keep whether the Dock is tucked away in an app. */
+export function setDockTucked(appId, tucked) {
+  const m = { ...(store.json(DOCK_MODE_KEY, {}) ?? {}) }; m[appId || 'home'] = tucked ? 'tucked' : 'shown';
+  store.set(DOCK_MODE_KEY, JSON.stringify(m)); return m;
+}
+
 /** The Favorites to start with: two on the left, two on the right. */
 export const DEFAULT_DOCK = ['notes', 'clock', 'socials', 'calculator'];
 
@@ -40,7 +58,10 @@ export const dockIcon = (a, extra = '') => el('span', { class: `dock-icon app-ic
 export function mountDock(host, apps) {
   const nav = el('nav', { class: 'dock', id: 'dock', 'aria-label': 'Dock' });
   const picker = el('dialog', { class: 'dock-pick', 'aria-labelledby': 'dock-pick-title' });
-  host.append(nav, picker);
+  // (The logo at the bottom left: opens the Dock, closes it again; remembered for the app it's in.)
+  const toggle = el('button', { type: 'button', class: 'dock-toggle', 'aria-controls': 'dock' }, el('img', { src: 'icons/icon.svg', alt: '', width: '22', height: '22' }));
+  toggle.addEventListener('click', () => { setDockTucked(current, !dockTucked(current)); place(); window.dispatchEvent(new Event('cc-dock-mode')); });
+  host.append(nav, toggle, picker);
   document.body.classList.add('has-dock');
   let current = '';
 
@@ -69,8 +90,16 @@ export function mountDock(host, apps) {
     return link;
   }
 
+  /** The Dock open or tucked away, as this app keeps it. */
+  function place() {
+    const tucked = dockTucked(current);
+    document.body.classList.toggle('dock-tucked', tucked);
+    nav.setAttribute('aria-hidden', String(tucked)); nav.inert = tucked;
+    toggle.setAttribute('aria-expanded', String(!tucked)); toggle.setAttribute('aria-label', tucked ? 'Show the Dock' : 'Hide the Dock'); toggle.title = tucked ? 'Show the Dock' : 'Hide the Dock';
+  }
+
   function draw(cur = current) {
-    current = cur;
+    current = cur; place();
     const fav = dockFavorites(apps);
     nav.replaceChildren(
       favLink(fav[0], 0), favLink(fav[1], 1),
@@ -84,5 +113,5 @@ export function mountDock(host, apps) {
   document.addEventListener('focusout', () => setTimeout(() => { if (!typing(document.activeElement)) document.body.classList.remove('dock-typing'); }, 50));
 
   draw('');
-  return { draw, pick };
+  return { draw, pick, place };
 }

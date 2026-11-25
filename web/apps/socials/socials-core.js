@@ -154,6 +154,24 @@ export function editPost(state, id, { caption, image, tags }) {
   return p;
 }
 
+/**
+ * A post's photos and videos changed (added, removed, reordered): `items` [{ kind, image, imageId?, video,
+ * videoId? }] in their new order. Those it had keep their ids (nothing uploaded again); new ones get new ids.
+ * At least one; at most ten.
+ */
+export function setMedia(state, id, items) {
+  const p = postById(state, id); if (!p) return null;
+  const list = (items ?? []).filter((m) => m && (m.image || m.video)).slice(0, 10).map((m) => {
+    const video = m.kind === 'video' || (!m.kind && m.video) ? m.video ?? null : null;
+    return { kind: video ? 'video' : 'photo', image: m.image ?? null, imageId: m.image ? m.imageId ?? newId() : null, video, videoId: video ? m.videoId ?? newId() : null };
+  });
+  if (!list.length) throw new Error('A post needs at least one photo or video.');
+  const [first, ...rest] = list;
+  Object.assign(p, first); p.more = rest;
+  p.upd = p.edited = Date.now();
+  return p;
+}
+
 /** A post's photos and videos, in order: [{ kind, image, imageId, video, videoId }] (its first, then the rest). */
 export const mediaOf = (p) => [{ kind: p.kind, image: p.image, imageId: p.imageId, video: p.video, videoId: p.videoId }, ...(p.more ?? [])];
 

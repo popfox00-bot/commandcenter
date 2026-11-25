@@ -179,20 +179,44 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
 }
 
 /**
- * A video picked to post: checked that it plays here, and a still from it (a JPEG, for its tile and its
- * poster). Resolves to { video: the file as it is (with its sound), still: Blob, seconds } or throws.
+ * A video picked, ready to post: { video (as it is), still (a frame from it, for its tile; a plain one if no
+ * frame can be had), seconds }. Generous with time (a long or big video from iCloud can take a while to
+ * open); throws only when the phone can't play it at all.
  */
-export async function prepareVideo(file) {
+export async function prepareVideo(file, { timeout = 90000 } = {}) {
   const url = URL.createObjectURL(file);
+  let still = null; let seconds = 0;
   try {
-    const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
-    await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error('This video can\'t be played on this device.')); setTimeout(() => bad(new Error('This video took too long to open.')), 20000); });
-    const seconds = Number.isFinite(v.duration) ? v.duration : 0;
-    // (A frame a little way in: the very first is often black.)
-    if (seconds > 0.6) await new Promise((ok) => { v.onseeked = ok; v.currentTime = Math.min(0.5, seconds / 3); setTimeout(ok, 3000); });
-    const f = fitSize(v.videoWidth || 720, v.videoHeight || 1280, 720);
-    const c = document.createElement('canvas'); c.width = f.width; c.height = f.height;
-    c.getContext('2d').drawImage(v, 0, 0, f.width, f.height);
-    return { video: file, still: await canvasToBlob(c, 'image/jpeg', 0.85), seconds };
+    const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto';
+    try {
+      await new Promise((ok, bad) => {
+        let t = 0; const done = () => { clearTimeout(t); ok(); };
+        v.onloadeddata = done; v.oncanplay = done;
+        // (Some phones won't load a frame until it plays: a muted moment of it, then paused.)
+        v.onloadedmetadata = () => { const pr = v.play?.(); pr?.then?.(() => v.pause(), () => {}); };
+        v.onerror = () => { clearTimeout(t); bad(new Error('This video can\'t be played on this device.')); };
+        t = setTimeout(() => bad(Object.assign(new Error('slow'), { slow: true })), timeout);
+        v.src = url; v.load?.();
+      });
+      seconds = Number.isFinite(v.duration) ? v.duration : 0;
+      // (A frame a little way in: the very first is often black.)
+      if (seconds > 0.6) await new Promise((ok) => { const t = setTimeout(ok, 10000); v.onseeked = () => { clearTimeout(t); ok(); }; v.currentTime = Math.min(0.5, seconds / 3); });
+      if (v.videoWidth) {
+        const f = fitSize(v.videoWidth, v.videoHeight, 720);
+        const c = document.createElement('canvas'); c.width = f.width; c.height = f.height;
+        c.getContext('2d').drawImage(v, 0, 0, f.width, f.height);
+        still = await canvasToBlob(c, 'image/jpeg', 0.85);
+      }
+    } catch (e) { if (!e.slow) throw e; }
+    if (!still) still = await plainStill();
+    return { video: file, still, seconds };
   } finally { URL.revokeObjectURL(url); }
+}
+
+/** A plain still (dark, with ▶) for a video no frame could be taken from yet. */
+async function plainStill() {
+  const c = document.createElement('canvas'); c.width = 720; c.height = 1280; const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 1280); gr.addColorStop(0, '#2b2f3a'); gr.addColorStop(1, '#111318'); g.fillStyle = gr; g.fillRect(0, 0, 720, 1280);
+  g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.moveTo(300, 540); g.lineTo(300, 740); g.lineTo(460, 640); g.closePath(); g.fill();
+  return canvasToBlob(c, 'image/jpeg', 0.85);
 }

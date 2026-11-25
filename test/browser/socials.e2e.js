@@ -405,10 +405,10 @@ test('Socials: several photos and a video in one post (a carousel), and Reels sh
     await d.getByRole('button', { name: 'Done' }).click(); await page.waitForFunction((e) => !e.isConnected, h);
   }
   await page.getByLabel('Add more photos or videos').setInputFiles(await clip(page));
-  await page.locator('.so-new-thumb').nth(2).waitFor();
-  assert.equal(await page.locator('.so-new-thumb').count(), 3);
+  await page.locator('.so-mrow[data-status="ready"]').nth(2).waitFor();
+  assert.equal(await page.locator('.so-mrow').count(), 3);
   await page.getByRole('button', { name: 'Remove 2' }).click();
-  assert.equal(await page.locator('.so-new-thumb').count(), 2, 'one taken out');
+  assert.equal(await page.locator('.so-mrow').count(), 2, 'one taken out');
   await page.getByLabel('Caption').fill('A day out'); await page.getByRole('button', { name: 'Share', exact: true }).click();
   const post = page.locator('.so-post', { hasText: 'A day out' }); await post.waitFor();
   assert.equal(await post.locator('.so-slide').count(), 2, 'a carousel of two');
@@ -419,7 +419,7 @@ test('Socials: several photos and a video in one post (a carousel), and Reels sh
   // Reels: six videos; the order shuffled, and shuffled again on a pull down at the top.
   for (let i = 0; i < 5; i++) {
     await page.getByRole('button', { name: 'New post' }).first().click();
-    await page.getByLabel('Photo or video').setInputFiles(await clip(page)); await page.locator('.so-new-thumb, .so-new-prev video').first().waitFor();
+    await page.getByLabel('Photo or video').setInputFiles(await clip(page)); await page.locator('.so-new-prev video').first().waitFor();
     await page.getByLabel('Caption').fill(`Reel ${i}`); await page.getByRole('button', { name: 'Share', exact: true }).click();
     await page.locator('.so-reel').first().waitFor();
   }
@@ -604,7 +604,7 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   const post = page.locator('.so-post', { hasText: 'Pizza night' }).first(); await post.waitFor();
   await post.getByRole('button', { name: 'Comments', exact: true }).click();
   await page.getByLabel('Comment as').selectOption({ label: '@mo' });
-  await page.getByRole('button', { name: '✨ Generate comment' }).click();
+  await page.getByRole('button', { name: 'Generate 1 comment' }).click();
   await page.locator('.so-comment', { hasText: 'mo' }).first().waitFor();
   // DMs: the Owner writes to amy; ✨ amy's reply.
   await page.getByRole('button', { name: 'Messages' }).first().click();
@@ -629,7 +629,7 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   await page.getByRole('button', { name: 'Use @mo' }).click();
   await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
   await page.locator('.so-post').first().waitFor();
-  assert.equal(await page.getByRole('button', { name: '✨ Generate comment' }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: /^Generate \d comment/ }).count(), 0);
   await page.close();
 });
 
@@ -731,7 +731,7 @@ test('Socials: two videos in one post: Reels plays them one after the other (a b
   const a = await clip(page); const b = { ...(await clip(page)), name: 'clip2.webm' };
   await page.getByRole('button', { name: 'New post' }).first().click();
   await page.getByLabel('Photo or video').setInputFiles([a, b]);
-  await page.locator('.so-new-strip').locator('img, video, .so-strip-item, button').nth(1).waitFor({ timeout: 20000 });
+  await page.locator('.so-mrow[data-status="ready"]').nth(1).waitFor({ timeout: 20000 });
   await page.getByLabel('Caption').fill('Two clips');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
   // (The progress bar: posted.)
@@ -749,5 +749,60 @@ test('Socials: two videos in one post: Reels plays them one after the other (a b
   assert.equal(await page.locator('.so-carousel video').count(), 2);
   await page.locator('.so-carousel').evaluate((t) => t.scrollTo({ left: t.clientWidth }));
   await page.waitForFunction(() => document.querySelector('.so-count')?.textContent === '2/2');
+  await page.close();
+});
+
+test('Socials: each file shown loading then ready; reordered by dragging (or ↑ ↓); Edit post adds, removes and reorders; the Owner tagged in new posts; 3 comments generated at once', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  for (const h of ['amy', 'bo', 'cy']) {
+    await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
+    await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click();
+  }
+  // As cy (not the Owner): a video and a photo; each listed with its status, then ready.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles([await clip(page), { ...(await photo(page)), name: 'pic.png' }]);
+  await page.locator('.so-mrow').nth(1).waitFor();
+  assert.match(await page.locator('.so-mrow').nth(1).textContent(), /pic\.png/);
+  await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').nth(1).waitFor({ timeout: 20000 });
+  assert.match(await page.locator('.so-mrow').first().textContent(), /Video.*Ready ✓/);
+  // The photo moved first: by its handle, dragged up.
+  const handle = page.locator('.so-mrow').nth(1).locator('.drag-handle'); const hb = await handle.boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2); await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y - 60, { steps: 6 }); await page.mouse.up();
+  assert.match(await page.locator('.so-mrow').first().textContent(), /1\. Photo/);
+  assert.match(await page.getByRole('button', { name: /^👤 Tag/ }).textContent(), /1/, 'the Owner tagged already');
+  await page.getByLabel('Caption').fill('Trip to Denver #mountains');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const post = page.locator('.so-post', { hasText: 'Trip to Denver' }).first(); await post.waitFor();
+  assert.match(await post.textContent(), /owner\.me/, 'the Owner tagged');
+  assert.equal(await post.locator('.so-slide').first().locator('img').count(), 1, 'the photo first');
+  // Edit post: a photo added, the video removed, the new photo moved up (↑ on its handle).
+  await post.getByRole('button', { name: /More|Post options|⋯/ }).first().click();
+  await page.getByRole('button', { name: /Edit/ }).first().click();
+  await page.locator('.so-mrow').nth(1).waitFor();
+  await page.getByLabel('Add more photos or videos').setInputFiles({ ...(await photo(page)), name: 'new.png' });
+  await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').nth(2).waitFor();
+  await page.getByRole('button', { name: 'Remove 2' }).click();
+  await page.locator('.so-mrow').nth(1).locator('.drag-handle').focus(); await page.keyboard.press('ArrowUp');
+  assert.match(await page.locator('.so-mrow').first().textContent(), /new\.png/);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const edited = page.locator('.so-post', { hasText: 'Trip to Denver' }).first(); await edited.waitFor();
+  assert.equal(await edited.locator('.so-slide').count(), 2, 'two photos now');
+  assert.equal(await edited.locator('video').count(), 0, 'the video gone');
+  // As the Owner: 3 comments at once, each from a different account.
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
+  await page.getByRole('button', { name: 'Generate 3 comments' }).click();
+  await page.locator('.so-comment').nth(2).waitFor();
+  const comments = await page.locator('.so-comment').allTextContents();
+  assert.equal(new Set(comments).size, comments.length, 'all different');
+  assert.deepEqual(errors, []);
   await page.close();
 });

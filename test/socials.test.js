@@ -291,3 +291,18 @@ test('saved posts (each account\'s own) and views (counted per device, added up,
   let fr = 0; for (let i = 0; i < 400; i++) { const r = c.rankPosts([old, fresh], { now: 2000, rand }); if (r[0].id === fresh.id) fr++; }
   assert.ok(fr > 300, `newer likelier first: ${fr}/400`);
 });
+
+test('setMedia: a post\'s photos and videos added, removed and reordered; those it had keep their ids', async () => {
+  const { emptyState, addAccount, addPost, setMedia, mediaOf } = await import('../web/apps/socials/socials-core.js');
+  const s = emptyState(); const a = addAccount(s, { handle: 'amy' });
+  const b = (t) => new Blob([t], { type: 'image/jpeg' });
+  const p = addPost(s, a.id, { image: b('1'), more: [{ image: b('2') }, { image: b('s'), video: new Blob(['v'], { type: 'video/mp4' }) }] });
+  const [one, two, three] = mediaOf(p);
+  setMedia(s, p.id, [three, { kind: 'photo', image: b('new') }, one]);
+  const now = mediaOf(p);
+  assert.equal(p.kind, 'video'); assert.equal(now.length, 3);
+  assert.equal(now[0].videoId, three.videoId); assert.equal(now[0].imageId, three.imageId);
+  assert.ok(now[1].imageId && ![one.imageId, two.imageId, three.imageId].includes(now[1].imageId), 'a new id for the new one');
+  assert.equal(now[2].imageId, one.imageId); assert.ok(p.edited > 0);
+  assert.throws(() => setMedia(s, p.id, []), /at least one/);
+});

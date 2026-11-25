@@ -58,3 +58,22 @@ test('accounts: a friend or a celebrity (kept, changed, read back)', async () =>
   assert.deepEqual(back.accounts.map((a) => a.kind), ['friend', 'friend', 'celebrity']);
   assert.equal(normalize({ accounts: [{ id: 'x', handle: 'old' }] }).accounts[0].kind, 'friend', 'older accounts: friends');
 });
+
+test('comments made for the caption: its places, things, numbers, question, hashtags and people', async () => {
+  const { generateComments, placesIn, thingsIn, numbersIn, asks } = await import('../web/apps/socials/socials-predict.js');
+  assert.deepEqual([...placesIn('Sunset in Denver, then New York!')].sort(), ['Denver', 'New York']);
+  assert.ok(placesIn('Weekend in Tokyo').includes('Tokyo')); assert.deepEqual(placesIn('Pizza at home'), []);
+  assert.deepEqual(thingsIn('Finally got my new bike and the best helmet'), ['bike', 'helmet']);
+  assert.deepEqual(numbersIn('Turning 21 today'), { age: 21 }); assert.equal(numbersIn('our 10th anniversary').years, 10); assert.equal(numbersIn('Ran a 5k this morning').km, '5');
+  assert.ok(asks('Pizza or tacos tonight?')); assert.ok(!asks('Pizza night'));
+  const all = (cap, o = {}) => { const out = []; for (let i = 0; i < 60; i++) out.push(...generateComments(cap, 5, o)); return out.join('\n'); };
+  assert.match(all('Sunset in Denver #goldenhour'), /Denver/); assert.match(all('Sunset in Denver #goldenhour'), /#goldenhour/);
+  assert.match(all('Turning 21 today 🎉'), /21st/);
+  assert.match(all('Pizza or tacos tonight?'), /Tacos|Pizza|tacos|pizza/);
+  assert.match(all('Finally got my new bike'), /bike/);
+  assert.match(all('Beach day', { tagged: ['sam'] }), /@sam/);
+  assert.match(all('Beach day', { tagged: ['sam'], as: ['sam', 'sam', 'sam', 'sam', 'sam'] }), /tag|there|with you/);
+  assert.doesNotMatch(all('Beach day', { tagged: ['sam'], as: ['sam', 'sam', 'sam', 'sam', 'sam'] }), /@sam/, 'not to itself');
+  // A batch: all different.
+  for (let i = 0; i < 20; i++) { const b = generateComments('Golden hour at the beach 🌅 #summer', 5); assert.equal(new Set(b).size, 5); }
+});

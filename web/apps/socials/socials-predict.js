@@ -4,6 +4,8 @@
 // of message it is (a question, thanks, a plan, a joke, sad news, a compliment, hello) and the emojis in it,
 // and puts together something fitting from many phrasings, with the emojis matched. `rand` for tests.
 
+import { PLACES } from '../../lib/places.js';
+
 const pick = (arr, rand) => arr[Math.floor(rand() * arr.length) % arr.length];
 
 /** The emojis in a text, each once, in order. */
@@ -49,20 +51,84 @@ function emojiFor(r, rand, max = 2) {
   return [...new Set(out)].join('');
 }
 
+/** Places named in a text (as people write them: "Denver", "New York", "Tokyo"), each once. */
+const PLACE_NAMES = [...new Set(PLACES.flatMap(([n]) => n.replace(/\)/g, '').split(/\s*[(,]\s*/)).filter((n) => n.length > 2 && !/^(UTC|US|Georgia)$/.test(n)))];
+export function placesIn(text) {
+  const t = String(text ?? '');
+  return PLACE_NAMES.filter((n) => new RegExp(`(^|[^\\p{L}])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}])`, 'iu').test(t));
+}
+
+// (Words after "my", "the", "this"…: likely what the post shows ("my new car" → car); not these.)
+const NOT_NOUN = new Set('half full rest end top bottom start best last other same whole little big good great only first next most very real favorite favourite fave final perfect beautiful amazing lovely sweet cute crazy little long short entire usual'.split(' '));
+/** The things a caption says it shows: "Finally got my new bike" → ['bike']. */
+export function thingsIn(text) {
+  const low = String(text ?? '').toLowerCase().replace(/#[\p{L}\p{N}_]+/gu, ' ');
+  const out = [];
+  for (const m of low.matchAll(/\b(?:my|our|the|this|that|these|a|an|new|his|her|their)\s+(?:(?:new|little|first|favorite|favourite|own|big|lil|best|perfect|cutest|cute|cozy|fancy)\s+)?([a-z]{3,14})\b/g)) {
+    const w = m[1]; if (!STOP.has(w) && !NOT_NOUN.has(w) && !/(ly|ing|ed)$/.test(w) && !out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+const ordinal = (n) => { const s = ['th', 'st', 'nd', 'rd']; const v = n % 100; return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`; };
+
+/** What a caption counts: a birthday's age, years of something, a race's distance ({ age, years, km }). */
+export function numbersIn(text) {
+  const low = String(text ?? '').toLowerCase(); const out = {};
+  const age = low.match(/\b(?:turn(?:ing|ed|s)?|turned)\s+(\d{1,3})\b/) ?? low.match(/\b(\d{1,3})(?:st|nd|rd|th)\s+(?:birthday|bday)\b/) ?? low.match(/\b(?:birthday|bday)\s*#?\s*(\d{1,3})\b/);
+  if (age && +age[1] > 0 && +age[1] < 120) out.age = +age[1];
+  const yrs = low.match(/\b(\d{1,2})\s+years?\b/) ?? low.match(/\b(\d{1,2})(?:st|nd|rd|th)\s+anniversary\b/);
+  if (yrs && +yrs[1] > 0) out.years = +yrs[1];
+  const km = low.match(/\b(\d{1,3}(?:\.\d)?)\s*k\b(?!\s*(?:followers|views|likes))/) ?? (/\bhalf marathon\b/.test(low) ? [0, '21.1'] : /\bmarathon\b/.test(low) ? [0, '42.2'] : null);
+  if (km) out.km = km[1];
+  return out;
+}
+
+/** Whether a caption asks something (its viewers are to answer). */
+export const asks = (text) => /\?\s*(\p{Extended_Pictographic}|\s)*$|\b(which one|what do you think|thoughts\?|should i|would you|or\b.*\?)/iu.test(String(text ?? ''));
+
 /**
- * A comment for a post, from its caption: about what it shows, in a few words, with fitting emojis. `avoid`:
- * comments already on it (not said again).
+ * A comment for a post, from its caption: about what it shows, in a few words, with fitting emojis, made for
+ * that caption: its hashtags, the places and things it names, what it counts (an age, years, a distance),
+ * a question it asks, and the accounts tagged in it. `tagged`: their handles; `as`: the handle commenting
+ * (tagged itself: it says so). `avoid`: comments already on it (not said again).
  */
-export function generateComment(caption, { rand = Math.random, avoid = [] } = {}) {
+export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '' } = {}) {
   const r = readText(caption); const tp = r.topics[0]; const T = tp ?? GENERAL;
   const noun = pick(T.nouns, rand); const adj = pick(T.adj, rand); const e = () => emojiFor(r, rand);
-  // (A word from the caption only when it says what's in it (a topic's word): "Love the pizza", never "Love the random".)
-  const kw = tp ? r.keywords.find((w) => tp.words.includes(w)) : null;
   const forms = [
     () => `This ${noun} is ${adj} ${e()}`, () => `${cap(adj)}! ${e()}`, () => `Obsessed with this ${noun} ${e()}`, () => `Wow, ${adj} ${e()}`,
     () => `Okay this is ${adj} ${e()}`, () => `Need more of this ${e()}`, () => `${cap(adj)} as always ${e()}`, () => `Love love love this ${e()}`,
   ];
-  if (kw && kw.length < 16 && !['birthday', 'bday', 'celebrate', 'celebrating', 'turning', 'finally', 'done', 'first', 'love'].includes(kw)) forms.push(() => `Love the ${kw} ${e()}`, () => `That ${kw} though ${e()}`);
+  // (Made for this caption: likelier than anything general.)
+  const own = [];
+  // (A word from the caption only when it says what's in it (a topic's word): "Love the pizza", never "Love the random".)
+  const kw = tp ? r.keywords.find((w) => tp.words.includes(w) && w.length < 16 && !['birthday', 'bday', 'celebrate', 'celebrating', 'turning', 'finally', 'done', 'first', 'love', 'summer', 'winter', 'spring', 'fall', 'autumn'].includes(w)) : null;
+  if (kw) own.push(() => `Love the ${kw} ${e()}`, () => `That ${kw} though ${e()}`);
+  const things = thingsIn(caption).filter((w) => w !== kw);
+  if (things.length) { const th = () => pick(things, rand); own.push(() => `Love the ${th()} ${e()}`, () => `Obsessed with the ${th()} ${e()}`, () => `That ${th()} is ${adj} ${e()}`); }
+  const places = placesIn(caption);
+  if (places.length) { const pl = () => pick(places, rand); own.push(() => `${pl()} looks ${pick(['amazing', 'unreal', 'so good on you', 'like a dream', 'incredible'], rand)} ${e()}`, () => `Missing ${pl()} so much ${e()}`, () => `${pl()}!! Take me with you next time ${e()}`, () => `Enjoy ${pl()}! ${e()}`); }
+  const n = numbersIn(caption);
+  if (n.age) own.push(() => `Happy ${ordinal(n.age)}!! ${e()}`, () => `${n.age} looks good on you ${e()}`, () => `Happy ${ordinal(n.age)} birthday! Have the best year ${e()}`);
+  if (n.years && !n.age) own.push(() => `${n.years} year${n.years === 1 ? '' : 's'}!! Congrats ${e()}`, () => `Here's to ${n.years} more ${e()}`);
+  if (n.km) own.push(() => `${n.km}k?! Legend ${e()}`, () => `Crushing that ${n.km}k ${e()}`);
+  if (asks(caption)) {
+    const opts = String(caption).match(/\b([\p{L}]+)\s+or\s+([\p{L}]+)\b[^?]*\?/iu);
+    own.push(...(opts ? [() => `${cap(opts[2].toLowerCase())}, no question ${e()}`, () => `${cap(opts[1].toLowerCase())} all the way ${e()}`, () => `Team ${opts[pick([1, 2], rand)].toLowerCase()} ${e()}`] : /which one|which\b/i.test(caption) ? [() => `The first one for sure ${e()}`, () => `Second one!! ${e()}`] : [() => `Definitely yes!! ${e()}`, () => `Honestly? Go for it ${e()}`, () => `100% do it ${e()}`]));
+  }
+  if (r.tags.length) {
+    // (Its hashtags: the ones that say what it's about first.)
+    const best = r.tags.filter((t) => tp?.words.some((w) => t.includes(w))); const tg = () => pick(best.length ? best : r.tags, rand);
+    own.push(() => `#${tg()} indeed ${e()}`, () => `The #${tg()} energy here ${e()}`, () => `Peak #${tg()} ${e()}`, () => `Living for the #${tg()} content ${e()}`);
+  }
+  // (The people tagged: now and then.)
+  const people = [];
+  const handles = [...new Set(tagged.filter(Boolean).map((h) => String(h).replace(/^@/, '')))];
+  const me = String(as ?? '').replace(/^@/, '');
+  if (me && handles.includes(me)) people.push(() => `Thanks for the tag! ${e()}`, () => `So glad I was there for this ${e()}`, () => `Best day with you ${e()}`);
+  const others = handles.filter((h) => h !== me);
+  if (others.length) { const h = () => pick(others, rand); people.push(() => `@${h()} you two!! ${e()}`, () => `@${h()} look at this ${e()}`, () => `Love seeing you with @${h()} ${e()}`); }
   // (By topic: what someone would say to it.)
   const byTopic = {
     beach: [() => `Take me with you next time ${e()}`, () => `I can almost hear the waves ${e()}`],
@@ -80,12 +146,20 @@ export function generateComment(caption, { rand = Math.random, avoid = [] } = {}
     win: [() => `Congrats!! So proud of you ${e()}`, () => `You deserve this! ${e()}`],
     game: [() => `This build is insane ${e()}`, () => `How long did this take?! ${e()}`],
   };
-  // (What fits its topic: likelier than the general ones.)
-  if (tp && byTopic[tp.id]) forms.push(...byTopic[tp.id], ...byTopic[tp.id], ...byTopic[tp.id]);
-  if (r.tags.length && rand() < 0.3) forms.push(() => `#${pick(r.tags, rand)} ${e()}`);
-  const said = new Set(avoid.map((a) => a.trim().toLowerCase()));
-  for (let i = 0; i < 12; i++) { const c = pick(forms, rand)().replace(/\s+/g, ' ').trim(); if (!said.has(c.toLowerCase())) return c; }
-  return pick(forms, rand)().trim();
+  const topical = (tp && byTopic[tp.id]) || [];
+  // (A place named: "Where is this??" makes no sense.)
+  const fit = places.length ? topical.filter((f) => !/Where is this/.test(f())) : topical;
+  forms.push(...fit, ...fit, ...own, ...own, ...own, ...people);
+  const said = new Set(avoid.map((a) => String(a).trim().toLowerCase()));
+  for (let i = 0; i < 20; i++) { const c = pick(forms, rand)().replace(/\s+/g, ' ').trim(); if (!said.has(c.toLowerCase())) return c; }
+  return pick(forms, rand)().replace(/\s+/g, ' ').trim();
+}
+
+/** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn). */
+export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [] } = {}) {
+  const out = []; const seen = [...avoid];
+  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '' }); out.push(c); seen.push(c); }
+  return out;
 }
 
 // What kind of message: checked in order, the first that fits answers.

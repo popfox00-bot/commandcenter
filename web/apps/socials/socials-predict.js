@@ -21,11 +21,12 @@ const TOPICS = [
   { id: 'travel', words: ['travel', 'trip', 'vacation', 'holiday', 'adventure', 'explore', 'exploring', 'city', 'flight', 'airport', 'abroad', 'road', 'roadtrip', 'wanderlust', 'paris', 'london', 'tokyo', 'italy', 'mountains', 'hike', 'hiking', 'trail', 'camping', 'lake', 'forest', 'park'], emoji: ['✈️', '🌍', '🏔️', '🗺️'], nouns: ['trip', 'adventure', 'place', 'view'], adj: ['incredible', 'stunning', 'a dream', 'epic'] },
   { id: 'fitness', words: ['gym', 'workout', 'run', 'running', 'training', 'fitness', 'lift', 'lifting', 'yoga', 'marathon', 'gains', 'sweat', 'cardio', 'pr'], emoji: ['💪', '🔥', '🏃', '🏋️'], nouns: ['progress', 'workout', 'dedication'], adj: ['inspiring', 'strong', 'unstoppable', 'impressive'] },
   { id: 'style', words: ['outfit', 'ootd', 'dress', 'style', 'fashion', 'look', 'shoes', 'fit', 'jacket', 'hair', 'makeup', 'nails', 'glam', 'selfie'], emoji: ['😍', '🔥', '💅', '✨'], nouns: ['look', 'outfit', 'style', 'fit'], adj: ['stunning', 'iconic', 'gorgeous', 'flawless'] },
-  { id: 'friends', words: ['friends', 'friend', 'bestie', 'besties', 'squad', 'crew', 'together', 'family', 'fam', 'sister', 'brother', 'mom', 'dad', 'love'], emoji: ['🥰', '❤️', '🤗', '👯'], nouns: ['crew', 'people', 'squad', 'memories'], adj: ['the best', 'so sweet', 'goals', 'precious'] },
+  { id: 'friends', words: ['friends', 'friend', 'bestie', 'besties', 'squad', 'crew', 'together', 'family', 'fam', 'sister', 'brother', 'mom', 'dad', 'love'], emoji: ['🥰', '❤️', '🤗', '👯'], nouns: ['crew', 'squad', 'group'], adj: ['the best', 'so sweet', 'goals', 'precious'] },
   { id: 'nature', words: ['flowers', 'flower', 'garden', 'bloom', 'spring', 'trees', 'leaves', 'autumn', 'fall', 'snow', 'winter', 'rain', 'nature', 'sun'], emoji: ['🌸', '🌿', '🍂', '❄️'], nouns: ['view', 'colors', 'scenery'], adj: ['beautiful', 'so pretty', 'peaceful', 'lovely'] },
   { id: 'music', words: ['music', 'concert', 'song', 'band', 'festival', 'dj', 'show', 'guitar', 'singing', 'dance', 'dancing'], emoji: ['🎶', '🎤', '🎸', '🕺'], nouns: ['show', 'vibes', 'night'], adj: ['electric', 'so fun', 'legendary', 'amazing'] },
   { id: 'art', words: ['art', 'painting', 'drawing', 'sketch', 'design', 'photo', 'photography', 'shot', 'edit', 'creative', 'build', 'made', 'handmade', 'craft'], emoji: ['🎨', '📸', '👏', '✨'], nouns: ['work', 'shot', 'piece', 'talent'], adj: ['so talented', 'incredible', 'beautiful', 'next level'] },
   { id: 'win', words: ['win', 'won', 'graduated', 'graduation', 'promotion', 'job', 'achievement', 'finally', 'done', 'finished', 'proud', 'congrats', 'milestone', 'first'], emoji: ['🎉', '🙌', '🏆', '👏'], nouns: ['achievement', 'moment', 'milestone'], adj: ['so well deserved', 'huge', 'amazing'] },
+  { id: 'car', words: ['car', 'truck', 'jeep', 'ride', 'drive', 'driving', 'motorcycle', 'wheels', 'convertible'], emoji: ['🚗', '🏎️', '🔥', '😎'], nouns: ['ride', 'car', 'wheels'], adj: ['so clean', 'sick', 'a beauty', 'gorgeous'] },
   { id: 'game', words: ['game', 'gaming', 'minecraft', 'play', 'playing', 'level', 'build', 'world', 'stream'], emoji: ['🎮', '🔥', '🙌', '😎'], nouns: ['build', 'setup', 'game'], adj: ['insane', 'so cool', 'epic', 'sick'] },
 ];
 const GENERAL = { emoji: ['😍', '🔥', '✨', '👏', '❤️', '🙌', '💯', '🥰'], nouns: ['post', 'pic', 'shot', 'moment'], adj: ['amazing', 'gorgeous', 'so good', 'perfect', 'iconic', 'stunning'] };
@@ -93,8 +94,10 @@ export const asks = (text) => /\?\s*(\p{Extended_Pictographic}|\s)*$|\b(which on
  * a question it asks, and the accounts tagged in it. `tagged`: their handles; `as`: the handle commenting
  * (tagged itself: it says so). `avoid`: comments already on it (not said again).
  */
-export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '' } = {}) {
-  const r = readText(caption); const tp = r.topics[0]; const T = tp ?? GENERAL;
+export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', photo = null } = {}) {
+  // (What the photo shows, as words read with the caption's: its topics count, its things and place are named.)
+  const seen = sceneWords(photo);
+  const r = readText(`${caption ?? ''} ${seen.words.join(' ')}`); r.emojis = emojisIn(caption); const tp = r.topics[0]; const T = tp ?? GENERAL;
   const noun = pick(T.nouns, rand); const adj = pick(T.adj, rand); const e = () => emojiFor(r, rand);
   const forms = [
     () => `This ${noun} is ${adj} ${e()}`, () => `${cap(adj)}! ${e()}`, () => `Obsessed with this ${noun} ${e()}`, () => `Wow, ${adj} ${e()}`,
@@ -103,11 +106,12 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
   // (Made for this caption: likelier than anything general.)
   const own = [];
   // (A word from the caption only when it says what's in it (a topic's word): "Love the pizza", never "Love the random".)
-  const kw = tp ? r.keywords.find((w) => tp.words.includes(w) && w.length < 16 && !['birthday', 'bday', 'celebrate', 'celebrating', 'turning', 'finally', 'done', 'first', 'love', 'summer', 'winter', 'spring', 'fall', 'autumn'].includes(w)) : null;
+  const capWords = new Set(readText(caption).keywords);
+  const kw = tp ? r.keywords.filter((w) => capWords.has(w)).find((w) => tp.words.includes(w) && w.length < 16 && !['birthday', 'bday', 'celebrate', 'celebrating', 'turning', 'finally', 'done', 'first', 'love', 'summer', 'winter', 'spring', 'fall', 'autumn'].includes(w)) : null;
   if (kw) own.push(() => `Love the ${kw} ${e()}`, () => `That ${kw} though ${e()}`);
-  const things = thingsIn(caption).filter((w) => w !== kw);
+  const things = [...new Set([...thingsIn(caption), ...seen.things])].filter((w) => w !== kw);
   if (things.length) { const th = () => pick(things, rand); own.push(() => `Love the ${th()} ${e()}`, () => `Obsessed with the ${th()} ${e()}`, () => `That ${th()} is ${adj} ${e()}`); }
-  const places = placesIn(caption);
+  const places = placesIn(caption).length ? placesIn(caption) : seen.place ? [seen.place] : [];
   if (places.length) { const pl = () => pick(places, rand); own.push(() => `${pl()} looks ${pick(['amazing', 'unreal', 'so good on you', 'like a dream', 'incredible'], rand)} ${e()}`, () => `Missing ${pl()} so much ${e()}`, () => `${pl()}!! Take me with you next time ${e()}`, () => `Enjoy ${pl()}! ${e()}`); }
   const n = numbersIn(caption);
   if (n.age) own.push(() => `Happy ${ordinal(n.age)}!! ${e()}`, () => `${n.age} looks good on you ${e()}`, () => `Happy ${ordinal(n.age)} birthday! Have the best year ${e()}`);
@@ -122,6 +126,12 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
     const best = r.tags.filter((t) => tp?.words.some((w) => t.includes(w))); const tg = () => pick(best.length ? best : r.tags, rand);
     own.push(() => `#${tg()} indeed ${e()}`, () => `The #${tg()} energy here ${e()}`, () => `Peak #${tg()} ${e()}`, () => `Living for the #${tg()} content ${e()}`);
   }
+  // (Who's in it, and when: a selfie, the two of them, a group; a night out, an early start.)
+  if (seen.faces === 1 && (!tp || ['style', 'friends'].includes(tp.id))) own.push(() => `This smile!! ${e()}`, () => `Main character energy ${e()}`, () => `Glowing ${e()}`, () => `Okay you look amazing ${e()}`);
+  if (seen.faces === 2) own.push(() => `You two are the cutest ${e()}`, () => `Love this pic of you two ${e()}`, () => `Cutest duo ${e()}`);
+  if (seen.faces >= 3) own.push(() => `The whole crew!! ${e()}`, () => `Best group pic ${e()}`, () => `Love all these faces ${e()}`);
+  if (seen.night) own.push(() => `What a night ${e()}`, () => `Night out vibes ${e()}`);
+  if (seen.morning) own.push(() => `Early start! ${e()}`, () => `Morning views like this ${e()}`);
   // (The people tagged: now and then.)
   const people = [];
   const handles = [...new Set(tagged.filter(Boolean).map((h) => String(h).replace(/^@/, '')))];
@@ -145,6 +155,7 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
     art: [() => `You're so talented ${e()}`, () => `This is next level ${e()}`],
     win: [() => `Congrats!! So proud of you ${e()}`, () => `You deserve this! ${e()}`],
     game: [() => `This build is insane ${e()}`, () => `How long did this take?! ${e()}`],
+    car: [() => `Clean ride ${e()}`, () => `Take me for a spin! ${e()}`, () => `Dream car right here ${e()}`],
   };
   const topical = (tp && byTopic[tp.id]) || [];
   // (A place named: "Where is this??" makes no sense.)
@@ -156,10 +167,134 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
 }
 
 /** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn). */
-export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [] } = {}) {
+export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], photo = null } = {}) {
   const out = []; const seen = [...avoid];
-  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '' }); out.push(c); seen.push(c); }
+  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', photo }); out.push(c); seen.push(c); }
   return out;
+}
+
+// ---- What a photo shows (socials-vision.js reads it): its classifier labels as topics and things, its faces,
+// light and colour, and when and where it was taken.
+
+// [what the label says (ImageNet's names), topic, what to call it ('' : not named)].
+const LABELS = [
+  [/\b(retriever|terrier|spaniel|poodle|shepherd|hound|collie|corgi|pug|beagle|husky|chihuahua|dachshund|bulldog|labrador|schnauzer|setter|pointer|malamute|samoyed|pomeranian|shih-tzu|maltese|papillon|boxer|rottweiler|doberman|dalmatian|great dane|mastiff|newfoundland|pinscher|vizsla|weimaraner|basset|bloodhound|whippet|greyhound|chow|sheepdog|bernese|saint bernard|keeshond|pekinese|lhasa|basenji|spitz|pyrenees|kelpie|borzoi|wolfhound|coonhound|foxhound|brittany|griffon|yorkshire|cardigan|pembroke|bichon|havanese|cocker)\b/, 'pet', 'dog'],
+  [/\b(tabby|tiger cat|persian cat|siamese cat|egyptian cat)\b/, 'pet', 'kitty'],
+  [/\b(pizza)\b/, 'food', 'pizza'], [/\b(cheeseburger)\b/, 'food', 'burger'], [/\b(hotdog|hot dog)\b/, 'food', 'hot dog'], [/\b(ice cream|ice lolly)\b/, 'food', 'ice cream'],
+  [/\b(espresso|coffee mug|cup)\b/, 'food', 'coffee'], [/\b(burrito)\b/, 'food', 'burrito'], [/\b(bagel)\b/, 'food', 'bagel'], [/\b(pretzel)\b/, 'food', 'pretzel'], [/\b(guacamole)\b/, 'food', 'guac'],
+  [/\b(carbonara)\b/, 'food', 'pasta'], [/\b(trifle|chocolate sauce|custard)\b/, 'food', 'dessert'], [/\b(red wine|wine bottle)\b/, 'food', 'wine'], [/\b(beer glass|beer bottle)\b/, 'food', 'beer'],
+  [/\b(strawberry|pineapple|banana|pomegranate|lemon|orange|fig)\b/, 'food', ''], [/\b(plate|meat loaf|french loaf|potpie|hot pot|consomme|mashed potato|bakery|restaurant|dough|waffle iron|frying pan|wok)\b/, 'food', ''],
+  [/\b(seashore|sandbar|coral reef)\b/, 'beach', 'beach'], [/\b(snorkel|scuba diver|swimming trunks|bikini|maillot|catamaran|paddle)\b/, 'beach', ''],
+  [/\b(alp)\b/, 'travel', 'mountains'], [/\b(volcano)\b/, 'travel', 'volcano'], [/\b(valley)\b/, 'travel', 'valley'], [/\b(cliff|promontory)\b/, 'travel', 'cliffs'], [/\b(lakeside)\b/, 'travel', 'lake'],
+  [/\b(castle|palace)\b/, 'travel', 'castle'], [/\b(suspension bridge|steel arch bridge|viaduct)\b/, 'travel', 'bridge'], [/\b(geyser|dock|boathouse|monastery|church|mosque|triumphal arch|airliner|liner|canoe|mountain tent|backpack|obelisk)\b/, 'travel', ''],
+  [/\b(daisy|rapeseed|yellow lady's slipper|pot)\b/, 'nature', 'flowers'], [/\b(mushroom|agaric|acorn|hip|buckeye)\b/, 'nature', ''], [/\b(ski|snowmobile|dogsled|snowplow)\b/, 'nature', 'snow'],
+  [/\b(dumbbell|barbell|balance beam|horizontal bar|parallel bars)\b/, 'fitness', ''],
+  [/\b(sunglass|sunglasses)\b/, 'style', 'sunglasses'], [/\b(cowboy hat|sombrero)\b/, 'style', 'hat'], [/\b(gown|overskirt|hoopskirt)\b/, 'style', 'dress'], [/\b(suit|bow tie|windsor tie)\b/, 'style', 'suit'],
+  [/\b(fur coat|trench coat)\b/, 'style', 'coat'], [/\b(jean)\b/, 'style', 'jeans'], [/\b(jersey|miniskirt|cardigan|kimono|sweatshirt|sandal|cowboy boot|loafer|running shoe|lipstick)\b/, 'style', ''],
+  [/\b(acoustic guitar|electric guitar)\b/, 'music', 'guitar'], [/\b(drum)\b/, 'music', 'drums'], [/\b(grand piano|upright)\b/, 'music', 'piano'], [/\b(violin|cello|banjo|sax|harmonica|microphone|stage)\b/, 'music', ''],
+  [/\b(joystick|monitor|desktop computer|screen)\b/, 'game', 'setup'],
+  [/\b(sports car|racer)\b/, 'car', 'car'], [/\b(convertible)\b/, 'car', 'convertible'], [/\b(jeep)\b/, 'car', 'jeep'], [/\b(pickup)\b/, 'car', 'truck'], [/\b(limousine|minivan|cab|grille|car wheel|beach wagon)\b/, 'car', ''],
+  [/\b(mountain bike|moped|motor scooter)\b/, 'car', 'bike'],
+  [/\b(mortarboard|academic gown)\b/, 'win', 'grad cap'], [/\b(candle|balloon)\b/, 'birthday', ''],
+];
+
+/**
+ * A photo as words for the predictor: { words (its topics', to read with the caption), things (to name),
+ * place, faces, night, morning, topics (ids, best first) }.
+ */
+export function sceneWords(photo) {
+  const out = { words: [], things: [], place: null, faces: 0, night: false, morning: false, topics: [] };
+  if (!photo || typeof photo !== 'object') return out;
+  const add = (id, n = 1) => { const tp = TOPICS.find((t) => t.id === id); if (!tp) return; for (let i = 0; i < n; i++) out.words.push(tp.words[0]); if (!out.topics.includes(id)) out.topics.push(id); };
+  for (const [i, [name, score]] of (photo.labels ?? []).entries()) {
+    if (!(score >= 0.12)) continue;
+    const hit = LABELS.find(([re]) => re.test(name)); if (!hit) continue;
+    add(hit[1], score >= 0.4 ? 2 : 1);
+    // (Named only when it's sure: a dog's breed when very sure, else "dog".)
+    if (hit[2] && (i === 0 || score >= 0.3)) out.things.push(hit[1] === 'pet' && score >= 0.55 && i === 0 && !/\bcat\b/.test(name) ? name.replace(/-/g, ' ') : hit[2]);
+  }
+  // (Warm light counts as a sunset only where one could be: not over a plate of food or a pet.)
+  const sure = (photo.labels ?? []).find(([n, k]) => k >= 0.3 && LABELS.some(([re]) => re.test(n)));
+  const sureTopic = sure ? LABELS.find(([re]) => re.test(sure[0]))[1] : null;
+  if (photo.tone === 'sunset' && (!sureTopic || ['beach', 'travel', 'nature', 'car'].includes(sureTopic))) add('sunset', 2);
+  if (photo.tone === 'snow') { add('nature'); out.things.push('snow'); }
+  if (photo.tone === 'green' && !out.topics.length) add('nature');
+  if (photo.tone === 'night' || (photo.hour != null && (photo.hour >= 21 || photo.hour < 4))) out.night = true;
+  if (photo.hour != null && photo.hour >= 5 && photo.hour < 9) out.morning = true;
+  // (An animal's face can pass for a person's: none counted with a pet in it.)
+  const pet = (photo.labels ?? []).some(([n, k]) => k >= 0.05 && LABELS.some(([re, id]) => id === 'pet' && re.test(n)));
+  out.faces = Number.isFinite(photo.faces) && !pet ? photo.faces : 0;
+  if (pet && !out.topics.length) add('pet');
+  if (out.faces >= 2 && !out.topics.length) add('friends');
+  if (typeof photo.place === 'string' && photo.place) out.place = photo.place;
+  out.things = [...new Set(out.things)];
+  return out;
+}
+
+/**
+ * A photo's light and colour from its pixels (RGBA, w×h): 'night' (dark), 'sunset' (a warm orange-pink sky
+ * up top), 'snow' (bright white), 'blue' (sky or water), 'green' (plants), or null.
+ */
+export function toneFromPixels(data, w, h) {
+  const step = Math.max(1, Math.floor((w * h) / 6000)); let n = 0; let lum = 0; let warmTop = 0; let top = 0; let blue = 0; let green = 0; let white = 0;
+  for (let i = 0; i < w * h; i += step) {
+    const r = data[i * 4]; const g = data[i * 4 + 1]; const b = data[i * 4 + 2]; const y = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    n++; lum += y;
+    if (Math.floor(i / w) < h * 0.45) { top++; if (r > 150 && r - b > 60 && r >= g && y > 0.3) warmTop++; }
+    if (b > r + 25 && b > g && y > 0.25) blue++;
+    if (g > r + 15 && g > b + 10) green++;
+    if (r > 215 && g > 215 && b > 215) white++;
+  }
+  if (!n) return null;
+  lum /= n;
+  if (lum < 0.2) return 'night';
+  if (top && warmTop / top > 0.35) return 'sunset';
+  if (white / n > 0.4) return 'snow';
+  if (blue / n > 0.35) return 'blue';
+  if (green / n > 0.35) return 'green';
+  return null;
+}
+
+// Captions to suggest, by what the photo's about.
+const CAPTIONS = {
+  beach: ['Salt in the air, sand in my hair', 'Beach days are the best days', 'Vitamin sea', 'Happy place', 'Sun, sand and nowhere to be'],
+  sunset: ['Chasing sunsets', 'Golden hour, every hour', 'The sky put on a show tonight', 'Sunset therapy'],
+  food: ['Food first', 'Treat yourself', 'Worth every bite', 'Eating good tonight', 'Calories don\'t count today'],
+  pet: ['My favorite coworker', 'Look at this face', 'Living with a celebrity', 'Unconditional love'],
+  travel: ['Take me back', 'Collecting moments, not things', 'Views for days', 'Out here exploring', 'Mountains are calling'],
+  fitness: ['No days off', 'Stronger every day', 'Sweat now, shine later'],
+  style: ['Fit check', 'Dressed up for no reason', 'Outfit of the day', 'Feeling cute today'],
+  friends: ['My people', 'Good times with the best crew', 'Never a dull moment with these', 'Making memories'],
+  nature: ['Stop and smell the flowers', 'Nature is the best therapy', 'Fresh air, clear mind'],
+  music: ['Live music hits different', 'Still not over last night', 'Turn it up'],
+  art: ['Made this', 'Creating again', 'A little something I made'],
+  win: ['We did it', 'Hard work pays off', 'Big day'],
+  game: ['New setup, who dis', 'One more game', 'Late night sessions'],
+  car: ['New ride, who dis', 'Weekend drives', 'Clean and ready to roll'],
+  birthday: ['Another trip around the sun', 'Birthday mood', 'Make a wish'],
+};
+const TAGS = { beach: ['beach', 'summer', 'vitaminsea'], sunset: ['sunset', 'goldenhour', 'skyporn'], food: ['foodie', 'yum', 'eatgood'], pet: ['petsofinstagram', 'cutie', 'bestfriend'], travel: ['travel', 'wanderlust', 'explore'], fitness: ['fitness', 'gymlife', 'nodaysoff'], style: ['ootd', 'style', 'fitcheck'], friends: ['friends', 'squad', 'memories'], nature: ['nature', 'outdoors', 'naturelovers'], music: ['livemusic', 'concert', 'music'], art: ['art', 'creative', 'handmade'], win: ['proud', 'milestone', 'grad'], game: ['gaming', 'setup', 'gamer'], car: ['carsofinstagram', 'ride', 'cars'], birthday: ['birthday', 'bday', 'celebrate'] };
+
+/**
+ * A caption for a photo from what it shows (and when and where): words for its topic (or who's in it, or the
+ * night), its place, an emoji or two and a few hashtags. `avoid`: captions already suggested.
+ */
+export function suggestCaption(photo, { rand = Math.random, avoid = [] } = {}) {
+  const sw = sceneWords(photo); const id = sw.topics[0]; const tp = TOPICS.find((t) => t.id === id);
+  const pool = id && CAPTIONS[id] ? CAPTIONS[id]
+    : sw.faces === 1 ? ['Feeling myself today', 'Main character energy', 'Just me', 'Good hair day']
+      : sw.faces >= 2 ? CAPTIONS.friends : sw.night ? ['Nights like these', 'After dark', 'City lights'] : ['Good vibes only', 'A little moment', 'Just because', 'Today was a good day'];
+  const emoji = (tp?.emoji ?? (sw.faces === 1 ? ['✨', '😎', '💫'] : sw.faces >= 2 ? ['🥰', '👯', '❤️'] : sw.night ? ['🌙', '✨'] : GENERAL.emoji));
+  const said = new Set(avoid.map((a) => String(a).trim().toLowerCase()));
+  for (let k = 0; k < 12; k++) {
+    let line = pick(pool, rand);
+    const thing = sw.things[0];
+    if (thing && /dog|retriever|terrier|spaniel|poodle|shepherd|kitty/.test(thing) && rand() < 0.3) line = `${line} (my ${thing === 'kitty' ? 'kitty' : 'pup'})`;
+    const tags = [...new Set([...(TAGS[id] ?? (sw.faces >= 2 ? TAGS.friends : ['photooftheday', 'vibes'])).filter(() => rand() < 0.7), ...(sw.place ? [sw.place.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')] : [])])].slice(0, 3);
+    const out = `${line} ${pick(emoji, rand)}${sw.place ? ` 📍 ${sw.place}` : ''}${tags.length ? ` ${tags.map((t) => `#${t}`).join(' ')}` : ''}`.replace(/\s+/g, ' ').trim();
+    if (!said.has(out.toLowerCase())) return out;
+  }
+  return pick(pool, rand);
 }
 
 // What kind of message: checked in order, the first that fits answers.

@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "2da317bd66e9",
+  "version": "666a22716e5d",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",
@@ -65,6 +65,7 @@ const PRECACHE = {
     "apps/socials/socials-sports.js",
     "apps/socials/socials-store.js",
     "apps/socials/socials-sync.js",
+    "apps/socials/socials-vision.js",
     "apps/socials/socials.js",
     "apps/sports/sports.js",
     "apps/storage/storage-core.js",
@@ -114,6 +115,7 @@ const PRECACHE = {
     "lib/diag.js",
     "lib/dom.js",
     "lib/drag-sort.js",
+    "lib/exif.js",
     "lib/face-core.js",
     "lib/face-mesh.js",
     "lib/face-parts.js",
@@ -219,6 +221,7 @@ const PRECACHE = {
     "vendor/face/model/tiny_face_detector_model-weights_manifest.json",
     "vendor/face/model/tiny_face_detector_model.bin",
     "vendor/mediapipe/LICENSE",
+    "vendor/mediapipe/efficientnet_lite0_int8.tflite",
     "vendor/mediapipe/face_landmarker.task",
     "vendor/mediapipe/pose_landmarker_lite.task",
     "vendor/mediapipe/selfie_multiclass_256x256.tflite",

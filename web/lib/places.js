@@ -102,3 +102,38 @@ export function dayLabel(zone, ref, t) {
 
 /** "3:05 PM" for parts. */
 export function hm12(p) { const h = p.h % 12 || 12; return `${h}:${String(p.mi).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}`; }
+
+/** Places by where they are: [name, lat, lon] (cities, and towns people post from, Colorado's among them). */
+export const PLACE_COORDS = [
+  ['Denver', 39.74, -104.99], ['Boulder', 40.01, -105.27], ['Colorado Springs', 38.83, -104.82], ['Fort Collins', 40.59, -105.08], ['Vail', 39.64, -106.37], ['Aspen', 39.19, -106.82],
+  ['Breckenridge', 39.48, -106.04], ['Estes Park', 40.38, -105.52], ['Telluride', 37.94, -107.81], ['Steamboat Springs', 40.48, -106.83], ['Durango', 37.28, -107.88], ['Grand Junction', 39.06, -108.55],
+  ['Red Rocks', 39.665, -105.205], ['Golden', 39.76, -105.22], ['Keystone', 39.6, -105.95], ['Winter Park', 39.89, -105.76], ['Pueblo', 38.25, -104.61],
+  ['Los Angeles', 34.05, -118.24], ['San Diego', 32.72, -117.16], ['San Francisco', 37.77, -122.42], ['Lake Tahoe', 39.1, -120.03], ['Seattle', 47.61, -122.33], ['Portland', 45.52, -122.68],
+  ['Las Vegas', 36.17, -115.14], ['Salt Lake City', 40.76, -111.89], ['Park City', 40.65, -111.5], ['Phoenix', 33.45, -112.07], ['Scottsdale', 33.49, -111.93], ['Sedona', 34.87, -111.76], ['Grand Canyon', 36.1, -112.11],
+  ['Santa Fe', 35.69, -105.94], ['Albuquerque', 35.08, -106.65], ['Jackson Hole', 43.48, -110.76], ['Yellowstone', 44.43, -110.59], ['Moab', 38.57, -109.55],
+  ['Chicago', 41.88, -87.63], ['Dallas', 32.78, -96.8], ['Austin', 30.27, -97.74], ['Houston', 29.76, -95.37], ['San Antonio', 29.42, -98.49], ['Nashville', 36.16, -86.78], ['New Orleans', 29.95, -90.07],
+  ['Minneapolis', 44.98, -93.27], ['Kansas City', 39.1, -94.58], ['St. Louis', 38.63, -90.2], ['Atlanta', 33.75, -84.39], ['Miami', 25.76, -80.19], ['Orlando', 28.54, -81.38], ['Tampa', 27.95, -82.46],
+  ['Key West', 24.56, -81.78], ['Charleston', 32.78, -79.93], ['Washington, D.C.', 38.9, -77.04], ['Philadelphia', 39.95, -75.17], ['New York', 40.71, -74.01], ['Boston', 42.36, -71.06], ['Detroit', 42.33, -83.05],
+  ['Honolulu', 21.31, -157.86], ['Maui', 20.8, -156.33], ['Kauai', 22.05, -159.5], ['Big Island', 19.6, -155.5], ['Anchorage', 61.22, -149.9], ['San Juan', 18.47, -66.11],
+  ['Toronto', 43.65, -79.38], ['Vancouver', 49.28, -123.12], ['Banff', 51.18, -115.57], ['Calgary', 51.05, -114.07], ['Montreal', 45.5, -73.57], ['Mexico City', 19.43, -99.13], ['Cancún', 21.16, -86.85],
+  ['Cabo San Lucas', 22.89, -109.91], ['Tulum', 20.21, -87.47], ['Puerto Vallarta', 20.65, -105.23], ['Costa Rica', 9.93, -84.08], ['Rio de Janeiro', -22.91, -43.17], ['São Paulo', -23.55, -46.63], ['Buenos Aires', -34.6, -58.38],
+  ['London', 51.51, -0.13], ['Dublin', 53.35, -6.26], ['Edinburgh', 55.95, -3.19], ['Paris', 48.86, 2.35], ['Nice', 43.7, 7.27], ['Barcelona', 41.39, 2.17], ['Madrid', 40.42, -3.7], ['Lisbon', 38.72, -9.14],
+  ['Rome', 41.9, 12.5], ['Florence', 43.77, 11.26], ['Venice', 45.44, 12.33], ['Milan', 45.46, 9.19], ['Amalfi', 40.63, 14.6], ['Amsterdam', 52.37, 4.9], ['Brussels', 50.85, 4.35], ['Zurich', 47.38, 8.54],
+  ['Vienna', 48.21, 16.37], ['Prague', 50.08, 14.44], ['Budapest', 47.5, 19.04], ['Berlin', 52.52, 13.4], ['Munich', 48.14, 11.58], ['Frankfurt', 50.11, 8.68], ['Hamburg', 53.55, 9.99],
+  ['Bucharest', 44.43, 26.1], ['Brașov', 45.66, 25.61], ['Cluj-Napoca', 46.77, 23.6], ['Sibiu', 45.79, 24.15], ['Constanța', 44.18, 28.63], ['Athens', 37.98, 23.73], ['Santorini', 36.39, 25.46], ['Istanbul', 41.01, 28.98],
+  ['Copenhagen', 55.68, 12.57], ['Stockholm', 59.33, 18.07], ['Oslo', 59.91, 10.75], ['Reykjavik', 64.15, -21.94], ['Dubai', 25.2, 55.27], ['Cairo', 30.04, 31.24], ['Cape Town', -33.92, 18.42],
+  ['Tokyo', 35.68, 139.69], ['Kyoto', 35.01, 135.77], ['Seoul', 37.57, 126.98], ['Beijing', 39.9, 116.41], ['Shanghai', 31.23, 121.47], ['Hong Kong', 22.32, 114.17], ['Singapore', 1.35, 103.82],
+  ['Bangkok', 13.76, 100.5], ['Phuket', 7.88, 98.39], ['Bali', -8.41, 115.19], ['Sydney', -33.87, 151.21], ['Melbourne', -37.81, 144.96], ['Auckland', -36.85, 174.76],
+];
+
+/** The nearest place in PLACE_COORDS to lat, lon, within `maxKm` (else null). */
+export function nearestPlace(lat, lon, maxKm = 60) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const rad = Math.PI / 180; let best = null; let bd = Infinity;
+  for (const [name, la, lo] of PLACE_COORDS) {
+    const a = Math.sin(((la - lat) * rad) / 2) ** 2 + Math.cos(lat * rad) * Math.cos(la * rad) * Math.sin(((lo - lon) * rad) / 2) ** 2;
+    const km = 12742 * Math.asin(Math.min(1, Math.sqrt(a)));
+    if (km < bd) { bd = km; best = name; }
+  }
+  return bd <= maxKm ? best : null;
+}

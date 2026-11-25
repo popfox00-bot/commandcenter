@@ -7,6 +7,11 @@ Also its Pose Landmarker (lite) model (pose_landmarker_lite.task, float16, from
 storage.googleapis.com/mediapipe-models; sha256 59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a).
 Copyright Google LLC, under the Apache License 2.0 (below). Unchanged.
 
+Also its Image Classifier model, EfficientNet-Lite0 (int8), saved as efficientnet_lite0_int8.tflite (from
+storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/int8/1/efficientnet_lite0.tflite;
+sha256 bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16), unchanged: what's in a photo (ImageNet's 1,000 kinds), for
+Socials' comments and captions. Copyright Google LLC, under the Apache License 2.0 (below).
+
 Also its Selfie Multiclass Segmentation model (selfie_multiclass_256x256.tflite, float32, from
 storage.googleapis.com/mediapipe-models/image_segmenter; its model card: "Licensed under Apache License,
 Version 2.0"), unchanged: what's hair, face skin and so on, for FM's face swaps.

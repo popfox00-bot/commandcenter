@@ -7,7 +7,7 @@
 
 import { el, store } from '../../lib/dom.js';
 import { APPS, homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden } from '../index.js';
-import { dockFavorites, dockChoices, setFavorite, dockIcon } from '../../lib/dock.js';
+import { dockFavorites, dockChoices, setFavorite, dockIcon, dockTucked, setDockTucked } from '../../lib/dock.js';
 import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 import { storageSettings } from '../../lib/storage-usage.js';
@@ -183,11 +183,19 @@ export function mount(host) {
     };
     dockBody.replaceChildren(
       el('p', { class: 'small muted', text: 'The bar along the bottom: Home in the middle, and your four Favorites, two each side, one tap away. You can also hold one down in the Dock to change it.' }),
-      el('div', { class: 'st-dock' }, slot(0, 'Left 1'), slot(1, 'Left 2'), slot(2, 'Right 1'), slot(3, 'Right 2')));
+      el('div', { class: 'st-dock' }, slot(0, 'Left 1'), slot(1, 'Left 2'), slot(2, 'Right 1'), slot(3, 'Right 2')),
+      el('h3', { class: 'small st-dock-h', text: 'Show the Dock in…' }),
+      el('p', { class: 'small muted', text: 'Tucked away, it\'s a small Command logo at the bottom left: tap it to open the Dock, and again to close it (each app remembers).' }),
+      el('div', { class: 'st-dock-modes' }, [{ id: '', name: 'Home screen', icon: '🏠' }, ...APPS.filter((a) => a.load && !a.locked && a.parent !== 'hidden' && !['hidden', 'jobs'].includes(a.id))].map((a) => {
+        const sel = el('select', { 'aria-label': `Dock in ${a.name}` }, el('option', { value: 'shown', text: 'Shown' }), el('option', { value: 'tucked', text: 'Tucked away' }));
+        sel.value = dockTucked(a.id) ? 'tucked' : 'shown';
+        sel.addEventListener('change', () => { setDockTucked(a.id, sel.value === 'tucked'); window.dispatchEvent(new Event('cc-dock')); });
+        return el('label', { class: 'st-dock-mode' }, el('span', { text: `${a.icon} ${a.name}` }), sel);
+      })));
   }
   drawDock();
-  const onDock = () => { if (!host.isConnected) { window.removeEventListener('cc-dock', onDock); return; } drawDock(); };
-  window.addEventListener('cc-dock', onDock);
+  const onDock = () => { if (!host.isConnected) { window.removeEventListener('cc-dock', onDock); window.removeEventListener('cc-dock-mode', onDock); return; } drawDock(); };
+  window.addEventListener('cc-dock', onDock); window.addEventListener('cc-dock-mode', onDock);
 
   const SECTIONS = [
     { id: 'home', title: 'Edit Home Screen', body: () => homeBody },

@@ -374,6 +374,13 @@ export function answerCollab(state, postId, who, accept) {
   if (!c || c.status !== 'pending') return false;
   c.status = accept ? 'accepted' : 'declined'; c.at = p.upd = Date.now(); return true;
 }
+/** The posts an account's been asked to collaborate on and hasn't answered (newest first; `from`: by that one only). */
+export const pendingCollabsFor = (state, who, from = null) => state.posts.filter((p) => !p.trashed && !p.draft && (!from || p.by === from) && p.collab?.some((c) => c.id === who && c.status === 'pending')).sort((a, b) => b.at - a.at);
+/** Accept every collab request an account has (`from`: only that one's). Returns how many. */
+export function acceptAllCollabs(state, who, from = null) {
+  let n = 0; for (const p of pendingCollabsFor(state, who, from)) if (answerCollab(state, p.id, who, true)) n++;
+  return n;
+}
 /** A collaborator leaves a post (it's off their profile). */
 export function leaveCollab(state, postId, who) {
   const p = postById(state, postId); if (!p?.collab?.some((c) => c.id === who)) return false;

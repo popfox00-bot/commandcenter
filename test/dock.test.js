@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { APPS } from '../web/apps/index.js';
-import { dockChoices, dockFavorites, DEFAULT_DOCK, setFavorite, DOCK_KEY } from '../web/lib/dock.js';
+import { dockChoices, dockFavorites, DEFAULT_DOCK, setFavorite, DOCK_KEY, dockTucked, setDockTucked, DOCK_MODE_KEY } from '../web/lib/dock.js';
 
 test('the Dock\'s Favorites: four, from the app\'s own apps (not the hidden area\'s), defaults to start', () => {
   const ids = dockChoices(APPS).map((a) => a.id);
@@ -21,4 +21,11 @@ test('picking a Favorite already in the Dock swaps the two', () => {
     assert.deepEqual(JSON.parse(mem.get(DOCK_KEY)), ['socials', 'clock', 'notes', 'calculator']);
     assert.deepEqual(setFavorite(APPS, 3, 'draw'), ['socials', 'clock', 'notes', 'draw']);
   } finally { delete globalThis.localStorage; }
+});
+
+test('tucked away or shown, per app: Socials tucked to start, the rest shown; each kept', () => {
+  assert.equal(dockTucked('socials', {}), true); assert.equal(dockTucked('clock', {}), false); assert.equal(dockTucked('', {}), false);
+  assert.equal(dockTucked('socials', { socials: 'shown' }), false); assert.equal(dockTucked('', { home: 'tucked' }), true);
+  const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+  try { setDockTucked('clock', true); setDockTucked('', true); assert.deepEqual(JSON.parse(mem.get(DOCK_MODE_KEY)), { clock: 'tucked', home: 'tucked' }); assert.equal(dockTucked('clock'), true); } finally { delete globalThis.localStorage; }
 });

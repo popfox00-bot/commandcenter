@@ -122,13 +122,19 @@ export function addPost(state, by, { image = null, video = null, caption = '', t
 
 /**
  * What a post's photo shows, as read on the phone (socials-vision.js), kept made safe: { labels: [[name,
- * score]], faces, tone, place, hour, taken }, each only when it's sound; null for nothing.
+ * score]], faces, people, poses, bg, outfit: { color, skin }, brand, tone, place, hour, taken }, each only when
+ * it's sound; null for nothing.
  */
 export function cleanScene(x) {
   if (!x || typeof x !== 'object') return null;
   const out = {};
-  if (Array.isArray(x.labels)) { const l = x.labels.filter((v) => Array.isArray(v) && typeof v[0] === 'string' && v[0].length < 60 && Number.isFinite(v[1])).slice(0, 5).map(([n, k]) => [n, Math.max(0, Math.min(1, k))]); if (l.length) out.labels = l; }
+  if (Array.isArray(x.labels)) { const l = x.labels.filter((v) => Array.isArray(v) && typeof v[0] === 'string' && v[0].length < 60 && Number.isFinite(v[1])).slice(0, 8).map(([n, k]) => [n, Math.max(0, Math.min(1, k))]); if (l.length) out.labels = l; }
   if (Number.isInteger(x.faces) && x.faces >= 0 && x.faces < 50) out.faces = x.faces;
+  if (Number.isInteger(x.people) && x.people >= 0 && x.people < 50) out.people = x.people;
+  if (Array.isArray(x.poses)) { const v = [...new Set(x.poses.filter((k) => ['armsup', 'wave', 'hips', 'sitting', 'full', 'close', 'allarmsup'].includes(k)))]; if (v.length) out.poses = v; }
+  if (Array.isArray(x.bg)) { const v = [...new Set(x.bg.filter((k) => ['sky', 'sand', 'water', 'green', 'snow', 'sunset', 'city', 'night'].includes(k)))]; if (v.length) out.bg = v; }
+  if (x.outfit && typeof x.outfit === 'object') { const o = {}; if (typeof x.outfit.color === 'string' && /^[a-z ]{3,12}$/.test(x.outfit.color)) o.color = x.outfit.color; if (Number.isFinite(x.outfit.skin)) o.skin = Math.max(0, Math.min(1, x.outfit.skin)); if (Object.keys(o).length) out.outfit = o; }
+  if (typeof x.brand === 'string' && /^[\p{L}\p{N}' .&-]{2,30}$/u.test(x.brand)) out.brand = x.brand;
   if (['night', 'sunset', 'snow', 'blue', 'green'].includes(x.tone)) out.tone = x.tone;
   if (typeof x.place === 'string' && x.place && x.place.length <= 60) out.place = x.place;
   if (Number.isInteger(x.hour) && x.hour >= 0 && x.hour < 24) out.hour = x.hour;

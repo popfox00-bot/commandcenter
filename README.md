@@ -1308,19 +1308,36 @@ Profile, ✈ for messages), where everything is made by you in the app.
   amazing", "Love the bike"), what it counts ("Happy 21st!!", "10 years!!", "5k?! Legend"), a question it asks
   ("Tacos, no question"), its hashtags ("#goldenhour indeed") and the people tagged ("@sam you two!!"; a
   tagged account itself thanks you for the tag), its own emoji mirrored, never repeating a comment already there.
-  It also reads the photo itself, on the phone (`web/apps/socials/socials-vision.js`; nothing sent anywhere,
-  offline once cached): what it shows (MediaPipe's image classifier, EfficientNet-Lite0, which knows ImageNet's
-  1,000 kinds of thing: a dog's breed, pizza, a beach, mountains, a car, a guitar…), how many faces (a selfie,
-  the two of you, a group), its light (a sunset's warm sky, night, snow), and from the file's EXIF when it was
-  taken (an early start, a night out) and where (the nearest known place: "Boulder looks amazing"). The comments
-  left on a new post when it's shared are made the same way. A photo posted before is read the first time
-  ✨ Generate is used on it. A video is read from four frames across it (not just its still), what's seen in
-  most of them counting most, and an iPhone video's own record of when and where it was filmed.
-- **✨ Suggest caption.** When posting, a caption from what the first photo shows (and when and where): words
-  for it, an emoji, 📍 the place and a few hashtags; tap again for another (it replaces the last suggestion,
-  else goes under what you wrote). In a chat, after the Owner sends a message, ✨
-  Generate reply from @… answers it as the other account, fitting what was said (thanks, a question, a plan,
-  hello, something sad, a laugh…) and its emoji. The other accounts don't get the buttons.
+  It also reads the photo itself, on the phone (`web/apps/socials/socials-vision.js`, worked out in
+  `socials-scene.js`; nothing sent anywhere, offline once cached):
+  - **What's in it**: MediaPipe's image classifier (EfficientNet-Lite0: ImageNet's 1,000 kinds of thing: a dog's
+    breed, pizza, mountains, a car, a guitar, a cap and gown, a suit, a swimsuit, a coat, sneakers…).
+  - **The people**: how many (faces and body poses), and how the main one stands: arms up (or a whole group's),
+    a wave, hands on hips, sitting, head to toe, a close-up.
+  - **What they wear**: the people cut out from the background (MediaPipe's multiclass segmenter), their
+    clothes' main colour ("that red dress", "all black everything"), how much skin shows (summer clothes, or
+    bundled up for winter), and a brand or team name printed on them (the clothes read with Tesseract:
+    Nike, Adidas, The North Face, Broncos, Nuggets…).
+  - **What's behind them**: the background alone, apart from the people: sky, sand, water, green, snow, a
+    sunset's warm sky, a city's greys, night. Each is checked against the rest: a beach only with sand or
+    water to be seen (a blue sky alone is "Blue skies and good vibes", not a beach), a sunset only with a
+    bright sky lighter than the ground (not a warm room or warm light on food), snow only under a sky, clothes
+    only on someone, an animal's face never counted as a person.
+  - **When and where**: from the file's EXIF (or an iPhone video's own record): an early start, a night out,
+    and the nearest known place ("Boulder looks amazing").
+
+  Each thing found is a fact with how specific it is (a cap and gown, a brand, a dog's breed, the place, the
+  food, a named piece of clothing, the season, the scenery, the pose, how many people, the time), and the
+  comments come mostly from the most specific ones. Clothes are only talked about when something worn was
+  actually seen (no "#ootd" on a plain selfie). In a batch (Generate 3 or 5, and the three left on a new post)
+  each comment is about something different, opens differently and uses different emojis. A photo posted
+  before is read the first time ✨ Generate is used on it. A video is read from four frames across it, what's
+  seen in most of them counting most.
+- **✨ Auto-caption and Suggest caption.** When posting, once the first photo or video is read, its caption is
+  written in for you (while the caption is empty and you haven't typed), from the most specific thing in it:
+  "Cap, gown, done 🎓 #graduation #classof2026", "Repping Nike 🔥 📍 Breckenridge #nike", "Black suit kind of day
+  🕴️", "Best pup ever 🐶"; with 📍 the place and a few hashtags from what it's about. Change it any way you
+  like; ✨ Suggest caption gives the next one (it replaces the last suggestion, else goes under what you wrote).
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,
   🎭 FM or 👕 Fashion (as the base, the person to dress, or as the piece, what to put on) opens a copy of the
   photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.

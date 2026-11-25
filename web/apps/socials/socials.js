@@ -866,7 +866,7 @@ function mountAdmin(host) {
       share.disabled = !n || busy; share.textContent = busy ? 'Loading files…' : 'Share';
       saveDraft.disabled = busy || (!n && !caption.value.trim());
     };
-    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video })) : [], { onChange: () => sync() });
+    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video })) : [], { onChange: () => { sync(); autoCaption(); } });
     caption.addEventListener('input', sync);
     // (✨ Suggest caption: from what the photo shows (and when and where); again for another.)
     let suggested = []; let lastSuggestion = '';
@@ -878,10 +878,21 @@ function mountAdmin(host) {
         const sc = await mx.scene();
         const c = suggestCaption(sc, { avoid: suggested }); suggested.push(c);
         const cur = caption.value.trim();
-        caption.value = !cur || cur === lastSuggestion ? c : `${cur}\n${c}`; lastSuggestion = caption.value.trim();
+        caption.value = !cur || cur === lastSuggestion ? c : `${cur}\n${c}`; lastSuggestion = caption.value.trim(); autoNote.hidden = true;
         sync();
       } finally { suggest.disabled = false; suggest.textContent = '✨ Suggest caption'; }
     });
+    // (Auto-caption: once the first photo or video is read, a caption from what it shows, the most specific thing
+    // in it, written in for you while the caption's empty and untouched; yours to change.)
+    let typed = !!caption.value.trim(); let autoFor = null;
+    const autoNote = el('p', { class: 'small muted so-autocap', hidden: true, text: '✨ Written from the photo. Change it any way you like, or ✨ Suggest caption for another.' });
+    caption.addEventListener('input', () => { typed = true; autoNote.hidden = true; });
+    const autoCaption = async () => {
+      const f = mx.first(); if (!f || typed || autoFor === f) return; autoFor = f;
+      const sc = await mx.scene(); if (typed || mx.first() !== f || caption.value.trim()) return;
+      const c = suggestCaption(sc, { avoid: suggested }); suggested.push(c);
+      caption.value = c; lastSuggestion = c; autoNote.hidden = false; sync();
+    };
     const make = (asDraft, scene = null) => {
       const [first, ...rest] = mx.ready();
       const all = new Set([...tags, ...collabs]); if (owner && owner.id !== m.id) all.add(owner.id);
@@ -912,7 +923,7 @@ function mountAdmin(host) {
     saveDraft.addEventListener('click', () => { try { make(true); save(); toast('Saved to your drafts (your profile → ✎)'); go({ name: 'profile', id: m.id, grid: 'drafts' }); } catch (e) { err.textContent = e.message; } });
     sync();
     return el('div', {}, backBar(draft?.draft ? `Draft · @${m.handle}` : `New post as @${m.handle}`, draft?.draft ? { name: 'profile', id: m.id, grid: 'drafts' } : { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, mx.box, caption, el('div', { class: 'so-row' }, suggest), communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
+      el('div', { class: 'so-pad so-new' }, mx.box, caption, autoNote, el('div', { class: 'so-row' }, suggest), communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
         draft?.draft ? el('button', { type: 'button', class: 'so-link so-danger-link', text: 'Delete draft', onclick: () => { if (confirm('Delete this draft?')) { removePost(state, draft.id); save(); go({ name: 'profile', id: m.id, grid: 'drafts' }); } } }) : null));
   }
 

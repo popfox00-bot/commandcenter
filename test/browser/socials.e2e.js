@@ -828,6 +828,9 @@ test('Socials: picking and posting a video never widens the page (nothing pushed
   // (A video read from several of its frames: a caption suggested from them.)
   const frames = await page.evaluate(async () => { const { videoFrames } = await import('./apps/socials/socials-editor.js'); const v = document.querySelector('.so-new-prev video'); const b = await (await fetch(v.src)).blob(); return (await videoFrames(b)).length; });
   assert.ok(frames >= 2, `several frames (${frames})`);
+  // (Auto-caption: written in from the video once it's read, while the caption's empty and untouched.)
+  await page.locator('.so-autocap').waitFor({ timeout: 40000 });
+  assert.ok((await page.getByLabel('Caption').inputValue()).length > 3, 'a caption written in');
   await page.getByRole('button', { name: '✨ Suggest caption' }).click();
   await page.waitForFunction(() => document.querySelector('textarea[aria-label="Caption"]')?.value.length > 3, null, { timeout: 30000 }); await measure('caption');
   await page.getByRole('button', { name: 'Share', exact: true }).click(); await measure('sharing');

@@ -6,7 +6,8 @@
 // Route: #/settings (#/settings/saved and the like: that card opened).
 
 import { el, store } from '../../lib/dom.js';
-import { homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden } from '../index.js';
+import { APPS, homeApps, HOME_ORDER_KEY, HOME_HIDDEN_KEY, isHidden } from '../index.js';
+import { dockFavorites, dockChoices, setFavorite, dockIcon } from '../../lib/dock.js';
 import { savedFilesSettings } from '../../lib/saved-files-setup.js';
 import { snapshot, clearErrors, onDiag } from '../../lib/diag.js';
 import { storageSettings } from '../../lib/storage-usage.js';
@@ -169,8 +170,28 @@ export function mount(host) {
   const onOnline = () => { if (!host.isConnected) { window.removeEventListener('online', onOnline); return; } syncSuggestions(); };
   window.addEventListener('online', onOnline);
 
+  // (Dock: its four Favorites, each a choice of app; the same as holding one down in the Dock.)
+  const dockBody = el('div', {});
+  function drawDock() {
+    const fav = dockFavorites(APPS); const choices = dockChoices(APPS);
+    const slot = (i, label) => {
+      const sel = el('select', { class: 'st-dock-sel', 'aria-label': label }, choices.map((a) => el('option', { value: a.id, text: `${a.icon} ${a.name}` })));
+      sel.value = fav[i] ?? '';
+      sel.addEventListener('change', () => { setFavorite(APPS, i, sel.value); window.dispatchEvent(new Event('cc-dock')); drawDock(); });
+      const a = APPS.find((x) => x.id === fav[i]);
+      return el('label', { class: 'st-dock-slot' }, a ? dockIcon(a) : null, el('span', { class: 'small', text: label }), sel);
+    };
+    dockBody.replaceChildren(
+      el('p', { class: 'small muted', text: 'The bar along the bottom: Home in the middle, and your four Favorites, two each side, one tap away. You can also hold one down in the Dock to change it.' }),
+      el('div', { class: 'st-dock' }, slot(0, 'Left 1'), slot(1, 'Left 2'), slot(2, 'Right 1'), slot(3, 'Right 2')));
+  }
+  drawDock();
+  const onDock = () => { if (!host.isConnected) { window.removeEventListener('cc-dock', onDock); return; } drawDock(); };
+  window.addEventListener('cc-dock', onDock);
+
   const SECTIONS = [
     { id: 'home', title: 'Edit Home Screen', body: () => homeBody },
+    { id: 'dock', title: 'Dock', body: () => dockBody },
     { id: 'background', title: 'Background', body: () => bgBody },
     { id: 'saved', title: 'Saved Files', body: () => inner(savedFilesSettings()) },
     { id: 'storage', title: 'Storage', body: () => inner(storageSettings()) },

@@ -69,6 +69,7 @@ test('draw on a blank page, erase, undo, add text; it is saved, reopens, and sav
   await page.click('.dr-tools .chip >> text=Box');
   await page.click('[aria-label="Color #0a84ff"]');
   await page.getByRole('button', { name: '□ Outline' }).click();
+  await page.evaluate(() => window.scrollTo(0, 0)); // (back up to the canvas, past the Dock)
   await stroke(page, [[400, 300], [800, 600]]);
   // The eraser through the stroke's right part.
   await page.click('.dr-tools .chip >> text=Eraser');

@@ -46,3 +46,21 @@ function tiff(d, t, out) {
     }
   }
 }
+
+/**
+ * A phone video's (MOV / MP4) own record of when and where it was taken, from its bytes (the start and end of
+ * the file, where phones write it): { taken, hour, lat, lon }, each only when it's there. iPhone writes
+ * com.apple.quicktime.creationdate ("2026-11-25T18:34:55-0700") and a location as ISO 6709
+ * ("+39.7392-104.9903+1609.000/", in ©xyz or com.apple.quicktime.location.ISO6709).
+ */
+export function readVideoMeta(...bufs) {
+  const out = {};
+  for (const buf of bufs) {
+    if (!buf) continue;
+    const u = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer); let t = '';
+    for (let i = 0; i < u.length; i += 8192) t += String.fromCharCode(...u.subarray(i, i + 8192));
+    if (out.taken == null) { const m = t.match(/creationdate[\s\S]{0,64}?(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/); if (m) { out.taken = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`; out.hour = +m[4]; } }
+    if (out.lat == null) { const m = t.match(/(?:xyz|ISO6709)[\s\S]{0,48}?([+-]\d{1,2}(?:\.\d+)?)([+-]\d{1,3}(?:\.\d+)?)(?:[+-]\d+(?:\.\d+)?)?\//); if (m) { const lat = +m[1]; const lon = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && (lat || lon)) { out.lat = lat; out.lon = lon; } } }
+  }
+  return out;
+}

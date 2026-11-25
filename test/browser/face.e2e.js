@@ -331,6 +331,7 @@ test('faces: ➕ Character lined up by its own eyes and mouth; with two faces, p
   // Again: tap face 2's number to move it there; then put it on every face.
   await page.getByRole('button', { name: 'Undo' }).click();
   await place();
+  await page.locator('.ed-overlay').evaluate((e) => e.scrollIntoView({ block: 'start' })); // (the photo in view, clear of the Dock)
   const badge = await page.$eval('.ed-overlay', (e) => { const r = e.getBoundingClientRect(); return [r.x + 0.70 * r.width, r.y + 0.28 * r.height]; });
   await page.mouse.click(...badge);
   await page.waitForSelector('.ed-panel >> text=On face 2 of 2');

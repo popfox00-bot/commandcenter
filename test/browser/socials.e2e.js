@@ -809,3 +809,30 @@ test('Socials: each file shown loading then ready; reordered by dragging (or ↑
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials: picking and posting a video never widens the page (nothing pushed off to the right, no zoom change)', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  const widths = []; const measure = async (at) => widths.push([at, await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth))]);
+  await page.getByRole('button', { name: 'New post' }).first().click(); await measure('new');
+  const v = { ...(await clip(page)), name: 'IMG_20261125_183455_very_long_icloud_drive_video_file_name_copy_2.webm' };
+  await page.getByLabel('Photo or video').setInputFiles([v, { ...v, name: `B_${v.name}` }]);
+  await page.locator('.so-mrow').first().waitFor(); await measure('loading');
+  await page.locator('.so-mrow[data-status="ready"]').nth(1).waitFor({ timeout: 20000 }); await measure('ready');
+  // (The preview held to its frame: inside the page's width, not over the buttons.)
+  const vb = await page.locator('.so-new-prev video').boundingBox(); const fb = await page.locator('.so-new-prev').boundingBox();
+  assert.ok(vb.x >= fb.x - 1 && vb.x + vb.width <= fb.x + fb.width + 1 && vb.y + vb.height <= fb.y + fb.height + 1, 'the video inside its frame');
+  // (A video read from several of its frames: a caption suggested from them.)
+  const frames = await page.evaluate(async () => { const { videoFrames } = await import('./apps/socials/socials-editor.js'); const v = document.querySelector('.so-new-prev video'); const b = await (await fetch(v.src)).blob(); return (await videoFrames(b)).length; });
+  assert.ok(frames >= 2, `several frames (${frames})`);
+  await page.getByRole('button', { name: '✨ Suggest caption' }).click();
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="Caption"]')?.value.length > 3, null, { timeout: 30000 }); await measure('caption');
+  await page.getByRole('button', { name: 'Share', exact: true }).click(); await measure('sharing');
+  await page.locator('.so-reel').first().waitFor(); await measure('reels');
+  await page.locator('.so-upbar', { hasText: 'Posted' }).waitFor(); await measure('posted');
+  for (const [at, w] of widths) assert.ok(w <= 390, `${at}: the page is ${w}px wide`);
+  await page.close();
+});

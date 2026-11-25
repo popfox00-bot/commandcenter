@@ -71,3 +71,16 @@ test('a post\'s scene kept made safe; new posts\' comments written for them', ()
   const made = autoComment(s, p.id, { write: (who) => who.map((a) => `nice one from ${a.handle}`) });
   assert.equal(made.length, 3); for (const c of made) assert.match(c.text, /^nice one from [abc]$/);
 });
+
+test('videos: several frames read as one; a phone video\'s own record of when and where', async () => {
+  const { mergeScenes } = await import('../web/apps/socials/socials-vision.js');
+  const { readVideoMeta } = await import('../web/lib/exif.js');
+  const m = mergeScenes([{ labels: [['seashore', 0.5]], faces: 0, tone: 'sunset' }, { labels: [['seashore', 0.7], ['dock', 0.2]], faces: 2, tone: 'sunset' }, { labels: [['dock', 0.3]], faces: 1, tone: 'blue' }, null]);
+  assert.equal(m.labels[0][0], 'seashore', 'seen most and surest first'); assert.equal(m.faces, 2); assert.equal(m.tone, 'sunset');
+  assert.deepEqual(mergeScenes([]), {});
+  const enc = (t) => new TextEncoder().encode(t).buffer;
+  const x = readVideoMeta(enc('....moov...com.apple.quicktime.location.ISO6709\0\0data+39.7392-104.9903+1609.000/...com.apple.quicktime.creationdate\0\0data2026-11-25T18:34:55-0700'));
+  assert.equal(x.taken, '2026-11-25T18:34:55'); assert.equal(x.hour, 18); assert.equal(x.lat, 39.7392); assert.equal(x.lon, -104.9903);
+  assert.equal(readVideoMeta(enc('udta ©xyz +48.8577+002.2950/')).lat, 48.8577);
+  assert.deepEqual(readVideoMeta(enc('nothing here')), {});
+});

@@ -8,9 +8,13 @@ import { setJobsActive } from './jobs.js';
 import { VERSION, HISTORY } from './version.js';
 import { updatesCard } from './lib/home-extras.js';
 import { updateToLatest } from './lib/update.js';
+import { mountDock } from './lib/dock.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
+// (The Dock along the bottom: Home in the middle, two Favorites each side.)
+const dock = mountDock(document.body, APPS);
+window.addEventListener('cc-dock', () => dock.draw());
 
 // The home screen, in three parts: Updates (one card of previews: the next event, the weather, your
 // game; it opens the Updates page), then Productivity and Creativity (tiles, in the order set in Settings).
@@ -57,6 +61,7 @@ async function route() {
   $('#version').hidden = false;
   $('#home-settings').hidden = view !== 'home';
   setJobsActive(view === 'jobs');
+  dock.draw(view === 'app' ? app.id : view === 'jobs' ? 'jobs' : '');
 
   if (mountedApp && (view !== 'app' || mountedApp.id !== app.id)) {
     mountedApp.unmount?.();

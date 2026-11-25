@@ -1236,7 +1236,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
   Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way, and also posted, whole
   as it was picked (not the circle), when the account is saved ("New profile picture 📸"). Nothing of it is kept
   in the Photo Editor (no work in progress or recent edit there): only the finished photo, in Socials. A post's
-  ⋯ → Edit changes its caption or edits its photo again (marked "edited"); ⋯ → Delete removes it.
+  ⋯ → Edit changes its caption, tags and collabs, and its photos and videos: add more, take one out (✕),
+  reorder them (☰) or edit a photo again (marked "edited"; those it had aren't uploaded again); ⋯ → Delete
+  removes it. Every new post tags the Owner account (unless the Owner posts it).
 - **Stories.** Any post from the last 24 hours is also that account's story: a ring round its circle in the row
   across the top of Home (bright while one's not seen yet, grey after) and round its picture on its profile.
   Tap it: full screen, each of its posts' photos and videos in turn (a photo five seconds, a video as long as
@@ -1254,7 +1256,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **Recently deleted.** ⋯ → Delete moves a post to Recently deleted (in Sync and password) for 7 days: Restore it,
   or delete it for good; after 7 days it's gone (on your other devices too).
 - **Several in one post.** Pick several photos and videos at once (each photo through the editor; Cancel
-  keeps it as it is), add more with ＋ Add more, take one out with its ✕, up to ten. The post shows them as a
+  keeps it as it is), add more with ＋ Add photos or videos, take one out with its ✕, up to ten. Each is listed
+  with how far it's got: Loading (with a bar and %), Preparing, Ready ✓, or Couldn't load with **Try again**;
+  Share waits until they're all in. Each file is read in full as soon as it's picked, all of them first, and
+  tried again by itself if a read fails or stalls (files from iCloud Drive can fail the first time), with time
+  enough for a long video to open (a plain still is used if no frame can be had in time;
+  `web/lib/read-file.js`). Drag a file's ☰ (or ↑ ↓ on it) to reorder them. The post shows them as a
   carousel: swipe across, with "2/3" and dots; a video that ends goes on to the next. Its tile shows ❐ and opens
   the post to swipe through (from a profile too, not Reels' single video). While posting, a progress bar shows
   each file being prepared, the post saved to the phone, then each file uploaded to Saved Files, and Posted ✓.
@@ -1286,9 +1293,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **# Community.** When posting (or editing), # Community opens the hashtags any account has used before, the
   most used first, with how many posts each; a tap adds it to the caption.
 - **✨ Generate (the Owner account).** A small text predictor, all on the phone (works offline). On an opened
-  post, ✨ Generate comment has another account (a random one that hasn't commented yet, or the one picked
-  beside it) comment on it, in words and emoji that fit its caption (a beach, food, a pet, a birthday…, its own
-  emoji mirrored) and never repeating a comment already there. In a chat, after the Owner sends a message, ✨
+  post, ✨ Generate 1, 3 or 5 has that many other accounts (random ones that haven't commented yet, each
+  once, or all as the one picked beside it) comment on it, each different, in words and emoji made for its
+  caption: what it's about (a beach, food, a pet, a birthday…), the places and things it names ("Denver looks
+  amazing", "Love the bike"), what it counts ("Happy 21st!!", "10 years!!", "5k?! Legend"), a question it asks
+  ("Tacos, no question"), its hashtags ("#goldenhour indeed") and the people tagged ("@sam you two!!"; a
+  tagged account itself thanks you for the tag), its own emoji mirrored, never repeating a comment already there. In a chat, after the Owner sends a message, ✨
   Generate reply from @… answers it as the other account, fitting what was said (thanks, a question, a plan,
   hello, something sad, a laugh…) and its emoji. The other accounts don't get the buttons.
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,

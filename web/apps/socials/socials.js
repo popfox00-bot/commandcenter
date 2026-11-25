@@ -17,14 +17,16 @@ import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePass
 import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword, pendingFiles } from './socials-sync.js';
 import { sniffType, decodeImage, fitSize, canvasToBlob } from '../../lib/image.js';
 import { editPhoto, prepareVideo } from './socials-editor.js';
+import { readFully, isVideo } from '../../lib/read-file.js';
+import { dragHandle, sortable } from '../../lib/drag-sort.js';
 import {
   emptyState, normalize, addAccount, editAccount, removeAccount, accountById, toggleFollow, isFollowing,
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
-  searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost,
+  searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
   toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
-import { generateComment, generateReply } from './socials-predict.js';
+import { generateComments, generateReply } from './socials-predict.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
@@ -431,22 +433,35 @@ function mountAdmin(host) {
 
   // ---- The text predictor (the Owner only): a comment from another account, or a reply in a chat.
   let genWho = ''; // ('' = a random account)
-  /** ✨ Generate comment: one of the other accounts (random, or the one picked) says something about the post. */
+  /**
+   * ✨ Generate comments: 1, 3 or 5 of the other accounts (random ones that haven't commented yet, each once
+   * where there are enough; or all from the one picked) say something about the post, made for its caption,
+   * hashtags and the people tagged.
+   */
   function generateCommentBox(p) {
     const others = byHandle(state.accounts.filter((a) => a.id !== p.by));
     if (!others.length) return null;
     if (genWho && !others.some((a) => a.id === genWho)) genWho = '';
-    const pick = el('select', { class: 'so-input so-gen-who', 'aria-label': 'Comment as' }, el('option', { value: '', text: '🎲 Random account' }), others.map((a) => el('option', { value: a.id, text: `@${a.handle}` })));
+    const pick = el('select', { class: 'so-input so-gen-who', 'aria-label': 'Comment as' }, el('option', { value: '', text: '🎲 Random accounts' }), others.map((a) => el('option', { value: a.id, text: `@${a.handle}` })));
     pick.value = genWho; pick.addEventListener('change', () => { genWho = pick.value; });
-    const go1 = () => {
-      // (Random: one that hasn't commented yet, when there is one.)
-      const fresh = others.filter((a) => !p.comments.some((c) => c.by === a.id));
-      const pool = fresh.length ? fresh : others;
-      const who = genWho || pool[Math.floor(Math.random() * pool.length)].id;
-      const text = generateComment(p.caption, { avoid: p.comments.map((c) => c.text) });
-      if (addComment(state, p.id, who, text)) { save(); draw(); }
+    const run = (n) => {
+      let who;
+      if (genWho) who = Array(n).fill(genWho);
+      else {
+        const fresh = shuffled(others.filter((a) => !p.comments.some((c) => c.by === a.id))).map((a) => a.id);
+        const rest = shuffled(others.filter((a) => !fresh.includes(a.id))).map((a) => a.id);
+        const order = [...fresh, ...rest]; who = Array.from({ length: n }, (_, i) => order[i % order.length]);
+      }
+      const tagged = (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean);
+      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? '') });
+      let added = 0;
+      texts.forEach((t, i) => { if (addComment(state, p.id, who[i], t)) added++; });
+      if (added) { save(); draw(); }
     };
-    return el('div', { class: 'so-gen' }, el('button', { type: 'button', class: 'btn so-gen-btn', text: '✨ Generate comment', onclick: go1 }), pick);
+    return el('div', { class: 'so-gen', role: 'group', 'aria-label': 'Generate comments' },
+      el('span', { class: 'so-gen-label', text: '✨ Generate' }),
+      ...[1, 3, 5].map((n) => el('button', { type: 'button', class: 'btn so-gen-btn', 'aria-label': `Generate ${n} comment${n === 1 ? '' : 's'}`, text: String(n), onclick: () => run(n) })),
+      pick);
   }
 
   // ---- Screens.
@@ -718,69 +733,134 @@ function mountAdmin(host) {
     }
   }
 
+  // ---- The photos and videos of a post being made or edited. Each file picked is read in full straight away
+  // (from iCloud too: tried again if a read fails or stalls), all of them first, then each prepared (a video's
+  // still; a photo through the editor); each shown in a list with how far it's got (Loading 40% · Preparing ·
+  // Ready ✓ · Couldn't load, with Try again), to reorder (☰, drag or ↑ ↓), remove (✕) or edit (a photo).
+  let mediaKey = 0;
+  function mediaEditor(start = [], { onChange = () => {} } = {}) {
+    /** { key, kind, image, imageId, video, videoId, original, name, file, status, pct, error, stage }. */
+    const items = start.filter((m) => m.image || m.video).map((m) => ({ ...m, key: ++mediaKey, original: m.original ?? m.image, status: 'ready', name: '' }));
+    let cur = 0;
+    const prev = el('div', { class: 'so-new-prev' });
+    const list = el('ol', { class: 'so-media-list', 'aria-label': 'In this post' });
+    const err = el('p', { class: 'so-err', role: 'alert' });
+    const input = (label) => { const f = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, class: 'so-file', 'aria-label': label }); f.addEventListener('change', () => { const l = [...(f.files ?? [])]; f.value = ''; if (l.length) take(l); }); return f; };
+    const first = input('Photo or video'); const more = input('Add more photos or videos');
+    const addLabel = el('label', { class: 'btn so-add-more' }, '＋ Add photos or videos', more);
+    const again = el('button', { type: 'button', class: 'btn', text: 'Edit photo', hidden: true });
+    again.addEventListener('click', async () => { const x = items[cur]; if (!x || x.kind !== 'photo' || !x.image) return; try { const b = await photoFrom(x.original ?? x.image, false); if (b) { x.image = b; x.imageId = null; draw(); onChange(); } } catch (e) { err.textContent = e.message; } });
+    sortable(list, (from, to) => { const [x] = items.splice(from, 1); items.splice(to, 0, x); cur = to; draw(); onChange(); });
+    const changed = () => { draw(); onChange(); };
+    const statusText = (x) => (x.status === 'reading' ? `Loading… ${Math.round((x.pct ?? 0) * 100)}%` : x.status === 'read' ? 'Loaded · waiting' : x.status === 'preparing' ? (x.kind === 'video' ? 'Preparing video…' : 'Editing photo…') : x.status === 'failed' ? x.error || 'Couldn\'t load' : `Ready ✓${x.file?.size ? ` · ${mb(x.file.size)}` : ''}`);
+    const mb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(n >= 104857600 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+    function tick(x) { if (x.bar) x.bar.style.width = `${Math.max(3, Math.round((x.pct ?? 0) * 100))}%`; if (x.txt) x.txt.textContent = statusText(x); }
+    function row(x, i) {
+      x.bar = el('span', { class: 'so-mrow-fill' }); x.txt = el('span', { class: 'so-mrow-status', text: statusText(x) });
+      const busy = x.status === 'reading' || x.status === 'preparing' || x.status === 'read';
+      const r = el('li', { class: `so-mrow so-m-${x.status}${i === cur ? ' on' : ''}`, 'data-status': x.status },
+        el('button', { type: 'button', class: 'so-mrow-thumb', 'aria-label': `Show ${x.kind === 'video' ? 'video' : 'photo'} ${i + 1}`, onclick: () => { cur = i; draw(); } },
+          x.image ? el('img', { src: urlOf(x.image), alt: '' }) : el('span', { class: 'so-mrow-ph', 'aria-hidden': 'true', text: x.kind === 'video' ? '🎬' : '🖼️' }), x.kind === 'video' && x.image ? el('span', { class: 'so-tile-badge', text: '▶︎' }) : null),
+        el('div', { class: 'so-mrow-info' }, el('strong', { text: `${i + 1}. ${x.kind === 'video' ? 'Video' : 'Photo'}` }), x.name ? el('span', { class: 'so-mrow-name small muted', text: x.name }) : null, x.txt,
+          busy ? el('span', { class: 'so-mrow-track', role: 'progressbar', 'aria-label': `${x.name || 'File'} progress`, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round((x.pct ?? 0) * 100)) }, x.bar) : null),
+        x.status === 'failed' ? el('button', { type: 'button', class: 'btn so-mrow-retry', text: 'Try again', onclick: () => retry(x) }) : null,
+        el('button', { type: 'button', class: 'so-mrow-x', 'aria-label': `Remove ${i + 1}`, text: '✕', onclick: () => { const k = items.indexOf(x); if (k >= 0) items.splice(k, 1); if (cur >= items.length) cur = Math.max(0, items.length - 1); changed(); } }),
+        items.length > 1 ? dragHandle(`${x.kind} ${i + 1}`) : null);
+      tick(x);
+      return r;
+    }
+    function draw() {
+      const x = items[cur];
+      fill(prev, !x ? el('label', { class: 'so-new-pick' }, el('span', { class: 'muted', text: 'Pick photos or videos' }), first)
+        : !x.image ? el('div', { class: 'so-new-wait muted', text: statusText(x) })
+          : x.kind === 'video' ? el('video', { src: urlOf(x.video), poster: urlOf(x.image), controls: true, playsinline: true, 'aria-label': 'Your video' }) : el('img', { src: urlOf(x.image), alt: 'Your photo' }));
+      fill(list, items.map(row));
+      again.hidden = !(x && x.kind === 'photo' && x.image); addLabel.hidden = !items.length || items.length >= MAX_ITEMS;
+    }
+    async function load(x) {
+      if (!items.includes(x)) return;
+      x.status = 'reading'; x.pct = 0; x.error = ''; draw();
+      try {
+        if (x.kind === 'video' && x.file.size > MAX_VIDEO) throw new Error(`Too big (${Math.round(x.file.size / 1048576)} MB; ${MAX_VIDEO / 1048576} MB at most).`);
+        x.file = await readFully(x.file, { onProgress: (q) => { x.pct = q; tick(x); } });
+        x.status = 'read';
+      } catch (e) { x.status = 'failed'; x.stage = 'read'; x.error = e.message; }
+      draw();
+    }
+    async function prep(x, many) {
+      if (!items.includes(x)) return;
+      x.status = 'preparing'; x.pct = 1; draw();
+      try {
+        if (x.kind === 'video') {
+          const v = await prepareVideo(x.file); x.video = v.video; x.image = v.still; x.videoId = null; x.imageId = null;
+          if (x.file.size > 24 * 1048576 && connected()) err.textContent = 'A video over 24 MB stays on this device and won\'t play on your other devices.';
+        } else {
+          const b = (await photoFrom(x.file, false)) ?? (many ? await prepare(x.file, 1440, false) : null);
+          if (!b) { const k = items.indexOf(x); if (k >= 0) items.splice(k, 1); cur = Math.min(cur, Math.max(0, items.length - 1)); changed(); return; }
+          x.image = b; x.original = x.file; x.imageId = null;
+        }
+        x.status = 'ready';
+      } catch (e) { x.status = 'failed'; x.stage = 'prep'; x.error = e.message; }
+      changed();
+    }
+    async function retry(x) { if (x.stage === 'read') await load(x); if (x.status === 'read' || x.stage === 'prep') await prep(x, false); }
+    async function take(picked) {
+      err.textContent = ''; const room = MAX_ITEMS - items.length; const files = [...picked].slice(0, room);
+      if (picked.length > room) err.textContent = `${MAX_ITEMS} at most in one post.`;
+      const added = files.map((f) => ({ key: ++mediaKey, kind: isVideo(f) ? 'video' : 'photo', name: f.name, file: f, status: 'reading', pct: 0, image: null, video: null, imageId: null, videoId: null }));
+      if (!added.length) return;
+      const was = items.length; items.push(...added); if (!items[cur]?.image) cur = was; changed();
+      // (All read first, while the phone still has them; then each prepared.)
+      for (const x of added) await load(x);
+      for (const x of added) if (x.status === 'read') { await prep(x, added.length > 1); if (x.status === 'ready' && items.includes(x) && !items[cur]?.image) cur = items.indexOf(x); }
+      draw();
+    }
+    draw();
+    return {
+      box: el('div', { class: 'so-media' }, prev, list, el('div', { class: 'so-row' }, again, addLabel), err),
+      items, err, take,
+      ready: () => items.filter((x) => x.status === 'ready' && (x.image || x.video)),
+      busy: () => items.some((x) => ['reading', 'read', 'preparing'].includes(x.status)),
+      failed: () => items.filter((x) => x.status === 'failed').length,
+    };
+  }
+
   // ---- A new post: photos (each edited first) and videos (with their sound), up to ten in one post.
   function newPost() {
     const m = me(); const tags = new Set();
-    /** Its items: { kind, image (the photo, or a video's still), video, original (the photo as picked) }. */
-    const items = []; let cur = 0;
+    const owner = state.accounts.find((a) => a.owner);
+    // (The Owner's tagged in every new post (but its own).)
+    if (owner && owner.id !== m.id) tags.add(owner.id);
     // (A draft opened again: its photos and videos, caption and tags.)
     const draft = view.draft ? postById(state, view.draft) : null;
     const collabs = new Set(draft?.draft ? (draft.collab ?? []).map((c) => c.id) : []);
-    if (draft && draft.by === m.id && draft.draft) { for (const it of mediaOf(draft)) if (it.image || it.video) items.push({ kind: it.kind, image: it.image, video: it.video, original: it.image }); for (const t of draft.tags ?? []) tags.add(t); }
-    const prev = el('div', { class: 'so-new-prev' }, el('span', { class: 'muted', text: 'Pick photos or videos' }));
-    const strip = el('div', { class: 'so-new-strip', role: 'list', 'aria-label': 'In this post' });
-    const file = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, class: 'so-file', 'aria-label': 'Photo or video' });
-    const more = el('input', { type: 'file', accept: 'image/*,video/*', multiple: true, class: 'so-file', 'aria-label': 'Add more photos or videos' });
+    const mine = draft && draft.by === m.id && draft.draft;
+    if (mine) for (const t of draft.tags ?? []) tags.add(t);
     const caption = el('textarea', { class: 'so-input', rows: '3', placeholder: 'Write a caption…', 'aria-label': 'Caption', maxlength: '2200' });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const tagBox = tagPicker(tags, m.id);
     if (draft?.draft) caption.value = draft.caption;
     const share = el('button', { type: 'button', class: 'btn primary', text: 'Share', disabled: true });
     const saveDraft = el('button', { type: 'button', class: 'btn', text: draft?.draft ? 'Save draft' : 'Save as draft', disabled: true });
-    const again = el('button', { type: 'button', class: 'btn', text: 'Edit photo', hidden: true });
-    const addLabel = el('label', { class: 'btn so-add-more', hidden: true }, '＋ Add more', more);
-    const show = () => {
-      const it = items[cur];
-      fill(prev, !it ? el('span', { class: 'muted', text: 'Pick photos or videos' }) : it.kind === 'video' ? el('video', { src: urlOf(it.video), poster: urlOf(it.image), controls: true, playsinline: true, 'aria-label': 'Your video' }) : el('img', { src: urlOf(it.image), alt: 'Your photo' }));
-      fill(strip, items.length > 1 ? items.map((x, i) => el('div', { class: `so-new-thumb${i === cur ? ' on' : ''}`, role: 'listitem' },
-        el('button', { type: 'button', class: 'so-new-thumb-pick', 'aria-label': `${x.kind === 'video' ? 'Video' : 'Photo'} ${i + 1}`, onclick: () => { cur = i; show(); } }, el('img', { src: urlOf(x.image), alt: '' }), x.kind === 'video' ? el('span', { class: 'so-tile-badge', text: '▶︎' }) : null),
-        el('button', { type: 'button', class: 'so-new-thumb-x', 'aria-label': `Remove ${i + 1}`, text: '✕', onclick: () => { items.splice(i, 1); cur = Math.min(cur, items.length - 1); show(); } }))) : null);
-      share.disabled = !items.length; saveDraft.disabled = !items.length && !caption.value.trim(); again.hidden = !(it && it.kind === 'photo'); addLabel.hidden = !items.length || items.length >= MAX_ITEMS;
+    const sync = () => {
+      const busy = mx.busy(); const n = mx.ready().length;
+      share.disabled = !n || busy; share.textContent = busy ? 'Loading files…' : 'Share';
+      saveDraft.disabled = busy || (!n && !caption.value.trim());
     };
-    again.addEventListener('click', async () => { const it = items[cur]; try { const b = await photoFrom(it.original, false); if (b) { it.image = b; show(); } } catch (e) { err.textContent = e.message; } });
-    // (Each picked file in turn: a video as it is, a photo through the editor (Cancel: as it is).)
-    const take = async (list) => {
-      err.textContent = ''; const room = MAX_ITEMS - items.length; const files = [...list].slice(0, room);
-      if (list.length > room) err.textContent = `${MAX_ITEMS} at most in one post.`;
-      for (const [fi, f] of files.entries()) {
-        if (files.length > 1) showUp(`Preparing ${fi + 1} of ${files.length}…`, fi / files.length);
-        try {
-          if (/^video\//.test(f.type) || /\.(mov|mp4|m4v|webm)$/i.test(f.name)) {
-            if (f.size > MAX_VIDEO) throw new Error(`"${f.name}" is too big (${Math.round(f.size / 1048576)} MB; ${MAX_VIDEO / 1048576} MB at most).`);
-            const v = await prepareVideo(f); items.push({ kind: 'video', image: v.still, video: v.video });
-            if (f.size > 24 * 1048576 && connected()) err.textContent = 'A video over 24 MB stays on this device and won\'t play on your other devices.';
-          } else {
-            const b = (await photoFrom(f, false)) ?? (files.length > 1 ? await prepare(f, 1440, false) : null);
-            if (b) items.push({ kind: 'photo', image: b, original: f });
-          }
-          cur = items.length - 1; show();
-        } catch (e) { err.textContent = e.message; }
-      }
-      if (files.length > 1) { showUp(`${files.length} ready to post`, 1, true); hideUp(1500); }
-    };
-    file.addEventListener('change', () => { const l = [...(file.files ?? [])]; file.value = ''; if (l.length) take(l); });
-    more.addEventListener('change', () => { const l = [...(more.files ?? [])]; more.value = ''; if (l.length) take(l); });
-    caption.addEventListener('input', () => { saveDraft.disabled = !items.length && !caption.value.trim(); });
+    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video })) : [], { onChange: () => sync() });
+    caption.addEventListener('input', sync);
     const make = (asDraft) => {
-      const [first, ...rest] = items;
-      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...new Set([...tags, ...collabs])], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft });
+      const [first, ...rest] = mx.ready();
+      const all = new Set([...tags, ...collabs]); if (owner && owner.id !== m.id) all.add(owner.id);
+      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...all], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft });
       if (draft?.draft) removePost(state, draft.id); // (the draft it was: replaced)
       // (Its collaborators: asked now if it's shared; when a draft is, they're asked when it's shared.)
       setCollabs(state, p.id, [...collabs]);
       return p;
     };
     share.addEventListener('click', async () => {
-      if (!items.length) return;
+      const ready = mx.ready(); if (!ready.length || mx.busy()) return;
+      if (mx.failed() && !confirm(`${mx.failed()} file${mx.failed() === 1 ? '' : 's'} couldn't load. Share without ${mx.failed() === 1 ? 'it' : 'them'}?`)) return;
       share.disabled = true;
       try {
         showUp('Posting… saving to this phone', 0.15);
@@ -788,31 +868,44 @@ function mountAdmin(host) {
         // (A few of the other accounts say something nice about it.)
         if (autoOn()) autoComment(state, p.id);
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
-        go(items[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
+        go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
         // (Then to Saved Files straight away, its progress shown; else it's posted here.)
         if (connected() && sessionPw && navigator.onLine !== false) { posting = true; showUp('Uploading to Saved Files…', 0.4); runSync(); }
         else { showUp(connected() ? 'Posted ✓ (it uploads to Saved Files when it can)' : 'Posted ✓', 1, true); hideUp(2400); }
       } catch (e) { err.textContent = e.message; share.disabled = false; upbar.hidden = true; }
     });
     saveDraft.addEventListener('click', () => { try { make(true); save(); toast('Saved to your drafts (your profile → ✎)'); go({ name: 'profile', id: m.id, grid: 'drafts' }); } catch (e) { err.textContent = e.message; } });
-    if (items.length) requestAnimationFrame(show);
+    sync();
     return el('div', {}, backBar(draft?.draft ? `Draft · @${m.handle}` : `New post as @${m.handle}`, draft?.draft ? { name: 'profile', id: m.id, grid: 'drafts' } : { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, el('label', { class: 'so-new-pick' }, prev, file), strip, el('div', { class: 'so-row' }, again, addLabel), caption, communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
+      el('div', { class: 'so-pad so-new' }, mx.box, caption, communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
         draft?.draft ? el('button', { type: 'button', class: 'so-link so-danger-link', text: 'Delete draft', onclick: () => { if (confirm('Delete this draft?')) { removePost(state, draft.id); save(); go({ name: 'profile', id: m.id, grid: 'drafts' }); } } }) : null));
   }
 
-  // ---- Editing a post: its caption, and its photo (through the editor again).
+  // ---- Editing a post: its photos and videos (add, remove, reorder, edit a photo again), caption, tags, collabs.
   function editPostView(id) {
     const p = postById(state, id); if (!p || p.by !== state.me) return feed();
-    let img = null; const tags = new Set(p.tags ?? []); const collabs = new Set((p.collab ?? []).filter((c) => c.status !== 'declined').map((c) => c.id));
-    const prev = el('div', { class: 'so-new-prev so-edit-prev' }, p.kind === 'video' ? el('video', { src: urlOf(p.video), poster: urlOf(p.image) ?? undefined, controls: true, playsinline: true }) : el('img', { src: urlOf(p.image), alt: 'The photo' }));
+    const tags = new Set(p.tags ?? []); const collabs = new Set((p.collab ?? []).filter((c) => c.status !== 'declined').map((c) => c.id));
     const caption = el('textarea', { class: 'so-input', rows: '4', 'aria-label': 'Caption', maxlength: '2200' }); caption.value = p.caption;
     const err = el('p', { class: 'so-err', role: 'alert' });
     const tagBox = tagPicker(tags, p.by);
-    const photo = p.kind === 'photo' && p.image ? el('button', { type: 'button', class: 'btn', text: 'Edit photo (fit, filter, adjust)', onclick: async () => { try { const b = await photoFrom(img ?? p.image, false); if (b) { img = b; prev.replaceChildren(el('img', { src: urlOf(b), alt: 'The photo' })); } } catch (e) { err.textContent = e.message; } } }) : null;
+    const saveBtn = el('button', { type: 'button', class: 'btn primary', text: 'Save' });
+    const sync = () => { const busy = mx.busy(); saveBtn.disabled = busy || !mx.ready().length; saveBtn.textContent = busy ? 'Loading files…' : 'Save'; };
+    const mx = mediaEditor(mediaOf(p).map((it) => ({ kind: it.kind, image: it.image, imageId: it.imageId, video: it.video, videoId: it.videoId })), { onChange: () => sync() });
+    saveBtn.addEventListener('click', async () => {
+      if (mx.busy() || !mx.ready().length) return;
+      try {
+        setMedia(state, id, mx.ready().map((x) => ({ kind: x.kind, image: x.image, imageId: x.imageId, video: x.kind === 'video' ? x.video : null, videoId: x.kind === 'video' ? x.videoId : null })));
+        editPost(state, id, { caption: caption.value, tags: [...new Set([...tags, ...collabs])] });
+        const sent = setCollabs(state, id, [...collabs]);
+        await saveState(state); edits++; store.set(DIRTY_KEY, '1');
+        if (sent.length) toast(`Collab request sent to ${sent.map((x) => `@${accountById(state, x)?.handle}`).join(', ')}`);
+        go({ name: 'post', id });
+        if (connected() && sessionPw && navigator.onLine !== false) { posting = true; showUp('Uploading to Saved Files…', 0.4); runSync(); }
+      } catch (e) { err.textContent = e.message; }
+    });
+    sync();
     return el('div', {}, backBar('Edit post', { name: 'post', id }),
-      el('div', { class: 'so-pad so-new' }, prev, photo, caption, communityPicker(caption), tagBox, collabPicker(collabs, p.by, (cid) => p.collab?.find((c) => c.id === cid)?.status ?? null, { set: tags, box: tagBox }), err,
-        el('button', { type: 'button', class: 'btn primary', text: 'Save', onclick: () => { editPost(state, id, { caption: caption.value, image: img, tags: [...new Set([...tags, ...collabs])] }); const sent = setCollabs(state, id, [...collabs]); save(); if (sent.length) toast(`Collab request sent to ${sent.map((x) => `@${accountById(state, x)?.handle}`).join(', ')}`); go({ name: 'post', id }); } })));
+      el('div', { class: 'so-pad so-new' }, mx.box, caption, communityPicker(caption), tagBox, collabPicker(collabs, p.by, (cid) => p.collab?.find((c) => c.id === cid)?.status ?? null, { set: tags, box: tagBox }), err, saveBtn));
   }
 
   // ---- Reels: everyone's videos, one at a time, full height; swipe up for the next. Each plays when it's

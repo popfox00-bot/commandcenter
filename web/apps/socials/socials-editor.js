@@ -213,6 +213,29 @@ export async function prepareVideo(file, { timeout = 90000 } = {}) {
   } finally { URL.revokeObjectURL(url); }
 }
 
+/**
+ * Several frames from across a video (at 10%, 35%, 60% and 85% of it, `n` of them), small, for reading what it
+ * shows: [Blob] (as many as could be had; [] if none). Each seek given a few seconds at most.
+ */
+export async function videoFrames(file, { n = 4, edge = 320, wait = 4000 } = {}) {
+  const url = URL.createObjectURL(file); const out = [];
+  try {
+    const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto';
+    await new Promise((ok, bad) => { const t = setTimeout(() => bad(new Error('slow')), 30000); v.onloadedmetadata = () => { clearTimeout(t); ok(); }; v.onerror = () => { clearTimeout(t); bad(new Error('unplayable')); }; v.src = url; v.load?.(); });
+    const d = Number.isFinite(v.duration) ? v.duration : 0; if (!d) return out;
+    const at = n <= 1 ? [0.35] : Array.from({ length: n }, (_, i) => 0.1 + (0.75 * i) / (n - 1));
+    for (const q of at) {
+      const ok = await new Promise((res) => { const t = setTimeout(() => res(false), wait); v.onseeked = () => { clearTimeout(t); res(true); }; v.currentTime = Math.min(d - 0.05, Math.max(0, d * q)); });
+      if (!ok || !v.videoWidth) continue;
+      const f = fitSize(v.videoWidth, v.videoHeight, edge);
+      const c = document.createElement('canvas'); c.width = f.width; c.height = f.height;
+      c.getContext('2d').drawImage(v, 0, 0, f.width, f.height);
+      out.push(await canvasToBlob(c, 'image/jpeg', 0.75));
+    }
+  } catch { /* what could be had */ } finally { URL.revokeObjectURL(url); }
+  return out;
+}
+
 /** A plain still (dark, with ▶) for a video no frame could be taken from yet. */
 async function plainStill() {
   const c = document.createElement('canvas'); c.width = 720; c.height = 1280; const g = c.getContext('2d');

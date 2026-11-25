@@ -19,6 +19,15 @@ brings them back); **Jobs** is opened from Settings. **Recent edits** (unfinishe
 to continue) are shown in the apps they belong to: Files (all of its own), the Photo Editor (its other
 parts': a collage in progress, seen from Edit), and Magic (FM, Reverse Fill, Fashion).
 
+**The Dock.** Along the bottom of every screen of the app's own (Home, each app, Jobs), a short bar: in its
+middle a rounded square (the app's icon) that goes back to the home screen, and two **Favorites** on each side,
+each opening its app in one tap (the one you're in outlined). To start: Notes and Clock on the left, Socials and
+Calculator on the right. Hold one down (or right-click it) to pick another app for that place, or use Settings →
+**Dock** (Left 1, Left 2, Right 1, Right 2); picking one already in the Dock swaps the two. Kept on the phone.
+The hidden area's apps are never offered. It steps out of the way while you type (the keyboard's up), and
+anything full screen sits over it; Socials' own tab bar sits just above it (`web/lib/dock.js`). Apps with a page
+of their own (WorldAtlas, Trade Desk, Inkling, Laundry Timer, Games) keep their own look, without it.
+
 - **No zooming in on a phone**: every text box and picker is 16px at least, app-wide (`styles.css`, each imported page's `cc-frame.css`), and each page's viewport has `maximum-scale=1`, so iPhone Safari never zooms in when one is tapped; `test/browser/converter.e2e.js` checks every app and page.
 - **Everything but Weather and Sports works offline** (after the first visit, from the phone's cache): Calendar,
   Notes, Files, FM, Draw, QR, Rap, Games and Settings; `test/browser/offline.e2e.js` opens and uses each
@@ -1305,7 +1314,8 @@ Profile, ✈ for messages), where everything is made by you in the app.
   the two of you, a group), its light (a sunset's warm sky, night, snow), and from the file's EXIF when it was
   taken (an early start, a night out) and where (the nearest known place: "Boulder looks amazing"). The comments
   left on a new post when it's shared are made the same way. A photo posted before is read the first time
-  ✨ Generate is used on it.
+  ✨ Generate is used on it. A video is read from four frames across it (not just its still), what's seen in
+  most of them counting most, and an iPhone video's own record of when and where it was filmed.
 - **✨ Suggest caption.** When posting, a caption from what the first photo shows (and when and where): words
   for it, an emoji, 📍 the place and a few hashtags; tap again for another (it replaces the last suggestion,
   else goes under what you wrote). In a chat, after the Owner sends a message, ✨

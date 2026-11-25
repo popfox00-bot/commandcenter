@@ -158,27 +158,27 @@ test('Settings: every card after App version folded until tapped; their order ch
   await page.goto(`${origin}${BASE}#/settings`);
   await page.waitForSelector('.st-sections .st-fold');
   const order = () => page.$$eval('.st-sections > [data-id]', (n) => n.map((x) => x.dataset.id));
-  assert.deepEqual(await order(), ['home', 'background', 'saved', 'storage', 'diagnostics', 'suggest', 'jobs']);
+  assert.deepEqual(await order(), ['home', 'dock', 'background', 'saved', 'storage', 'diagnostics', 'suggest', 'jobs']);
   assert.equal(await page.locator('.st > section.card h2').first().textContent(), 'App version', 'App version first');
   assert.ok(await page.getByRole('button', { name: 'Update to Latest Version' }).isVisible(), 'and open');
   assert.equal(await page.locator('details.st-fold[open]').count(), 0, 'the rest folded');
   assert.equal(await page.locator('.st-move-btn').count(), 0, 'no ↑ ↓ buttons');
   // Dragged by its ☰: Storage up two places (the card doesn't open).
   await dragRow(page, '.st-sections', 'storage', -2);
-  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'diagnostics', 'suggest', 'jobs']);
+  assert.deepEqual(await order(), ['home', 'dock', 'storage', 'background', 'saved', 'diagnostics', 'suggest', 'jobs']);
   assert.equal(await page.locator('details.st-fold[open]').count(), 0);
   // On the keyboard: the focused ☰ moves its card with ↑.
   await page.getByRole('button', { name: /Reorder Jobs/ }).focus();
   await page.keyboard.press('ArrowUp');
-  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'diagnostics', 'jobs', 'suggest']);
+  assert.deepEqual(await order(), ['home', 'dock', 'storage', 'background', 'saved', 'diagnostics', 'jobs', 'suggest']);
   await page.reload();
   await page.waitForSelector('.st-sections .st-fold');
-  assert.deepEqual(await order(), ['home', 'storage', 'background', 'saved', 'diagnostics', 'jobs', 'suggest'], 'kept after a reload');
+  assert.deepEqual(await order(), ['home', 'dock', 'storage', 'background', 'saved', 'diagnostics', 'jobs', 'suggest'], 'kept after a reload');
   // (An open card stays open when it's moved.)
   await page.locator('summary', { hasText: 'Background' }).click();
   await page.getByRole('button', { name: /Reorder Background/ }).focus();
   await page.keyboard.press('ArrowUp');
-  await page.waitForFunction(() => document.querySelector('.st-sections > [data-id]:nth-child(2)')?.dataset.id === 'background');
+  await page.waitForFunction(() => document.querySelector('.st-sections > [data-id]:nth-child(3)')?.dataset.id === 'background');
   assert.equal(await page.locator('details.st-fold[data-id="background"]').getAttribute('open'), '');
   assert.ok(await page.locator('[aria-label="Background Midnight"]').isVisible());
   assert.deepEqual(errors, []);

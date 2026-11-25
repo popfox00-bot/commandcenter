@@ -16,7 +16,7 @@ import { connected } from '../../lib/saved-files.js';
 import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePasskey, removePasskey, passkeyOf } from '../../lib/passkey.js';
 import { syncSocials, remoteHeader, opens, changeRemotePassword, isRecoveryKey, WrongPassword, pendingFiles } from './socials-sync.js';
 import { sniffType, decodeImage, fitSize, canvasToBlob } from '../../lib/image.js';
-import { editPhoto, prepareVideo } from './socials-editor.js';
+import { editPhoto, prepareVideo, videoFrames } from './socials-editor.js';
 import { readFully, isVideo } from '../../lib/read-file.js';
 import { dragHandle, sortable } from '../../lib/drag-sort.js';
 import {
@@ -27,7 +27,7 @@ import {
   cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, generateReply, suggestCaption } from './socials-predict.js';
-import { readPhoto } from './socials-vision.js';
+import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
@@ -449,7 +449,7 @@ function mountAdmin(host) {
       // (What its photo shows: read once, the first time (posts from before kept it too).)
       if (p.scene === undefined && p.image) {
         const label = btn.textContent; btn.textContent = '…'; btn.disabled = true;
-        try { p.scene = cleanScene(await readPhoto(p.image)); } catch { p.scene = null; }
+        try { p.scene = cleanScene(p.kind === 'video' && p.video ? await readVideo(await videoFrames(p.video).then((fr) => (fr.length ? fr : [p.image])), { file: p.video }) : await readPhoto(p.image)); } catch { p.scene = null; }
         btn.textContent = label; btn.disabled = false;
       }
       let who;
@@ -815,7 +815,8 @@ function mountAdmin(host) {
     /** What a file's photo shows (read once, in the background): a promise of its scene. */
     function sceneOf(x) {
       if (!x?.image) return Promise.resolve(null);
-      x.sceneP ??= readPhoto(x.image, { file: x.kind === 'photo' && x.file instanceof Blob ? x.file : null }).then((v) => (x.scene = v), () => (x.scene = null));
+      // (A video: several frames from across it, not just its still.)
+      x.sceneP ??= (x.kind === 'video' && x.video ? videoFrames(x.video).then((fr) => readVideo(fr.length ? fr : [x.image], { file: x.file instanceof Blob ? x.file : x.video })) : readPhoto(x.image, { file: x.kind === 'photo' && x.file instanceof Blob ? x.file : null })).then((v) => (x.scene = v), () => (x.scene = null));
       return x.sceneP;
     }
     async function retry(x) { if (x.stage === 'read') await load(x); if (x.status === 'read' || x.stage === 'prep') await prep(x, false); }

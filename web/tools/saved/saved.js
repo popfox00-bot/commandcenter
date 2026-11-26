@@ -11,6 +11,8 @@ import { getConfig, savedFiles, secureFiles, knownHeader, isKitFile, KIT_FOLDER,
 import { unlocked, lock } from '../../lib/vault.js';
 import { unlockForm } from '../../lib/vault-ui.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
+import { listFavs, addFav, removeFav, favoritesView } from './favorites.js';
+import { openScanner, openMatches, scannable } from './scanner.js';
 
 /** A colour-coded tile: the kind's colour and emoji, with the extension under it. */
 function icon(f) {
@@ -28,6 +30,9 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   // The folder shown ('' : the main one), the path down to it, and its folders (null: the script has no folders).
   let here = ''; let path = []; let folders = [];
   const where = () => (here ? { id: here } : '');
+  // (Starred files: their ids, for the ☆ on each; the Favorites view when it's open.)
+  let favIds = new Set(); let inFavs = false;
+  listFavs().then((l) => { favIds = new Set(l.map((x) => x.id)); if (!inFavs && api) render(); });
 
   // Connecting (the script's URL and access key) is done in Settings → Saved Files.
   function notConnected() {
@@ -38,6 +43,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   }
 
   async function show(note = '') {
+    if (inFavs) return;
     const cfg = getConfig();
     if (!cfg) { notConnected(); return; }
     api = secureFiles(savedFiles(cfg));
@@ -88,6 +94,22 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     dlg.addEventListener('close', () => { dlg.remove(); URL.revokeObjectURL(u); });
     document.body.append(dlg);
     dlg.showModal();
+  }
+
+  // (☆: a file starred, its card made from it (it's downloaded once for that); ★: taken off.)
+  async function toggleFav(f) {
+    if (favIds.has(f.id)) { const l = await removeFav(f.id); favIds = new Set(l.map((x) => x.id)); render(`"${f.name}" taken off your favorites.`); return; }
+    let file = null;
+    if (!await act(`Adding "${f.name}" to your favorites…`, async () => { file = await api.download(f.id); })) return;
+    busy = `Adding "${f.name}" to your favorites…`; render();
+    try { const l = await addFav(f, file); favIds = new Set(l.map((x) => x.id)); busy = ''; render(`★ "${f.name}" is in your favorites.`); } catch (err) { busy = ''; render('', err.message); }
+  }
+  function openFavs() {
+    inFavs = true;
+    favoritesView(root, {
+      onBack: () => { inFavs = false; listFavs().then((l) => { favIds = new Set(l.map((x) => x.id)); show(); }); },
+      onOpen: async (fav) => { const cfg = getConfig(); if (!cfg) return; api ??= secureFiles(savedFiles(cfg)); try { view(await api.download(fav.id)); } catch (err) { alert(`Couldn't open it: ${err.message}`); } },
+    });
   }
 
   async function encrypt(list) {
@@ -190,6 +212,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
         el('span', { class: 'muted small', text: [f.locked ? '' : size(f.size), new Date(f.updated).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), f.encrypted && !f.locked ? '🔒 encrypted' : isKit(f) ? 'decryption kit' : vault ? 'not encrypted' : ''].filter(Boolean).join(' · ') })),
       f.locked ? null : el('span', { class: 'row wrap sv-actions' },
         el('button', { class: 'btn small-btn', text: 'Open', disabled: !!busy, onclick: () => open(f, view) }),
+        el('button', { class: `btn small-btn${favIds.has(f.id) ? ' sv-fav-on' : ''}`, text: favIds.has(f.id) ? '★' : '☆', 'aria-label': favIds.has(f.id) ? `Unfavorite ${f.name}` : `Favorite ${f.name}`, 'aria-pressed': String(favIds.has(f.id)), disabled: !!busy, onclick: () => toggleFav(f) }),
         vault && unlockedNow && !f.encrypted && !isKit(f) ? el('button', { class: 'btn small-btn', text: '🔒 Encrypt', 'aria-label': `Encrypt ${f.name}`, disabled: !!busy, onclick: () => encrypt([f]) }) : null,
         f.type?.startsWith('image/') && onEdit ? el('button', { class: 'btn small-btn', text: 'Edit', disabled: !!busy, onclick: () => open(f, onEdit) }) : null,
         f.type === 'application/pdf' && onWrite ? el('button', { class: 'btn small-btn', text: 'Write on it', disabled: !!busy, onclick: () => open(f, onWrite) }) : null,
@@ -207,6 +230,10 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
           el('button', { class: 'btn small-btn ghost', text: '⟳', 'aria-label': 'Refresh', disabled: !!busy, onclick: () => show() }),
           el('a', { class: 'btn small-btn ghost', href: '#/settings/saved', text: 'Settings' }))),
       vault && !unlockedNow ? unlockForm(() => show('Unlocked until the app is closed or reloaded.')) : null,
+      el('button', { type: 'button', class: 'btn block sv-favs-btn', text: `★ Favorites${favIds.size ? ` (${favIds.size})` : ''}`, onclick: openFavs }),
+      el('div', { class: 'row wrap sv-tools' },
+        el('button', { type: 'button', class: 'btn small-btn', text: '🔎 Scan for characters', disabled: !!busy || !files.some(scannable), onclick: () => openScanner(files, { download: (id) => api.download(id) }) }),
+        el('button', { type: 'button', class: 'btn small-btn ghost', text: '⚙ Character matches', onclick: () => openMatches() })),
       crumbs,
       vault && !unlockedNow ? null : el('label', { class: `btn primary block${busy ? ' disabled' : ''}`, for: 'sv-file', text: `+ Save files ${here ? 'here' : 'to Drive'}${vault ? ' (encrypted)' : ''}` }), picker,
       folders ? el('button', { class: 'btn small-btn', text: '+ New folder', disabled: !!busy, onclick: newFolder }) : null,
@@ -221,5 +248,5 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   }
 
   show();
-  return { show: () => { if (getConfig() && !busy) show(); } };
+  return { show: () => { if (getConfig() && !busy && !inFavs) show(); } };
 }

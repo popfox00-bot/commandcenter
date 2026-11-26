@@ -80,16 +80,8 @@ test('suggestions: the Drive file lists each with its date and id, a line each (
   assert.match(toMarkdown([], new Date()), /\(none\)/);
 });
 
-test('the hidden area: opened by its tap sequence, in order, within 20 seconds; any other order or a pause doesn\'t', async () => {
-  const { sequenceWatcher, SEQUENCE } = await import('../web/lib/hidden-lock.js');
-  assert.deepEqual(SEQUENCE, ['cutout', 'photo', 'collage', 'photo', 'cutout', 'collage', 'cutout']);
-  let w = sequenceWatcher();
-  const run = (taps, t0 = 0, gap = 500) => taps.map((t, i) => w(t, t0 + i * gap));
-  assert.deepEqual(run(SEQUENCE), [false, false, false, false, false, false, true]);
-  w = sequenceWatcher();
-  assert.equal(run(['photo', ...SEQUENCE]).at(-1), true, 'extra taps before it don\'t matter');
-  w = sequenceWatcher();
-  assert.equal(run(['cutout', 'photo', 'collage', 'photo', 'cutout', 'cutout', 'collage']).at(-1), false, 'out of order');
-  w = sequenceWatcher();
-  assert.equal(run(SEQUENCE, 0, 4000).at(-1), false, 'too slow (24 s)');
+test('the Vault has no secret tap sequence any more (it\'s opened from Files\' settings → Admin)', async () => {
+  const lock = await import('../web/lib/hidden-lock.js');
+  assert.equal(lock.sequenceWatcher, undefined); assert.equal(lock.SEQUENCE, undefined);
+  assert.equal(typeof lock.tryPassword, 'function');
 });

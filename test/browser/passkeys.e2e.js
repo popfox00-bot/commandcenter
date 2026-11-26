@@ -39,25 +39,25 @@ test('Face ID opens the hidden area as well as its password; turned off, only th
   await page.goto(`${origin}${BASE}index.html#/hidden`);
   await page.getByLabel('New password').fill('secret1'); await page.getByLabel('The same again').fill('secret1');
   await page.getByRole('button', { name: 'Set password' }).click();
-  await page.getByText('Welcome!').waitFor();
+  await page.locator('.hid-welcome').waitFor();
   await page.getByRole('button', { name: 'Set up Face ID' }).click();
   await page.getByRole('button', { name: 'Turn off Face ID' }).waitFor();
   // Locked: Face ID opens it.
   await page.getByRole('button', { name: '🔒 Lock' }).click();
   await page.goto(`${origin}${BASE}index.html#/hidden`);
   await page.getByRole('button', { name: '🔓 Use Face ID' }).click();
-  await page.getByText('Welcome!').waitFor();
+  await page.locator('.hid-welcome').waitFor();
   // (A failed Face ID: not opened.)
   await page.getByRole('button', { name: '🔒 Lock' }).click();
   await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
   await page.goto(`${origin}${BASE}index.html#/hidden`);
   await page.getByRole('button', { name: '🔓 Use Face ID' }).click();
   await page.waitForTimeout(800);
-  assert.equal(await page.getByText('Welcome!').count(), 0, 'not opened by a failed Face ID');
+  assert.equal(await page.locator('.hid-welcome').count(), 0, 'not opened by a failed Face ID');
   await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: true });
   // The password still opens it; turning Face ID off removes the button.
   await page.getByLabel('Password').fill('secret1'); await page.getByRole('button', { name: 'Open' }).click();
-  await page.getByText('Welcome!').waitFor();
+  await page.locator('.hid-welcome').waitFor();
   await page.getByRole('button', { name: 'Turn off Face ID' }).click();
   await page.getByRole('button', { name: '🔒 Lock' }).click();
   await page.goto(`${origin}${BASE}index.html#/hidden`); await page.getByLabel('Password').waitFor();

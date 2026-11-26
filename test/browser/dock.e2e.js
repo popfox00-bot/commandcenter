@@ -54,7 +54,7 @@ test('the Dock: Home in the middle, four Favorites; open an app, go Home, change
   // Typing: the Dock steps out of the way.
   await page.goto(`${origin}${BASE}index.html#/clock`); await page.locator('#app-host').waitFor();
   // (A text box in the page, as any app's: typing in it is what counts.)
-  await page.evaluate(() => { const i = document.createElement('input'); i.type = 'text'; i.id = 'dock-test-input'; i.setAttribute('aria-label', 'Test text'); document.querySelector('#app-host').prepend(i); });
+  await page.evaluate(() => { const i = document.createElement('input'); i.type = 'text'; i.id = 'dock-test-input'; i.setAttribute('aria-label', 'Test text'); document.body.append(i); });
   const box2 = page.locator('#dock-test-input'); await box2.waitFor();
   await page.waitForTimeout(300); await box2.click();
   await page.waitForFunction(() => document.body.classList.contains('dock-typing'), null, { timeout: 3000 });

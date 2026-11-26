@@ -5,7 +5,7 @@
 // (with their sound) from any of them, follow one from another, like, comment and message; Home shows the
 // posts of the accounts the one you're using follows, Reels everyone's videos. All of it is kept on this phone
 // (IndexedDB, photos and videos included) and stays after a reload.
-// Behind its own password (as the hidden area is: only a salted hash kept), asked each time the app starts.
+// Behind its own password (as the Vault is: only a salted hash kept), asked each time the app starts.
 // With Saved Files set up, it's also kept in your own Google Drive, encrypted with that password on the
 // phone first, so your other devices open the same Socials with the same password (socials-sync.js).
 
@@ -34,6 +34,7 @@ import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
+import { loadBg, showBg, bgSetting } from '../../lib/bg-image.js';
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
 import { handoff } from '../../lib/handoff.js';
 
@@ -81,6 +82,8 @@ const MAX_VIDEO = 300 * 1024 * 1024;
  * front's settings, Admin, behind Socials' own password or Face ID.
  */
 export function mount(host) {
+  // (Socials' own background picture, if one's set: behind the Sports front too.)
+  loadBg('socials').then((b) => { if (host.isConnected) showBg(b); });
   if ((location.hash.split('/')[2] ?? '') === 'admin') return mountAdmin(host);
   let undo = sportsFront(host, { onAdmin: () => { undo?.(); host.replaceChildren(); undo = mountAdmin(host); } });
   return () => undo?.();
@@ -92,6 +95,16 @@ function mountAdmin(host) {
   let alive = true;
   const urls = new Map(); // Blob → object URL, made once each.
   const urlOf = (b) => { if (!b) return null; let u = urls.get(b); if (!u) { u = URL.createObjectURL(b); urls.set(b, u); } return u; };
+  // (Background pictures: Socials' own, and an account's on its profile page, kept on this phone.)
+  let appBg = null; const profileBgs = new Map();
+  loadBg('socials').then((b) => { appBg = b; applyBg(); });
+  function applyBg() {
+    if (!alive) return;
+    const id = view.name === 'profile' ? (view.id ?? state.me) : null;
+    if (id && !profileBgs.has(id)) { profileBgs.set(id, undefined); loadBg(`socials.profile.${id}`).then((b) => { profileBgs.set(id, b); applyBg(); }); }
+    const pb = id ? profileBgs.get(id) : null;
+    showBg(pb || appBg);
+  }
   let edits = 0;
   const save = () => { saveState(state); edits++; store.set(DIRTY_KEY, '1'); soon(); };
   /** How many files are waiting to be saved to Drive (Saved Files). */
@@ -788,6 +801,7 @@ function mountAdmin(host) {
     return el('div', { class: 'so-form' },
       el('label', { class: 'so-form-pic' }, prev, el('span', { class: 'so-link', text: a?.avatar ? 'Change profile photo' : 'Add profile photo' }), file),
       handle, name, bio, kindPick, err,
+      a ? bgSetting(`socials.profile.${a.id}`, 'Profile background', (b) => { profileBgs.set(a.id, b); applyBg(); }) : null,
       el('button', { type: 'button', class: 'btn primary', text: a ? 'Done' : 'Create account', onclick: submit }));
   }
 
@@ -1440,6 +1454,7 @@ function mountAdmin(host) {
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: replyOn() }); c.addEventListener('change', () => store.set(REPLY_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Replies in messages' }), el('span', { class: 'muted small', text: ' When you message one of your other accounts, it answers by itself a moment later, to what you said and what you\'ve talked about before.' }))) : null,
         me()?.owner ? textSettings() : null,
+        el('div', { class: 'so-bg-settings' }, el('strong', { text: '🖼 Background' }), el('p', { class: 'small muted', text: 'A picture of yours behind all of Socials (an account\'s own, from its Edit profile, shows on its profile page instead). Kept only on this phone.' }), bgSetting('socials', 'Socials background', (b) => { appBg = b; applyBg(); })),
         el('h3', { text: 'Lock' }),
         el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; sessionOpen = false; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
   }
@@ -1475,7 +1490,7 @@ function mountAdmin(host) {
   function draw() {
     if (!alive) return;
     if (!sessionOpen) { gate(); return; }
-    drawBars();
+    drawBars(); applyBg();
     // (The recovery key, once, as soon as nothing's being made.)
     if (sync.pendingKey && ['feed', 'profile', 'people', 'explore', 'settings'].includes(view.name)) { view = { name: 'recovery', key: sync.pendingKey }; sync.pendingKey = null; }
     if (view.name === 'recovery') { fill(main, recovery(view.key)); return; }

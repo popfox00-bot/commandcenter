@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "e4661268bc79",
+  "version": "eb979b314a3f",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",
@@ -116,6 +116,7 @@ const PRECACHE = {
     "icons/icon.svg",
     "index.html",
     "jobs.js",
+    "lib/bg-image.js",
     "lib/calendar.js",
     "lib/characters-io.js",
     "lib/characters.js",
@@ -216,7 +217,9 @@ const PRECACHE = {
     "tools/qr/qr-make.js",
     "tools/qr/qr-parse.js",
     "tools/qr/qr.js",
+    "tools/saved/favorites.js",
     "tools/saved/saved.js",
+    "tools/saved/scanner.js",
     "tools/scan/scan-core.js",
     "tools/scan/scan.js",
     "tools/studio/studio.js",

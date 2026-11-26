@@ -147,25 +147,34 @@ test('Home: each line of the Updates card opens its tab; a game today opens that
   await context.close();
 });
 
-test('the hidden area: the Photo Editor\'s switches tapped in its order ask for a password (set the first time), then Welcome!; locked, asked again', async () => {
+test('the Vault: Files ⚙ settings → Admin asks for its password (set the first time), then opens it; the old tap sequence does nothing; locked, asked again', async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  // The old way (taps on the Photo Editor's switches): nothing.
   await page.goto(`${origin}${BASE}#/files/photo`);
   await page.waitForSelector('.studio-sub:not([hidden]) [role=tab]');
-  const tap = async (label) => { await page.click(`.studio-sub .seg >> text=${label}`); await page.waitForTimeout(150); };
-  for (const label of ['Cutout', 'Edit', 'Collage', 'Edit', 'Cutout', 'Collage']) await tap(label);
-  assert.notEqual(await page.evaluate(() => location.hash), '#/hidden');
-  await tap('Cutout');
+  const tap = async (label) => { await page.click(`.studio-sub .seg >> text=${label}`); await page.waitForTimeout(120); };
+  for (const label of ['Cutout', 'Edit', 'Collage', 'Edit', 'Cutout', 'Collage', 'Cutout']) await tap(label);
+  assert.notEqual(await page.evaluate(() => location.hash), '#/hidden', 'no secret taps any more');
+  // Files' page → ⚙ → Admin.
+  await page.goto(`${origin}${BASE}#/files`);
+  await page.getByRole('button', { name: 'Files settings' }).click();
+  await page.getByRole('dialog', { name: 'Files settings' }).getByRole('button', { name: 'Admin' }).click();
   await page.waitForFunction(() => location.hash === '#/hidden');
   // First time: a password set (twice).
   await page.fill('[aria-label="New password"]', 'fox42');
   await page.fill('[aria-label="The same again"]', 'fox42');
   await page.getByRole('button', { name: 'Set password' }).click();
-  await page.waitForSelector('.hid-welcome >> text=Welcome!');
+  await page.waitForSelector('.hid-welcome >> text=Vault');
   assert.doesNotMatch(await page.evaluate(() => localStorage.getItem('cc.hidden.lock')), /fox42/, 'only a hash kept');
+  // A background picture behind it (a small PNG made in the page).
+  const png = await page.evaluate(async () => { const c = new OffscreenCanvas(40, 30); const x = c.getContext('2d'); x.fillStyle = '#36c'; x.fillRect(0, 0, 40, 30); const b = await c.convertToBlob({ type: 'image/png' }); return [...new Uint8Array(await b.arrayBuffer())]; });
+  await page.getByLabel('Choose a picture for Vault background').setInputFiles({ name: 'bg.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+  await page.waitForFunction(() => { const e = document.querySelector('.cc-bgimg'); return e && !e.hidden && /blob:/.test(e.style.backgroundImage); });
   await page.getByRole('button', { name: /Lock/ }).click();
   await page.waitForFunction(() => location.hash === '#/');
+  await page.waitForFunction(() => document.querySelector('.cc-bgimg')?.hidden === true);
   // Straight to it: the password asked; a wrong one refused, the right one opens it.
   await page.evaluate(() => { location.hash = '#/hidden'; });
   await page.waitForSelector('[aria-label="Password"]');
@@ -174,10 +183,11 @@ test('the hidden area: the Photo Editor\'s switches tapped in its order ask for 
   await page.waitForSelector('text=That isn\'t it.');
   await page.fill('[aria-label="Password"]', 'fox42');
   await page.getByRole('button', { name: 'Open' }).click();
-  await page.waitForSelector('.hid-welcome >> text=Welcome!');
+  await page.waitForSelector('.hid-welcome >> text=Vault');
   // Nowhere on screen: no tile, nothing in Settings.
   await page.goto(`${origin}${BASE}#/`); await page.waitForSelector('.app-tile');
-  assert.equal(await page.locator('.app-tile >> text=Hidden').count(), 0);
+  assert.equal(await page.locator('.app-tile >> text=Vault').count(), 0);
+  assert.match(await page.title(), /Command Center/);
   assert.deepEqual(errors, []);
   await context.close();
 });

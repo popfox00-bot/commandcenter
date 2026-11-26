@@ -1453,6 +1453,10 @@ Profile, ✈ for messages), where everything is made by you in the app.
   hold up stays the engine's. A caption from the AI is kept only when it reads clearly better than the engine's (it
   names what's in the photo, a caption's length, no filler like "vibes", not a description or a title; two tries):
   in a trial over a dozen kinds of photo it was kept for about a quarter, the ones it did best.
+- **Each account's voice and interests** (Edit profile → Voice and Into): pick its voice (🔥 Hype, 😌 Chill, 💛 Warm,
+  😏 Witty, 🙂 Classic; or its own, from its username, as before) and what it's into ("surfing, dry humor"). Its
+  comments, replies, captions and messages take that voice (the built-in engine's too), and the AI writes as it,
+  from its bio and interests (letting them show only when they fit).
 - **Replies to comments** (Sync and password → Replies to comments, on to start): your other accounts answer
   comments on their own posts, a moment after you comment as another account, and about half of the generated
   and automatic comments: thanks for a compliment, an answer to a question (where: the place in its caption),
@@ -1911,6 +1915,11 @@ you are working, a "new version is ready" bar lets you reload when convenient.
    when deployed via cc-pages) and `CC_API_TOKEN`, tap **Test**, then **Save**.
 
 The token is kept in that home-screen app's storage on your phone only.
+
+**Shortcuts.** Where the phone offers them (Android, and Chrome or Edge on a computer: press and hold, or
+right-click, the app's icon), the app has four: **New Socials post**, **Socials messages**, **Search Saved Files**
+and **Scan files for faces** (`shortcuts` in `web/manifest.webmanifest`). Each opens behind its password
+(Socials', the Vault's) and lands where it says. iPhone home-screen apps don't offer shortcuts yet.
 
 ## Configuration
 

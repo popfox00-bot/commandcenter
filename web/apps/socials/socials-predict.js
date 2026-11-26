@@ -303,9 +303,11 @@ export function photoFacts(photo, { year = new Date().getFullYear() } = {}) {
 function comboFacts(facts) {
   const bits = facts.filter((f) => f.bit); const locs = facts.filter((f) => f.loc); const subs = facts.filter((f) => f.subj);
   const out = [];
-  for (const b of bits.slice(0, 3)) for (const l of locs.slice(0, 2)) out.push({ ...fact(`combo:${b.id}+${l.id}`, Math.max(b.w, l.w) + 2, [...b.emoji.slice(0, 2), ...l.emoji.slice(0, 2)], [`${cap(b.bit)} ${l.loc}?! Love it`, `Loving ${b.bit} ${l.loc}`, `${cap(b.bit)} ${l.loc} is everything`]), parts: [b.id, l.id] });
+  // (Not the same thing twice: "the beach on the beach".)
+  const same = (b, l) => b.id === l.id || String(l.loc).toLowerCase().includes(String(b.bit ?? b.subj ?? '').toLowerCase().replace(/^(the|your|that) /, ''));
+  for (const b of bits.slice(0, 3)) for (const l of locs.slice(0, 2)) if (!same(b, l)) out.push({ ...fact(`combo:${b.id}+${l.id}`, Math.max(b.w, l.w) + 2, [...b.emoji.slice(0, 2), ...l.emoji.slice(0, 2)], [`${cap(b.bit)} ${l.loc}?! Love it`, `Loving ${b.bit} ${l.loc}`, `${cap(b.bit)} ${l.loc} is everything`]), parts: [b.id, l.id] });
   for (const u of subs) {
-    for (const l of locs.slice(0, 2)) out.push({ ...fact(`combo:${u.id}+${l.id}`, Math.max(u.w, l.w) + 2, [...u.emoji.slice(0, 2), ...l.emoji.slice(0, 2)], [`${cap(u.subj)} ${l.loc}, the best`, `Love seeing ${u.subj} ${l.loc}`]), parts: [u.id, l.id] });
+    for (const l of locs.slice(0, 2)) if (!same(u, l)) out.push({ ...fact(`combo:${u.id}+${l.id}`, Math.max(u.w, l.w) + 2, [...u.emoji.slice(0, 2), ...l.emoji.slice(0, 2)], [`${cap(u.subj)} ${l.loc}, the best`, `Love seeing ${u.subj} ${l.loc}`]), parts: [u.id, l.id] });
     for (const b of bits.slice(0, 2)) out.push({ ...fact(`combo:${u.id}+${b.id}`, Math.max(u.w, b.w) + 1, [...u.emoji.slice(0, 2), ...b.emoji.slice(0, 2)], [`${cap(u.subj)} and ${b.bit}, perfect`]), parts: [u.id, b.id] });
   }
   if (bits.length >= 2) { const [a, b] = bits; out.push({ ...fact(`combo:${a.id}+${b.id}`, Math.max(a.w, b.w) + 1, [...a.emoji.slice(0, 2), ...b.emoji.slice(0, 2)], [`${cap(a.bit)} and ${b.bit}?! Iconic`]), parts: [a.id, b.id] }); }
@@ -368,7 +370,7 @@ const opening = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}@# ]+/gu, ''
  * commenting), general words least. `avoid`: comments already on it; `batch`: kept across a batch so each is
  * different (words, what it's about, emojis).
  */
-export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', photo = null, by = '', batch = newBatch() } = {}) {
+export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', persona = null, photo = null, by = '', batch = newBatch() } = {}) {
   const pf = photoFacts(photo); const cf = captionFacts(caption, { tagged, as, rand });
   // (The caption's things can go with the photo's places: "The pizza in Denver?!".)
   const capThing = cf.find((f) => f.id === 'cap:thing'); if (capThing) { const t = capThing.say[0].replace(/^Love the /, ''); capThing.bit = `the ${t}`; }
@@ -407,18 +409,19 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
     if (said.has(text.toLowerCase())) { cands.splice(cands.indexOf(c), 1); continue; }
     batch.keys.add(c.key); batch.facts.set(c.f.id, (batch.facts.get(c.f.id) ?? 0) + 1); for (const part of c.f.parts ?? []) batch.facts.set(part, (batch.facts.get(part) ?? 0) + 1); batch.starts.add(opening(c.s)); for (const e of es) batch.emojis.add(e);
     // (In the voice of whoever's commenting.)
-    return as ? voice(text, { persona: personaOf(String(as).replace(/^@/, '')), rand }) : text;
+    return as || persona ? voice(text, { persona: persona ?? personaOf(String(as).replace(/^@/, '')), rand }) : text;
   }
   // (Everything said already: a general line not said yet.)
   const g = generalFact(caption, photo, rand);
-  for (let k = 0; k < 40; k++) { const t2 = `${pick(g.say, rand)} ${pick(g.emoji, rand)}`; if (!said.has(t2.toLowerCase())) return t2; }
-  return `${pick(g.say, rand)} ${pick(g.emoji, rand)}${pick(g.emoji, rand)}`;
+  const own = (t) => (as || persona ? voice(t, { persona: persona ?? personaOf(String(as).replace(/^@/, '')), rand }) : t); // (in their voice too)
+  for (let k = 0; k < 40; k++) { const t2 = `${pick(g.say, rand)} ${pick(g.emoji, rand)}`; if (!said.has(t2.toLowerCase())) return own(t2); }
+  return own(`${pick(g.say, rand)} ${pick(g.emoji, rand)}${pick(g.emoji, rand)}`);
 }
 
 /** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn): different words, things and emojis. */
-export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], photo = null, by = '' } = {}) {
+export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], personas = [], photo = null, by = '' } = {}) {
   const out = []; const seen = [...avoid]; const batch = newBatch();
-  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', photo, by, batch }); out.push(c); seen.push(c); }
+  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', persona: personas[i] ?? null, photo, by, batch }); out.push(c); seen.push(c); }
   return out;
 }
 

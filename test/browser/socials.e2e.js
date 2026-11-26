@@ -1124,3 +1124,35 @@ test('Socials: replies to comments: the post\'s account answers a comment on its
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials: an account\'s Voice and Into in its profile (kept); home-screen shortcuts open a new post and messages, behind the password', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('kai');
+  await page.getByLabel('Voice').selectOption('chill'); await page.getByLabel('Into').fill('surfing, dry humor');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByText('Welcome to your feed').waitFor();
+  const acc = await page.evaluate(async () => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); const a = state.accounts.find((x) => x.handle === 'kai'); return [a.voice, a.interests]; });
+  assert.deepEqual(acc, ['chill', 'surfing, dry humor']);
+  // Edit profile shows them, to change.
+  await page.getByRole('button', { name: 'Profile' }).first().click();
+  await page.getByRole('button', { name: 'Edit profile' }).click();
+  assert.equal(await page.getByLabel('Voice').inputValue(), 'chill'); assert.equal(await page.getByLabel('Into').inputValue(), 'surfing, dry humor');
+  // Shortcuts: a new post (after the password), then messages.
+  await page.goto(`${origin}${BASE}index.html#/socials/new`); await page.reload();
+  const pass = page.getByLabel('Password', { exact: true }); await pass.or(page.getByText(/New post as @/)).first().waitFor();
+  if (await pass.count()) { await pass.fill('heron42'); await page.getByRole('button', { name: /^(Open|Unlock)$/ }).first().click(); }
+  await page.getByText(/New post as @kai/).waitFor();
+  assert.equal(await page.evaluate(() => location.hash), '#/socials/admin', 'the shortcut not left in the address');
+  await page.goto(`${origin}${BASE}index.html#/socials/inbox`); await page.reload();
+  const pass2 = page.getByLabel('Password', { exact: true }); const inbox = page.getByText(/Messages · @kai/); await pass2.or(inbox).first().waitFor();
+  if (await pass2.count()) { await pass2.fill('heron42'); await page.getByRole('button', { name: /^(Open|Unlock)$/ }).first().click(); }
+  await inbox.first().waitFor();
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -723,3 +723,18 @@ test('Saved Files 🔎 Search: by name, kind, person and date across the folders
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('home-screen shortcuts into Saved Files: 🔎 Search, and the scanner over the main folder', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  const fx = async (n) => (await readFile(join(import.meta.dirname, '../fixtures', n))).toString('base64');
+  script.files.push({ id: 'p1', name: 'icon_tags.png', type: 'image/png', size: 10, updated: NOW, data: await fx('icon_tags.png'), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/saved/search');
+  await page.getByRole('heading', { name: '🔎 Search' }).waitFor();
+  assert.equal(await page.evaluate(() => location.hash), '#/saved');
+  await page.goto(`${origin}${BASE}#/saved/scan`); await page.reload();
+  await page.getByRole('dialog', { name: 'Scan for characters' }).getByText('icon_tags.png').waitFor();
+  assert.deepEqual(errors, []);
+  await context.close();
+});

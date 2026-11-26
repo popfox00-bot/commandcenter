@@ -996,3 +996,31 @@ test('Socials settings: the language slider (Tame → Adult) kept; AI replies sa
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials: writing text never leaves the app: posting (photo read, auto-caption), generated comments and messages answered by themselves make no outside request', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const outside = []; page.on('request', (r) => { const u = r.url(); if (!u.startsWith(origin) && !u.startsWith('blob:') && !u.startsWith('data:')) outside.push(`${r.method()} ${u}`); });
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  for (const h of ['amy', 'bo']) { await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); }
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  // A post: its photo read and a caption written on the phone.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').first().waitFor();
+  await page.getByRole('button', { name: '✨ Suggest caption' }).click();
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="Caption"]')?.value.length > 3, null, { timeout: 30000 });
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const post = page.locator('.so-post').first(); await post.waitFor();
+  // Comments generated.
+  await post.getByRole('button', { name: 'Comments', exact: true }).click();
+  await page.getByRole('button', { name: 'Generate 3 comments' }).click(); await page.locator('.so-comment').nth(2).waitFor();
+  // A message, answered by itself.
+  await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @amy' }).click();
+  await page.getByLabel('Message', { exact: true }).fill('i just got the job!!'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 10000 });
+  assert.deepEqual(outside, [], 'nothing left the app');
+  await page.close();
+});

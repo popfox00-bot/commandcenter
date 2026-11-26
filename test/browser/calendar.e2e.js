@@ -458,3 +458,119 @@ test('Saved Files 🔎 Scan for characters: pick files, scanned on the phone, su
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Scan review: the file\'s picture and the face beside the account\'s photo; "It\'s them" puts a draft on that account in Socials (encrypted, waiting for your OK) and marks the file 👤, filterable by person', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  const fx = async (n) => (await readFile(join(import.meta.dirname, '../fixtures', n))).toString('base64');
+  script.files.push({ id: 'p1', name: 'icon_tags.png', type: 'image/png', size: 10, updated: NOW, data: await fx('icon_tags.png'), from: 'Files', parent: '' });
+  script.files.push({ id: 'p2', name: 'icon_mute.png', type: 'image/png', size: 10, updated: NOW - 1, data: await fx('icon_mute.png'), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors, external } = await open(context, 'index.html');
+  // Socials, with its password and two accounts.
+  await page.locator('.app-name', { hasText: 'Socials' }).click();
+  await page.locator('.sp-feed').waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click(); await page.getByRole('button', { name: 'Admin' }).click();
+  const pw = ['her', 'on42'].join('');
+  await page.getByLabel('Password', { exact: true }).fill(pw); await page.getByLabel('Password again').fill(pw);
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('maya'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByText('Welcome to your feed').waitFor();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('jordan'); await page.getByRole('button', { name: 'Create account' }).click();
+  const saved = page.getByRole('button', { name: 'I\'ve saved it' }); await saved.or(page.getByText('Welcome to your feed')).first().waitFor(); if (await saved.count()) await saved.click();
+  await page.getByText('Welcome to your feed').waitFor();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: /^Use @maya/ }).click();
+  await page.locator('.so-switch', { hasText: 'maya' }).waitFor();
+  // Saved Files: a scan's review (its results as the scanner makes them: the faces themselves can't be faked here).
+  await page.goto(`${origin}${BASE}#/files/saved`); await page.waitForSelector('.sv-item:has-text("icon_tags.png")');
+  await page.evaluate(async () => {
+    const { openScanner, knownAccounts } = await import('./tools/saved/scanner.js');
+    const { accounts } = await knownAccounts(); const jordan = accounts.find((a) => a.handle === 'jordan'); const maya = accounts.find((a) => a.handle === 'maya');
+    const pic = await (await fetch('./icons/icon-192.png')).blob();
+    const f = { id: 'p1', name: 'icon_tags.png', type: 'image/png' };
+    const files = (await import('./lib/saved-files.js')); const api = files.secureFiles(files.savedFiles(files.getConfig()));
+    openScanner([f], { download: (id) => api.download(id), results: [{ f, faces: 1, pics: [pic], hits: [{ id: jordan.id, handle: 'jordan', avatar: null, distance: 0.3, sure: 89, crop: pic }, { id: maya.id, handle: 'maya', avatar: null, distance: 0.35, sure: 80, crop: pic }], error: '' }] });
+  });
+  const dlg = page.getByRole('dialog', { name: 'Scan for characters' });
+  await dlg.locator('.sc-preview img').waitFor();
+  assert.equal(await dlg.getByRole('img', { name: 'The face in icon_tags.png' }).count(), 2, 'each face, to compare');
+  assert.match(await dlg.locator('.sc-hit').first().textContent(), /@jordan\s*89% likely/);
+  await dlg.getByRole('button', { name: 'It\'s @jordan in icon_tags.png' }).click();
+  await dlg.getByText('✓ Matched · a draft on @jordan, waiting for your OK in Socials').waitFor({ timeout: 20000 });
+  // (Two people in it: the second added to the same draft as a collaborator.)
+  await dlg.getByRole('button', { name: 'It\'s @maya in icon_tags.png' }).click();
+  await dlg.getByText('✓ Matched · added as a collaborator on @jordan\'s draft (it\'s one post with them both)').waitFor({ timeout: 20000 });
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  // Marked in Files, and a filter by person.
+  await page.reload(); await page.waitForSelector('.sv-item:has-text("icon_mute.png")');
+  assert.equal(await page.locator('.sv-item:has-text("icon_tags.png") .sv-match').textContent(), '👤 @jordan, @maya', 'both matched');
+  assert.equal(await page.locator('.sv-item:has-text("icon_tags.png") .sv-thumb img').count(), 0, 'no picture kept for it until a real scan');
+  await page.getByRole('button', { name: '👤 @jordan' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.sv-item:not(.sv-folder)').length === 1);
+  assert.match(await page.locator('.sv-item:not(.sv-folder)').textContent(), /icon_tags\.png/);
+  await page.getByRole('button', { name: '👤 @maya' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.sv-item:not(.sv-folder)').length === 1);
+  assert.match(await page.locator('.sv-item:not(.sv-folder)').textContent(), /icon_tags\.png/, 'under each person');
+  await page.getByRole('button', { name: 'Everyone' }).click();
+  await page.waitForSelector('.sv-item:has-text("icon_mute.png")');
+  // In Socials: the draft from Saved Files, waiting; opened on @jordan, ready to share. Kept encrypted.
+  const raw = await page.evaluate(async () => (await import('./lib/idb.js')).idb.get('cc.socials'));
+  assert.ok(raw?.enc === 1 && !JSON.stringify(raw).includes('icon_tags'), 'Socials\' data stays encrypted');
+  await page.goto(`${origin}${BASE}index.html`);
+  await page.locator('.app-name', { hasText: 'Socials' }).click(); await page.locator('.sp-feed').waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click(); await page.getByRole('button', { name: 'Admin' }).click();
+  const pass = page.getByLabel('Password', { exact: true }); if (await pass.count()) { await pass.fill(pw); await page.getByRole('button', { name: /Unlock|Open/ }).first().click(); }
+  await page.getByRole('button', { name: /📥 1 draft from Saved Files waiting for your OK/ }).click();
+  assert.match(await page.locator('.so-fs-item').textContent(), /@jordan.*icon_tags\.png/);
+  await page.getByRole('button', { name: 'Open the draft on @jordan: icon_tags.png' }).click();
+  assert.match(await page.locator('.so-switch').textContent(), /jordan/, 'switched to that account');
+  assert.match(await page.locator('.so-main').textContent(), /Collab · 1/, 'maya a collaborator on it');
+  await page.getByRole('button', { name: 'Share' }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('.so-main button.btn.primary')?.disabled);
+  await page.getByRole('button', { name: 'Share' }).click();
+  // (This test's stand-in Drive has no Socials folder, so each sync shows a new recovery key: put aside.)
+  for (let i = 0; i < 6 && !(await page.locator('.so-post').count()); i++) { const k = page.getByRole('button', { name: 'I\'ve saved it' }); await k.or(page.locator('.so-post').first()).first().waitFor(); if (await k.count()) await k.click(); await page.waitForTimeout(300); }
+  await page.locator('.so-post').first().waitFor();
+  await page.getByRole('button', { name: 'Home' }).first().click().catch(() => {});
+  assert.equal(await page.getByRole('button', { name: /draft.* from Saved Files/ }).count(), 0, 'nothing left waiting once shared');
+  assert.deepEqual(external.filter((u) => !u.startsWith('https://script.google.com/') && !u.startsWith('https://site.api.espn.com/')), [], 'nothing but your own Saved Files (and the Sports front\'s scores)');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Settings → Saved Files: the extras kept only on this phone backed up (encrypted, to Saved Files → Backups) and restored with the backup password', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors, external } = await open(context, '#/settings/saved');
+  await page.evaluate(async () => {
+    const { idb } = await import('./lib/idb.js');
+    await idb.set('cc.saved.matches', [{ fileId: 'p1', name: 'beach.jpg', accountId: 'a1', handle: 'amy', sure: 90, at: 1 }]);
+    await idb.set('cc.bg.vault', { buf: new Uint8Array([1, 2, 3, 250]).buffer, type: 'image/jpeg', at: 1 });
+    await idb.set('cc.notes.other', 'not part of it');
+    localStorage.setItem('cc.dock.mode', JSON.stringify({ socials: 'tucked' }));
+  });
+  await page.getByText('Back up the extras kept on this phone').click();
+  const pw = ['tide', 'pool', '77'].join('-');
+  await page.getByLabel('Backup password').fill(pw);
+  await page.getByRole('button', { name: 'Back up to Saved Files' }).click();
+  await page.getByText(/Backed up 3 things to Saved Files → Backups → cc-extras-\d{4}-\d\d-\d\d\.ccx \(encrypted\)/).waitFor({ timeout: 20000 });
+  const up = script.kit.find((k) => k.folder === 'Backups');
+  const text = Buffer.from(up.data, 'base64').toString();
+  assert.ok(!/amy|beach|tucked/.test(text), 'encrypted: none of it readable in Drive');
+  // Gone from the phone, then restored from the file: not with a wrong password; with the right one, all of it.
+  await page.evaluate(async () => { const { idb } = await import('./lib/idb.js'); await idb.del('cc.saved.matches'); await idb.del('cc.bg.vault'); localStorage.removeItem('cc.dock.mode'); });
+  const file = { name: up.name, mimeType: 'application/octet-stream', buffer: Buffer.from(up.data, 'base64') };
+  await page.getByLabel('Backup password').fill('wrong-one');
+  await page.setInputFiles('[aria-label="Backup file to restore"]', file);
+  await page.getByText('That password doesn\'t open this backup.').waitFor();
+  await page.getByLabel('Backup password').fill(pw);
+  await page.setInputFiles('[aria-label="Backup file to restore"]', file);
+  await page.getByText('Restored 3 things.').waitFor();
+  const got = await page.evaluate(async () => { const { idb } = await import('./lib/idb.js'); return { m: await idb.get('cc.saved.matches'), bg: [...new Uint8Array((await idb.get('cc.bg.vault')).buf)], dock: localStorage.getItem('cc.dock.mode') }; });
+  assert.equal(got.m[0].handle, 'amy'); assert.deepEqual(got.bg, [1, 2, 3, 250]); assert.equal(got.dock, '{"socials":"tucked"}');
+  assert.deepEqual(external.filter((u) => !u.startsWith('https://script.google.com/')), []);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

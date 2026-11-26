@@ -184,6 +184,23 @@ export function sceneWords(photo) {
   return out;
 }
 
+/** What a photo shows, as a short plain description (for the on-device model to write from), or ''. */
+export function describeScene(photo) {
+  const s = sceneWords(photo); const bits = [];
+  if (s.people) bits.push(s.people === 1 ? 'one person' : `${s.people} people`);
+  if (s.things.length) bits.push(`with ${s.things.slice(0, 4).join(', ')}`);
+  if (s.items.length || s.outfit?.color) bits.push(`wearing ${s.outfit?.color ? `${s.outfit.color} ` : ''}${s.items.length ? s.items.slice(0, 3).join(', ') : 'clothes'}`);
+  if (s.brand) bits.push(`${s.brand} on`);
+  if (s.grad) bits.push('a graduation');
+  if (s.formal) bits.push('dressed up');
+  if (s.topics.length) bits.push(`feels like: ${s.topics.slice(0, 3).join(', ')}`);
+  if (s.bg.length) bits.push(`background: ${s.bg.slice(0, 3).join(', ')}`);
+  if (s.place) bits.push(`in ${s.place}`);
+  if (s.night) bits.push('at night'); else if (s.morning) bits.push('in the morning');
+  if (s.season && s.season !== 'cozy') bits.push(`${s.season} look`);
+  return bits.join('; ');
+}
+
 const nospace = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 const HEARTS = { black: '🖤', white: '🤍', red: '❤️', orange: '🧡', yellow: '💛', green: '💚', 'dark green': '💚', olive: '💚', teal: '🩵', blue: '💙', navy: '💙', purple: '💜', pink: '🩷', magenta: '💗', brown: '🤎', beige: '🤎', gray: '🩶' };
 const ITEM_EMOJI = { shades: '😎', sneakers: '👟', hat: '🤠', dress: '👗', suit: '🕴️', swimsuit: '👙', coat: '🧥', hoodie: '🧢', boots: '👢', jeans: '👖', tee: '👕', lipstick: '💄', skirt: '👗', sandals: '🩴', cardigan: '🧶', pjs: '😴', 'winter gear': '🧣', kimono: '👘', uniform: '🎖️' };

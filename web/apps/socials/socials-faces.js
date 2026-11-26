@@ -50,13 +50,62 @@ export function faceDistance(a, b) {
 
 /**
  * The accounts in a photo: for each face its closest account (by `known`: [{ id, d }]) if close enough
- * (`limit`), each account once, the closest first: [{ id, distance }].
+ * (`limit`), each account once, the closest first: [{ id, distance, face (its index in `faces`) }].
  */
 export function matchFaces(faces, known, limit = 0.5) {
   const hits = new Map();
-  for (const f of faces ?? []) {
-    let best = null; for (const k of known ?? []) { const dist = faceDistance(f.d, k.d); if (dist < limit && (!best || dist < best.distance)) best = { id: k.id, distance: dist }; }
+  for (const [i, f] of (faces ?? []).entries()) {
+    let best = null; for (const k of known ?? []) { const dist = faceDistance(f.d, k.d); if (dist < limit && (!best || dist < best.distance)) best = { id: k.id, distance: dist, face: i }; }
     if (best && (!hits.has(best.id) || hits.get(best.id).distance > best.distance)) hits.set(best.id, best);
   }
   return [...hits.values()].sort((a, b) => a.distance - b.distance);
+}
+
+// ---- Each account's faces: its profile photo's, and its posts' (a post's faces read once and kept with it,
+// `p.faces`). A post with one face, posted alone (no collaborators), is that account; a post with several is
+// shared out among who's in it (the poster, those tagged, collaborators): each face to the one it's clearly
+// closest to. More of someone's faces, from more angles: matched better.
+
+const closest = (d, set) => set.reduce((m, x) => Math.min(m, faceDistance(d, x)), Infinity);
+
+/**
+ * The faces to match against, from the state: [{ id, d }] (several for an account: its profile photo's, and
+ * from its posts, the latest `perAccount`).
+ */
+export function faceSetsFrom(state, { perAccount = 12 } = {}) {
+  const sets = new Map();
+  for (const a of state.accounts ?? []) if (a.face && a.faceOf === a.avatarId) sets.set(a.id, [a.face]);
+  const add = (id, d) => { const s = sets.get(id) ?? []; s.push(d); sets.set(id, s); };
+  const posts = [...(state.posts ?? [])].filter((p) => !p.trashed && Array.isArray(p.faces) && p.faces.length).sort((a, b) => b.at - a.at);
+  // (Alone in it first: those are sure.)
+  for (const p of posts) {
+    const collab = (p.collab ?? []).some((c) => c.status === 'accepted');
+    if (p.faces.length === 1 && !collab) add(p.by, p.faces[0]);
+  }
+  // (Then the posts with several in them: each face to who it's closest to, of who's in it, when it's clearly them.)
+  for (const p of posts) {
+    if (p.faces.length < 2) continue;
+    const who = [...new Set([p.by, ...(p.tags ?? []), ...(p.collab ?? []).filter((c) => c.status === 'accepted').map((c) => c.id)])];
+    if (p.faces.length > who.length) continue;
+    const taken = new Set();
+    for (const d of p.faces) {
+      const ranked = who.filter((id) => !taken.has(id) && sets.get(id)?.length).map((id) => ({ id, dist: closest(d, sets.get(id)) })).sort((x, y) => x.dist - y.dist);
+      if (ranked[0] && ranked[0].dist < 0.45 && (!ranked[1] || ranked[1].dist - ranked[0].dist > 0.08)) { add(ranked[0].id, d); taken.add(ranked[0].id); }
+    }
+  }
+  const out = [];
+  for (const [id, s] of sets) for (const d of s.slice(0, 1 + perAccount)) out.push({ id, d });
+  return out;
+}
+
+/** Posts' faces read where they haven't been (their first photo), at most `limit` this time: how many were read. */
+export async function fillPostFaces(state, { limit = 12 } = {}) {
+  let n = 0;
+  for (const p of [...(state.posts ?? [])].sort((a, b) => b.at - a.at)) {
+    if (n >= limit) break;
+    if (p.trashed || p.draft || Array.isArray(p.faces) || !p.image) continue;
+    try { p.faces = (await facesIn(p.image)).slice(0, 8).map((f) => f.d); } catch { p.faces = []; }
+    n++;
+  }
+  return n;
 }

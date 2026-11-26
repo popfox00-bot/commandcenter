@@ -1,10 +1,12 @@
 // The Saved Files connection, shown in Settings: the web app URL and access key of the Apps Script in
 // your Saved Files spreadsheet (apps-script/saved-files.gs), checked before they're kept (on this
-// phone only), and Disconnect; encryption (web/lib/vault-ui.js); opening an encrypted file anywhere.
+// phone only), and Disconnect; encryption (web/lib/vault-ui.js); opening an encrypted file anywhere; the
+// backup of the extras kept only on this phone (extras-backup.js).
 
 import { el, fill } from './dom.js';
 import { getConfig, setConfig, checkUrl, savedFiles, connectedSecure } from './saved-files.js';
 import { encryptionSettings, openAnywhere } from './vault-ui.js';
+import { extrasBackupSettings } from './extras-backup.js';
 
 /** The newest apps-script/saved-files.gs (its VERSION). */
 const SCRIPT_VERSION = 5;
@@ -50,7 +52,8 @@ export function savedFilesSettings() {
         el('p', { class: 'small', text: 'Paste the new apps-script/saved-files.gs over the old one and save. Then Deploy → Manage deployments → ✎ edit → Version: New version → Deploy. The URL and key stay the same; tap "Save and check" here to see the version.' })),
       form,
       cfg ? encryptionSettings() : null,
-      openAnywhere());
+      openAnywhere(),
+      extrasBackupSettings());
   }
   render();
   return box;

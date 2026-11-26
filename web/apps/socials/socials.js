@@ -10,7 +10,7 @@
 // phone first, so your other devices open the same Socials with the same password (socials-sync.js).
 
 import { el, fill, store } from '../../lib/dom.js';
-import { loadState, saveState } from './socials-store.js';
+import { loadState, saveState, unlockData, lockData, rewrapData, resetData, dataKey, dataEncrypted } from './socials-store.js';
 import { makeLock } from '../../lib/hidden-lock.js';
 import { connected } from '../../lib/saved-files.js';
 import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePasskey, removePasskey, passkeyOf } from '../../lib/passkey.js';
@@ -24,12 +24,12 @@ import {
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
-  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, setFace, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
+  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, setFace, MAX_COLLAB, live, draftsOf, savedDrafts, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
-import { generateComments, suggestCaption } from './socials-predict.js';
+import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
 import { chatReplyStyled, moodOf } from './socials-chat.js';
 import { personaOf, styleOf, spice, CONTENT_LEVELS } from './socials-style.js';
-import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, AI_SIZE } from './socials-ai.js';
+import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
@@ -484,6 +484,16 @@ function mountAdmin(host) {
    * where there are enough; or all from the one picked) say something about the post, made for its caption,
    * hashtags and the people tagged.
    */
+  // (A new post's automatic comments rewritten by the on-device AI, after it's shared: each from the photo and
+  // caption, in the commenter's own way; any it can't do well stay as they are.)
+  async function rewriteAuto(p) {
+    const cs = p.comments.filter((c) => c.by !== p.by).slice(-3); if (!cs.length) return;
+    const who = cs.map((c) => { const a = accountById(state, c.by); return { handle: a?.handle ?? 'friend', persona: personaOf(a?.handle, a?.kind) }; });
+    const out = await aiComments({ as: who, drafts: cs.map((c) => c.text), scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow() });
+    let changed = false; cs.forEach((c, i) => { if (out[i] && out[i] !== c.text && p.comments.includes(c)) { c.text = out[i].slice(0, 500); changed = true; } });
+    if (changed) { save(); if (['feed', 'post', 'profile'].includes(view.name)) draw(); }
+  }
+
   function generateCommentBox(p) {
     const others = byHandle(state.accounts.filter((a) => a.id !== p.by));
     if (!others.length) return null;
@@ -506,8 +516,16 @@ function mountAdmin(host) {
       }
       const tagged = (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean);
       const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), photo: p.scene, by: accountById(state, p.by)?.handle ?? '' });
+      // (With the on-device AI on: each written by it from the photo and caption, the engine's as its guide.)
+      const persona = (id) => { const a = accountById(state, id); return personaOf(a?.handle, a?.kind); };
+      let written = texts;
+      if (aiOn() && aiReady()) {
+        const label = btn.textContent; btn.textContent = '✍️'; btn.disabled = true;
+        written = await aiComments({ as: who.map((id) => ({ handle: accountById(state, id)?.handle ?? 'friend', persona: persona(id) })), drafts: texts, scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow(), avoid: p.comments.map((c) => c.text) });
+        btn.textContent = label; btn.disabled = false;
+      }
       let added = 0;
-      texts.forEach((t, i) => { const acc = accountById(state, who[i]); if (addComment(state, p.id, who[i], spice(t, levelNow(), { persona: personaOf(acc?.handle, acc?.kind), mood: 'pos' }))) added++; });
+      written.forEach((t, i) => { if (addComment(state, p.id, who[i], t === texts[i] ? spice(t, levelNow(), { persona: persona(who[i]), mood: 'pos' }) : t)) added++; });
       if (added) { save(); draw(); }
     };
     return el('div', { class: 'so-gen', role: 'group', 'aria-label': 'Generate comments' },
@@ -523,6 +541,24 @@ function mountAdmin(host) {
       el('p', { class: 'muted', text: connected() ? 'Make an account to start posting. Everything here is made by you, kept on this device and, encrypted, in your Drive.' : 'Make an account to start posting. Everything here is made by you and kept on this device.' }),
       accountForm(null),
       el('button', { type: 'button', class: 'so-link', text: 'Sync and password', onclick: () => go({ name: 'settings' }) }));
+  }
+
+  // ---- Drafts from Saved Files (a scan's "It's them" in Files): each to open on its account (then share it
+  // there, as any draft) or discard. Shown above the feed whichever account is in use.
+  function fromSavedView() {
+    const list = savedDrafts(state);
+    const row = (p) => { const a = accountById(state, p.by); const pic = urlOf(p.image);
+      return el('li', { class: 'so-fs-item' },
+        pic ? el('img', { class: 'so-fs-pic', src: pic, alt: '' }) : el('span', { class: 'so-fs-pic so-av-none', 'aria-hidden': 'true', text: p.kind === 'video' ? '🎬' : '🖼️' }),
+        el('span', { class: 'so-fs-text' }, el('strong', { text: `@${a?.handle ?? '?'}` }), el('span', { class: 'small muted', text: `${p.kind === 'video' ? '🎬 ' : ''}${p.fromSaved.name} · ${timeAgo(p.fromSaved.at || p.at)}` })),
+        el('span', { class: 'so-row' },
+          el('button', { type: 'button', class: 'btn primary', text: 'Open', 'aria-label': `Open the draft on @${a?.handle}: ${p.fromSaved.name}`, onclick: () => { useAccount(p.by); save(); go({ name: 'new', draft: p.id }); } }),
+          el('button', { type: 'button', class: 'btn ghost', text: 'Discard', 'aria-label': `Discard the draft on @${a?.handle}: ${p.fromSaved.name}`, onclick: () => { trashPost(state, p.id); save(); draw(); } }))); };
+    return el('div', { class: 'so-pad' },
+      el('div', { class: 'so-row' }, el('button', { type: 'button', class: 'btn ghost', text: '‹ Feed', onclick: () => go({ name: 'feed' }) })),
+      el('h2', { text: '📥 From Saved Files' }),
+      el('p', { class: 'muted small', text: 'Files you confirmed as your accounts after a scan in Files, put on those accounts as drafts. Nothing is shared until you open one and share it (discarded ones go to that account\'s trash).' }),
+      list.length ? el('ul', { class: 'so-fs-list' }, list.map(row)) : el('p', { class: 'muted', text: 'None waiting.' }));
   }
 
   function feed() {
@@ -542,7 +578,9 @@ function mountAdmin(host) {
     const row = el('div', { class: 'so-stories', role: 'group', 'aria-label': 'Stories' },
       ordered.map((a) => { const st = storyState(a.id); return el('button', { type: 'button', class: 'so-story', 'aria-label': st ? `@${a.handle}'s story${st === 'new' ? ', new' : ''}` : `@${a.handle}`, onclick: () => (st ? openStories(withSt.map((x) => x.id), a.id) : go({ name: 'profile', id: a.id })) }, el('span', { class: `so-ring${st === 'seen' ? ' seen' : st ? '' : ' none'}` }, avatar(a, 'l')), el('span', { class: 'so-story-name', text: a.id === m.id ? (st ? 'Your story' : 'Your profile') : a.handle })); }));
     const list = el('div', { class: 'so-feed' }, items.map((p) => postCard(p))); watchViews(list);
+    const fromSaved = savedDrafts(state);
     return el('div', {}, row,
+      fromSaved.length ? el('button', { type: 'button', class: 'so-fromsaved-banner', onclick: () => go({ name: 'fromsaved' }) }, el('strong', { text: `📥 ${fromSaved.length} draft${fromSaved.length === 1 ? '' : 's'} from Saved Files waiting for your OK` }), el('span', { class: 'small', text: 'Matched by a scan in Files: look each over, then share it or discard it.' })) : null,
       items.length ? list
         : el('div', { class: 'so-empty' },
           el('p', { class: 'so-empty-big', text: 'Welcome to your feed' }),
@@ -826,20 +864,25 @@ function mountAdmin(host) {
   // ---- Faces: the accounts' (from their profile photos, made once a photo and kept with the account) and a new
   // post's, matched (socials-faces.js).
   async function knownFaces() {
-    const out = [];
+    const F = await import('./socials-faces.js'); let changed = false;
     for (const a of state.accounts) {
-      if (!a.avatar) continue;
-      if (!(a.face && a.faceOf === a.avatarId)) { try { const { faceOfAvatar } = await import('./socials-faces.js'); const d = await faceOfAvatar(a.avatar); setFace(state, a.id, d); if (d) save(); } catch { continue; } }
-      if (a.face) out.push({ id: a.id, d: a.face });
+      if (!a.avatar || (a.face && a.faceOf === a.avatarId)) continue;
+      try { const d = await F.faceOfAvatar(a.avatar); setFace(state, a.id, d); if (d) changed = true; } catch { /* that one */ }
     }
-    return out;
+    // (And their posts' faces: a few more read each time, kept with the posts.)
+    if (await F.fillPostFaces(state, { limit: 8 })) changed = true;
+    if (changed) save();
+    return F.faceSetsFrom(state);
   }
   /** The accounts whose faces are in a post's first photo (or a video's frames): [{ id, distance }]. */
   async function peopleIn(item) {
-    const known = await knownFaces(); if (!known.length) return [];
+    const known = await knownFaces();
     const { facesIn, matchFaces } = await import('./socials-faces.js');
+    if (!known.length) { if (item.kind === 'photo' && item.image) { try { item.faces = (await facesIn(item.image)).slice(0, 8).map((f) => f.d); } catch { /* none */ } } return []; }
     const shots = item.kind === 'video' && item.video ? await videoFrames(item.video, { n: 3 }).catch(() => []) : [];
     const faces = []; for (const b of shots.length ? shots : [item.image]) { try { faces.push(...await facesIn(b)); } catch { /* that one */ } }
+    // (A photo's faces kept for its post, once it's made: who's in it, for matching later.)
+    if (item.kind === 'photo') item.faces = faces.slice(0, 8).map((f) => f.d);
     return matchFaces(faces, known);
   }
 
@@ -977,13 +1020,23 @@ function mountAdmin(host) {
     caption.addEventListener('input', sync);
     // (✨ Suggest caption: from what the photo shows (and when and where); again for another.)
     let suggested = []; let lastSuggestion = '';
+    // (A caption: the engine's, from what the photo shows; with the on-device AI on, written by it with the
+    // engine's as its guide (and the engine's hashtags kept).)
+    const captionFor = async (sc) => {
+      const c = suggestCaption(sc, { avoid: suggested });
+      if (!aiOn() || !aiReady()) return c;
+      const t = await aiCaption({ scene: describeScene(sc), draft: c, level: levelNow(), avoid: suggested });
+      if (!t) return c;
+      const tags = c.match(/#[\p{L}\p{N}_]+/gu) ?? [];
+      return `${t}${tags.length ? ` ${tags.join(' ')}` : ''}`;
+    };
     const suggest = el('button', { type: 'button', class: 'btn so-suggest', text: '✨ Suggest caption' });
     suggest.addEventListener('click', async () => {
       if (!mx.first()) { err.textContent = 'Pick a photo or video first.'; return; }
       suggest.disabled = true; suggest.textContent = 'Reading the photo…';
       try {
         const sc = await mx.scene();
-        const c = suggestCaption(sc, { avoid: suggested }); suggested.push(c);
+        const c = await captionFor(sc); suggested.push(c);
         const cur = caption.value.trim();
         caption.value = !cur || cur === lastSuggestion ? c : `${cur}\n${c}`; lastSuggestion = caption.value.trim(); autoNote.hidden = true;
         sync();
@@ -1012,7 +1065,7 @@ function mountAdmin(host) {
     const autoCaption = async () => {
       const f = mx.first(); if (!f || typed || autoFor === f || mx.busy()) return; autoFor = f;
       const sc = await mx.scene(); if (typed || mx.first() !== f || caption.value.trim()) return;
-      const c = suggestCaption(sc, { avoid: suggested }); suggested.push(c);
+      const c = await captionFor(sc); suggested.push(c); if (typed || mx.first() !== f || caption.value.trim()) return;
       caption.value = c; lastSuggestion = c; autoNote.hidden = false; sync();
     };
     const make = (asDraft, scene = null) => {
@@ -1022,6 +1075,7 @@ function mountAdmin(host) {
       if (draft?.draft) removePost(state, draft.id); // (the draft it was: replaced)
       // (Its collaborators: asked now if it's shared; when a draft is, they're asked when it's shared.)
       setCollabs(state, p.id, [...collabs]);
+      if (first?.kind === 'photo' && Array.isArray(first.faces)) p.faces = first.faces;
       return p;
     };
     share.addEventListener('click', async () => {
@@ -1037,6 +1091,7 @@ function mountAdmin(host) {
         if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), by: m.handle }).map((t, i) => spice(t, levelNow(), { persona: personaOf(who[i]?.handle, who[i]?.kind), mood: 'pos' })) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
+        if (autoOn() && aiOn() && aiReady()) rewriteAuto(p);
         // (Then to Saved Files straight away, its progress shown; else it's posted here.)
         if (connected() && sessionPw && navigator.onLine !== false) { posting = true; showUp('Uploading to Saved Files…', 0.4); runSync(); }
         else { showUp(connected() ? 'Posted ✓ (it uploads to Saved Files when it can)' : 'Posted ✓', 1, true); hideUp(2400); }
@@ -1294,7 +1349,19 @@ function mountAdmin(host) {
     const pw = (label) => el('input', { class: 'so-input', type: 'password', autocomplete: 'off', 'aria-label': label, placeholder: label });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const busy = (b, btn) => { btn.disabled = b; };
-    const opened = (p) => { sessionOpen = true; sessionPw = p || null; start(); };
+    // (Opened: its data unlocked with the password (encrypted on this phone: socials-store.js); with Face ID
+    // that gives no password back, the key from earlier in this session, else the password asked once.)
+    const opened = async (p, { fresh = false } = {}) => {
+      if (p) {
+        let ok = await unlockData(p);
+        if (!ok && fresh) ok = await resetData(p);
+        if (!ok) { err.textContent = 'This password doesn\'t unlock what\'s kept on this phone.'; return; }
+      } else if (!(await dataKey()) && await dataEncrypted()) {
+        err.textContent = 'Face ID can\'t unlock Socials\' data on this phone: enter your password (once a session).';
+        return;
+      }
+      sessionOpen = true; sessionPw = p || null; start();
+    };
     // (A new password, after the recovery key opened the copy in Drive.)
     const newPassword = (rk) => {
       const a = pw('New password'); const b = pw('New password again');
@@ -1303,7 +1370,7 @@ function mountAdmin(host) {
         err.textContent = ''; if (a.value !== b.value) { err.textContent = 'The two don\'t match.'; return; }
         if (a.value.length < 4) { err.textContent = 'Use at least 4 characters.'; return; }
         busy(true, go2);
-        try { await changeRemotePassword(connected(), rk, a.value); await socialsLock.setPassword(a.value); opened(a.value); } catch (e) { err.textContent = e.message; busy(false, go2); }
+        try { await changeRemotePassword(connected(), rk, a.value); await socialsLock.setPassword(a.value); await opened(a.value, { fresh: true }); } catch (e) { err.textContent = e.message; busy(false, go2); }
       });
       fill(box, el('div', { class: 'so-logo so-logo-big', text: 'Socials' }), el('p', { class: 'muted', text: 'Recovery key accepted. Pick a new password for Socials (on your other devices too).' }), el('div', { class: 'so-form' }, a, b, err, go2));
     };
@@ -1312,7 +1379,7 @@ function mountAdmin(host) {
       const submit = async () => {
         err.textContent = ''; const wait = socialsLock.waitLeft(); if (wait) { err.textContent = `Too many tries: wait ${wait}s.`; return; }
         busy(true, go2);
-        if (await socialsLock.tryPassword(p.value)) { opened(p.value); return; }
+        if (await socialsLock.tryPassword(p.value)) { await opened(p.value); busy(false, go2); return; }
         // (A recovery key, when Socials is in Drive: it opens that copy, then a new password.)
         if (isRecoveryKey(p.value) && connected()) { try { const h = await remoteHeader(connected()); if (h && await opens(h, p.value)) { newPassword(p.value); return; } } catch { /* offline */ } }
         err.textContent = socialsLock.waitLeft() ? `Too many tries: wait ${socialsLock.waitLeft()}s.` : 'Wrong password.'; busy(false, go2); p.select();
@@ -1343,7 +1410,7 @@ function mountAdmin(host) {
         err.textContent = ''; busy(true, go2);
         if (await opens(header, p.value)) {
           if (isRecoveryKey(p.value)) { newPassword(p.value); return; }
-          await socialsLock.setPassword(p.value); opened(p.value); return;
+          await socialsLock.setPassword(p.value); await opened(p.value, { fresh: true }); return;
         }
         err.textContent = 'That doesn\'t open it.'; busy(false, go2);
       };
@@ -1404,7 +1471,7 @@ function mountAdmin(host) {
       change.disabled = true;
       try {
         if (api) await changeRemotePassword(api, cur.value, n1.value);
-        await socialsLock.setPassword(n1.value); sessionPw = n1.value;
+        await socialsLock.setPassword(n1.value); await rewrapData(n1.value); sessionPw = n1.value;
         // (Face ID kept the old password: off, to set up again with the new one.)
         if (hasPasskey('socials') && passkeyOf('socials')?.prf) { removePasskey('socials'); toast('Face ID turned off with the old password: set it up again below.'); }
         cur.value = n1.value = n2.value = ''; done.textContent = api ? 'Password changed, here and for the copy in your Drive: use the new one on your other devices.' : 'Password changed.';
@@ -1414,7 +1481,7 @@ function mountAdmin(host) {
     // (Another device changed the password: the new one, to keep syncing.)
     const fix = sync.wrong ? (() => {
       const p = pw('The password used on your other device'); const b = el('button', { type: 'button', class: 'btn primary', text: 'Use it' }); const e2 = el('p', { class: 'so-err', role: 'alert' });
-      b.addEventListener('click', async () => { e2.textContent = ''; try { const h = await remoteHeader(api); if (h && await opens(h, p.value) && !isRecoveryKey(p.value)) { await socialsLock.setPassword(p.value); sessionPw = p.value; sync.wrong = false; runSync(); draw(); } else e2.textContent = 'That doesn\'t open it.'; } catch (x) { e2.textContent = x.message; } });
+      b.addEventListener('click', async () => { e2.textContent = ''; try { const h = await remoteHeader(api); if (h && await opens(h, p.value) && !isRecoveryKey(p.value)) { await socialsLock.setPassword(p.value); await rewrapData(p.value).catch(() => {}); sessionPw = p.value; sync.wrong = false; runSync(); draw(); } else e2.textContent = 'That doesn\'t open it.'; } catch (x) { e2.textContent = x.message; } });
       return el('div', { class: 'so-form' }, el('p', { text: 'Socials in your Drive has a different password (changed on another device?). Enter it to keep syncing; it becomes this device\'s password too.' }), p, e2, b);
     })() : null;
     return el('div', {}, backBar('Sync and password', { name: 'feed' }),
@@ -1456,7 +1523,7 @@ function mountAdmin(host) {
         me()?.owner ? textSettings() : null,
         el('div', { class: 'so-bg-settings' }, el('strong', { text: '🖼 Background' }), el('p', { class: 'small muted', text: 'A picture of yours behind all of Socials (an account\'s own, from its Edit profile, shows on its profile page instead). Kept only on this phone.' }), bgSetting('socials', 'Socials background', (b) => { appBg = b; applyBg(); })),
         el('h3', { text: 'Lock' }),
-        el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; sessionOpen = false; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
+        el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; sessionOpen = false; socialsLock.lock(); lockData(); view = { name: 'feed' }; gate(); } })));
   }
 
   // ---- Face ID (a passkey) to open Socials, as well as its password.
@@ -1502,7 +1569,7 @@ function mountAdmin(host) {
     // (Reels and a chat fill the screen below the bars: how far down they start.)
     if (v.name === 'reels' || v.name === 'chat') root.style.setProperty('--so-reels-top', `${Math.round(main.getBoundingClientRect().top + (globalThis.scrollY || 0))}px`);
     fill(main, v.name === 'settings' ? settings() : v.name === 'reels' ? reels() : v.name === 'inbox' ? inbox() : v.name === 'chat' ? chat(v.id) : v.name === 'editpost' ? editPostView(v.id) : v.name === 'tag' ? tagView(v.tag) : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
-      : v.name === 'post' ? onePost(v.id) : v.name === 'accounts' ? accounts() : v.name === 'newaccount' ? newAccount() : v.name === 'edit' ? edit() : v.name === 'people' ? people(v.id, v.kind) : feed());
+      : v.name === 'post' ? onePost(v.id) : v.name === 'accounts' ? accounts() : v.name === 'newaccount' ? newAccount() : v.name === 'edit' ? edit() : v.name === 'people' ? people(v.id, v.kind) : v.name === 'fromsaved' ? fromSavedView() : feed());
   }
 
   // Opened: what's on this device, then a sync.

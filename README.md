@@ -27,8 +27,8 @@ Calculator on the right. Hold one down (or right-click it) to pick another app f
 The hidden area's apps are never offered. It steps out of the way while you type (the keyboard's up), and
 anything full screen sits over it; Socials' own tab bar sits just above it (`web/lib/dock.js`). Apps with a page
 of their own (WorldAtlas, Trade Desk, Inkling, Laundry Timer, Games) keep their own look, without it.
-It can be **tucked away**: then only a small Command logo shows at the bottom left; tap it to open the Dock, and
-again to close it. Each app remembers its own choice (tapping the logo in it, or Settings → Dock → **Show the
+It can be **tucked away**: then only a small Command logo shows at the bottom left; tap it to open the Dock (the
+logo then floats just above the Dock's left corner), and again to close it. Each app remembers its own choice (tapping the logo in it, or Settings → Dock → **Show the
 Dock in…**: Shown or Tucked away for the home screen and each app). Socials starts tucked away, its logo just above
 its own tab bar.
 
@@ -1229,7 +1229,13 @@ written from the result ("Nuggets beat Lakers 118-109, behind N. Jokic's 34 PTS.
 results, newest first; chips filter by league. From ESPN's public scoreboards (no key, as the Sports app):
 today's and yesterday's games for the daily leagues, the current week for football; it updates itself while
 open (every minute while a game is on, else every few minutes) and on ↻, so a live game's post becomes its
-final with its leaders; kept for offline (four days). Its ⚙ settings choose the leagues. Your own Socials
+final with its leaders; kept for offline (four days). Its ⚙ settings choose the leagues. **Primetime**: a nationally televised NFL or NBA game coming up (on NBC, ESPN, ABC, Prime Video, TNT, NBA TV,
+Peacock, Netflix…; CBS and FOX count off a Sunday afternoon, when theirs are regional) is a post before it starts
+(📺 PRIMETIME, its network and time; the 📺 Primetime chip shows only those), then its live score and final.
+**Player stats**: an NFL, college football or NBA game's post lists each team's players who did enough, offense
+only (passing, rushing and receiving yards; points, assists, rebounds), from the game's box score (read when its
+post comes into view; a final kept). How much counts is set in ⚙: at least 100 passing, 25 rushing and 25
+receiving yards, 10 points or 5 assists to start. Your own Socials
 (below) is reached from its settings, behind Socials' password or Face ID; leaving Socials goes back to the
 front.
 

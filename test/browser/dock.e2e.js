@@ -79,10 +79,12 @@ test('the Dock in Socials: tucked away behind the logo at the bottom left (above
   assert.equal(await dock.isVisible(), true, 'opened'); assert.equal(await logo.getAttribute('aria-expanded'), 'true');
   const tabs2 = await page.locator('.so-tabs').boundingBox(); const db = await dock.boundingBox();
   assert.ok(Math.abs(tabs2.y + tabs2.height - db.y) < 1.5, 'the tab bar just above the Dock');
+  const lb2 = await logo.boundingBox(); assert.ok(lb2.y + lb2.height <= tabs2.y && lb2.x < 20, 'the logo floats above (not in) the Dock and the tab bar');
   await logo.click(); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), false, 'closed again');
   // Elsewhere it's shown; the logo there tucks it away, for that app only.
   await page.goto(`${origin}${BASE}index.html#/clock`); await page.waitForTimeout(300);
   assert.equal(await dock.isVisible(), true, 'shown in the Clock');
+  const db3 = await dock.boundingBox(); const lb3 = await logo.boundingBox(); assert.ok(lb3.y + lb3.height <= db3.y, 'above the Dock in the Clock too');
   await logo.click(); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), false);
   await page.goto(`${origin}${BASE}index.html#/calculator`); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), true, 'still shown in the Calculator');
   await page.goto(`${origin}${BASE}index.html#/clock`); await page.waitForTimeout(300); assert.equal(await dock.isVisible(), false, 'the Clock remembers');

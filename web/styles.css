@@ -1744,7 +1744,7 @@ body.se-open { overflow: hidden; }
 .sp-empty-big { font-weight: 700; font-size: 1.1rem; }
 .sp-sheet { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .45); display: grid; align-items: end; }
 .sp-sheet[hidden] { display: none; }
-.sp-sheet-card { background: var(--bg); border-radius: 18px 18px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); display: grid; gap: 10px; max-width: 560px; width: 100%; margin: 0 auto; }
+.sp-sheet-card { background: var(--bg); border-radius: 18px 18px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); display: grid; gap: 10px; max-width: 560px; width: 100%; margin: 0 auto; max-height: 88dvh; overflow-y: auto; overscroll-behavior: contain; }
 .sp-sheet-head { display: flex; justify-content: space-between; align-items: center; }
 .sp-sheet-h { margin: 4px 0 0; font-size: .9rem; color: var(--muted); }
 .sp-toggles { display: grid; }
@@ -1798,7 +1798,7 @@ body.se-open { overflow: hidden; }
 /* ---- The Dock: along the bottom of every screen. Home in the middle (a rounded square), two Favorites each side. */
 :root { --dock-h: 0px; }
 body.has-dock { --dock-h: calc(56px + env(safe-area-inset-bottom)); padding-bottom: calc(var(--dock-h) + 8px); }
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 max(50px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(50px, env(safe-area-inset-left)); transition: transform .22s ease, visibility .22s; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: clamp(10px, 5vw, 28px); background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-top: 1px solid var(--border); }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left)); transition: transform .22s ease, visibility .22s; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: clamp(10px, 5vw, 28px); background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-top: 1px solid var(--border); }
 body.dock-typing .dock, body.dock-typing .dock-toggle { display: none; }
 /* (Tucked away: just the logo at the bottom left; tap it to open the Dock, again to close it.) */
 body.has-dock.dock-tucked { --dock-h: 0px; padding-bottom: calc(env(safe-area-inset-bottom) + 8px); }
@@ -1806,7 +1806,9 @@ body.dock-tucked .dock { transform: translateY(110%); visibility: hidden; }
 .dock-toggle { position: fixed; z-index: 46; left: max(10px, env(safe-area-inset-left)); bottom: calc(env(safe-area-inset-bottom) + 12px); width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 2px 8px rgb(0 0 0 / .22); cursor: pointer; opacity: .9; transition: bottom .22s ease, transform .12s; }
 .dock-toggle:active { transform: scale(.9); }
 .dock-toggle img { width: 22px; height: 22px; border-radius: 6px; display: block; }
-.dock-toggle[aria-expanded="true"] { opacity: .75; }
+/* (The Dock open: the logo floats just above it, at its left corner, not in it.) */
+.dock-toggle[aria-expanded="true"] { bottom: calc(56px + env(safe-area-inset-bottom) + 10px); opacity: .85; }
+body:has(.so-tabs) .dock-toggle[aria-expanded="true"] { bottom: calc(56px + 56px + env(safe-area-inset-bottom) + 10px); }
 /* (Socials tucked: the logo just above its tab bar, not over it.) */
 body.dock-tucked:has(.so-tabs) .dock-toggle { bottom: calc(56px + env(safe-area-inset-bottom) + 10px); }
 @media (max-width: 360px) { .dock { gap: 6px; } .dock-fav { width: 40px; height: 40px; } .dock-home { margin: 0 4px; } }
@@ -1877,3 +1879,25 @@ body.has-dock.dock-tucked .so-reels { height: calc(100dvh - 56px - env(safe-area
 .so-dl-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .so-dl-check { position: absolute; left: 4px; top: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: #fff; font-size: .75rem; display: none; place-items: center; }
 .so-dl-item.on .so-dl-check { display: grid; }
+/* (Primetime previews, and each team's players' stats.) */
+.sp-state-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sp-tv { font-size: .72rem; font-weight: 800; letter-spacing: .06em; padding: 3px 8px; border-radius: 6px; background: #fff; color: #111; }
+.sp-pre .sp-team-name strong { font-size: 1.15rem; }
+.sp-at { color: #fff; font-weight: 800; opacity: .8; padding-left: 52px; }
+.sp-players { border-bottom: 1px solid var(--border); }
+.sp-players > summary { padding: 10px 12px; cursor: pointer; list-style: none; }
+.sp-players > summary::-webkit-details-marker { display: none; }
+.sp-players > summary::after { content: ' ▾'; color: var(--muted); }
+.sp-players:not([open]) > summary::after { content: ' ▸'; }
+.sp-pl-wait { padding: 0 12px 10px; margin: 0; }
+.sp-pl-teams { display: grid; grid-template-columns: minmax(0, 1fr); }
+.sp-pl-team { padding: 8px 12px 10px; min-width: 0; }
+.sp-pl-team + .sp-pl-team { border-top: 1px solid var(--border); }
+.sp-pl-rows { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.sp-pl-rows li { display: grid; gap: 1px; }
+.sp-pl-who { font-size: .9rem; }
+.sp-pl-line { font-size: .85rem; color: var(--muted); }
+.sp-mins { display: grid; gap: 8px; margin-bottom: 8px; }
+.sp-min { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sp-min-input { width: 5.5rem; font-size: 16px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.sp-link { border: 0; background: none; color: var(--primary); font: inherit; font-size: .85rem; padding: 4px 0; cursor: pointer; justify-self: start; }

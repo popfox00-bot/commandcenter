@@ -57,3 +57,51 @@ test('each team\'s own leaders; football lines made short; a card color dark eno
   assert.equal(cardColor({ color: '#ffffff', alt: '#002244' }), '#002244', 'white: its other color');
   assert.ok(lightness(cardColor({ color: '#f2f2f2', alt: '#ffffff' })) <= 0.45, 'both light: darkened');
 });
+
+test('primetime: nationally televised NFL and NBA games coming up are posts (CBS/FOX on a Sunday afternoon are regional); other leagues\' aren\'t', async () => {
+  const { gamePost, nationalTv, isPrimetime, feedOrder, mergeFeed, previewCaption } = await import('../web/apps/socials/socials-sports-core.js');
+  const now = Date.parse('2026-11-26T18:00:00Z'); // (Thanksgiving)
+  const pre = (id, date, broadcasts, league = 'nfl') => gamePost({ id, date, competitions: [{ status: { type: { state: 'pre', shortDetail: '8:20 PM' } }, broadcasts, competitors: [
+    { homeAway: 'home', team: { id: '9', abbreviation: 'GB', displayName: 'Green Bay Packers', shortDisplayName: 'Packers', color: '204e32' }, records: [{ summary: '8-3' }] },
+    { homeAway: 'away', team: { id: '14', abbreviation: 'LAR', displayName: 'Los Angeles Rams', shortDisplayName: 'Rams', color: '003594' }, records: [{ summary: '7-4' }] }] }] }, league, now);
+  const nbc = [{ market: 'national', names: ['NBC'] }];
+  const p = pre('401', '2026-11-27T01:20:00Z', nbc);
+  assert.equal(p.state, 'pre'); assert.equal(p.primetime, true); assert.equal(p.tv, 'NBC'); assert.equal(p.id, 'nfl:401');
+  assert.match(p.caption, /Rams at Packers, .* on NBC\./);
+  assert.equal(pre('402', '2026-11-27T01:20:00Z', [{ market: 'home', names: ['KTLA'] }]), null, 'local TV only: not a post until it starts');
+  assert.equal(pre('403', '2026-11-30T01:20:00Z', nbc), null, 'days away: not yet');
+  assert.equal(pre('404', '2026-11-27T01:20:00Z', nbc, 'nhl'), null, 'NFL and NBA only');
+  assert.equal(nationalTv({ geoBroadcasts: [{ market: { type: 'National' }, media: { shortName: 'ESPN' } }] }), 'ESPN');
+  // CBS on Sunday at 1 PM in New York: regional; on Thanksgiving: national.
+  assert.equal(isPrimetime('nfl', 'CBS', '2026-11-29T18:00:00Z'), false); assert.equal(isPrimetime('nfl', 'CBS', '2026-11-26T17:30:00Z'), true);
+  assert.equal(isPrimetime('nba', 'TNT', '2026-11-26T01:00:00Z'), true); assert.equal(isPrimetime('nba', 'Altitude', '2026-11-26T01:00:00Z'), false);
+  // In the feed: live first, then the primetime games coming up (soonest first), then results.
+  const feed = mergeFeed({}, [p, { ...p, id: 'nfl:405', date: '2026-11-26T21:30:00Z' }, { id: 'nba:1', state: 'post', date: '2026-11-26T03:00:00Z', home: p.home, away: p.away }, { id: 'nba:2', state: 'in', date: '2026-11-26T17:00:00Z', home: p.home, away: p.away }], now);
+  assert.deepEqual(feedOrder(feed).map((x) => x.id), ['nba:2', 'nfl:405', 'nfl:401', 'nba:1']);
+  assert.match(previewCaption({ home: p.home, away: p.away, tv: 'ESPN', date: '2026-11-27T20:00:00Z' }, now), /^(Tomorrow|Friday|Today|Tonight): Rams at Packers/);
+});
+
+test('each team\'s players\' stats, offense only, over the minimums (football yards; basketball points or assists)', async () => {
+  const { playerRows, qualified, playerStats, summaryUrl, DEFAULT_MINS } = await import('../web/apps/socials/socials-sports-core.js');
+  const A = (who, stats, pos = '') => ({ athlete: { shortName: who, position: { abbreviation: pos } }, stats });
+  const football = { boxscore: { players: [{ team: { id: '14' }, statistics: [
+    { name: 'passing', labels: ['C/ATT', 'YDS', 'AVG', 'TD', 'INT', 'SACKS', 'QBR', 'RTG'], athletes: [A('M. Stafford', ['24/33', '287', '8.7', '2', '1', '1-7', '70', '101'], 'QB')] },
+    { name: 'rushing', labels: ['CAR', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('K. Williams', ['18', '96', '5.3', '1', '22'], 'RB'), A('M. Stafford', ['2', '4', '2', '0', '3']), A('B. Corum', ['4', '12', '3', '0', '5'])] },
+    { name: 'receiving', labels: ['REC', 'YDS', 'AVG', 'TD', 'LONG', 'TGTS'], athletes: [A('P. Nacua', ['9', '121', '13.4', '1', '40', '11'], 'WR'), A('D. Adams', ['3', '24', '8', '0', '10', '5']), A('K. Williams', ['3', '31', '10.3', '0', '15', '3'])] },
+    { name: 'defensive', labels: ['TOT', 'SOLO', 'SACKS'], athletes: [A('J. Verse', ['5', '4', '2'])] }] }] } };
+  const rows = playerRows(football, 'nfl')['14'];
+  assert.ok(!rows.some((r) => r.who === 'J. Verse'), 'no defense');
+  const q = qualified(rows, DEFAULT_MINS);
+  assert.deepEqual(q.map((x) => x.who), ['M. Stafford', 'K. Williams', 'P. Nacua']);
+  assert.match(q[0].line, /^24\/33, 287 pass yds, 2 TD, 1 INT$/, 'his 4 rushing yards under the minimum: left out');
+  assert.equal(q[1].line, '18 car, 96 rush yds, 1 TD · 3 rec, 31 rec yds', 'a player once, each stat that counts');
+  assert.ok(!q.some((x) => x.who === 'D. Adams'), '24 receiving yards: under 25');
+  assert.deepEqual(qualified(rows, { rec: 20 }).map((x) => x.who).includes('D. Adams'), true, 'the minimum lowered: in');
+  const bb = { boxscore: { players: [{ team: { id: '7' }, statistics: [{ labels: ['MIN', 'FG', '3PT', 'FT', 'OREB', 'DREB', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', '+/-', 'PTS'], athletes: [
+    A('N. Jokic', ['36', '12-19', '2-4', '6-7', '3', '11', '14', '11', '2', '1', '3', '2', '+9', '32']), A('J. Murray', ['34', '4-12', '1-5', '0-0', '0', '3', '3', '6', '1', '0', '1', '2', '+4', '9']),
+    A('C. Braun', ['20', '3-6', '0-1', '1-2', '1', '2', '3', '1', '0', '0', '0', '1', '+2', '7']), { athlete: { shortName: 'DNP Guy' }, didNotPlay: true, stats: [] }] }] }] } };
+  const s = playerStats(bb, 'nba');
+  assert.deepEqual(s['7'].map((x) => x.who), ['N. Jokic', 'J. Murray'], '9 points but 6 assists: in; 7 points, 1 assist: out');
+  assert.equal(s['7'][0].line, '32 PTS, 11 AST, 14 REB, 12-19 FG, 2-4 3PT');
+  assert.match(summaryUrl('nfl:401'), /football\/nfl\/summary\?event=401$/); assert.equal(summaryUrl('nhl:5'), null);
+});

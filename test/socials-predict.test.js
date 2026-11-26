@@ -99,3 +99,19 @@ test('chat replies from the whole conversation: answers, asked back, plans follo
   for (const r of many(before)) assert.notEqual(r, 'Anytime! 😊');
   assert.equal(moodOf('so good!!'), 'pos'); assert.equal(moodOf('ugh, awful'), 'neg'); assert.equal(moodOf('not bad'), 'pos'); assert.equal(moodOf('ok'), 'neutral');
 });
+
+test('chat replies say their own words back and build on them, not stock lines', async () => {
+  const { chatReply, flip, phraseIn } = await import('../web/apps/socials/socials-chat.js');
+  assert.equal(flip('I got my license!'), 'you got your license'); assert.equal(flip('we were late'), 'you guys were late'); assert.equal(flip('do you like it'), null);
+  assert.deepEqual([phraseIn('we tried the new taco truck').phrase, phraseIn('I had the best pizza').phrase, phraseIn('amazing, best show ever').phrase], ['the new taco truck', 'the best pizza', 'best show ever']);
+  const many = (h, n = 40) => { const hist = (Array.isArray(h) ? h : [h]).map((x, i) => (typeof x === 'string' ? { mine: true, text: x, at: 1000 + i } : { ...x, at: 1000 + i })); return Array.from({ length: n }, () => chatReply(hist, { now: 99999 })); };
+  const share = (list, re) => list.filter((r) => re.test(r)).length / list.length;
+  assert.ok(share(many('I got the job!!'), /You got the job\?!/) > 0.7, 'news said back');
+  assert.ok(share(many('ugh I failed my exam'), /You failed your exam\?!.*(no|sorry|worst)/i) > 0.7);
+  assert.ok(share(many('the weather is so nice today'), /the weather is so nice/i) > 0.7, 'agreeing in their words');
+  assert.ok(share(many('im so tired'), /^So tired\?/) > 0.7);
+  assert.ok(share(many('heading to Denver tomorrow'), /^Denver tomorrow\?!/) > 0.7);
+  assert.ok(share(many([{ mine: false, text: 'How was the concert?' }, 'amazing, best show ever']), /Best show ever\?!/) > 0.6, 'the answer\'s own words');
+  assert.ok(share(many('my dog learned a new trick'), /Your dog learned a new trick\?!/) > 0.6);
+  for (const r of many('we tried the new taco truck')) assert.doesNotMatch(r, /Congrats|How's a /);
+});

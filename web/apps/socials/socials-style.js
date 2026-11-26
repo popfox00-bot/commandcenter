@@ -78,3 +78,50 @@ export function voice(text, { persona = 'classic', style = null, rand = Math.ran
   }
   return s.replace(/\s{2,}/g, ' ').trim();
 }
+
+// ---- How tame or adult the words are (Socials' setting: 0 Tame, 1 Casual, 2 Spicy, 3 Adult). Tame never
+// swears (anything that slips in is cleaned); Casual says damn and hell; Spicy swears freely; Adult adds crude
+// humor and flirting. Never explicit: it's banter.
+
+export const CONTENT_LEVELS = [
+  { id: 'tame', name: 'Tame', note: 'No swearing at all.' },
+  { id: 'casual', name: 'Casual', note: 'Mild words now and then: damn, hell.' },
+  { id: 'spicy', name: 'Spicy', note: 'Swears freely, like close friends do.' },
+  { id: 'adult', name: 'Adult (18+)', note: 'Swearing, crude humor and flirting. Banter, not explicit.' },
+];
+
+const STRONG = /\b(fuck(?:ing|in'?|ed|er|s)?|motherfuck\w*|shit(?:ty|s)?|bullshit|ass(?:hole)?|bitch(?:es|ing)?|dick|piss(?:ed)?|bastard|wtf|af)\b/gi;
+const MILD = /\b(damn|dammit|hell|crap|freaking|frickin)\b/gi;
+const SOFT = { fuck: 'heck', fucking: 'freaking', fuckin: 'freaking', "fuckin'": 'freaking', fucked: 'messed', fucker: 'jerk', fucks: 'hecks', shit: 'stuff', shitty: 'crummy', shits: 'stuff', bullshit: 'nonsense', ass: 'butt', asshole: 'jerk', bitch: 'jerk', bitches: 'jerks', bitching: 'complaining', dick: 'jerk', piss: 'tick', pissed: 'mad', bastard: 'jerk', wtf: 'what', af: 'so much', damn: 'dang', dammit: 'darn it', hell: 'heck', crap: 'stuff', freaking: 'really', frickin: 'really' };
+const softWord = (w) => { const r = SOFT[w.toLowerCase()] ?? 'heck'; return w[0] === w[0].toUpperCase() ? r.charAt(0).toUpperCase() + r.slice(1) : r; };
+
+/** Words above the level cleaned out: Tame none at all, Casual only mild ones. */
+export function cleanWords(text, level = 0) {
+  let s = String(text ?? '');
+  if (level < 2) s = s.replace(/\bholy shit\b/gi, (m) => (m[0] === 'H' ? 'Holy cow' : 'holy cow')).replace(/\bno fucking way\b/gi, 'no way').replace(/\bwhat the fuck\b/gi, 'what the heck').replace(/\bfuck (yes|yeah)\b/gi, (m, w) => `${m[0] === 'F' ? 'Heck' : 'heck'} ${w}`).replace(STRONG, softWord);
+  if (level < 1) s = s.replace(MILD, softWord);
+  return s.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * A reply or comment at a level: spiced up now and then (Casual: "damn", "hell yeah"; Spicy: "holy shit", "so
+ * fucking good"; Adult: and crude, flirty asides), never over it. `mood`: 'pos' | 'neg' | 'neutral'.
+ */
+export function spice(text, level = 0, { rand = Math.random, mood = 'neutral', persona = 'classic' } = {}) {
+  let s = cleanWords(text, level); if (level <= 0) return s;
+  const chance = [0, 0.3, 0.5, 0.65][level] * (persona === 'warm' ? 0.6 : persona === 'hype' || persona === 'chill' ? 1.2 : 1);
+  if (rand() >= chance) return s;
+  const lead = (pool) => { const w = pick(pool, rand); return `${w} ${s.charAt(0).toLowerCase()}${s.slice(1)}`; };
+  const pools = {
+    pos: [['Damn,', 'Hell yeah,', 'Dang,'], ['Holy shit,', 'Fuck yes,', 'Hell yeah,', 'Damn,'], ['Holy shit,', 'Fuck yes,', 'Hell yeah,', 'Goddamn,']],
+    neg: [['Damn,', 'Well hell,', 'Dang,'], ['Shit,', 'Fuck,', 'Damn,'], ['Shit,', 'Fuck,', 'Ugh, fuck,']],
+    neutral: [['Damn,', 'Okay damn,'], ['Okay damn,', 'Holy shit,', 'Damn,'], ['Okay damn,', 'Holy shit,', 'Damn,']],
+  }[mood] ?? [['Damn,']];
+  const r = rand();
+  if (r < 0.45 && !/^(damn|hell|holy|fuck|shit|goddamn|dang|okay damn|well hell)/i.test(s)) s = lead(pools[level - 1]);
+  else if (r < 0.8 && /\bso (good|cute|fun|hot|nice|pretty|cool|jealous|happy|proud|bad|annoying|gorgeous)\b/i.test(s)) s = s.replace(/\bso (good|cute|fun|hot|nice|pretty|cool|jealous|happy|proud|bad|annoying|gorgeous)\b/i, (m, w) => `so ${level >= 2 ? pick(['fucking', 'damn', 'freaking'], rand) : 'damn'} ${w}`);
+  else if (level >= 2 && mood !== 'neg') s = s.replace(/(\s*\p{Extended_Pictographic}*)$/u, (e) => ` ${pick(level >= 3 ? ['no fucking way', 'holy shit', 'love that shit', 'damn'] : ['no fucking way', 'holy shit', 'damn'], rand)}${e}`);
+  // (Adult: a crude or flirty aside, now and then.)
+  if (level >= 3 && rand() < 0.22 && mood !== 'neg') s = s.replace(/(\s*\p{Extended_Pictographic}*)$/u, (e) => ` ${pick(['ngl that\'s hot', 'okay who gave you permission to be this hot', 'I\'m not even mad, that\'s sexy as hell', 'damn, save some for the rest of us', 'that\'s some sexy shit right there'], rand)}${e}`);
+  return s.replace(/\s{2,}/g, ' ').trim();
+}

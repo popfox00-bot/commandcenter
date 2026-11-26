@@ -978,3 +978,21 @@ test('Socials\' Sports front: a nationally televised NFL game coming up (📺 Pr
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials settings: the language slider (Tame → Adult) kept; AI replies say plainly when the device can\'t run them; face recognition switch', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-sync, [aria-label*="Sync"]').first().click();
+  const slider = page.getByLabel('Language: tame to adult'); await slider.waitFor();
+  assert.equal(await slider.inputValue(), '0'); assert.match(await page.locator('.so-level-name').textContent(), /Tame/);
+  await slider.fill('3'); assert.match(await page.locator('.so-level-name').textContent(), /Adult/);
+  assert.equal(await page.evaluate(() => localStorage.getItem('cc.socials.level')), '3');
+  await page.locator('.so-ai p[aria-live]').filter({ hasText: /Not available on this device|Not downloaded/ }).waitFor();
+  assert.ok(await page.getByText('Recognize faces in new posts').count() === 1);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

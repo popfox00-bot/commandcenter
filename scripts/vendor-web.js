@@ -46,6 +46,9 @@ const copies = [
   ['@vladmandic/face-api/model/tiny_face_detector_model.bin', 'face/model/tiny_face_detector_model.bin'],
   ['@vladmandic/face-api/model/face_landmark_68_model-weights_manifest.json', 'face/model/face_landmark_68_model-weights_manifest.json'],
   ['@vladmandic/face-api/model/face_landmark_68_model.bin', 'face/model/face_landmark_68_model.bin'],
+  // (Its face recognition model: who a face is, for Socials (a face in a post matched to a profile photo).)
+  ['@vladmandic/face-api/model/face_recognition_model-weights_manifest.json', 'face/model/face_recognition_model-weights_manifest.json'],
+  ['@vladmandic/face-api/model/face_recognition_model.bin', 'face/model/face_recognition_model.bin'],
 ];
 const pdfWasm = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_PDFJS_QCMS', 'LICENSE_QCMS'];
 

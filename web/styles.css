@@ -1901,3 +1901,11 @@ body.has-dock.dock-tucked .so-reels { height: calc(100dvh - 56px - env(safe-area
 .sp-min { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sp-min-input { width: 5.5rem; font-size: 16px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
 .sp-link { border: 0; background: none; color: var(--primary); font: inherit; font-size: .85rem; padding: 4px 0; cursor: pointer; justify-self: start; }
+.so-facenote { margin: 0; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.so-text-settings { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); }
+.so-level-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.so-level { width: 100%; }
+.so-level-note { margin: 0; }
+.so-ai { display: grid; gap: 6px; margin-top: 8px; }
+.so-ai p { margin: 0; }
+.so-ai-bar { height: 6px; }

@@ -143,3 +143,27 @@ test('voices and styles: each account its own voice (always the same); replies l
   const c = []; for (let i = 0; i < 20; i++) c.push(...generateComments('Gala night', 3, { photo: { labels: [['gown', 0.6]], people: 1, outfit: { color: 'red' } }, as: ['bo', 'cy', 'dee'] }));
   assert.ok(new Set(c).size > 25, 'varied'); assert.ok(c.some((x) => /red dress/.test(x)));
 });
+
+test('language levels: Tame never swears (cleaned), Casual only mild, Spicy and Adult swear; Adult adds crude asides; AI replies checked before they\'re sent', async () => {
+  const { spice, cleanWords, CONTENT_LEVELS } = await import('../web/apps/socials/socials-style.js');
+  const { checkReply } = await import('../web/apps/socials/socials-ai.js');
+  assert.equal(CONTENT_LEVELS.length, 4);
+  assert.equal(cleanWords('holy shit this is fucking good, damn', 0), 'holy cow this is really good, dang');
+  assert.equal(cleanWords('holy shit this is fucking good, damn', 1), 'holy cow this is freaking good, damn');
+  assert.equal(cleanWords('holy shit this is fucking good, damn', 2), 'holy shit this is fucking good, damn');
+  const STRONG = /\b(fuck\w*|shit\w*|ass|bitch|goddamn)\b/i; const ANY = /\b(fuck\w*|shit\w*|damn|hell|goddamn)\b/i;
+  const run = (lvl, n = 200) => Array.from({ length: n }, () => spice('Love that! So good 😍', lvl, { mood: 'pos', persona: 'hype' }));
+  for (const t of run(0)) assert.doesNotMatch(t, ANY);
+  for (const t of run(1)) assert.doesNotMatch(t, STRONG);
+  assert.ok(run(1).some((t) => ANY.test(t)), 'Casual: damn now and then');
+  assert.ok(run(2).some((t) => STRONG.test(t)), 'Spicy: swears');
+  assert.ok(run(3, 400).some((t) => /hot|sexy/.test(t)), 'Adult: flirty asides');
+  // The AI's text: one message, the right length, on topic, a friend's (not an assistant's), at the level.
+  assert.equal(checkReply('omg you got the job?? thats huge, when do you start', { said: 'i got the job!!', draft: 'You got the job?! How do you feel?' }), 'omg you got the job?? thats huge, when do you start');
+  assert.equal(checkReply('I\'m here to help you with anything you need today, just let me know!', { said: 'ugh bad day' }), null);
+  assert.equal(checkReply('Here are some tips for skiing: wear layers and stay hydrated always', { said: 'going skiing' }), null);
+  assert.equal(checkReply('<think>hmm</think>lasagna from scratch?! okay chef\nsecond line', { said: 'i made lasagna' }), 'lasagna from scratch?! okay chef');
+  assert.equal(checkReply('jess: wait what?? no way', { said: 'guess what', name: 'jess' }), 'wait what?? no way');
+  assert.equal(checkReply('the weather on mars has been interesting lately with all these dust storms happening', { said: 'i got a puppy', draft: 'A puppy?! Send pics' }), null, 'off topic');
+  assert.equal(checkReply('holy shit you got the job', { said: 'i got the job', level: 0 }), 'holy cow you got the job', 'cleaned to the level');
+});

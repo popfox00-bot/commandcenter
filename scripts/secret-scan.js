@@ -17,7 +17,7 @@ const RULES = [
 ];
 // Values are literal-looking runs; code expressions (calls, property chains ending in "(") are skipped.
 const ASSIGN = /\b([A-Z0-9_]*(SECRET|TOKEN|PASSWORD|API_KEY|NTFY_TOPIC)[A-Z0-9_]*)\s*[:=]\s*["']?([^\s"'#(),;]{16,})(?![(\w])/i;
-const SKIP = [/^node_modules\//, /package-lock\.json$/, /\.(png|jpg|jpeg|gif|ico|woff2?|pdf)$/i, /^test\/fixtures\//, /^scripts\/secret-scan\.js$/];
+const SKIP = [/^node_modules\//, /package-lock\.json$/, /\.(png|jpg|jpeg|gif|ico|woff2?|pdf)$/i, /^test\/fixtures\//, /^scripts\/secret-scan\.js$/, /^web\/vendor\/transformers\//];
 
 function entropy(s) {
   const f = {};

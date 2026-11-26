@@ -256,7 +256,42 @@ export function photoFacts(photo, { year = new Date().getFullYear() } = {}) {
   // (When.)
   if (sw.night) F.push(fact('night', 3, ['🌙', '✨', '🌃'], ['What a night', 'Night out vibes', 'The night is young'], ['Nights like these', 'After dark'], ['nightout']));
   if (sw.morning) F.push(fact('morning', 3, ['☀️', '🌅', '☕'], ['Early start!', 'Morning views like this', 'Rise and shine'], ['Rise and shine', 'Early bird'], []));
+  // (Each fact as a few words, to put two together: "the black suit", "in Boulder", "you two".)
+  const color2 = sw.outfit?.color;
+  for (const f of F) {
+    if (f.id === 'grad') f.bit = 'the cap and gown';
+    else if (f.id === 'brand') f.bit = `the ${sw.brand} fit`;
+    else if (f.id === 'pet') f.bit = `the ${sw.things.find((x) => x !== 'snow') ?? 'pup'}`;
+    else if (f.id === 'food') { const fd = sw.labels.find((l) => l.kind === 'food' && l.name)?.name; if (fd) f.bit = `that ${fd}`; }
+    else if (f.id.startsWith('item:')) { const it = f.id.slice(5); f.bit = `the ${color2 && WEARABLE.has(it) && f.w === 7 ? `${color2} ` : ''}${it}`; }
+    else if (f.id === 'place') f.loc = `in ${sw.place}`;
+    else if (f.id === 'mountains') f.loc = 'with those mountains';
+    else if (f.id === 'beach') f.loc = 'on the beach';
+    else if (f.id === 'lake') f.loc = 'by the lake';
+    else if (f.id === 'snow') f.loc = 'in the snow';
+    else if (f.id === 'sunset') f.loc = 'at golden hour';
+    else if (f.id === 'city') f.loc = 'in the city';
+    else if (f.id === 'night') f.loc = 'on a night out';
+    else if (f.id === 'two') f.subj = 'you two';
+    else if (f.id === 'group' || f.id === 'crowd') f.subj = 'you all';
+  }
   return F.sort((a, b) => b.w - a.w);
+}
+
+/**
+ * Comments that put two things about the post together (more specific than either alone): "That black suit in
+ * Boulder?!", "You two at golden hour", "The cap and gown + those mountains".
+ */
+function comboFacts(facts) {
+  const bits = facts.filter((f) => f.bit); const locs = facts.filter((f) => f.loc); const subs = facts.filter((f) => f.subj);
+  const out = [];
+  for (const b of bits.slice(0, 3)) for (const l of locs.slice(0, 2)) out.push({ ...fact(`combo:${b.id}+${l.id}`, Math.max(b.w, l.w) + 2, [...b.emoji.slice(0, 2), ...l.emoji.slice(0, 2)], [`${cap(b.bit)} ${l.loc}?! Love it`, `Loving ${b.bit} ${l.loc}`, `${cap(b.bit)} ${l.loc} is everything`]), parts: [b.id, l.id] });
+  for (const u of subs) {
+    for (const l of locs.slice(0, 2)) out.push({ ...fact(`combo:${u.id}+${l.id}`, Math.max(u.w, l.w) + 2, [...u.emoji.slice(0, 2), ...l.emoji.slice(0, 2)], [`${cap(u.subj)} ${l.loc}, the best`, `Love seeing ${u.subj} ${l.loc}`]), parts: [u.id, l.id] });
+    for (const b of bits.slice(0, 2)) out.push({ ...fact(`combo:${u.id}+${b.id}`, Math.max(u.w, b.w) + 1, [...u.emoji.slice(0, 2), ...b.emoji.slice(0, 2)], [`${cap(u.subj)} and ${b.bit}, perfect`]), parts: [u.id, b.id] });
+  }
+  if (bits.length >= 2) { const [a, b] = bits; out.push({ ...fact(`combo:${a.id}+${b.id}`, Math.max(a.w, b.w) + 1, [...a.emoji.slice(0, 2), ...b.emoji.slice(0, 2)], [`${cap(a.bit)} and ${b.bit}?! Iconic`]), parts: [a.id, b.id] }); }
+  return out;
 }
 
 /** What a caption gives to talk about: what it names, counts, asks, its hashtags and the people tagged. */
@@ -312,14 +347,21 @@ const opening = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}@# ]+/gu, ''
  * commenting), general words least. `avoid`: comments already on it; `batch`: kept across a batch so each is
  * different (words, what it's about, emojis).
  */
-export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', photo = null, batch = newBatch() } = {}) {
-  const facts = [...photoFacts(photo), ...captionFacts(caption, { tagged, as, rand }), generalFact(caption, photo, rand)];
+export function generateComment(caption, { rand = Math.random, avoid = [], tagged = [], as = '', photo = null, by = '', batch = newBatch() } = {}) {
+  const pf = photoFacts(photo); const cf = captionFacts(caption, { tagged, as, rand });
+  // (The caption's things can go with the photo's places: "The pizza in Denver?!".)
+  const capThing = cf.find((f) => f.id === 'cap:thing'); if (capThing) { const t = capThing.say[0].replace(/^Love the /, ''); capThing.bit = `the ${t}`; }
+  const capPlace = cf.find((f) => f.id === 'cap:place'); if (capPlace) capPlace.loc = `in ${capPlace.say[0].split(' looks ')[0]}`;
+  const facts = [...comboFacts([...pf, ...cf]), ...pf, ...cf, generalFact(caption, photo, rand)];
+  // (Now and then, to whoever posted it.)
+  const poster = String(by ?? '').replace(/^@/, '');
+  if (poster && poster !== String(as ?? '').replace(/^@/, '') && pf.length + cf.length) { const top = [...pf, ...cf][0]; facts.push(fact(`by:${top.id}`, 2, top.emoji, [`@${poster} this is so you`, `@${poster} you never miss`, `Okay @${poster}, I see you`])); }
   const said = new Set(avoid.map((a) => String(a).trim().toLowerCase())); const saidStarts = new Set(avoid.map(opening));
   const cands = [];
   // (While there are things not yet talked about (specific ones), those only.)
   const freshLeft = facts.some((f) => f.w >= 3 && !batch.facts.get(f.id) && f.say.some((x, i) => !batch.keys.has(`${f.id}:${i}`)));
   for (const f of facts) for (const [i, s] of f.say.entries()) {
-    if (freshLeft && batch.facts.get(f.id)) continue;
+    if (freshLeft && (batch.facts.get(f.id) || (f.parts ?? []).some((x) => batch.facts.get(x)))) continue;
     const key = `${f.id}:${i}`; if (batch.keys.has(key) || said.has(s.toLowerCase())) continue;
     let w = f.w * f.w; // (the more specific, much the likelier)
     w *= 0.12 ** (batch.facts.get(f.id) ?? 0); // (a thing already talked about: rarely again)
@@ -342,16 +384,16 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
     const es = emojisIn(c.s).length ? [] : emojiFor2(c.f);
     const text = `${c.s}${es.length ? ` ${es.join('')}` : ''}`.replace(/\s+/g, ' ').trim();
     if (said.has(text.toLowerCase())) { cands.splice(cands.indexOf(c), 1); continue; }
-    batch.keys.add(c.key); batch.facts.set(c.f.id, (batch.facts.get(c.f.id) ?? 0) + 1); batch.starts.add(opening(c.s)); for (const e of es) batch.emojis.add(e);
+    batch.keys.add(c.key); batch.facts.set(c.f.id, (batch.facts.get(c.f.id) ?? 0) + 1); for (const part of c.f.parts ?? []) batch.facts.set(part, (batch.facts.get(part) ?? 0) + 1); batch.starts.add(opening(c.s)); for (const e of es) batch.emojis.add(e);
     return text;
   }
   const g = generalFact(caption, photo, rand); return `${pick(g.say, rand)} ${pick(g.emoji, rand)}`;
 }
 
 /** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn): different words, things and emojis. */
-export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], photo = null } = {}) {
+export function generateComments(caption, n, { rand = Math.random, avoid = [], tagged = [], as = [], photo = null, by = '' } = {}) {
   const out = []; const seen = [...avoid]; const batch = newBatch();
-  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', photo, batch }); out.push(c); seen.push(c); }
+  for (let i = 0; i < n; i++) { const c = generateComment(caption, { rand, avoid: seen, tagged, as: as[i] ?? '', photo, by, batch }); out.push(c); seen.push(c); }
   return out;
 }
 

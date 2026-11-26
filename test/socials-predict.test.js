@@ -77,3 +77,25 @@ test('comments made for the caption: its places, things, numbers, question, hash
   // A batch: all different.
   for (let i = 0; i < 20; i++) { const b = generateComments('Golden hour at the beach 🌅 #summer', 5); assert.equal(new Set(b).size, 5); }
 });
+
+test('chat replies from the whole conversation: answers, asked back, plans followed up, posts, goodbyes, never the same twice', async () => {
+  const { chatReply, plansIn, moodOf } = await import('../web/apps/socials/socials-chat.js');
+  const T = Date.parse('2026-11-20T18:00:00'); const H = 3600000;
+  const many = (h, n = 30, o = {}) => Array.from({ length: n }, () => chatReply(h, { now: h.at(-1).at + 5000, ...o }));
+  const asked = [{ mine: true, text: 'hey', at: T }, { mine: false, text: 'Hey! How are you?', at: T + 1000 }];
+  for (const r of many([...asked, { mine: true, text: 'Great, best day ever', at: T + 2000 }])) assert.match(r, /love|yay|nice|great|glad|awesome|happy|amazing|best|good|so fun/i);
+  for (const r of many([...asked, { mine: true, text: 'not great, so tired', at: T + 2000 }])) assert.match(r, /no|sorry|rough|hug|happened|hard|okay|talk|ugh|aw/i);
+  for (const r of many([{ mine: true, text: 'good, you?', at: T }])) assert.match(r, /good|great|not bad|chilling|gym|dinner|movie|home|coffee|working|cleaning|walk|phone/i);
+  // A plan mentioned, the next day: how was it?
+  const plan = [{ mine: true, text: 'Going to a concert tonight!', at: T }, { mine: false, text: 'Ooh fun!', at: T + 1000 }, { mine: true, text: 'hey', at: T + 20 * H }];
+  assert.ok(many(plan).some((r) => /How was the concert/.test(r)));
+  assert.ok(!many([{ mine: true, text: 'Going to a concert tonight!', at: T }]).some((r) => /How was/.test(r)), 'not before it\'s happened');
+  assert.deepEqual(plansIn([{ mine: true, text: 'heading to Denver tomorrow', at: T }]).map((p) => [p.what, p.when]), [['Denver', 'tomorrow']]);
+  // A shared post: about the post.
+  for (const r of many([{ mine: true, text: '', post: { caption: 'Pizza night', scene: { labels: [['pizza', 0.9]] } }, at: T }], 10)) assert.ok(r.length > 3);
+  for (const r of many([{ mine: true, text: 'ok gotta go, night!', at: T }], 10)) assert.match(r, /night|bye|talk soon|ttyl|sleep|see you/i);
+  // Never what it said before in the chat.
+  const before = [{ mine: true, text: 'thanks!', at: T }, { mine: false, text: 'Anytime! 😊', at: T + 1 }, { mine: true, text: 'thanks!', at: T + 2 }];
+  for (const r of many(before)) assert.notEqual(r, 'Anytime! 😊');
+  assert.equal(moodOf('so good!!'), 'pos'); assert.equal(moodOf('ugh, awful'), 'neg'); assert.equal(moodOf('not bad'), 'pos'); assert.equal(moodOf('ok'), 'neutral');
+});

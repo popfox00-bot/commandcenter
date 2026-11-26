@@ -1244,7 +1244,7 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **Posting.** A photo goes through Socials' photo editor first, built from the Photo Editor's own engine
   (`web/apps/socials/socials-editor.js`): **Fit** (the whole photo with the frame of what's kept over it, the
   rest dimmed: Original, Square, Portrait 4:5, 3:4, Story 9:16, Landscape 1.91:1, 16:9, 4:3 or Custom (your own
-  width : height); drag the frame over the photo, pinch or slide to zoom, ↻ to turn), **Filter** (the Photo Editor's
+  width : height); drag the frame over the photo, drag a corner of it to make it any size, pinch or slide to zoom, ↻ to turn), **Filter** (the Photo Editor's
   filters, previewed on the photo, with a strength) and **Edit** (its adjustments: Brightness, Contrast,
   Saturation, Warmth and the rest). A profile photo is fitted to a circle the same way, and also posted, whole
   as it was picked (not the circle), when the account is saved ("New profile picture 📸"). Nothing of it is kept
@@ -1279,7 +1279,11 @@ Profile, ✈ for messages), where everything is made by you in the app.
   the post to swipe through (from a profile too, not Reels' single video). While posting, a progress bar shows
   each file being prepared, the post saved to the phone, then each file uploaded to Saved Files, and Posted ✓.
 - **Videos and Reels.** A video posts as it is, with its sound (300 MB at most), with a still from it for its
-  tile. **Reels** (the ▶︎ tab) shows only videos (posts that start with one), everyone's, in a shuffled order
+  tile. **✂︎ Frame video** (when posting, or in ⋯ → Edit) frames it for the post, as a photo's Fit does: the whole
+  video playing with the frame of what shows over it; pick a shape (the whole video, Square, 4:5, 9:16, 16:9, 4:3),
+  drag the frame to choose what it covers, drag a corner to make it any size, pinch or slide to zoom. The video
+  itself isn't changed: it's shown through its frame in the feed (tap to play, 🔇/🔊), in Reels and on its tile
+  (`web/apps/socials/socials-videofit.js`). **Reels** (the ▶︎ tab) shows only videos (posts that start with one), everyone's, in a shuffled order
   (the same while the app is open; a video just posted comes first); pull down at the top to shuffle again.
   One at a time at full height: swipe up for the next, each plays while it's in view, 🔇/🔊 for sound (on for each reel once turned on), tap to pause, ♥ and
   💬 beside it. A post with several videos plays them one after another in its reel (a bar for each at the top),
@@ -1303,9 +1307,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
   their profile too and in their followers' feeds, its header "you and them"; likes and comments are shared.
   A collaborator can take it off their profile (⋯ → Remove me from this collab). A draft's collaborators are
   asked when it's shared. With several requests waiting, **Accept All** at the top of Messages (or in a chat with
-  several from the same account) accepts them all at once.
+  several from the same account) accepts them all at once, and clears those requests' unread notifications.
 - **# Community.** When posting (or editing), # Community opens the hashtags any account has used before, the
-  most used first, with how many posts each; a tap adds it to the caption.
+  most used first, with how many posts each; a tap adds it to the caption, and a tap again takes it back out.
 - **✨ Generate (the Owner account).** A small text predictor, all on the phone (works offline). On an opened
   post, ✨ Generate 1, 3 or 5 has that many other accounts (random ones that haven't commented yet, each
   once, or all as the one picked beside it) comment on it, each different, in words and emoji made for its
@@ -1313,6 +1317,8 @@ Profile, ✈ for messages), where everything is made by you in the app.
   amazing", "Love the bike"), what it counts ("Happy 21st!!", "10 years!!", "5k?! Legend"), a question it asks
   ("Tacos, no question"), its hashtags ("#goldenhour indeed") and the people tagged ("@sam you two!!"; a
   tagged account itself thanks you for the tag), its own emoji mirrored, never repeating a comment already there.
+  Comments also put two things together ("The black suit in Denver?!", "You two at golden hour") and now and then
+  speak to whoever posted it.
   It also reads the photo itself, on the phone (`web/apps/socials/socials-vision.js`, worked out in
   `socials-scene.js`; nothing sent anywhere, offline once cached):
   - **What's in it**: MediaPipe's image classifier (EfficientNet-Lite0: ImageNet's 1,000 kinds of thing: a dog's
@@ -1343,6 +1349,17 @@ Profile, ✈ for messages), where everything is made by you in the app.
   "Cap, gown, done 🎓 #graduation #classof2026", "Repping Nike 🔥 📍 Breckenridge #nike", "Black suit kind of day
   🕴️", "Best pup ever 🐶"; with 📍 the place and a few hashtags from what it's about. Change it any way you
   like; ✨ Suggest caption gives the next one (it replaces the last suggestion, else goes under what you wrote).
+- **Replies in messages (the Owner account).** When the Owner messages another account, it answers by itself a
+  moment later ("…" typing first; send more first and it answers them all), from the whole conversation
+  (`web/apps/socials/socials-chat.js`): an answer to its own question ("good!" to its "how are you?" gets "Love
+  that!", "not great" gets "Aw no, what happened?"); asked back ("you?", "wyd") it says how it is or what it's
+  doing; plans you mentioned are followed up once they're over ("Going to a concert tonight", the next day:
+  "How was the concert??"); what the chat's about gets a fitting reaction and a question to keep it going; a
+  shared post gets a comment made for its photo; goodbyes get a goodbye; and it never sends the same thing
+  twice in a chat. Turn it off in Sync and password (then ✨ Generate reply from @… does it on a tap).
+- **Download post (the Owner account).** ⋯ → Download post on any post saves its photos and videos: one
+  straight away; several open a picker (all picked to start: tap to leave some out) with **Download all** and
+  **Download selected**. On a phone they go to the share sheet (Save to Photos); elsewhere a download, or a zip.
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,
   🎭 FM or 👕 Fashion (as the base, the person to dress, or as the piece, what to put on) opens a copy of the
   photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.

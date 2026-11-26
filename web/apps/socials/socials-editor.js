@@ -32,6 +32,26 @@ export function fitCrop(ratio, zoom, px, py, W, H) {
   return { x: clamp(px, 0, 1) * (1 - w), y: clamp(py, 0, 1) * (1 - h), w, h };
 }
 
+/** A crop frame (0..1 units of a W×H picture) as a shape, zoom and place (fitCrop's terms): { ratio, zoom, px, py }. */
+export function fitFromRect(c, W, H) {
+  const ratio = (c.w * W) / (c.h * H); const base = cropForRatio(ratio, W, H);
+  return { ratio, zoom: Math.max(1, base.w / c.w), px: c.w < 1 - 1e-4 ? clamp(c.x / (1 - c.w), 0, 1) : 0.5, py: c.h < 1 - 1e-4 ? clamp(c.y / (1 - c.h), 0, 1) : 0.5 };
+}
+
+/**
+ * A crop frame made bigger or smaller by one of its corners ('nw', 'ne', 'sw', 'se') dragged `dx`, `dy` (0..1
+ * of the picture): the opposite corner stays, it stays inside the picture, and never under `min` across.
+ */
+export function resizeCrop(c, corner, dx, dy, min = 0.08) {
+  let x0 = c.x; let y0 = c.y; let x1 = c.x + c.w; let y1 = c.y + c.h;
+  if (corner.includes('w')) x0 = clamp(x0 + dx, 0, x1 - min); else x1 = clamp(x1 + dx, x0 + min, 1);
+  if (corner.includes('n')) y0 = clamp(y0 + dy, 0, y1 - min); else y1 = clamp(y1 + dy, y0 + min, 1);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** The four corner handles of a crop frame (drag one to make it any size). */
+export const cropHandles = () => ['nw', 'ne', 'sw', 'se'].map((k) => el('span', { class: `se-handle se-h-${k}`, 'data-corner': k, 'aria-hidden': 'true' }));
+
 /**
  * Edit a photo (a File or Blob): `avatar` for a profile picture (square, shown round). Resolves to the
  * finished JPEG (a Blob), or null if cancelled. Throws if the photo can't be opened or this browser has no
@@ -41,7 +61,7 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
   const bmp = await decodeImage(file, await sniffType(file));
   const preview = el('canvas', { class: 'se-canvas', 'aria-label': 'Your photo' });
   // (On Fit: the frame of what's kept, over the whole photo; drag it, pinch to zoom.)
-  const cropBox = el('div', { class: 'se-cropbox', 'aria-label': 'What\'s kept: drag to move, pinch to zoom' });
+  const cropBox = el('div', { class: 'se-cropbox', 'aria-label': 'What\'s kept: drag to move, pinch to zoom, drag a corner to resize' }, avatar ? null : cropHandles());
   let r;
   try {
     r = new Renderer(preview);
@@ -97,11 +117,19 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
 
     // Moving it (drag) and zooming (pinch, or the slider).
     const pts = new Map(); let start = null;
-    frame.addEventListener('pointerdown', (e) => { frame.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); start = { zoom, px, py, crop: { ...st.crop }, pts: new Map(pts) }; });
+    frame.addEventListener('pointerdown', (e) => { frame.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); start = { zoom, px, py, crop: { ...st.crop }, pts: new Map(pts), corner: tab === 'fit' && pts.size === 1 ? e.target.closest?.('.se-handle')?.dataset.corner ?? null : null }; });
     frame.addEventListener('pointermove', (e) => {
       if (!pts.has(e.pointerId) || !start) return; pts.set(e.pointerId, [e.clientX, e.clientY]);
       const rect = preview.getBoundingClientRect();
       // (On Fit, the whole photo shows: the frame goes where the finger goes.)
+      // (A corner dragged: the frame any size; its shape becomes Custom.)
+      if (tab === 'fit' && pts.size < 2 && start.corner) {
+        const p0 = start.pts.get(e.pointerId); if (!p0) return;
+        const { W, H } = orientedSize(r.srcW, r.srcH, st.rotate);
+        const f = fitFromRect(resizeCrop(start.crop, start.corner, (e.clientX - p0[0]) / rect.width, (e.clientY - p0[1]) / rect.height), W, H);
+        shape = f.ratio; zoom = Math.min(5, f.zoom); px = f.px; py = f.py; custom.on = true; custom.w = String(f.ratio >= 1 ? Math.min(100, Math.round(10 * f.ratio)) : 10); custom.h = String(f.ratio >= 1 ? 10 : Math.min(100, Math.round(10 / f.ratio)));
+        zoomIn.value = String(zoom); draw(); return;
+      }
       if (tab === 'fit' && pts.size < 2) {
         const p0 = start.pts.get(e.pointerId); if (!p0) return;
         const c = start.crop; const nx = c.x + (e.clientX - p0[0]) / rect.width; const ny = c.y + (e.clientY - p0[1]) / rect.height;
@@ -118,7 +146,7 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
       }
       draw(); if (tab === 'fit') zoomIn.value = String(zoom);
     });
-    const up = (e) => { pts.delete(e.pointerId); start = pts.size ? { zoom, px, py, crop: { ...st.crop }, pts: new Map(pts) } : null; };
+    const up = (e) => { const wasCorner = !!start?.corner; pts.delete(e.pointerId); start = pts.size ? { zoom, px, py, crop: { ...st.crop }, pts: new Map(pts) } : null; if (wasCorner) drawPanel(); };
     frame.addEventListener('pointerup', up); frame.addEventListener('pointercancel', up);
     const zoomIn = el('input', { type: 'range', min: '1', max: '5', step: '0.01', value: '1', 'aria-label': 'Zoom', class: 'se-range' });
     zoomIn.addEventListener('input', () => { zoom = Number(zoomIn.value); draw(); });
@@ -149,7 +177,7 @@ export async function editPhoto(file, { avatar = false, maxEdge = avatar ? 480 :
             : el('div', { class: 'se-chips', role: 'group', 'aria-label': 'Shape' }, POST_SHAPES.map(([label, ratio]) => el('button', { type: 'button', class: `se-chip${!custom.on && shape === ratio ? ' on' : ''}`, 'aria-pressed': String(!custom.on && shape === ratio), text: label, onclick: () => setShape(ratio) })),
               el('button', { type: 'button', class: `se-chip${custom.on ? ' on' : ''}`, 'aria-pressed': String(custom.on), text: 'Custom', onclick: () => setShape(customRatio(custom.w, custom.h) ?? 1, true) })),
           !avatar && custom.on ? el('div', { class: 'se-row se-custom' }, el('span', { class: 'se-label', text: 'Width : height' }), cw, el('span', { text: ':' }), chh) : null,
-          avatar ? null : el('p', { class: 'se-hint', text: 'Drag the frame over the photo to choose what it covers; pinch or slide to zoom.' }),
+          avatar ? null : el('p', { class: 'se-hint', text: 'Drag the frame over the photo to choose what it covers, drag a corner to make it any size; pinch or slide to zoom.' }),
           el('div', { class: 'se-row' }, el('span', { class: 'se-label', text: 'Zoom' }), zoomIn,
             el('button', { type: 'button', class: 'se-icon', 'aria-label': 'Turn', text: '↻', onclick: () => { st.rotate = (st.rotate + 1) % 4; zoom = 1; px = py = 0.5; zoomIn.value = '1'; thumbs = null; draw(); } })));
       } else if (tab === 'filter') {

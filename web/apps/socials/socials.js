@@ -26,7 +26,9 @@ import {
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
   cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
-import { generateComments, generateReply, suggestCaption } from './socials-predict.js';
+import { generateComments, suggestCaption } from './socials-predict.js';
+import { chatReply } from './socials-chat.js';
+import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
@@ -55,6 +57,8 @@ const SEEN_KEY = 'cc.socials.seen';
 // (Comments made for each new post, from three other accounts: on unless the Owner turns them off.)
 const AUTO_KEY = 'cc.socials.autocomment';
 const autoOn = () => store.get(AUTO_KEY) !== '0';
+const REPLY_KEY = 'cc.socials.autoreply';
+const replyOn = () => store.get(REPLY_KEY) !== '0';
 // (This device, for counting views: each device counts its own, the counts added up.)
 const DEVICE_KEY = 'cc.socials.device';
 const deviceId = () => { let d = store.get(DEVICE_KEY); if (!d) { d = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; store.set(DEVICE_KEY, d); } return d; };
@@ -211,10 +215,26 @@ function mountAdmin(host) {
     return el('div', { class: 'so-multi' }, track, count, dots);
   }
 
+  /** A video shown through its frame (or, with none, as it is): `box` holds the video. */
+  function applyFit(box, v, fit) {
+    const st = fitStyle(fit);
+    box.classList.toggle('so-vfit', !!st);
+    if (st) { box.style.setProperty('--a', st.box); Object.assign(v.style, { position: 'absolute', maxWidth: 'none', maxHeight: 'none', objectFit: 'fill', ...st.video }); } else { box.style.removeProperty('--a'); for (const k of ['position', 'maxWidth', 'maxHeight', 'objectFit', 'width', 'height', 'left', 'top']) v.style[k] = ''; }
+  }
+
   /** One photo or video of a post. */
   function slide(it, p, by, like) {
     if (it.kind === 'video') {
       if (!it.video) return el('div', { class: 'so-pic so-novideo' }, it.image ? el('img', { src: urlOf(it.image), alt: '' }) : null, el('span', { text: 'This video is on the device it was posted from (too big to sync).' }));
+      // (Framed (socials-videofit.js): shown through its frame; tap to play or pause, 🔇 for its sound.)
+      if (fitStyle(it.fit)) {
+        const v = el('video', { src: urlOf(it.video), poster: urlOf(it.image) ?? undefined, playsinline: true, preload: 'metadata', 'aria-label': `Video by ${by.handle}` });
+        const box = el('div', { class: 'so-vbox' }, v); applyFit(box, v, it.fit);
+        const play = el('span', { class: 'so-vplay', 'aria-hidden': 'true', text: '▶︎' });
+        const mute = el('button', { type: 'button', class: 'so-vmute', 'aria-label': 'Sound off', text: '🔊', onclick: (e) => { e.stopPropagation(); v.muted = !v.muted; mute.textContent = v.muted ? '🔇' : '🔊'; mute.setAttribute('aria-label', v.muted ? 'Sound on' : 'Sound off'); } });
+        v.addEventListener('play', () => { play.hidden = true; }); v.addEventListener('pause', () => { play.hidden = false; });
+        return el('div', { class: 'so-pic so-vid so-vid-fit', onclick: () => (v.paused ? v.play().catch(() => {}) : v.pause()) }, box, play, mute);
+      }
       return el('div', { class: 'so-pic so-vid' }, el('video', { src: urlOf(it.video), poster: urlOf(it.image) ?? undefined, controls: true, playsinline: true, preload: 'metadata', 'aria-label': `Video by ${by.handle}` }));
     }
     // (A photo whose file couldn't be read on this device: said so, not a broken picture. With Saved Files, the
@@ -247,21 +267,23 @@ function mountAdmin(host) {
     if (!others.length) { toast('Make another account to share with (Accounts → Add account).'); return; }
     const to = await sheet('Send to', others.map((a) => [a.id, `@${a.handle}${a.owner ? ' (Owner)' : ''}`]));
     if (!to) return;
-    if (sendMessage(state, state.me, to, '', { post: p.id })) { save(); drawBars(); toast(`Sent to @${accountById(state, to).handle}`); }
+    if (sendMessage(state, state.me, to, '', { post: p.id })) { save(); drawBars(); toast(`Sent to @${accountById(state, to).handle}`); autoReply(to, state.me); }
   }
 
   /** The ⋯ of a post: Edit and Delete for your own; on the Owner account, Open in… (another app) for any photo. */
   function postMenu(p, by) {
     const mine = p.by === state.me; const owner = !!me()?.owner; const canOpen = owner && p.kind === 'photo' && !!p.image;
     const inCollab = !mine && collabsOf(p).includes(state.me);
-    if (!mine && !canOpen && !inCollab) return null;
+    const canSave = owner && mediaOf(p).some((it) => it.image || it.video);
+    if (!mine && !canOpen && !inCollab && !canSave) return null;
     return el('button', { type: 'button', class: 'so-more', 'aria-label': 'Post options', text: '⋯', onclick: async () => {
-      const c = await sheet('Post options', [...(canOpen ? [['open', 'Open in…']] : []), ...(inCollab ? [['leave', 'Remove me from this collab', true]] : []), ...(mine ? [['pin', p.pinned ? 'Unpin from profile' : 'Pin to profile'], ['edit', 'Edit'], ['delete', 'Delete', true]] : [])]);
+      const c = await sheet('Post options', [...(canSave ? [['download', mediaOf(p).length > 1 ? 'Download post…' : 'Download post']] : []), ...(canOpen ? [['open', 'Open in…']] : []), ...(inCollab ? [['leave', 'Remove me from this collab', true]] : []), ...(mine ? [['pin', p.pinned ? 'Unpin from profile' : 'Pin to profile'], ['edit', 'Edit'], ['delete', 'Delete', true]] : [])]);
       if (c === 'edit') go({ name: 'editpost', id: p.id });
       if (c === 'pin') { try { const on = togglePin(state, p.id); save(); toast(on ? 'Pinned to the top of your profile' : 'Unpinned'); draw(); } catch (e) { toast(e.message); } }
       // (Deleted to Recently deleted: it can be brought back for a week.)
       if (c === 'delete') { trashPost(state, p.id); save(); toast(`Deleted: in Recently deleted for ${TRASH_DAYS} days`); if (view.name === 'post') go({ name: 'profile', id: by.id }); else draw(); }
       if (c === 'open') openIn(p, by);
+      if (c === 'download') downloadPost(p, by);
       if (c === 'leave' && confirm('Take this post off your profile? It stays on theirs.')) { leaveCollab(state, p.id, state.me); save(); toast('Removed from your profile'); draw(); }
     } });
   }
@@ -340,8 +362,11 @@ function mountAdmin(host) {
     let box;
     box = folded('# Community', () => 0, () => {
       const tags = searchTags(state, '');
-      return tags.length ? el('div', { class: 'so-tagpick', role: 'group', 'aria-label': 'Hashtags used before' }, tags.slice(0, 40).map((t) => el('button', { type: 'button', class: `so-chip${has(t.tag) ? ' on' : ''}`, 'aria-pressed': String(has(t.tag)), 'aria-label': `#${t.tag}, used ${t.count} times`, text: `#${t.tag} ${t.count}`, onclick: () => {
-        if (!has(t.tag)) { caption.value = `${caption.value.replace(/\s*$/, '')}${caption.value.trim() ? ' ' : ''}#${t.tag}`; caption.dispatchEvent(new Event('input')); }
+      return tags.length ? el('div', { class: 'so-tagpick', role: 'group', 'aria-label': 'Hashtags used before' }, tags.slice(0, 40).map((t) => el('button', { type: 'button', class: `so-chip${has(t.tag) ? ' on' : ''}`, 'aria-pressed': String(has(t.tag)), 'aria-label': `#${t.tag}, used ${t.count} times${has(t.tag) ? ' (added: tap to take out)' : ''}`, text: `#${t.tag} ${t.count}`, onclick: () => {
+        // (Tapped again: taken back out of the caption.)
+        if (has(t.tag)) caption.value = caption.value.replace(new RegExp(`(^|[^\\p{L}\\p{N}_&])#${t.tag}(?![\\p{L}\\p{N}_])`, 'giu'), '$1').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '').trim();
+        else caption.value = `${caption.value.replace(/\s*$/, '')}${caption.value.trim() ? ' ' : ''}#${t.tag}`;
+        caption.dispatchEvent(new Event('input'));
         box.redraw();
       } }))) : el('span', { class: 'muted small', text: 'No hashtags yet: put #something in a caption.' });
     }, open);
@@ -460,7 +485,7 @@ function mountAdmin(host) {
         const order = [...fresh, ...rest]; who = Array.from({ length: n }, (_, i) => order[i % order.length]);
       }
       const tagged = (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean);
-      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), photo: p.scene });
+      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), photo: p.scene, by: accountById(state, p.by)?.handle ?? '' });
       let added = 0;
       texts.forEach((t, i) => { if (addComment(state, p.id, who[i], t)) added++; });
       if (added) { save(); draw(); }
@@ -533,7 +558,7 @@ function mountAdmin(host) {
 
   const tile = (p) => el('button', { type: 'button', class: 'so-tile', 'aria-label': `${p.draft ? 'Draft' : p.kind === 'video' ? 'Video' : 'Post'} by ${accountById(state, p.by)?.handle}${p.pinned ? ' (pinned)' : ''}${p.caption ? `: ${p.caption.slice(0, 60)}` : ''}`, onclick: () => go(p.draft ? { name: 'new', draft: p.id } : mediaOf(p).length > 1 ? { name: 'post', id: p.id } : p.kind === 'video' ? { name: 'reels', start: p.id, by: view.name === 'profile' ? p.by : null } : { name: 'post', id: p.id }) },
     p.pinned && view.name === 'profile' ? el('span', { class: 'so-tile-pin', 'aria-hidden': 'true', text: '📌' }) : null,
-    p.image ? el('img', { src: urlOf(p.image), alt: '' }) : el('span', { class: 'so-tile-text', text: p.caption }),
+    p.image ? el('img', { src: urlOf(p.image), alt: '', style: p.fit ? { objectPosition: fitPosition(p.fit) } : undefined }) : el('span', { class: 'so-tile-text', text: p.caption }),
     p.more?.length ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '❐' }) : p.kind === 'video' ? el('span', { class: 'so-tile-badge', 'aria-hidden': 'true', text: '▶︎' }) : null);
 
   // ---- Stories.
@@ -604,6 +629,43 @@ function mountAdmin(host) {
     return el('div', {}, backBar(`#${tag}`, { name: 'explore' }),
       el('div', { class: 'so-pad so-tag-head' }, el('span', { class: 'so-av so-av-xl so-av-tag', 'aria-hidden': 'true', text: '#' }), el('div', {}, el('strong', { class: 'so-tag-name', text: `#${tag}` }), el('div', { class: 'muted', text: `${countLabel(posts.length)} post${posts.length === 1 ? '' : 's'}` }))),
       posts.length ? el('div', { class: 'so-grid' }, posts.map(tile)) : el('p', { class: 'muted so-pad', text: 'No posts with this hashtag yet.' }));
+  }
+
+  // ---- A post's photos and videos saved (the Owner: ⋯ → Download post): all of them, or the ones picked.
+  const extOf = (b) => ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/mp4': 'mp4' }[b.type] ?? (b.type?.startsWith('video/') ? 'mp4' : 'jpg'));
+  async function downloadPost(p, by) {
+    const items = mediaOf(p).map((it, i) => ({ i, kind: it.kind, blob: it.kind === 'video' ? it.video : it.image, thumb: it.image })).filter((x) => x.blob);
+    if (!items.length) { toast('Its files aren\'t on this device.'); return; }
+    const pad = (n) => String(n).padStart(2, '0'); const d = new Date(p.at);
+    const stem = `${by?.handle ?? 'post'}_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const save2 = async (list) => {
+      const files = list.map((x) => new File([x.blob], `${stem}${items.length > 1 ? `_${x.i + 1}` : ''}.${extOf(x.blob)}`, { type: x.blob.type || (x.kind === 'video' ? 'video/mp4' : 'image/jpeg') }));
+      try {
+        // (On a phone: the share sheet (Save to Photos); else a download each, or one zip for several.)
+        if (canShareFiles(files)) { await shareFiles(files, stem); return; }
+        if (files.length === 1) { downloadBlob(files[0], files[0].name); return; }
+        const zip = new File([createZip(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))))], `${stem}.zip`, { type: 'application/zip' });
+        downloadBlob(zip, zip.name);
+      } catch (e) { if (e?.name !== 'AbortError') toast(`Couldn't save: ${e.message}`); }
+    };
+    if (items.length === 1) { await save2(items); return; }
+    // (Several: all, or tick the ones to save.)
+    const picked = new Set(items.map((x) => x.i));
+    const count = el('span', {});
+    const selBtn = el('button', { type: 'button', class: 'btn', onclick: () => { const l = items.filter((x) => picked.has(x.i)); if (l.length) { close(); save2(l); } } }, 'Download selected ', count);
+    const paint = () => { count.textContent = `(${picked.size})`; selBtn.disabled = !picked.size; };
+    const grid = el('div', { class: 'so-dl-grid', role: 'group', 'aria-label': 'Photos and videos in this post' }, items.map((x) => {
+      const b = el('button', { type: 'button', class: 'so-dl-item on', 'aria-pressed': 'true', 'aria-label': `${x.kind === 'video' ? 'Video' : 'Photo'} ${x.i + 1}`, onclick: () => { if (picked.has(x.i)) picked.delete(x.i); else picked.add(x.i); const on = picked.has(x.i); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); paint(); } },
+        x.thumb ? el('img', { src: urlOf(x.thumb), alt: '' }) : el('span', { text: x.kind === 'video' ? '🎬' : '🖼️' }), x.kind === 'video' ? el('span', { class: 'so-tile-badge', text: '▶︎' }) : null, el('span', { class: 'so-dl-check', 'aria-hidden': 'true', text: '✓' }));
+      return b;
+    }));
+    const close = () => back.remove();
+    const back = el('div', { class: 'so-sheet-back', onclick: (e) => { if (e.target === back) close(); } },
+      el('div', { class: 'so-sheet so-dl', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Download post' },
+        el('strong', { class: 'so-dl-title', text: `Download post · ${items.length} files` }), el('p', { class: 'small muted', text: 'Tap to choose which; all are picked to start.' }), grid,
+        el('button', { type: 'button', class: 'btn primary', text: `Download all (${items.length})`, onclick: () => { close(); save2(items); } }), selBtn,
+        el('button', { type: 'button', class: 'so-sheet-btn', text: 'Cancel', onclick: close })));
+    paint(); document.body.append(back);
   }
 
   // ---- One account's photos and videos, in one zip to save (with a list of their captions).
@@ -756,10 +818,13 @@ function mountAdmin(host) {
     const first = input('Photo or video'); const more = input('Add more photos or videos');
     const addLabel = el('label', { class: 'btn so-add-more' }, '＋ Add photos or videos', more);
     const again = el('button', { type: 'button', class: 'btn', text: 'Edit photo', hidden: true });
+    // (A video: its frame for the post (what part shows, any shape); kept as it is, shown through the frame.)
+    const framer = el('button', { type: 'button', class: 'btn', text: '✂︎ Frame video', hidden: true });
+    framer.addEventListener('click', async () => { const x = items[cur]; if (!x || x.kind !== 'video' || !x.video) return; const r = await frameVideo(x.video, x.fit ?? null); if (r) { x.fit = r.fit; draw(); onChange(); } });
     again.addEventListener('click', async () => { const x = items[cur]; if (!x || x.kind !== 'photo' || !x.image) return; try { const b = await photoFrom(x.original ?? x.image, false); if (b) { x.image = b; x.imageId = null; x.sceneP = null; x.scene = undefined; draw(); onChange(); } } catch (e) { err.textContent = e.message; } });
     sortable(list, (from, to) => { const [x] = items.splice(from, 1); items.splice(to, 0, x); cur = to; draw(); onChange(); });
     const changed = () => { draw(); onChange(); };
-    const statusText = (x) => (x.status === 'reading' ? `Loading… ${Math.round((x.pct ?? 0) * 100)}%` : x.status === 'read' ? 'Loaded · waiting' : x.status === 'preparing' ? (x.kind === 'video' ? 'Preparing video…' : 'Editing photo…') : x.status === 'failed' ? x.error || 'Couldn\'t load' : `Ready ✓${x.file?.size ? ` · ${mb(x.file.size)}` : ''}`);
+    const statusText = (x) => (x.status === 'reading' ? `Loading… ${Math.round((x.pct ?? 0) * 100)}%` : x.status === 'read' ? 'Loaded · waiting' : x.status === 'preparing' ? (x.kind === 'video' ? 'Preparing video…' : 'Editing photo…') : x.status === 'failed' ? x.error || 'Couldn\'t load' : `Ready ✓${x.fit ? ' · framed' : ''}${x.file?.size ? ` · ${mb(x.file.size)}` : ''}`);
     const mb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(n >= 104857600 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
     function tick(x) { if (x.bar) x.bar.style.width = `${Math.max(3, Math.round((x.pct ?? 0) * 100))}%`; if (x.txt) x.txt.textContent = statusText(x); }
     function row(x, i) {
@@ -780,9 +845,9 @@ function mountAdmin(host) {
       const x = items[cur];
       fill(prev, !x ? el('label', { class: 'so-new-pick' }, el('span', { class: 'muted', text: 'Pick photos or videos' }), first)
         : !x.image ? el('div', { class: 'so-new-wait muted', text: statusText(x) })
-          : x.kind === 'video' ? el('video', { src: urlOf(x.video), poster: urlOf(x.image), controls: true, playsinline: true, 'aria-label': 'Your video' }) : el('img', { src: urlOf(x.image), alt: 'Your photo' }));
+          : x.kind === 'video' ? (fitStyle(x.fit) ? (() => { const v = el('video', { src: urlOf(x.video), poster: urlOf(x.image), playsinline: true, muted: true, loop: true, autoplay: true, 'aria-label': 'Your video, framed' }); v.muted = true; const b = el('div', { class: 'so-vbox so-new-vfit' }, v); applyFit(b, v, x.fit); return b; })() : el('video', { src: urlOf(x.video), poster: urlOf(x.image), controls: true, playsinline: true, 'aria-label': 'Your video' })) : el('img', { src: urlOf(x.image), alt: 'Your photo' }));
       fill(list, items.map(row));
-      again.hidden = !(x && x.kind === 'photo' && x.image); addLabel.hidden = !items.length || items.length >= MAX_ITEMS;
+      again.hidden = !(x && x.kind === 'photo' && x.image); framer.hidden = !(x && x.kind === 'video' && x.video && x.status === 'ready'); addLabel.hidden = !items.length || items.length >= MAX_ITEMS;
     }
     async function load(x) {
       if (!items.includes(x)) return;
@@ -833,7 +898,7 @@ function mountAdmin(host) {
     }
     draw();
     return {
-      box: el('div', { class: 'so-media' }, prev, list, el('div', { class: 'so-row' }, again, addLabel), err),
+      box: el('div', { class: 'so-media' }, prev, list, el('div', { class: 'so-row' }, again, framer, addLabel), err),
       items, err, take,
       ready: () => items.filter((x) => x.status === 'ready' && (x.image || x.video)),
       busy: () => items.some((x) => ['reading', 'read', 'preparing'].includes(x.status)),
@@ -866,7 +931,7 @@ function mountAdmin(host) {
       share.disabled = !n || busy; share.textContent = busy ? 'Loading files…' : 'Share';
       saveDraft.disabled = busy || (!n && !caption.value.trim());
     };
-    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video })) : [], { onChange: () => { sync(); autoCaption(); } });
+    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video, fit: it.fit ?? null })) : [], { onChange: () => { sync(); autoCaption(); } });
     caption.addEventListener('input', sync);
     // (✨ Suggest caption: from what the photo shows (and when and where); again for another.)
     let suggested = []; let lastSuggestion = '';
@@ -896,7 +961,7 @@ function mountAdmin(host) {
     const make = (asDraft, scene = null) => {
       const [first, ...rest] = mx.ready();
       const all = new Set([...tags, ...collabs]); if (owner && owner.id !== m.id) all.add(owner.id);
-      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...all], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null })), draft: asDraft, scene: scene ?? mx.first()?.scene ?? null });
+      const p = addPost(state, m.id, { image: first?.image ?? null, video: first?.kind === 'video' ? first.video : null, caption: caption.value, tags: [...all], more: rest.map((x) => ({ image: x.image, video: x.kind === 'video' ? x.video : null, fit: x.fit ?? null })), draft: asDraft, scene: scene ?? mx.first()?.scene ?? null, fit: first?.fit ?? null });
       if (draft?.draft) removePost(state, draft.id); // (the draft it was: replaced)
       // (Its collaborators: asked now if it's shared; when a draft is, they're asked when it's shared.)
       setCollabs(state, p.id, [...collabs]);
@@ -912,7 +977,7 @@ function mountAdmin(host) {
         showUp('Posting… saving to this phone', 0.15);
         const p = make(false, scene);
         // (A few of the other accounts say something about it, made for its photo and caption.)
-        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle) }) });
+        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), by: m.handle }) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
         // (Then to Saved Files straight away, its progress shown; else it's posted here.)
@@ -936,11 +1001,11 @@ function mountAdmin(host) {
     const tagBox = tagPicker(tags, p.by);
     const saveBtn = el('button', { type: 'button', class: 'btn primary', text: 'Save' });
     const sync = () => { const busy = mx.busy(); saveBtn.disabled = busy || !mx.ready().length; saveBtn.textContent = busy ? 'Loading files…' : 'Save'; };
-    const mx = mediaEditor(mediaOf(p).map((it) => ({ kind: it.kind, image: it.image, imageId: it.imageId, video: it.video, videoId: it.videoId })), { onChange: () => sync() });
+    const mx = mediaEditor(mediaOf(p).map((it) => ({ kind: it.kind, image: it.image, imageId: it.imageId, video: it.video, videoId: it.videoId, fit: it.fit ?? null })), { onChange: () => sync() });
     saveBtn.addEventListener('click', async () => {
       if (mx.busy() || !mx.ready().length) return;
       try {
-        setMedia(state, id, mx.ready().map((x) => ({ kind: x.kind, image: x.image, imageId: x.imageId, video: x.kind === 'video' ? x.video : null, videoId: x.kind === 'video' ? x.videoId : null })));
+        setMedia(state, id, mx.ready().map((x) => ({ kind: x.kind, image: x.image, imageId: x.imageId, video: x.kind === 'video' ? x.video : null, videoId: x.kind === 'video' ? x.videoId : null, fit: x.fit ?? null })));
         editPost(state, id, { caption: caption.value, tags: [...new Set([...tags, ...collabs])] });
         // (A new first photo: what it shows.)
         const f1 = mx.first(); if (f1 && !f1.imageId && f1.scene !== undefined) p.scene = cleanScene(f1.scene);
@@ -977,6 +1042,7 @@ function mountAdmin(host) {
       const clips = mediaOf(p).filter((it) => it.kind === 'video' && it.video);
       const v = clips.length ? el('video', { class: 'so-reel-video', src: urlOf(clips[0].video), poster: urlOf(clips[0].image) ?? undefined, playsinline: true, loop: clips.length < 2, preload: 'metadata', 'aria-label': `Reel by ${by.handle}${clips.length > 1 ? `, 1 of ${clips.length}` : ''}` }) : null;
       let segs = null;
+      const vbox = v ? el('div', { class: 'so-vbox so-reel-box' }, v) : null; if (v) applyFit(vbox, v, clips[0].fit);
       if (v) { v.muted = !reelSound; vids.push(v); v.addEventListener('click', () => { if (v.paused) v.play().catch(() => {}); else v.pause(); }); }
       if (v && clips.length > 1) {
         let at = 0;
@@ -985,7 +1051,7 @@ function mountAdmin(host) {
         v.addEventListener('timeupdate', paint);
         v.addEventListener('ended', () => {
           at = (at + 1) % clips.length; const c = clips[at];
-          v.src = urlOf(c.video); v.poster = urlOf(c.image) ?? ''; v.setAttribute('aria-label', `Reel by ${by.handle}, ${at + 1} of ${clips.length}`); v.dataset.clip = String(at);
+          v.src = urlOf(c.video); v.poster = urlOf(c.image) ?? ''; v.setAttribute('aria-label', `Reel by ${by.handle}, ${at + 1} of ${clips.length}`); v.dataset.clip = String(at); applyFit(vbox, v, c.fit);
           paint(); if (!v.hasAttribute('data-off')) v.play().catch(() => {});
         });
         paint();
@@ -993,7 +1059,7 @@ function mountAdmin(host) {
       const sound = el('button', { type: 'button', class: 'so-reel-btn so-reel-sound', 'aria-label': reelSound ? 'Sound off' : 'Sound on', text: reelSound ? '🔊' : '🔇', onclick: () => { reelSound = !reelSound; for (const x of vids) x.muted = !reelSound; for (const b of wrap.querySelectorAll('.so-reel-sound')) { b.textContent = reelSound ? '🔊' : '🔇'; b.setAttribute('aria-label', reelSound ? 'Sound off' : 'Sound on'); } if (reelSound) wrap.querySelector('video:not([data-off])')?.play().catch(() => {}); } });
       return el('section', { class: 'so-reel', 'data-post': p.id },
         segs,
-        v ?? el('div', { class: 'so-reel-missing' }, p.image ? el('img', { src: urlOf(p.image), alt: '' }) : null, el('p', { text: 'This video is on the device it was posted from (too big to sync).' })),
+        vbox ?? el('div', { class: 'so-reel-missing' }, p.image ? el('img', { src: urlOf(p.image), alt: '' }) : null, el('p', { text: 'This video is on the device it was posted from (too big to sync).' })),
         el('div', { class: 'so-reel-side' },
           el('button', { type: 'button', class: `so-reel-btn${liked ? ' on' : ''}`, 'aria-label': liked ? 'Unlike' : 'Like', 'aria-pressed': String(liked), onclick: (e) => { const on = toggleLike(state, p.id, state.me); save(); const b = e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Unlike' : 'Like'); b.querySelector('.so-reel-icon').textContent = on ? '♥' : '♡'; b.querySelector('.so-reel-n').textContent = countLabel(p.likes.length); } }, el('span', { class: 'so-reel-icon', text: liked ? '♥' : '♡' }), el('span', { class: 'so-reel-n', text: countLabel(p.likes.length) })),
           el('button', { type: 'button', class: 'so-reel-btn', 'aria-label': 'Comments', onclick: () => go({ name: 'post', id: p.id }) }, el('span', { class: 'so-reel-icon', text: '💬' }), el('span', { class: 'so-reel-n', text: countLabel(p.comments.length) })),
@@ -1080,6 +1146,31 @@ function mountAdmin(host) {
       p.caption ? el('span', { class: 'so-shared-cap', text: p.caption.slice(0, 90) }) : null);
   }
 
+  // ---- Replies by themselves: when the Owner messages an account, it answers (…typing first), from the whole
+  // conversation (socials-chat.js). Owner only; off in Sync and password.
+  const typing = new Map(); // (account id → its reply's timer)
+  /** What `from` would say back to `to` now, from their conversation. */
+  function replyText(from, to) {
+    const hist = conversation(state, from, to).slice(-40).map((x) => ({ mine: x.from === to, text: x.text, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
+    return chatReply(hist);
+  }
+  /** `from` answers `to` (the Owner) in a moment; more from the Owner first: it waits and answers it all. */
+  function autoReply(from, to) {
+    if (!replyOn() || !accountById(state, to)?.owner || from === to) return;
+    clearTimeout(typing.get(from)?.t);
+    const start = () => {
+      const text = replyText(from, to);
+      const t = setTimeout(() => {
+        typing.delete(from); if (!alive) return;
+        const r = sendMessage(state, from, to, text);
+        if (r) { if (view.name === 'chat' && view.id === from && state.me === to) markRead(state, to, from, r.at); save(); }
+        draw();
+      }, Math.min(4200, 900 + text.length * 35));
+      typing.set(from, { t, shown: true }); if (view.name === 'chat' && view.id === from) draw();
+    };
+    typing.set(from, { t: setTimeout(start, 700), shown: false });
+  }
+
   function chat(otherId) {
     const m = me(); const o = accountById(state, otherId); if (!o || o.id === m.id) return inbox();
     const msgs = conversation(state, m.id, o.id);
@@ -1092,16 +1183,16 @@ function mountAdmin(host) {
       list.append(el('div', { class: `so-bubble${x.from === m.id ? ' mine' : ''}${x.post ? ' so-bubble-post' : ''}`, title: new Date(x.at).toLocaleString() }, x.post ? sharedCard(x.post) : null, x.collab ? collabCard(x, m) : null, x.text || null, el('span', { class: 'so-bubble-time', text: new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })));
     }
     if (!msgs.length) list.append(el('p', { class: 'muted so-pad', text: `Say hi to @${o.handle}. (Switch to @${o.handle} to answer as them.)` }));
+    if (typing.get(o.id)?.shown) list.append(el('div', { class: 'so-bubble so-typing', 'aria-label': `@${o.handle} is typing` }, el('span', { class: 'so-typing-dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'))));
     const input = el('input', { class: 'so-input', type: 'text', placeholder: 'Message…', 'aria-label': 'Message', maxlength: '2000', enterkeyhint: 'send' });
-    const send = () => { if (sendMessage(state, m.id, o.id, input.value)) { save(); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
+    const send = () => { if (sendMessage(state, m.id, o.id, input.value)) { save(); autoReply(o.id, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
-    // (The Owner just said something: ✨ a reply from the other account, to what was said.)
+    // (The Owner just said something and no reply's on its way (replies by themselves off): ✨ one now.)
     const last = msgs[msgs.length - 1];
-    if (m.owner && last && last.from === m.id && (last.text || last.post)) {
-      const lastText = last.text || postById(state, last.post)?.caption || '';
+    if (m.owner && last && last.from === m.id && (last.text || last.post) && !typing.has(o.id)) {
       list.append(el('div', { class: 'so-gen so-gen-reply' }, el('button', { type: 'button', class: 'btn so-gen-btn', text: `✨ Generate reply from @${o.handle}`, onclick: () => {
-        const r = sendMessage(state, o.id, m.id, generateReply(lastText));
+        const r = sendMessage(state, o.id, m.id, replyText(o.id, m.id));
         if (r) { markRead(state, m.id, o.id, r.at); save(); draw(); }
       } })));
     }
@@ -1245,6 +1336,8 @@ function mountAdmin(host) {
         // (The Owner's: comments on each new post from three of the other accounts.)
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: autoOn() }); c.addEventListener('change', () => store.set(AUTO_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Comments on new posts' }), el('span', { class: 'muted small', text: ' Three of your other accounts leave a kind word (with an emoji) on each new post.' }))) : null,
+        me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: replyOn() }); c.addEventListener('change', () => store.set(REPLY_KEY, c.checked ? '1' : '0')); return c; })(),
+          el('span', {}, el('strong', { text: 'Replies in messages' }), el('span', { class: 'muted small', text: ' When you message one of your other accounts, it answers by itself a moment later, to what you said and what you\'ve talked about before.' }))) : null,
         el('h3', { text: 'Lock' }),
         el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; sessionOpen = false; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
   }

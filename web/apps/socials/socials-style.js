@@ -16,6 +16,11 @@ export function personaOf(handle, kind = 'friend') {
   return pool[(h >>> 0) % pool.length];
 }
 
+/** An account's voice: the one chosen in its profile (Edit profile → Voice), else its own from its handle. */
+export const personaFor = (a) => (PERSONAS.includes(a?.voice) ? a.voice : personaOf(a?.handle, a?.kind));
+/** What an account's about, for the on-device AI to write as it: its bio and what it's into ('' if neither). */
+export const aboutOf = (a) => [a?.bio ? `Bio: ${String(a.bio).slice(0, 160)}` : '', a?.interests ? `Into: ${String(a.interests).slice(0, 120)}` : ''].filter(Boolean).join('. ');
+
 const SLANG = ['lol', 'lmao', 'fr', 'ngl', 'lowkey', 'omg', 'tbh', 'literally', 'bro', 'haha'];
 /**
  * How someone texts, from their messages: { lower (most start lowercase), emoji (emojis a message), bang

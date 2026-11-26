@@ -221,3 +221,24 @@ test('replies to comments: thanks for praise, answers (where from the caption), 
   const c1 = addComment(s, p.id, b.id, 'nice'); const c2 = addComment(s, p.id, a.id, 'thanks!', { re: c1.id }); const c3 = addComment(s, p.id, b.id, 'np', { re: c2.id });
   assert.equal(c2.re, c1.id); assert.equal(c3.re, c1.id, 'a reply to a reply: under the same comment');
 });
+
+test('an account\'s own voice and what it\'s into: chosen in its profile (else its own from its handle), kept, used for its words and by the AI', async () => {
+  const { personaFor, personaOf, aboutOf } = await import('../web/apps/socials/socials-style.js');
+  const { emptyState, addAccount, editAccount, normalize } = await import('../web/apps/socials/socials-core.js');
+  const { generateComments } = await import('../web/apps/socials/socials-predict.js');
+  const { readFile } = await import('node:fs/promises');
+  const s = emptyState(); const a = addAccount(s, { handle: 'kai', bio: 'Surf and coffee' });
+  assert.equal(personaFor(a), personaOf('kai'), 'its own to start');
+  editAccount(s, a.id, { voice: 'chill', interests: '  surfing, dry humor ' });
+  assert.equal(personaFor(a), 'chill'); assert.equal(a.interests, 'surfing, dry humor');
+  assert.equal(aboutOf(a), 'Bio: Surf and coffee. Into: surfing, dry humor');
+  const back = normalize(JSON.parse(JSON.stringify(s))).accounts[0]; assert.equal(back.voice, 'chill'); assert.equal(back.interests, 'surfing, dry humor');
+  editAccount(s, a.id, { voice: null, interests: '' }); assert.equal(a.voice, undefined); assert.equal(a.interests, undefined, 'back to its own');
+  editAccount(s, a.id, { voice: 'shouty' }); assert.equal(a.voice, undefined, 'only the five');
+  // (Chill: lowercase starts, one emoji at most.)
+  const out = generateComments('Beach day', 6, { photo: { labels: [['seashore', 0.8]], bg: ['sand', 'water'] }, personas: Array(6).fill('chill'), rand: (() => { let i = 0; return () => ((i++ * 0.37) % 1); })() });
+  assert.ok(out.every((c) => !/^[A-Z]/.test(c)), `chill: ${out.join(' | ')}`);
+  // Home-screen shortcuts in the manifest.
+  const m = JSON.parse(await readFile(new URL('../web/manifest.webmanifest', import.meta.url), 'utf8'));
+  assert.deepEqual(m.shortcuts.map((x) => x.url), ['./#/socials/new', './#/socials/inbox', './#/saved/search', './#/saved/scan']);
+});

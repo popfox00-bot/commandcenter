@@ -26,7 +26,7 @@ function icon(f) {
     el('span', { text: k.emoji }), k.label ? el('small', { class: 'sv-ext', text: k.label }) : null);
 }
 
-export function mount(host, { onEdit = null, onWrite = null } = {}) {
+export function mount(host, { onEdit = null, onWrite = null, open: start = '' } = {}) {
   const root = el('div', { class: 'sv' });
   host.append(root);
   let api = null; let files = []; let busy = '';
@@ -64,7 +64,11 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     if (!cfg) { notConnected(); return; }
     api = secureFiles(savedFiles(cfg));
     render(note || 'Loading…');
-    try { await load(); render(note); } catch (err) {
+    try {
+      await load(); render(note);
+      // (A home-screen shortcut's: 🔎 Search, or the scanner over the main folder, once it's loaded.)
+      if (start === 'search') { start = ''; openSearch(); } else if (start === 'scan') { start = ''; if (files.some(scannable)) openScanner(files, { download: (id) => api.download(id), onChange: refreshMatches, onClose: refreshMatches }); }
+    } catch (err) {
       if (here && /No such folder/.test(err.message)) { here = ''; path = []; show('That folder is gone (deleted in Drive?).'); return; }
       render('', err.message);
     }

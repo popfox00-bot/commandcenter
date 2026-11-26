@@ -106,10 +106,10 @@ export function checkReply(text, { said = '', draft = '', level = 0, name = '' }
  * post? }] oldest first; `them`: the account's handle; `me`: the Owner's; `persona`, `style` (socials-style),
  * `level` (0–3); `draft`: the built-in engine's reply, what it should roughly mean.
  */
-export async function aiReply({ history, them, me, persona = 'classic', style = null, level = 0, draft = '', timeout = 15000 }) {
+export async function aiReply({ history, them, me, persona = 'classic', about = '', style = null, level = 0, draft = '', timeout = 15000 }) {
   if (!ready) return null;
   const styleText = style ? `${style.lower ? 'You text in all lowercase. ' : ''}${style.emoji < 0.25 ? 'Hardly any emojis. ' : style.emoji >= 1.5 ? 'Lots of emojis. ' : ''}${style.short ? 'Keep it very short. ' : ''}${style.slang?.length ? `You both say things like ${style.slang.slice(0, 3).join(', ')}. ` : ''}` : '';
-  const system = `You are ${them}, texting your close friend ${me} on a private social app. Your vibe: ${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}. ${styleText}${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
+  const system = `You are ${them}, texting your close friend ${me} on a private social app. Your vibe: ${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}. ${about ? `About you: ${about}. ` : ''}${styleText}${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
 Write the next text in this chat: ONE short message (6-25 words). Respond to exactly what ${me} just said, in your own words, and add your own thought, a detail, or a quick question. Casual texting only. You are a friend, never an assistant: no advice, no offers of help, never mention being an AI.${draft ? `\nYour reply should mean roughly: "${draft.replace(/\n/g, ' ')}" (say it your own way).` : ''}`;
   const turns = (history ?? []).slice(-12).map((m) => ({ role: m.mine ? 'user' : 'assistant', content: m.text || (m.post ? `[shared a post${m.post.caption ? `: "${m.post.caption.slice(0, 120)}"` : ''}]` : '') })).filter((m) => m.content);
   // (Two in a row from the same side: one turn.)
@@ -155,7 +155,7 @@ export async function aiComments({ as, drafts, scene = '', caption = '', by = ''
   const deadline = Date.now() + timeout * Math.min(as.length, 3);
   for (const [i, who] of as.entries()) {
     const left = deadline - Date.now(); if (left < 1500) break;
-    const system = `You are ${who.handle}, a close friend of ${by}, commenting on their post on a private social app. Your vibe: ${PERSONA_TEXT[who.persona] ?? PERSONA_TEXT.classic}. ${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
+    const system = `You are ${who.handle}, a close friend of ${by}, commenting on their post on a private social app. Your vibe: ${PERSONA_TEXT[who.persona] ?? PERSONA_TEXT.classic}. ${who.about ? `About you: ${who.about} (let it show now and then, only when it fits the post). ` : ''}${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
 Write ONE short comment (4-16 words) about something specific in the post, like a friend would: a reaction, a compliment, a tease or a quick question. No hashtags. Never describe the photo like a caption; never mention being an AI.`;
     const user = `${by}'s post. ${scene ? `What's in it: ${scene}.` : ''}${caption ? ` Their caption: "${caption.slice(0, 200)}".` : ''}${seen.size ? ` Already said (don't repeat): ${[...seen].slice(-4).map((x) => `"${x}"`).join(', ')}.` : ''}${drafts[i] ? ` Something like "${drafts[i]}" but in your own words.` : ''}`;
     try {
@@ -197,8 +197,8 @@ const CAP_SHOTS = [
   { role: 'user', content: 'What\'s in my photo: with burger, fries; in Austin; at night.' }, { role: 'assistant', content: 'late night Austin burger run, no regrets 🍔' },
 ];
 /** The messages for a caption (what aiCaption sends the model; exported to try it out off the phone). */
-export function captionMessages({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic' }) {
-  const system = `You are ${handle || 'someone'}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it (name the thing, the place or the moment), in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-12 words. Never describe the photo literally, no filler like "vibes" or "moment"; never mention being an AI.`;
+export function captionMessages({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic', about = '' }) {
+  const system = `You are ${handle || 'someone'}${about ? ` (${about})` : ''}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it (name the thing, the place or the moment), in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-12 words. Never describe the photo literally, no filler like "vibes" or "moment"; never mention being an AI.`;
   const user = `What's in my photo: ${scene}.${draft ? ` An idea: "${draft.replace(/\s#\S+/g, '')}" (write your own, more specific).` : ''}${avoid.length ? ` Not these: ${avoid.slice(-3).map((a) => `"${a}"`).join(', ')}.` : ''}`;
   return [{ role: 'system', content: system }, ...CAP_SHOTS, { role: 'user', content: user }];
 }
@@ -213,9 +213,9 @@ export function pickCaption(raw, { scene = '', draft = '', level = 0, avoid = []
  * A caption by the model from what the photo shows (`scene`), as `handle` in its `persona`'s voice, or null: the
  * engine's (`draft`) as a guide, and kept instead unless the model's reads clearly better (two tries).
  */
-export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic', timeout = 12000 }) {
+export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic', about = '', timeout = 12000 }) {
   if (!ready || !scene) return null;
-  const messages = captionMessages({ scene, draft, level, avoid, handle, persona }); const end = Date.now() + timeout;
+  const messages = captionMessages({ scene, draft, level, avoid, handle, persona, about }); const end = Date.now() + timeout;
   for (let k = 0; k < 2; k++) {
     const left = end - Date.now(); if (left < 1500) break;
     try {
@@ -230,9 +230,9 @@ export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [],
  * A reply by the model from the post's account (`poster`, its `persona`) to `commenter`'s `comment` on its own
  * post, or null: the engine's (`draft`) as a guide; `scene`, `caption`, `level`.
  */
-export async function aiCommentReply({ poster, persona = 'classic', commenter, comment, draft = '', scene = '', caption = '', level = 0, timeout = 12000 }) {
+export async function aiCommentReply({ poster, persona = 'classic', about = '', commenter, comment, draft = '', scene = '', caption = '', level = 0, timeout = 12000 }) {
   if (!ready || !comment) return null;
-  const system = `You are ${poster}, replying to a comment your close friend ${commenter} left on your own post on a private social app. Your vibe: ${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}. ${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
+  const system = `You are ${poster}, replying to a comment your close friend ${commenter} left on your own post on a private social app. Your vibe: ${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}. ${about ? `About you: ${about}. ` : ''}${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
 Write ONE short reply (2-14 words) to exactly what they said: thank them for a compliment, answer a question, banter back at a tease. No hashtags; never mention being an AI.`;
   const user = `Your post: ${scene ? `${scene}. ` : ''}${caption ? `Your caption: "${caption.slice(0, 200)}". ` : ''}${commenter} commented: "${comment.slice(0, 300)}".${draft ? ` Something like "${draft.replace(/^@\S+\s*/, '')}" but in your own words.` : ''}`;
   try {

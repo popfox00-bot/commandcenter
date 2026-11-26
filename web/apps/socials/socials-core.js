@@ -39,6 +39,8 @@ export const accountById = (state, id) => state.accounts.find((a) => a.id === id
 export const KINDS = ['friend', 'celebrity'];
 const kindOf = (k) => (k === 'celebrity' ? 'celebrity' : 'friend');
 
+// (An account's voice, chosen in its profile (socials-style.js' personas); none: its own, from its handle.)
+export const VOICES = ['hype', 'chill', 'warm', 'witty', 'classic'];
 export function addAccount(state, { handle, name = '', bio = '', avatar = null, kind = 'friend' }) {
   const p = handleProblem(state, handle); if (p) throw new Error(p);
   const now = Date.now();
@@ -56,6 +58,8 @@ export function editAccount(state, id, changes) {
   if (changes.bio != null) a.bio = String(changes.bio).trim().slice(0, 300);
   if (changes.avatar !== undefined) { a.avatar = changes.avatar; a.avatarId = changes.avatar ? newId() : null; }
   if (changes.kind != null) a.kind = kindOf(changes.kind);
+  if (changes.voice !== undefined) { if (VOICES.includes(changes.voice)) a.voice = changes.voice; else delete a.voice; }
+  if (changes.interests != null) { const t = String(changes.interests).trim().slice(0, 120); if (t) a.interests = t; else delete a.interests; }
   a.upd = Date.now();
   return a;
 }
@@ -525,7 +529,7 @@ export function countLabel(n) {
 export function normalize(raw) {
   const s = emptyState(); if (!raw || typeof raw !== 'object') return s;
   const ok = (v) => typeof v === 'string' && v.length > 0;
-  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], ...cleanFace(a), ...(cleanFaces(a.learned).length ? { learned: cleanFaces(a.learned) } : {}), ...(cleanFaces(a.notFaces).length ? { notFaces: cleanFaces(a.notFaces) } : {}), at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], ...(VOICES.includes(a.voice) ? { voice: a.voice } : {}), ...(typeof a.interests === 'string' && a.interests.trim() ? { interests: a.interests.trim().slice(0, 120) } : {}), ...cleanFace(a), ...(cleanFaces(a.learned).length ? { learned: cleanFaces(a.learned) } : {}), ...(cleanFaces(a.notFaces).length ? { notFaces: cleanFaces(a.notFaces) } : {}), at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
   // (Exactly one Owner: the one made so last, else the oldest account.)
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));

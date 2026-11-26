@@ -28,7 +28,7 @@ import {
 } from './socials-core.js';
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
 import { chatReplyStyled, moodOf, commentReply } from './socials-chat.js';
-import { personaOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
+import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
@@ -86,12 +86,15 @@ const MAX_VIDEO = 300 * 1024 * 1024;
 export function mount(host) {
   // (Socials' own background picture, if one's set: behind the Sports front too.)
   loadBg('socials').then((b) => { if (host.isConnected) showBg(b); });
-  if ((location.hash.split('/')[2] ?? '') === 'admin') return mountAdmin(host);
+  const sub = location.hash.split('/')[2] ?? '';
+  if (sub === 'admin') return mountAdmin(host);
+  // (From a home-screen shortcut: #/socials/new (a new post) or #/socials/inbox (messages), behind the password.)
+  if (sub === 'new' || sub === 'inbox') { try { history.replaceState(null, '', '#/socials/admin'); } catch { /* fine */ } return mountAdmin(host, { open: sub }); }
   let undo = sportsFront(host, { onAdmin: () => { undo?.(); host.replaceChildren(); undo = mountAdmin(host); } });
   return () => undo?.();
 }
 
-function mountAdmin(host) {
+function mountAdmin(host, { open = '' } = {}) {
   let state = emptyState();
   let view = { name: 'feed' };
   let alive = true;
@@ -506,10 +509,10 @@ function mountAdmin(host) {
   let replying = null; // ({ post, comment, to }: the comment being replied to, in the post's box)
   async function replyFor(p, c) {
     const poster = accountById(state, p.by); const who = accountById(state, c.by); if (!poster || !who) return null;
-    const persona = personaOf(poster.handle, poster.kind);
+    const persona = personaFor(poster);
     const draft = spice(voice(commentReply(c.text.replace(/^@\S+\s*/, ''), { commenter: who.handle, caption: p.caption }), { persona }), levelNow(), { persona, mood: 'pos' });
     if (!aiOn() || !aiReady()) return draft;
-    const ai = await aiCommentReply({ poster: poster.handle, persona, commenter: who.handle, comment: c.text, draft, scene: describeScene(p.scene), caption: p.caption, level: levelNow() }).catch(() => null);
+    const ai = await aiCommentReply({ poster: poster.handle, persona, about: aboutOf(poster), commenter: who.handle, comment: c.text, draft, scene: describeScene(p.scene), caption: p.caption, level: levelNow() }).catch(() => null);
     return ai ? (/^@/.test(draft) && !/^@/.test(ai) && Math.random() < 0.5 ? `@${who.handle} ${ai}` : ai) : draft;
   }
   function answerComment(p, c, { now = false } = {}) {
@@ -529,7 +532,7 @@ function mountAdmin(host) {
   // caption, in the commenter's own way; any it can't do well stay as they are.)
   async function rewriteAuto(p) {
     const cs = p.comments.filter((c) => c.by !== p.by).slice(-3); if (!cs.length) return;
-    const who = cs.map((c) => { const a = accountById(state, c.by); return { handle: a?.handle ?? 'friend', persona: personaOf(a?.handle, a?.kind) }; });
+    const who = cs.map((c) => { const a = accountById(state, c.by); return { handle: a?.handle ?? 'friend', persona: personaFor(a), about: aboutOf(a) }; });
     const out = await aiComments({ as: who, drafts: cs.map((c) => c.text), scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow() });
     let changed = false; cs.forEach((c, i) => { if (out[i] && out[i] !== c.text && p.comments.includes(c)) { c.text = out[i].slice(0, 500); changed = true; } });
     if (changed) { save(); if (['feed', 'post', 'profile'].includes(view.name)) draw(); }
@@ -556,13 +559,13 @@ function mountAdmin(host) {
         const order = [...fresh, ...rest]; who = Array.from({ length: n }, (_, i) => order[i % order.length]);
       }
       const tagged = (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean);
-      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), photo: p.scene, by: accountById(state, p.by)?.handle ?? '' });
+      const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), personas: who.map((id) => personaFor(accountById(state, id))), photo: p.scene, by: accountById(state, p.by)?.handle ?? '' });
       // (With the on-device AI on: each written by it from the photo and caption, the engine's as its guide.)
-      const persona = (id) => { const a = accountById(state, id); return personaOf(a?.handle, a?.kind); };
+      const persona = (id) => personaFor(accountById(state, id));
       let written = texts;
       if (aiOn() && aiReady()) {
         const label = btn.textContent; btn.textContent = '✍️'; btn.disabled = true;
-        written = await aiComments({ as: who.map((id) => ({ handle: accountById(state, id)?.handle ?? 'friend', persona: persona(id) })), drafts: texts, scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow(), avoid: p.comments.map((c) => c.text) });
+        written = await aiComments({ as: who.map((id) => ({ handle: accountById(state, id)?.handle ?? 'friend', persona: persona(id), about: aboutOf(accountById(state, id)) })), drafts: texts, scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow(), avoid: p.comments.map((c) => c.text) });
         btn.textContent = label; btn.disabled = false;
       }
       let added = 0;
@@ -872,18 +875,27 @@ function mountAdmin(host) {
     const handle = el('input', { class: 'so-input', type: 'text', placeholder: 'Username', 'aria-label': 'Username', autocapitalize: 'none', autocomplete: 'off', spellcheck: 'false', maxlength: '30', value: a?.handle ?? '' });
     const name = el('input', { class: 'so-input', type: 'text', placeholder: 'Name', 'aria-label': 'Name', maxlength: '60', value: a?.name ?? '' });
     const bio = el('textarea', { class: 'so-input', rows: '3', placeholder: 'Bio', 'aria-label': 'Bio', maxlength: '300' }); bio.value = a?.bio ?? '';
+    // (Its voice and what it's into: how its comments, replies, captions and messages sound (by the AI too).)
+    const auto = personaOf(a?.handle || handle.value || 'x', kind);
+    const voiceSel = el('select', { class: 'so-input so-voice', 'aria-label': 'Voice' },
+      el('option', { value: '', text: `Voice: its own (${a ? auto : 'from its username'})` }),
+      [['hype', '🔥 Hype: big reactions, caps, emojis'], ['chill', '😌 Chill: laid-back, lowercase'], ['warm', '💛 Warm: sweet, supportive'], ['witty', '😏 Witty: teasing one-liners'], ['classic', '🙂 Classic: friendly, natural']].map(([v, t]) => el('option', { value: v, text: t })));
+    voiceSel.value = a?.voice ?? '';
+    const interests = el('input', { class: 'so-input', type: 'text', placeholder: 'Into (e.g. surfing, dry humor, coffee)', 'aria-label': 'Into', maxlength: '120', value: a?.interests ?? '' });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const submit = () => {
       err.textContent = '';
       const p = handleProblem(state, handle.value, a?.id ?? null); if (p) { err.textContent = p; return; }
       // (A new profile photo is also posted, whole, as it was picked.)
       const postPic = (id) => { if (changed && pic && full) addPost(state, id, { image: full, caption: 'New profile picture 📸' }); };
-      if (a) { editAccount(state, a.id, { handle: handle.value, name: name.value, bio: bio.value, ...(a.owner ? {} : { kind }), ...(changed ? { avatar: pic } : {}) }); postPic(a.id); save(); go({ name: 'profile', id: a.id }); }
-      else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic, kind }); postPic(n.id); useAccount(n.id); save(); go({ name: 'feed' }); }
+      const how = { voice: voiceSel.value || null, interests: interests.value };
+      if (a) { editAccount(state, a.id, { handle: handle.value, name: name.value, bio: bio.value, ...how, ...(a.owner ? {} : { kind }), ...(changed ? { avatar: pic } : {}) }); postPic(a.id); save(); go({ name: 'profile', id: a.id }); }
+      else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic, kind }); editAccount(state, n.id, how); postPic(n.id); useAccount(n.id); save(); go({ name: 'feed' }); }
     };
     return el('div', { class: 'so-form' },
       el('label', { class: 'so-form-pic' }, prev, el('span', { class: 'so-link', text: a?.avatar ? 'Change profile photo' : 'Add profile photo' }), file),
-      handle, name, bio, kindPick, err,
+      handle, name, bio, kindPick, voiceSel, interests,
+      el('p', { class: 'muted small so-voice-note', text: 'Voice and Into: how this account sounds in its comments, replies, captions and messages (the AI uses its bio and what it\'s into too).' }), err,
       a ? bgSetting(`socials.profile.${a.id}`, 'Profile background', (b) => { profileBgs.set(a.id, b); applyBg(); }) : null,
       el('button', { type: 'button', class: 'btn primary', text: a ? 'Done' : 'Create account', onclick: submit }));
   }
@@ -1071,9 +1083,9 @@ function mountAdmin(host) {
     const captionFor = async (sc) => {
       const c = suggestCaption(sc, { avoid: rawSeen }); rawSeen.push(c); // (the engine's own, so each is another)
       const tags = c.match(/#[\p{L}\p{N}_]+/gu) ?? []; const body = c.replace(/\s*#[\p{L}\p{N}_]+/gu, '').trim();
-      const persona = personaOf(m.handle, m.kind);
+      const persona = personaFor(m);
       let t = null;
-      if (aiOn() && aiReady()) t = await aiCaption({ scene: describeScene(sc), draft: body, level: levelNow(), avoid: suggested, handle: m.handle, persona });
+      if (aiOn() && aiReady()) t = await aiCaption({ scene: describeScene(sc), draft: body, level: levelNow(), avoid: suggested, handle: m.handle, persona, about: aboutOf(m) });
       t ??= spice(voice(body, { persona }), Math.min(levelNow(), 2), { persona, mood: 'pos' });
       return `${t}${tags.length ? ` ${tags.join(' ')}` : ''}`;
     };
@@ -1135,7 +1147,7 @@ function mountAdmin(host) {
         showUp('Posting… saving to this phone', 0.15);
         const p = make(false, scene);
         // (A few of the other accounts say something about it, made for its photo and caption.)
-        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), by: m.handle }).map((t, i) => spice(t, levelNow(), { persona: personaOf(who[i]?.handle, who[i]?.kind), mood: 'pos' })) });
+        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), personas: who.map((a) => personaFor(a)), by: m.handle }).map((t, i) => spice(t, levelNow(), { persona: personaFor(who[i]), mood: 'pos' })) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
         // (Its automatic comments: rewritten by the AI when it's on; then the poster answers about half.)
@@ -1314,7 +1326,7 @@ function mountAdmin(host) {
   /** What `from` would say back to `to` now, from their conversation. */
   function replyText(from, to) {
     const hist = conversation(state, from, to).slice(-40).map((x) => ({ mine: x.from === to, text: x.text, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
-    const a = accountById(state, from); const persona = personaOf(a?.handle, a?.kind);
+    const a = accountById(state, from); const persona = personaFor(a);
     const lastMine = [...hist].reverse().find((x) => x.mine)?.text ?? '';
     return spice(chatReplyStyled(hist, { persona }), levelNow(), { persona, mood: moodOf(lastMine) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
   }
@@ -1326,7 +1338,7 @@ function mountAdmin(host) {
     const msgs = conversation(state, from, to).slice(-14);
     const hist = msgs.map((x) => ({ mine: x.from === to, text: x.text, post: x.post ? { caption: postById(state, x.post)?.caption ?? '' } : null }));
     const a = accountById(state, from); const o = accountById(state, to);
-    return aiReply({ history: hist, them: a?.handle ?? 'friend', me: o?.handle ?? 'you', persona: personaOf(a?.handle, a?.kind), style: styleOf(hist.filter((x) => x.mine).map((x) => x.text)), level: levelNow(), draft: draft.replace(/\n/g, ' ') });
+    return aiReply({ history: hist, them: a?.handle ?? 'friend', me: o?.handle ?? 'you', persona: personaFor(a), about: aboutOf(a), style: styleOf(hist.filter((x) => x.mine).map((x) => x.text)), level: levelNow(), draft: draft.replace(/\n/g, ' ') });
   }
   /** `from` answers `to` (the Owner) in a moment; more from the Owner first: it waits and answers it all. */
   function autoReply(from, to) {
@@ -1630,7 +1642,7 @@ function mountAdmin(host) {
     if (loaded) { draw(); runSync(); return; }
     fill(main, el('p', { class: 'muted so-pad', text: 'Loading…' }));
     // (If what's kept can't be read, nothing is shown or saved over it: an empty Socials saved now would replace it.)
-    loadState().then((r) => { loaded = true; state = r.state; if (emptyOldTrash(state)) save(); draw(); runSync(); }).catch(() => { fill(main, el('div', { class: 'so-pad so-empty' }, el('p', { class: 'so-empty-big', text: 'Socials couldn\'t open what\'s kept on this device' }), el('p', { class: 'muted', text: 'Nothing has been changed. Close the app and open it again.' }), el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: start }))); });
+    loadState().then((r) => { loaded = true; state = r.state; if (emptyOldTrash(state)) save(); if (open && state.accounts.length) { view = { name: open }; open = ''; } draw(); runSync(); }).catch(() => { fill(main, el('div', { class: 'so-pad so-empty' }, el('p', { class: 'so-empty-big', text: 'Socials couldn\'t open what\'s kept on this device' }), el('p', { class: 'muted', text: 'Nothing has been changed. Close the app and open it again.' }), el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: start }))); });
   }
   if (sessionOpen) start(); else gate();
 

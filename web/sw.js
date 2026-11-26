@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "12f77a0b1859",
+  "version": "72dacb151456",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",
@@ -58,9 +58,12 @@ const PRECACHE = {
     "apps/refill/refill.js",
     "apps/saved/saved-app.js",
     "apps/settings/settings.js",
+    "apps/socials/socials-ai-worker.js",
+    "apps/socials/socials-ai.js",
     "apps/socials/socials-chat.js",
     "apps/socials/socials-core.js",
     "apps/socials/socials-editor.js",
+    "apps/socials/socials-faces.js",
     "apps/socials/socials-predict.js",
     "apps/socials/socials-scene.js",
     "apps/socials/socials-sports-core.js",
@@ -223,6 +226,8 @@ const PRECACHE = {
     "vendor/face/face-api.esm.js",
     "vendor/face/model/face_landmark_68_model-weights_manifest.json",
     "vendor/face/model/face_landmark_68_model.bin",
+    "vendor/face/model/face_recognition_model-weights_manifest.json",
+    "vendor/face/model/face_recognition_model.bin",
     "vendor/face/model/tiny_face_detector_model-weights_manifest.json",
     "vendor/face/model/tiny_face_detector_model.bin",
     "vendor/mediapipe/LICENSE",
@@ -287,6 +292,7 @@ const PRECACHE = {
 const CACHE = `cc-${PRECACHE.version}`;
 // Never served from cache: runtime config written at deploy time.
 const NETWORK_FIRST = new Set(['config.js']);
+const AI_LIB = 'ai-lib-3.8.1';
 
 self.addEventListener('install', (e) => {
   // cache: 'reload' bypasses the HTTP cache (GitHub Pages lets browsers keep files for 10 minutes),
@@ -309,6 +315,11 @@ self.addEventListener('fetch', (e) => {
   const rel = url.pathname.startsWith(scope.pathname) ? url.pathname.slice(scope.pathname.length) : null;
   if (rel === null) return;
 
+  // (Socials' AI engine: kept the first time it's used, in a cache of its own (not replaced with each version).)
+  if (rel.startsWith('vendor/transformers/')) {
+    e.respondWith(caches.open(AI_LIB).then((c) => c.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request).then((res) => { if (res.ok) c.put(e.request, res.clone()); return res; }))));
+    return;
+  }
   if (NETWORK_FIRST.has(rel)) {
     e.respondWith(fetch(e.request).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }

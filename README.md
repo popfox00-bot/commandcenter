@@ -1376,6 +1376,26 @@ Profile, ✈ for messages), where everything is made by you in the app.
   comments on posts are in their commenters' voices too, with livelier lines ("Not the red dress being this good",
   "Frame this immediately", "Okay whoever took this ate").
   Turn it off in Sync and password (then ✨ Generate reply from @… does it on a tap).
+- **🤖 AI replies (on the phone).** Sync and password → AI replies: a small language model (Qwen2.5 1.5B Instruct,
+  4-bit, about 1.2 GB) that runs on the phone's GPU with WebGPU (iPhone with iOS 26 or later, current Chrome/Edge)
+  through Transformers.js (`web/vendor/transformers`, `web/apps/socials/socials-ai.js` and its worker). Downloaded
+  once from Hugging Face (with a progress bar), then kept by the browser: it works offline, and nothing you write is
+  sent anywhere. With it on, the replies in messages are written by the model from the whole conversation (the
+  last dozen messages), in the account's voice, leaning toward how you text, at the language level, meaning roughly
+  what the built-in engine would say but in its own, more detailed words. Each is checked before it's sent (one
+  message, not too long, about what you said, a friend's words not an assistant's, at the level); one that doesn't
+  hold up, or takes over 15 seconds, is replaced by the engine's. Without WebGPU it says so and the engine answers.
+  Turn off, or remove the download, in the same place. The engine files (22 MB) are cached only once it's used.
+- **Language: Tame → Adult.** A slider in Sync and password for the words in generated replies and comments
+  (`socials-style.js`): **Tame** never swears (anything that slips in is cleaned: "holy shit" → "holy cow"),
+  **Casual** says damn and hell now and then, **Spicy** swears freely like close friends do, **Adult (18+)** adds
+  crude humor and flirty asides. It's banter: nothing sexually explicit, at any level.
+- **Faces: who's in a new post.** Sync and password → Recognize faces in new posts (on to start): when a post's first
+  photo (or three frames of a video) is read, each face is described by face-api's face recognition model
+  (`web/vendor/face`, `web/apps/socials/socials-faces.js`) and compared with each account's profile photo (its face
+  described once a photo and kept with the account). Anyone close enough (a distance under 0.5) other than the one
+  posting is added as a collaborator and tagged ("🤝 In the photo: @amy, added as collaborator"), up to three, for
+  you to change in 🤝 Collab before sharing. All on the phone.
 - **Download post (the Owner account).** ⋯ → Download post on any post saves its photos and videos: one
   straight away; several open a picker (all picked to start: tap to leave some out) with **Download all** and
   **Download selected**. On a phone they go to the share sheet (Save to Photos); elsewhere a download, or a zip.

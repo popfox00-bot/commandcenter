@@ -339,3 +339,21 @@ test('a video\'s frame: made safe, kept with the post (through edits), shown thr
   const c = { x: 0.1, y: 0.3, w: 0.4, h: 0.5 }; const k = fitFromRect(c, 1600, 900); const back = fitCrop(k.ratio, k.zoom, k.px, k.py, 1600, 900);
   for (const key of ['x', 'y', 'w', 'h']) assert.ok(Math.abs(back[key] - c[key]) < 1e-6, `${key}: ${back[key]} vs ${c[key]}`);
 });
+
+test('faces: matched to accounts by how close their descriptions are (each account once, the closest first); an account\'s face kept with its photo', async () => {
+  const { matchFaces, faceDistance } = await import('../web/apps/socials/socials-faces.js');
+  const { emptyState, addAccount, editAccount, setFace, normalize } = await import('../web/apps/socials/socials-core.js');
+  const vec = (k) => Array.from({ length: 128 }, (_, i) => Math.sin(i * k) * 0.1);
+  const near = (v, e) => v.map((x, i) => x + (i % 2 ? e : -e));
+  const A = vec(1); const B = vec(2); const C = vec(3);
+  assert.ok(faceDistance(A, near(A, 0.02)) < 0.5); assert.ok(faceDistance(A, B) > 0.5); assert.equal(faceDistance(A, null), Infinity);
+  const known = [{ id: 'amy', d: A }, { id: 'bo', d: B }];
+  assert.deepEqual(matchFaces([{ d: near(B, 0.01) }, { d: near(A, 0.03) }, { d: C }], known).map((x) => x.id), ['bo', 'amy'], 'a stranger matched to no one');
+  assert.deepEqual(matchFaces([{ d: near(A, 0.03) }, { d: near(A, 0.01) }], known).map((x) => x.id), ['amy'], 'each account once');
+  assert.deepEqual(matchFaces([], known), []);
+  const s = emptyState(); const a = addAccount(s, { handle: 'amy', avatar: new Blob(['p']) });
+  setFace(s, a.id, A); assert.equal(a.face.length, 128); assert.equal(a.faceOf, a.avatarId);
+  assert.equal(normalize(JSON.parse(JSON.stringify(s))).accounts[0].face.length, 128, 'kept');
+  editAccount(s, a.id, { avatar: new Blob(['new']) });
+  assert.equal(normalize(JSON.parse(JSON.stringify(s))).accounts[0].face, undefined, 'a new photo: the old face let go');
+});

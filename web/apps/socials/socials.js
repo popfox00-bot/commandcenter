@@ -24,11 +24,12 @@ import {
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
   reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
-  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
+  cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, setFace, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, suggestCaption } from './socials-predict.js';
-import { chatReplyStyled } from './socials-chat.js';
-import { personaOf } from './socials-style.js';
+import { chatReplyStyled, moodOf } from './socials-chat.js';
+import { personaOf, styleOf, spice, CONTENT_LEVELS } from './socials-style.js';
+import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
@@ -60,6 +61,11 @@ const AUTO_KEY = 'cc.socials.autocomment';
 const autoOn = () => store.get(AUTO_KEY) !== '0';
 const REPLY_KEY = 'cc.socials.autoreply';
 const replyOn = () => store.get(REPLY_KEY) !== '0';
+const LEVEL_KEY = 'cc.socials.level';
+/** How tame or adult the generated words are: 0 Tame … 3 Adult. */
+const levelNow = () => Math.max(0, Math.min(3, Number(store.get(LEVEL_KEY) ?? 0) || 0));
+const FACE_KEY = 'cc.socials.faces';
+const faceOn = () => store.get(FACE_KEY) !== '0';
 // (This device, for counting views: each device counts its own, the counts added up.)
 const DEVICE_KEY = 'cc.socials.device';
 const deviceId = () => { let d = store.get(DEVICE_KEY); if (!d) { d = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; store.set(DEVICE_KEY, d); } return d; };
@@ -488,7 +494,7 @@ function mountAdmin(host) {
       const tagged = (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean);
       const texts = generateComments(p.caption, n, { avoid: p.comments.map((c) => c.text), tagged, as: who.map((id) => accountById(state, id)?.handle ?? ''), photo: p.scene, by: accountById(state, p.by)?.handle ?? '' });
       let added = 0;
-      texts.forEach((t, i) => { if (addComment(state, p.id, who[i], t)) added++; });
+      texts.forEach((t, i) => { const acc = accountById(state, who[i]); if (addComment(state, p.id, who[i], spice(t, levelNow(), { persona: personaOf(acc?.handle, acc?.kind), mood: 'pos' }))) added++; });
       if (added) { save(); draw(); }
     };
     return el('div', { class: 'so-gen', role: 'group', 'aria-label': 'Generate comments' },
@@ -803,6 +809,26 @@ function mountAdmin(host) {
     }
   }
 
+  // ---- Faces: the accounts' (from their profile photos, made once a photo and kept with the account) and a new
+  // post's, matched (socials-faces.js).
+  async function knownFaces() {
+    const out = [];
+    for (const a of state.accounts) {
+      if (!a.avatar) continue;
+      if (!(a.face && a.faceOf === a.avatarId)) { try { const { faceOfAvatar } = await import('./socials-faces.js'); const d = await faceOfAvatar(a.avatar); setFace(state, a.id, d); if (d) save(); } catch { continue; } }
+      if (a.face) out.push({ id: a.id, d: a.face });
+    }
+    return out;
+  }
+  /** The accounts whose faces are in a post's first photo (or a video's frames): [{ id, distance }]. */
+  async function peopleIn(item) {
+    const known = await knownFaces(); if (!known.length) return [];
+    const { facesIn, matchFaces } = await import('./socials-faces.js');
+    const shots = item.kind === 'video' && item.video ? await videoFrames(item.video, { n: 3 }).catch(() => []) : [];
+    const faces = []; for (const b of shots.length ? shots : [item.image]) { try { faces.push(...await facesIn(b)); } catch { /* that one */ } }
+    return matchFaces(faces, known);
+  }
+
   // ---- The photos and videos of a post being made or edited. Each file picked is read in full straight away
   // (from iCloud too: tried again if a read fails or stalls), all of them first, then each prepared (a video's
   // still; a photo through the editor); each shown in a list with how far it's got (Loading 40% · Preparing ·
@@ -873,8 +899,6 @@ function mountAdmin(host) {
           x.image = b; x.original = x.file; x.imageId = null;
         }
         x.status = 'ready'; x.sceneP = null; x.scene = undefined;
-        // (The first one's photo read straight away, for comments and a caption.)
-        if (items.find((y) => y.status === 'ready' && y.image) === x) sceneOf(x);
       } catch (e) { x.status = 'failed'; x.stage = 'prep'; x.error = e.message; }
       changed();
     }
@@ -896,6 +920,9 @@ function mountAdmin(host) {
       for (const x of added) await load(x);
       for (const x of added) if (x.status === 'read') { await prep(x, added.length > 1); if (x.status === 'ready' && items.includes(x) && !items[cur]?.image) cur = items.indexOf(x); }
       draw();
+      // (All in: the first one's photo read now (not while the others were still being prepared), for comments, a
+      // caption and who's in it.)
+      const f1 = items.find((y) => y.status === 'ready' && y.image); if (f1) { sceneOf(f1); onChange(); }
     }
     draw();
     return {
@@ -932,7 +959,7 @@ function mountAdmin(host) {
       share.disabled = !n || busy; share.textContent = busy ? 'Loading files…' : 'Share';
       saveDraft.disabled = busy || (!n && !caption.value.trim());
     };
-    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video, fit: it.fit ?? null })) : [], { onChange: () => { sync(); autoCaption(); } });
+    const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video, fit: it.fit ?? null })) : [], { onChange: () => { sync(); autoCaption(); findPeople(); } });
     caption.addEventListener('input', sync);
     // (✨ Suggest caption: from what the photo shows (and when and where); again for another.)
     let suggested = []; let lastSuggestion = '';
@@ -948,13 +975,28 @@ function mountAdmin(host) {
         sync();
       } finally { suggest.disabled = false; suggest.textContent = '✨ Suggest caption'; }
     });
+    // (Who's in it: faces in the first photo (or a video's frames) matched to the accounts' profile photos; each
+    // found (but the one posting) made a collaborator, and tagged; yours to take back off in 🤝 Collab.)
+    const faceNote = el('p', { class: 'small so-facenote', hidden: true, 'aria-live': 'polite' });
+    let facesFor = null; let collabBox = null; const autoAdded = new Set();
+    const findPeople = async () => {
+      const f = mx.first(); if (!f || facesFor === f || !faceOn() || mx.busy()) return; facesFor = f;
+      try {
+        const found = await peopleIn(f);
+        if (mx.first() !== f) return;
+        const ids = found.filter((x) => x.id !== m.id).map((x) => x.id);
+        const room = MAX_COLLAB - collabs.size; const add = ids.filter((id) => !collabs.has(id)).slice(0, Math.max(0, room));
+        for (const id of add) { collabs.add(id); tags.add(id); autoAdded.add(id); }
+        if (add.length) { tagBox.redraw?.(); collabBox?.redraw?.(); faceNote.hidden = false; faceNote.textContent = `🤝 In the photo: ${add.map((id) => `@${accountById(state, id)?.handle}`).join(', ')}, added as collaborator${add.length === 1 ? '' : 's'} (tap 🤝 Collab to change).`; }
+      } catch { /* no faces read */ }
+    };
     // (Auto-caption: once the first photo or video is read, a caption from what it shows, the most specific thing
     // in it, written in for you while the caption's empty and untouched; yours to change.)
     let typed = !!caption.value.trim(); let autoFor = null;
     const autoNote = el('p', { class: 'small muted so-autocap', hidden: true, text: '✨ Written from the photo. Change it any way you like, or ✨ Suggest caption for another.' });
     caption.addEventListener('input', () => { typed = true; autoNote.hidden = true; });
     const autoCaption = async () => {
-      const f = mx.first(); if (!f || typed || autoFor === f) return; autoFor = f;
+      const f = mx.first(); if (!f || typed || autoFor === f || mx.busy()) return; autoFor = f;
       const sc = await mx.scene(); if (typed || mx.first() !== f || caption.value.trim()) return;
       const c = suggestCaption(sc, { avoid: suggested }); suggested.push(c);
       caption.value = c; lastSuggestion = c; autoNote.hidden = false; sync();
@@ -978,7 +1020,7 @@ function mountAdmin(host) {
         showUp('Posting… saving to this phone', 0.15);
         const p = make(false, scene);
         // (A few of the other accounts say something about it, made for its photo and caption.)
-        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), by: m.handle }) });
+        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), by: m.handle }).map((t, i) => spice(t, levelNow(), { persona: personaOf(who[i]?.handle, who[i]?.kind), mood: 'pos' })) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
         // (Then to Saved Files straight away, its progress shown; else it's posted here.)
@@ -989,7 +1031,7 @@ function mountAdmin(host) {
     saveDraft.addEventListener('click', () => { try { make(true); save(); toast('Saved to your drafts (your profile → ✎)'); go({ name: 'profile', id: m.id, grid: 'drafts' }); } catch (e) { err.textContent = e.message; } });
     sync();
     return el('div', {}, backBar(draft?.draft ? `Draft · @${m.handle}` : `New post as @${m.handle}`, draft?.draft ? { name: 'profile', id: m.id, grid: 'drafts' } : { name: 'feed' }),
-      el('div', { class: 'so-pad so-new' }, mx.box, caption, autoNote, el('div', { class: 'so-row' }, suggest), communityPicker(caption), tagBox, collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox }), err, el('div', { class: 'so-row' }, saveDraft, share),
+      el('div', { class: 'so-pad so-new' }, mx.box, caption, autoNote, el('div', { class: 'so-row' }, suggest), communityPicker(caption), tagBox, (collabBox = collabPicker(collabs, m.id, undefined, { set: tags, box: tagBox })), faceNote, err, el('div', { class: 'so-row' }, saveDraft, share),
         draft?.draft ? el('button', { type: 'button', class: 'so-link so-danger-link', text: 'Delete draft', onclick: () => { if (confirm('Delete this draft?')) { removePost(state, draft.id); save(); go({ name: 'profile', id: m.id, grid: 'drafts' }); } } }) : null));
   }
 
@@ -1153,28 +1195,47 @@ function mountAdmin(host) {
   /** What `from` would say back to `to` now, from their conversation. */
   function replyText(from, to) {
     const hist = conversation(state, from, to).slice(-40).map((x) => ({ mine: x.from === to, text: x.text, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
-    const a = accountById(state, from);
-    return chatReplyStyled(hist, { persona: personaOf(a?.handle, a?.kind) });
+    const a = accountById(state, from); const persona = personaOf(a?.handle, a?.kind);
+    const lastMine = [...hist].reverse().find((x) => x.mine)?.text ?? '';
+    return spice(chatReplyStyled(hist, { persona }), levelNow(), { persona, mood: moodOf(lastMine) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
+  }
+  /** The AI's reply (when it's on and ready), from the conversation, meaning roughly what the engine would say; else null. */
+  async function aiText(from, to, draft) {
+    if (!aiOn()) return null;
+    // (On but not loaded yet: loaded now, in the background (from the phone, once downloaded); this reply's the engine's.)
+    if (!aiReady()) { aiDownloaded().then((have) => { if (have) aiLoad().catch(() => {}); }); return null; }
+    const msgs = conversation(state, from, to).slice(-14);
+    const hist = msgs.map((x) => ({ mine: x.from === to, text: x.text, post: x.post ? { caption: postById(state, x.post)?.caption ?? '' } : null }));
+    const a = accountById(state, from); const o = accountById(state, to);
+    return aiReply({ history: hist, them: a?.handle ?? 'friend', me: o?.handle ?? 'you', persona: personaOf(a?.handle, a?.kind), style: styleOf(hist.filter((x) => x.mine).map((x) => x.text)), level: levelNow(), draft: draft.replace(/\n/g, ' ') });
   }
   /** `from` answers `to` (the Owner) in a moment; more from the Owner first: it waits and answers it all. */
   function autoReply(from, to) {
     if (!replyOn() || !accountById(state, to)?.owner || from === to) return;
     clearTimeout(typing.get(from)?.t);
-    const start = () => {
-      const text = replyText(from, to);
+    // (This reply's own token: a newer message from the Owner starts another, and this one gives way.)
+    const token = {}; const mine = () => typing.get(from)?.token === token;
+    const start = async () => {
+      typing.set(from, { t: 0, shown: true, token }); if (view.name === 'chat' && view.id === from) draw();
+      const draft = replyText(from, to);
+      // (The AI's words when it's on and they hold up; the engine's otherwise.)
+      const ai = await aiText(from, to, draft).catch(() => null);
+      if (!alive || !mine()) return;
+      const text = ai ?? draft;
       // (Two messages sometimes: the first, then "typing" again, then the second.)
       const [one, ...more] = text.split('\n').map((x) => x.trim()).filter(Boolean);
+      const wait = (line) => (ai ? 500 : Math.min(4200, 900 + line.length * 35));
       const sendOne = (line, then) => setTimeout(() => {
-        if (!alive) return;
+        if (!alive || !mine()) return;
         const r = sendMessage(state, from, to, line);
         if (r) { if (view.name === 'chat' && view.id === from && state.me === to) markRead(state, to, from, r.at); save(); }
-        if (then) { typing.set(from, { t: then(), shown: true }); } else typing.delete(from);
+        if (then) typing.set(from, { t: then(), shown: true, token }); else typing.delete(from);
         draw();
-      }, Math.min(4200, 900 + line.length * 35));
+      }, wait(line));
       const t = sendOne(one ?? text, more.length ? () => sendOne(more.join(' '), null) : null);
-      typing.set(from, { t, shown: true }); if (view.name === 'chat' && view.id === from) draw();
+      typing.set(from, { t, shown: true, token }); if (view.name === 'chat' && view.id === from) draw();
     };
-    typing.set(from, { t: setTimeout(start, 700), shown: false });
+    typing.set(from, { t: setTimeout(start, 700), shown: false, token });
   }
 
   function chat(otherId) {
@@ -1283,6 +1344,38 @@ function mountAdmin(host) {
   }
 
   // ---- Sync and password settings.
+  /** The words: how tame or adult (a slider), and AI replies (the on-device model: download, use, remove). */
+  function textSettings() {
+    const lv = levelNow();
+    const note = el('p', { class: 'small muted so-level-note', text: CONTENT_LEVELS[lv].note });
+    const name = el('strong', { class: 'so-level-name', text: CONTENT_LEVELS[lv].name });
+    const range = el('input', { type: 'range', min: '0', max: '3', step: '1', value: String(lv), class: 'so-level', 'aria-label': 'Language: tame to adult', 'aria-valuetext': CONTENT_LEVELS[lv].name });
+    range.addEventListener('input', () => { const v = Number(range.value); store.set(LEVEL_KEY, String(v)); name.textContent = CONTENT_LEVELS[v].name; note.textContent = CONTENT_LEVELS[v].note; range.setAttribute('aria-valuetext', CONTENT_LEVELS[v].name); });
+    const aiBox = el('div', { class: 'so-ai' });
+    const drawAi = async (msg = '') => {
+      const sup = await aiSupport(); const have = await aiDownloaded(); const on = aiOn();
+      const status = el('p', { class: 'small muted', 'aria-live': 'polite', text: msg || (!sup.ok ? `Not available on this device: ${sup.why} Replies come from the built-in engine.` : aiReady() && on ? 'Ready: on this phone, works offline.' : have ? (on ? 'Downloaded. It loads the next time a reply is written.' : 'Downloaded, turned off.') : `Not downloaded (about ${AI_SIZE}, once; Wi-Fi recommended).`) });
+      const bar = el('div', { class: 'so-upbar-track so-ai-bar', hidden: true, role: 'progressbar', 'aria-label': 'AI model download', 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('span', { class: 'so-upbar-fill' }));
+      const go = el('button', { type: 'button', class: 'btn primary', text: have ? (on ? 'Load now' : 'Turn on') : `Download and turn on (${AI_SIZE})`, disabled: !sup.ok || (on && aiReady()) });
+      go.addEventListener('click', async () => {
+        go.disabled = true; setAiOn(true); bar.hidden = false; status.textContent = have ? 'Loading the model…' : 'Downloading the model… keep Socials open.';
+        try {
+          await aiLoad((q, l, t) => { bar.firstChild.style.width = `${Math.max(3, Math.round(q * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(q * 100))); if (t) status.textContent = `${have ? 'Loading' : 'Downloading'}… ${Math.round(q * 100)}% (${(l / 1e9).toFixed(2)} of ${(t / 1e9).toFixed(2)} GB)`; });
+          drawAi('Ready: replies are written by the AI now (on this phone, works offline).');
+        } catch (e) { drawAi(`Couldn't load it: ${e.message}. Replies come from the built-in engine.`); }
+      });
+      const off = on ? el('button', { type: 'button', class: 'btn', text: 'Turn off', onclick: () => { setAiOn(false); drawAi('Turned off: replies come from the built-in engine (the model stays downloaded).'); } }) : null;
+      const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the AI model (${AI_SIZE}) from this phone?`)) return; await aiRemove(); drawAi('Removed.'); } }) : null;
+      fill(aiBox, el('strong', { text: '🤖 AI replies (on this phone)' }),
+        el('p', { class: 'small muted', text: 'A small language model on your phone writes the replies in messages: longer, more detailed and more natural, from the whole conversation, in each account\'s voice and at the level above. Downloaded once from Hugging Face, then it works offline; nothing you write is sent anywhere. When it\'s slow or off, the built-in engine answers.' }),
+        status, bar, el('div', { class: 'so-row' }, go, off, rm));
+    };
+    drawAi();
+    return el('div', { class: 'so-text-settings' },
+      el('div', { class: 'so-level-row' }, el('span', {}, el('strong', { text: 'Language' }), ' · ', name), el('span', { class: 'small muted', text: 'Tame → Adult' })),
+      range, note, aiBox);
+  }
+
   function settings() {
     const api = connected();
     const pw = (label) => el('input', { class: 'so-input', type: 'password', autocomplete: 'off', 'aria-label': label, placeholder: label });
@@ -1342,8 +1435,11 @@ function mountAdmin(host) {
         // (The Owner's: comments on each new post from three of the other accounts.)
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: autoOn() }); c.addEventListener('change', () => store.set(AUTO_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Comments on new posts' }), el('span', { class: 'muted small', text: ' Three of your other accounts leave a kind word (with an emoji) on each new post.' }))) : null,
+        me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: faceOn() }); c.addEventListener('change', () => store.set(FACE_KEY, c.checked ? '1' : '0')); return c; })(),
+          el('span', {}, el('strong', { text: 'Recognize faces in new posts' }), el('span', { class: 'muted small', text: ' Faces in a new post are compared with your accounts\' profile photos, on this phone; anyone recognized is added as a collaborator (and tagged), for you to change before sharing.' }))) : null,
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: replyOn() }); c.addEventListener('change', () => store.set(REPLY_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Replies in messages' }), el('span', { class: 'muted small', text: ' When you message one of your other accounts, it answers by itself a moment later, to what you said and what you\'ve talked about before.' }))) : null,
+        me()?.owner ? textSettings() : null,
         el('h3', { text: 'Lock' }),
         el('button', { type: 'button', class: 'btn', text: '🔒 Lock Socials now', onclick: () => { sessionPw = null; sessionOpen = false; socialsLock.lock(); view = { name: 'feed' }; gate(); } })));
   }

@@ -207,6 +207,21 @@ export function cleanFit(f) {
   return { x: r(x), y: r(y), w: r(w), h: r(h), a: r(a) };
 }
 
+/**
+ * An account's face, from its profile photo (socials-faces.js: 128 numbers), kept with the photo it's of
+ * (`faceOf`: that photo's id): { face, faceOf } made safe, or {} for none (or a photo changed since).
+ */
+export function cleanFace(a) {
+  if (!Array.isArray(a?.face) || a.face.length !== 128 || !a.face.every(Number.isFinite) || !a.faceOf || a.faceOf !== a.avatarId) return {};
+  return { face: a.face.map((v) => Math.round(v * 10000) / 10000), faceOf: a.faceOf };
+}
+/** Keep an account's face (from its current profile photo). */
+export function setFace(state, id, face) {
+  const a = accountById(state, id); if (!a || !a.avatarId) return null;
+  if (!face) { delete a.face; delete a.faceOf; return a; }
+  Object.assign(a, cleanFace({ face, faceOf: a.avatarId, avatarId: a.avatarId })); return a;
+}
+
 /** A post's photos and videos, in order: [{ kind, image, imageId, video, videoId }] (its first, then the rest). */
 export const mediaOf = (p) => [{ kind: p.kind, image: p.image, imageId: p.imageId, video: p.video, videoId: p.videoId, ...(p.fit ? { fit: p.fit } : {}) }, ...(p.more ?? [])];
 
@@ -490,7 +505,7 @@ export function countLabel(n) {
 export function normalize(raw) {
   const s = emptyState(); if (!raw || typeof raw !== 'object') return s;
   const ok = (v) => typeof v === 'string' && v.length > 0;
-  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], ...cleanFace(a), at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
   // (Exactly one Owner: the one made so last, else the oldest account.)
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));

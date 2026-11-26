@@ -1,0 +1,8 @@
+# gitleaks: its default rules, and one folder left out: Transformers.js, vendored unchanged (minified; a model
+# setting's name, "no_timestamps_token_id", and its number read as a key). Checked by hand.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored third-party build, unchanged"
+paths = ['''^web/vendor/transformers/''']

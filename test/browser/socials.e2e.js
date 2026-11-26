@@ -612,12 +612,17 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   await page.getByLabel('Message', { exact: true }).fill('Thank you so much! 🎉'); await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByLabel('@amy is typing').waitFor();
   assert.equal(await page.getByRole('button', { name: /Generate reply/ }).count(), 0, 'a reply on its way: no button');
-  await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 8000 });
-  assert.match(await page.locator('.so-bubble:not(.mine)').first().textContent(), /Anytime|Of course|Always|No problem|welcome|Aww|Yay|Love|amazing|No way|OMG|really/i);
+  // (Its reply: one message or two; all in once "typing" is gone.)
+  const theirs = page.locator('.so-bubble:not(.mine):not(.so-typing)');
+  const settled = async () => { await page.waitForFunction(() => !document.querySelector('.so-typing'), null, { timeout: 12000 }); return (await theirs.allTextContents()).join(' '); };
+  await theirs.first().waitFor({ timeout: 8000 });
+  assert.match(await settled(), /Anytime|Of course|Always|problem|welcome|Aww|Yay|Love|amazing|No way|OMG|really/i);
   // And from the conversation: asked back, it answers about itself.
+  const before = await theirs.count();
   await page.getByLabel('Message', { exact: true }).fill('how are you?'); await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await page.locator('.so-bubble:not(.mine):not(.so-typing)').nth(1).waitFor({ timeout: 8000 });
-  assert.match(await page.locator('.so-bubble:not(.mine)').nth(1).textContent(), /good|great|not bad|chilling|gym|dinner|movie|home|coffee|working|cleaning|walk|phone/i);
+  await page.waitForFunction((n) => document.querySelectorAll('.so-bubble:not(.mine):not(.so-typing)').length > n, before, { timeout: 8000 });
+  await settled();
+  assert.match((await theirs.allTextContents()).slice(before).join(' '), /good|great|not bad|chilling|gym|dinner|movie|home|coffee|working|cleaning|walk|phone/i);
   // The account list: last used first (mo was made last, then amy (just replied), then zed)…
   const order = async () => (await page.locator('.so-person-main').evaluateAll((l) => l.map((e) => e.getAttribute('aria-label')))).map((t) => t.replace(/^Use @/, '').replace(/ \(Owner\)$/, ''));
   await page.locator('.so-switch').click();

@@ -6,6 +6,7 @@
 // offline. Pure: give it the history. `rand` and `now` for tests.
 
 import { readText, emojisIn, intentOf, generateComment, placesIn } from './socials-predict.js';
+import { voice, styleOf } from './socials-style.js';
 
 const pick = (a, rand) => a[Math.floor(rand() * a.length) % a.length];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -125,7 +126,7 @@ const NEWS2 = /^(my|our)\s+([a-z]+)\s+(just\s+|finally\s+)?([a-z]+ed|got|won|mad
 function reflect(text, { rand, mood, talk, askedQ, said }) {
   const out = []; const e = (pool) => pick(pool, rand);
   const sentences = String(text ?? '').split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
-  const bare = (x) => { let y = x; for (let i = 0; i < 2; i++) y = y.replace(/^(ugh+|omg|so|well|guess what|yay|ok|okay|lol|haha+|wow|yo|hey|honestly|literally|bro|dude|man|oh|ah+)[,!.\s]+/i, ''); return y; };
+  const bare = (x) => { let y = x; for (let i = 0; i < 2; i++) y = y.replace(/^(ugh+|omg|so|well|guess what|yay|ok|okay|lol|haha+|wow|yo|hey|honestly|literally|bro|dude|man|oh|ah+)[,!.\s]+/i, '').replace(/[,\s]+(lol|lmao|haha+|fr|ngl|tbh|omg|rn|tho|though)[.!?]*\s*$/i, ''); return y; };
   const main = bare(sentences.find((x) => NEWS.test(bare(x)) || NEWS2.test(bare(x)) || /\bi'?m\b/i.test(x) || /\b(is|was|are|were)\b/i.test(x)) ?? sentences[sentences.length - 1] ?? '');
   let said2 = false;
   const ph = phraseIn(text); const places = placesIn(text); const when = lower(text).match(WHEN)?.[1];
@@ -176,6 +177,44 @@ function reflect(text, { rand, mood, talk, askedQ, said }) {
  * text, at, post?: { caption, scene } }] oldest first. A sentence or two, with emojis that fit, never one it's
  * sent before in the chat.
  */
+/**
+ * Something of its own to add, about what they said: "I've been craving tacos all week", "I've always wanted to
+ * go to Denver" (by topic, with their words).
+ */
+function addition(text, talk, rand) {
+  const ph = phraseIn(text); const pl = placesIn(text)[0]; const n = ph?.noun; const r = readText(text); const id = r.topics[0]?.id;
+  const pool = [];
+  if (pl) return ''; // (A place: its echo says enough already.)
+  if (id === 'food' && n) pool.push(`I've been craving ${n} all week`, `Okay ${n} sounds perfect right now`, `I had ${n} yesterday lol`, `Now I need ${n} too`);
+  if (id === 'fitness') pool.push('I skipped the gym today, you\'re making me feel bad lol', 'You\'re inspiring me to go tomorrow');
+  if (id === 'music') pool.push('I\'ve had their song stuck in my head all day', 'I need to see them live someday');
+  if (id === 'pet') pool.push('I miss having a pet so much', 'Okay I need to come visit');
+  if (id === 'travel' && !pl) pool.push('I need a trip so bad', 'Take me with you next time');
+  if (id === 'beach') pool.push('I need a beach day so bad');
+  if (id === 'game') pool.push('I\'ve been playing way too much lately too');
+  if (id === 'style' && n) pool.push(`I need ${n === n.replace(/s$/, '') ? 'one' : 'some'} too`);
+  return pool.length ? pick(pool, rand) : '';
+}
+
+/**
+ * A reply from the other account (in its voice: `persona`) to the Owner, from the conversation: as chatReply
+ * below, then said its way and leaning toward how the Owner texts in this chat. Two messages, sometimes ("\n"
+ * between: sent one after the other).
+ */
+export function chatReplyStyled(history, { rand = Math.random, now = Date.now(), persona = 'classic' } = {}) {
+  const h = (history ?? []).filter((m) => m && (m.text || m.post));
+  const style = styleOf(h.filter((m) => m.mine).map((m) => m.text));
+  let out = chatReply(h, { rand, now });
+  // (Now and then, something from earlier in the chat brought back.)
+  const theirs = h.filter((m) => m.mine && m.text); const older = theirs.slice(0, -3);
+  if (older.length >= 2 && rand() < 0.14) { const old = [...older].reverse().map((m) => phraseIn(m.text)).find(Boolean); if (old && !out.toLowerCase().includes(old.noun)) out += ` ${pick([`Also still thinking about ${old.phrase} lol`, `Wait and how was ${old.phrase.replace(/^(a|an|some) /, 'the ')}?`, `Still not over ${old.phrase} btw`], rand)}`; }
+  out = voice(out, { persona, style, rand });
+  // (Two messages: a reaction, then the rest; as people text.)
+  const parts = out.split(/(?<=[.!?…]|\p{Extended_Pictographic})\s+(?=[\p{L}@])/u);
+  if (parts.length >= 2 && (persona === 'hype' || persona === 'chill' || style?.short) && rand() < 0.4) out = `${parts[0]}\n${parts.slice(1).join(' ')}`;
+  return out;
+}
+
 export function chatReply(history, { rand = Math.random, now = Date.now() } = {}) {
   const h = (history ?? []).filter((m) => m && (m.text || m.post));
   const lastThem = [...h].reverse().findIndex((m) => !m.mine);
@@ -225,7 +264,7 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   if (talk && text) add(`${pick(talk.say, rand)} ${e(talk.e)}${rand() < 0.65 ? ` ${pick(talk.ask, rand)}` : ''}`, 5);
   // (The intent: thanks, hello, a laugh, sad news… made to the conversation.)
   if (it === 'sad') add(`${pick(['Oh no, what happened?', 'Aw I\'m sorry', 'Sending hugs', 'That sounds hard'], rand)} ${e(['🫂', '💛', '😕'])}${tp ? ` ${pick(['Is it about', 'Was it the'], rand)} ${tp.nouns[0]}?` : ''}`, 6);
-  if (it === 'thanks') add(`${pick(['Anytime!', 'Of course!', 'Always', 'No problem at all'], rand)} ${e(['😊', '❤️', '🙌', '💛'])}`, 6);
+  if (it === 'thanks') add(`${pick(['Anytime!', 'Of course!', 'Always', 'No problem at all', 'Of course, anytime'], rand)} ${e(['😊', '❤️', '🙌', '💛'])}`, 12, true);
   if (it === 'hello') add(`${pick(['Hey!', 'Hiii', 'Heyyy', 'Hey you!'], rand)} ${e(['👋', '😊', '💛'])} ${h.length > 2 ? pick(['How\'s your day going?', 'What are you up to?', 'How\'s it going?'], rand) : pick(['What\'s up?', 'How are you?'], rand)}`, 5);
   if (it === 'laugh') add(pick(['😂😂 right?!', 'Hahaha stop', 'I can\'t 🤣', 'LOL 😂', 'Dying 💀😂'], rand), 6);
   if (it === 'love') add(`${pick(['Love you too!', 'Aww', 'Miss you more!'], rand)} ${e(['❤️', '🥰', '💕'])}`, 6);
@@ -238,14 +277,31 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   const kw = r.keywords.find((w) => w.length > 3 && w.length < 16 && !/^(that|this|with|have|just|really|today|going|about)$/.test(w));
   if (kw && it === 'chat') add(`Wait, ${kw}? Tell me more ${e(['👀', '😄', '🙂'])}`, 3);
   if (mood === 'neg' && !askedQ && !ASK_BACK.test(text)) add(`${pick(['Oh no', 'Aw', 'Ugh'], rand)} ${e(['😕', '🫂'])} ${pick(['What happened?', 'Are you okay?', 'Want to talk?'], rand)}`, 4);
-  if (mood === 'pos' && !askedQ && !ASK_BACK.test(text)) add(`${pick(['Love that!', 'Yay!', 'That\'s awesome'], rand)} ${e(['😊', '🙌', '💛'])}`, 3);
+  if (mood === 'pos' && !askedQ && !ASK_BACK.test(text) && it !== 'thanks') add(`${pick(['Love that!', 'Yay!', 'That\'s awesome'], rand)} ${e(['😊', '🙌', '💛'])}`, 3);
   // (Its words back come first: about what they actually said. The stock lines only when there's nothing to echo.)
   const echo = BYE.test(text) ? [] : reflect(text, { rand, mood, talk, askedQ, said });
+  // (Something of its own, added to one of its echoes now and then: adding to the conversation.)
+  if (echo.length && mood !== 'neg' && rand() < 0.45) {
+    const ad = addition(text, talk, rand);
+    const i0 = Math.floor(rand() * echo.length); const head = lower(ad).split(/\s+/).slice(0, 4).join(' ');
+    if (ad && !lower(echo[i0][0]).includes(head)) {
+      const i = i0; const t0 = echo[i][0];
+      // (Before its question, as a sentence of its own; else at the end.)
+      const parts = t0.split(/(?<=[.!?]|\p{Extended_Pictographic})\s+(?=[\p{Lu}@])/u);
+      const txt = parts.length > 1 && /\?$/.test(parts[parts.length - 1]) ? [...parts.slice(0, -1), `${ad}.`, parts[parts.length - 1]].join(' ') : `${t0} ${ad}.`;
+      echo[i] = [txt, echo[i][1] + 1];
+    }
+  }
   if (echo.length) { for (const o of opts) if (!o[2]) o[1] *= 0.05; for (const [t, w] of echo) { if (t && !mine.has(lower(t).trim())) opts.push([t, w, true]); } }
   // (The general ones: only now and then when there's something better.)
   const gw = opts.some(([, w]) => w >= 5) ? 0 : opts.length ? 0.12 : 1;
   for (const g of ['Haha nice', 'Oh really? Tell me more!', 'Love that', 'Wait what', 'Omg', 'Same honestly', 'That\'s so true']) add(`${g} ${emo.length && rand() < 0.5 ? pick(emo, rand) : e(['😄', '😊', '🙂', '👀'])}`, gw);
   if (!opts.length) return pick(['Haha', 'Okay!', 'Nice', 'Ooh'], rand) + ' ' + e(['😄', '🙂']);
+  // (Not opening the way it did lately, nor asking what it's asked already.)
+  const recent = h.filter((m) => !m.mine).slice(-5).map((m) => lower(m.text));
+  const openOf = (t2) => lower(t2).replace(/[^\p{L}\p{N} ]+/gu, '').split(/\s+/).slice(0, 2).join(' ');
+  const asked = new Set(recent.flatMap((t2) => t2.match(/[^.!?]*\?/g) ?? []).map((q) => q.trim()));
+  for (const o of opts) { if (recent.some((t2) => openOf(t2) === openOf(o[0]))) o[1] *= 0.15; const q = lower(o[0]).match(/[^.!?]*\?$/)?.[0]?.trim(); if (q && asked.has(q)) o[1] *= 0.1; }
   const total = opts.reduce((a, [, w]) => a + w, 0); let x = rand() * total;
   for (const [t, w] of opts) { x -= w; if (x <= 0) return t.replace(/\s+/g, ' ').trim(); }
   return opts[opts.length - 1][0].replace(/\s+/g, ' ').trim();

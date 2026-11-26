@@ -5,6 +5,7 @@
 // and puts together something fitting from many phrasings, with the emojis matched. `rand` for tests.
 
 import { PLACES } from '../../lib/places.js';
+import { voice, personaOf } from './socials-style.js';
 
 const pick = (arr, rand) => arr[Math.floor(rand() * arr.length) % arr.length];
 
@@ -291,6 +292,9 @@ function comboFacts(facts) {
     for (const b of bits.slice(0, 2)) out.push({ ...fact(`combo:${u.id}+${b.id}`, Math.max(u.w, b.w) + 1, [...u.emoji.slice(0, 2), ...b.emoji.slice(0, 2)], [`${cap(u.subj)} and ${b.bit}, perfect`]), parts: [u.id, b.id] });
   }
   if (bits.length >= 2) { const [a, b] = bits; out.push({ ...fact(`combo:${a.id}+${b.id}`, Math.max(a.w, b.w) + 1, [...a.emoji.slice(0, 2), ...b.emoji.slice(0, 2)], [`${cap(a.bit)} and ${b.bit}?! Iconic`]), parts: [a.id, b.id] }); }
+  // (Livelier ways to say the one thing: "Not the black suit being this good", "The red dress said main character".)
+  for (const b of bits.slice(0, 2)) out.push({ ...fact(`fun:${b.id}`, b.w, b.emoji, [`Not ${b.bit} being this good`, `${cap(b.bit)} said main character`, `The way ${b.bit} just works`, `${cap(b.bit)}? Iconic`, `Someone tell ${b.bit} to calm down`, `${cap(b.bit)} deserves its own post`]), parts: [b.id] });
+  for (const l of locs.slice(0, 1)) out.push({ ...fact(`fun:${l.id}`, l.w, l.emoji, [`Living ${l.loc} rent free in my head now`, `Me pretending I'm ${l.loc} too`, `Okay ${l.loc} looks unreal`]), parts: [l.id] });
   return out;
 }
 
@@ -333,7 +337,7 @@ function captionFacts(caption, { tagged = [], as = '', rand }) {
 function generalFact(caption, photo, rand) {
   const r = readText(`${caption ?? ''} ${sceneWords(photo).words.join(' ')}`); const T = r.topics[0] ?? GENERAL;
   const noun = pick(T.nouns, rand); const adj = pick(T.adj, rand);
-  return fact('general', 1, [...(r.emojis.length ? r.emojis : []), ...T.emoji, ...GENERAL.emoji], [`This ${noun} is ${adj}`, `${cap(adj)}!`, `Obsessed with this ${noun}`, `Wow, ${adj}`, `Okay this is ${adj}`, 'Need more of this', `${cap(adj)} as always`, 'Love love love this']);
+  return fact('general', 1, [...(r.emojis.length ? r.emojis : []), ...T.emoji, ...GENERAL.emoji], [`This ${noun} is ${adj}`, `${cap(adj)}!`, `Obsessed with this ${noun}`, `Wow, ${adj}`, `Okay this is ${adj}`, 'Need more of this', `${cap(adj)} as always`, 'Love love love this', 'Frame this immediately', 'This belongs in a museum', 'Okay whoever took this ate', 'Screenshotting this', 'Saving this forever', 'The way I gasped', 'Obsessed is an understatement', 'No because this is so good', 'Living rent free in my head now', 'Not me looking at this for ten minutes']);
 }
 
 /** A batch's memory: what's been said, in what words and with what emojis, so the next is different. */
@@ -385,9 +389,13 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
     const text = `${c.s}${es.length ? ` ${es.join('')}` : ''}`.replace(/\s+/g, ' ').trim();
     if (said.has(text.toLowerCase())) { cands.splice(cands.indexOf(c), 1); continue; }
     batch.keys.add(c.key); batch.facts.set(c.f.id, (batch.facts.get(c.f.id) ?? 0) + 1); for (const part of c.f.parts ?? []) batch.facts.set(part, (batch.facts.get(part) ?? 0) + 1); batch.starts.add(opening(c.s)); for (const e of es) batch.emojis.add(e);
-    return text;
+    // (In the voice of whoever's commenting.)
+    return as ? voice(text, { persona: personaOf(String(as).replace(/^@/, '')), rand }) : text;
   }
-  const g = generalFact(caption, photo, rand); return `${pick(g.say, rand)} ${pick(g.emoji, rand)}`;
+  // (Everything said already: a general line not said yet.)
+  const g = generalFact(caption, photo, rand);
+  for (let k = 0; k < 40; k++) { const t2 = `${pick(g.say, rand)} ${pick(g.emoji, rand)}`; if (!said.has(t2.toLowerCase())) return t2; }
+  return `${pick(g.say, rand)} ${pick(g.emoji, rand)}${pick(g.emoji, rand)}`;
 }
 
 /** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn): different words, things and emojis. */

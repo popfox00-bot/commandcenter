@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "6cd1251646a7",
+  "version": "b2c67573ea69",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",
@@ -67,11 +67,13 @@ const PRECACHE = {
     "apps/socials/socials-faces.js",
     "apps/socials/socials-predict.js",
     "apps/socials/socials-scene.js",
+    "apps/socials/socials-speech.js",
     "apps/socials/socials-sports-core.js",
     "apps/socials/socials-sports.js",
     "apps/socials/socials-store.js",
     "apps/socials/socials-style.js",
     "apps/socials/socials-sync.js",
+    "apps/socials/socials-tts-worker.js",
     "apps/socials/socials-videofit.js",
     "apps/socials/socials-vision.js",
     "apps/socials/socials.js",
@@ -322,8 +324,8 @@ self.addEventListener('fetch', (e) => {
   const rel = url.pathname.startsWith(scope.pathname) ? url.pathname.slice(scope.pathname.length) : null;
   if (rel === null) return;
 
-  // (Socials' AI engine: kept the first time it's used, in a cache of its own (not replaced with each version).)
-  if (rel.startsWith('vendor/transformers/')) {
+  // (Socials' AI engine and voices: kept the first time they're used, in a cache of their own (not replaced with each version).)
+  if (rel.startsWith('vendor/transformers/') || rel.startsWith('vendor/kokoro/')) {
     e.respondWith(caches.open(AI_LIB).then((c) => c.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request).then((res) => { if (res.ok) c.put(e.request, res.clone()); return res; }))));
     return;
   }

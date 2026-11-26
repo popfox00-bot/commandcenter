@@ -1328,6 +1328,12 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .so-like.on { color: #ed4956; }
 .so-likes { font-weight: 700; padding: 0 12px; }
 .so-caption, .so-comment { margin: 4px 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.so-say { border: 0; background: none; padding: 0 4px; margin-left: 4px; font-size: .85rem; cursor: pointer; opacity: .65; vertical-align: baseline; }
+.so-say.on { opacity: 1; animation: so-say-pulse 1s ease-in-out infinite; }
+@keyframes so-say-pulse { 50% { transform: scale(1.2); } }
+@media (prefers-reduced-motion: reduce) { .so-say.on { animation: none; } }
+.so-say-row { gap: 6px; flex-wrap: wrap; }
+.so-say-row select { flex: 1; min-width: 9rem; }
 .so-comment.so-reply { margin-left: 34px; font-size: .95em; }
 .so-reply-btn { margin-left: 8px; font-size: .8rem; padding: 0; }
 .so-link { font: inherit; background: none; border: 0; padding: 4px 12px; color: var(--accent, #0095f6); font-weight: 600; cursor: pointer; text-align: left; }

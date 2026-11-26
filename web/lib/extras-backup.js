@@ -13,7 +13,7 @@ import { downloadBlob } from './files.js';
 export const FOLDER = 'Backups';
 const ROUNDS = 310_000;
 const IDB_KEYS = [/^cc\.saved\.favs$/, /^cc\.saved\.fav\.t\./, /^cc\.saved\.thumb\./, /^cc\.saved\.matches$/, /^cc\.saved\.(strangers|rejects)$/, /^cc\.bg\./];
-const LS_KEYS = ['cc.dock', 'cc.dock.mode', 'cc.socials.level', 'cc.socials.ai', 'cc.socials.faces', 'cc.socials.autoreply', 'cc.socials.autocomment', 'cc.socials.sports.prefs', 'cc.socials.sports.likes'];
+const LS_KEYS = ['cc.dock', 'cc.dock.mode', 'cc.socials.level', 'cc.socials.ai', 'cc.socials.faces', 'cc.socials.autoreply', 'cc.socials.autocomment', 'cc.socials.commentreply', 'cc.socials.readaloud', 'cc.socials.voices', 'cc.socials.sports.prefs', 'cc.socials.sports.likes'];
 export const isBackupName = (n) => /^cc-extras-\d{4}-\d{2}-\d{2}.*\.ccx$/.test(String(n ?? ''));
 
 const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };

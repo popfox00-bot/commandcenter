@@ -929,3 +929,47 @@ test('Socials: a hashtag taken back out by tapping it again; a video framed (Squ
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials\' Sports front: a nationally televised NFL game coming up (📺 Primetime); each team\'s players\' stats in a final, by the minimums set in its settings', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  const T = (id, abbr, name, short, color) => ({ id, abbreviation: abbr, displayName: name, shortDisplayName: short, color, alternateColor: 'ffffff' });
+  const LAR = T('14', 'LAR', 'Los Angeles Rams', 'Rams', '003594'); const GB = T('9', 'GB', 'Green Bay Packers', 'Packers', '204e32');
+  const DEN = T('7', 'DEN', 'Denver Broncos', 'Broncos', 'fb4f14'); const KC = T('12', 'KC', 'Kansas City Chiefs', 'Chiefs', 'e31837');
+  const game = (id, state, date, home, away, hs, as, extra = {}) => ({ id, date, competitions: [{ status: { type: { state, completed: state === 'post', shortDetail: state === 'post' ? 'Final' : '8:20 PM' } }, broadcasts: extra.broadcasts ?? [], headlines: [], leaders: [], competitors: [
+    { homeAway: 'home', team: home, score: hs, records: [{ summary: '8-3' }], leaders: [] }, { homeAway: 'away', team: away, score: as, records: [{ summary: '7-4' }], leaders: [] }] }] });
+  const A = (who, stats, pos) => ({ athlete: { shortName: who, position: { abbreviation: pos } }, stats });
+  const box = { boxscore: { players: [
+    { team: { id: '7' }, statistics: [{ name: 'passing', labels: ['C/ATT', 'YDS', 'AVG', 'TD', 'INT'], athletes: [A('B. Nix', ['22/30', '264', '8.8', '2', '0'], 'QB')] }, { name: 'rushing', labels: ['CAR', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('J. Dobbins', ['16', '81', '5.1', '1', '19'], 'RB')] }, { name: 'receiving', labels: ['REC', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('C. Sutton', ['6', '98', '16', '1', '41'], 'WR'), A('E. Engram', ['2', '18', '9', '0', '11'], 'TE')] }] },
+    { team: { id: '12' }, statistics: [{ name: 'passing', labels: ['C/ATT', 'YDS', 'AVG', 'TD', 'INT'], athletes: [A('P. Mahomes', ['25/38', '241', '6.3', '1', '1'], 'QB')] }, { name: 'receiving', labels: ['REC', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('T. Kelce', ['7', '64', '9.1', '0', '18'], 'TE')] }] }] } };
+  await page.route('https://site.api.espn.com/**', (r) => {
+    const u = r.request().url();
+    const body = u.includes('/nfl/summary') ? box
+      : u.includes('/nfl/scoreboard') ? { events: [game('500', 'post', new Date(Date.now() - 5 * 3600e3).toISOString(), DEN, KC, '27', '20'), game('501', 'pre', new Date(Date.now() + 4 * 3600e3).toISOString(), GB, LAR, null, null, { broadcasts: [{ market: 'national', names: ['NBC'] }] }), game('502', 'pre', new Date(Date.now() + 4 * 3600e3).toISOString(), DEN, KC, null, null, { broadcasts: [{ market: 'home', names: ['KDVR'] }] })] }
+        : { events: [] };
+    r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+  });
+  await page.goto(`${origin}${BASE}index.html#/socials`);
+  const prime = page.locator('.sp-post[data-id="nfl:501"]'); await prime.waitFor();
+  assert.match(await prime.locator('.sp-state').textContent(), /PRIMETIME/); assert.equal(await prime.locator('.sp-tv').textContent(), 'NBC');
+  assert.match(await prime.locator('.sp-caption').textContent(), /Rams at Packers, .* on NBC\./);
+  assert.equal(await page.locator('.sp-post[data-id="nfl:502"]').count(), 0, 'a local-TV game: not until it starts');
+  await page.getByRole('tab', { name: /Primetime/ }).click();
+  assert.deepEqual(await page.locator('.sp-post').evaluateAll((l) => l.map((x) => x.dataset.id)), ['nfl:501']);
+  await page.getByRole('tab', { name: /All/ }).click();
+  // The final: each team's players over the minimums.
+  const fin = page.locator('.sp-post[data-id="nfl:500"]'); await fin.scrollIntoViewIfNeeded();
+  await fin.locator('.sp-pl-team').first().waitFor({ timeout: 8000 });
+  const den = fin.locator('.sp-pl-team', { hasText: 'Broncos' });
+  assert.match(await den.textContent(), /B\. Nix QB22\/30, 264 pass yds, 2 TD/); assert.match(await den.textContent(), /C\. Sutton WR6 rec, 98 rec yds, 1 TD/);
+  assert.doesNotMatch(await den.textContent(), /Engram/, '18 receiving yards: under 25');
+  assert.match(await fin.locator('.sp-pl-team', { hasText: 'Chiefs' }).textContent(), /T\. Kelce/);
+  // Settings: receiving yards at least 70: Kelce's 64 out, Sutton's 98 still in.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByLabel('Least receiving yards to show').fill('70'); await page.getByLabel('Least receiving yards to show').dispatchEvent('change');
+  await page.getByRole('button', { name: 'Close' }).click();
+  assert.doesNotMatch(await fin.locator('.sp-pl-team', { hasText: 'Chiefs' }).textContent(), /Kelce/);
+  assert.match(await fin.locator('.sp-pl-team', { hasText: 'Broncos' }).textContent(), /Sutton/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

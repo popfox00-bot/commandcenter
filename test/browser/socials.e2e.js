@@ -606,13 +606,18 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   await page.getByLabel('Comment as').selectOption({ label: '@mo' });
   await page.getByRole('button', { name: 'Generate 1 comment' }).click();
   await page.locator('.so-comment', { hasText: 'mo' }).first().waitFor();
-  // DMs: the Owner writes to amy; ✨ amy's reply.
+  // DMs: the Owner writes to amy; amy answers by herself (typing… first), to what was said.
   await page.getByRole('button', { name: 'Messages' }).first().click();
   await page.getByRole('button', { name: 'Message @amy' }).click();
   await page.getByLabel('Message', { exact: true }).fill('Thank you so much! 🎉'); await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await page.getByRole('button', { name: '✨ Generate reply from @amy' }).click();
-  await page.locator('.so-bubble:not(.mine)').first().waitFor();
-  assert.equal(await page.getByRole('button', { name: /Generate reply/ }).count(), 0, 'answered: the button goes until the Owner writes again');
+  await page.getByLabel('@amy is typing').waitFor();
+  assert.equal(await page.getByRole('button', { name: /Generate reply/ }).count(), 0, 'a reply on its way: no button');
+  await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 8000 });
+  assert.match(await page.locator('.so-bubble:not(.mine)').first().textContent(), /Anytime|Of course|Always|No problem|welcome|Aww|Yay|Love|amazing|No way|OMG|really/i);
+  // And from the conversation: asked back, it answers about itself.
+  await page.getByLabel('Message', { exact: true }).fill('how are you?'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.so-bubble:not(.mine):not(.so-typing)').nth(1).waitFor({ timeout: 8000 });
+  assert.match(await page.locator('.so-bubble:not(.mine)').nth(1).textContent(), /good|great|not bad|chilling|gym|dinner|movie|home|coffee|working|cleaning|walk|phone/i);
   // The account list: last used first (mo was made last, then amy (just replied), then zed)…
   const order = async () => (await page.locator('.so-person-main').evaluateAll((l) => l.map((e) => e.getAttribute('aria-label')))).map((t) => t.replace(/^Use @/, '').replace(/ \(Owner\)$/, ''));
   await page.locator('.so-switch').click();
@@ -860,12 +865,67 @@ test('Socials: ✓ Accept All in Messages accepts every collab request at once',
   await page.getByRole('button', { name: /^Messages/ }).first().click();
   const bar = page.getByRole('group', { name: 'Collab requests' });
   assert.match(await bar.textContent(), /2 collab requests.*@owner\.me/);
+  assert.match(await page.getByRole('button', { name: /^Messages/ }).first().getAttribute('aria-label'), /unread/);
   await bar.getByRole('button', { name: 'Accept All' }).click();
   assert.equal(await page.getByRole('group', { name: 'Collab requests' }).count(), 0, 'none left');
+  assert.equal(await page.getByRole('button', { name: /^Messages/ }).first().getAttribute('aria-label'), 'Messages', 'their notifications cleared');
+  assert.equal(await page.locator('.so-badge-inline').count(), 0, 'no unread chats');
   await page.getByRole('button', { name: /Chat with @owner\.me/ }).click();
   assert.equal(await page.getByText('You accepted: it\'s on your profile').count(), 2);
   await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
   await page.getByRole('button', { name: 'Profile' }).click();
   assert.equal(await page.locator('.so-grid .so-tile').count(), 2, 'both on pal\'s profile');
+  await page.close();
+});
+
+test('Socials: a hashtag taken back out by tapping it again; a video framed (Square) and shown through its frame; ⋯ → Download post: all, or the ones picked', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  // A first post with #sun, so # Community has it.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-new-prev img').waitFor(); await page.getByLabel('Caption').fill('First #sun');
+  await page.getByRole('button', { name: 'Share', exact: true }).click(); await page.locator('.so-post', { hasText: 'First' }).first().waitFor();
+  // A video and a photo; the video framed square.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles([await clip(page), { ...(await photo(page)), name: 'pic.png' }]);
+  await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').nth(1).waitFor({ timeout: 20000 });
+  await page.getByLabel('Caption').fill('Clip and pic');
+  await page.getByRole('button', { name: /^# Community/ }).click();
+  const chip = page.getByRole('group', { name: 'Hashtags used before' }).getByRole('button', { name: /#sun/ });
+  await chip.click(); assert.equal(await page.getByLabel('Caption', { exact: true }).inputValue(), 'Clip and pic #sun');
+  await chip.click(); assert.equal(await page.getByLabel('Caption', { exact: true }).inputValue(), 'Clip and pic', 'tapped again: taken out');
+  await page.locator('.so-mrow').first().locator('.so-mrow-thumb').click();
+  await page.getByRole('button', { name: '✂︎ Frame video' }).click();
+  const fr = page.getByRole('dialog', { name: 'Frame video' }); await fr.waitFor();
+  await fr.getByRole('button', { name: 'Square' }).click();
+  await fr.getByRole('button', { name: 'Done' }).click();
+  assert.match(await page.locator('.so-mrow').first().textContent(), /framed/);
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.so-reel').first().waitFor();
+  const box = await page.locator('.so-reel .so-vfit').first().boundingBox();
+  assert.ok(box && Math.abs(box.width - box.height) < 2, `shown square in Reels (${box?.width}×${box?.height})`);
+  // ⋯ → Download post: the picker, all or some.
+  await page.getByRole('button', { name: 'Profile' }).click(); await page.locator('.so-grid .so-tile').first().click();
+  await page.evaluate(() => { navigator.canShare = () => true; navigator.share = async (d) => { window.__shared = d.files.map((f) => f.name); }; });
+  const post = page.locator('.so-post', { hasText: 'Clip and pic' }).first(); await post.waitFor();
+  await post.getByRole('button', { name: 'Post options' }).click(); await page.getByRole('button', { name: 'Download post…' }).click();
+  const dl = page.getByRole('dialog', { name: 'Download post' }); await dl.waitFor();
+  assert.equal(await dl.locator('.so-dl-item').count(), 2);
+  await dl.getByRole('button', { name: 'Photo 2' }).click();
+  await dl.getByRole('button', { name: /Download selected \(1\)/ }).click();
+  await page.waitForFunction(() => window.__shared);
+  const one = await page.evaluate(() => window.__shared); assert.equal(one.length, 1); assert.match(one[0], /owner\.me_.*_1\.webm/);
+  await page.evaluate(() => { window.__shared = null; });
+  await post.getByRole('button', { name: 'Post options' }).click(); await page.getByRole('button', { name: 'Download post…' }).click();
+  await page.getByRole('dialog', { name: 'Download post' }).getByRole('button', { name: 'Download all (2)' }).click();
+  await page.waitForFunction(() => window.__shared);
+  assert.equal((await page.evaluate(() => window.__shared)).length, 2);
+  assert.deepEqual(errors, []);
   await page.close();
 });

@@ -316,3 +316,26 @@ test('collab requests: the ones not answered, and Accept All', async () => {
   assert.equal(acceptAllCollabs(s, a.id, o.id), 1); assert.deepEqual(collabsOf(p1), [a.id]); assert.equal(pendingCollabsFor(s, a.id).length, 1);
   assert.equal(acceptAllCollabs(s, a.id), 1); assert.equal(pendingCollabsFor(s, a.id).length, 0); assert.equal(acceptAllCollabs(s, a.id), 0);
 });
+
+test('a video\'s frame: made safe, kept with the post (through edits), shown through it; crop frames resized by a corner', async () => {
+  const { emptyState, addAccount, addPost, setMedia, mediaOf, normalize, cleanFit } = await import('../web/apps/socials/socials-core.js');
+  const { fitStyle, fitPosition } = await import('../web/apps/socials/socials-videofit.js');
+  const { fitFromRect, resizeCrop, fitCrop } = await import('../web/apps/socials/socials-editor.js');
+  assert.equal(cleanFit({ x: 0, y: 0, w: 1, h: 1, a: 1 }), null, 'the whole video: no frame');
+  assert.equal(cleanFit({ x: 0.6, y: 0, w: 0.6, h: 1, a: 1 }), null, 'outside the video');
+  assert.equal(cleanFit('x'), null);
+  const f = cleanFit({ x: 0.25, y: 0.1, w: 0.5, h: 0.4, a: 0.7 });
+  assert.deepEqual(fitStyle(f), { box: '0.7', video: { width: '200%', height: '250%', left: '-50%', top: '-25%' } });
+  assert.equal(fitPosition(f), '50% 17%');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' });
+  const p = addPost(s, a.id, { image: new Blob(['s']), video: new Blob(['v']), fit: f, more: [{ image: new Blob(['p']) }] });
+  assert.deepEqual(p.fit, f); assert.deepEqual(normalize(JSON.parse(JSON.stringify(s))).posts[0].fit, f);
+  const [v, ph] = mediaOf(p); setMedia(s, p.id, [ph, { ...v, fit: { ...f, x: 0 } }]);
+  assert.equal(p.fit, undefined, 'a photo first now: no frame on it'); assert.equal(p.more[0].fit.x, 0);
+  // Corner drags: the opposite corner stays; inside the picture; never too small.
+  const se = resizeCrop({ x: 0.2, y: 0.2, w: 0.5, h: 0.5 }, 'se', 0.1, -0.1); for (const [k2, v2] of Object.entries({ x: 0.2, y: 0.2, w: 0.6, h: 0.4 })) assert.ok(Math.abs(se[k2] - v2) < 1e-9, k2);
+  const nw = resizeCrop({ x: 0.2, y: 0.2, w: 0.5, h: 0.5 }, 'nw', -0.5, 0.9); assert.ok(Math.abs(nw.x) < 1e-9 && Math.abs(nw.h - 0.08) < 1e-9 && Math.abs(nw.y + nw.h - 0.7) < 1e-9);
+  // A frame as a shape, zoom and place, and back.
+  const c = { x: 0.1, y: 0.3, w: 0.4, h: 0.5 }; const k = fitFromRect(c, 1600, 900); const back = fitCrop(k.ratio, k.zoom, k.px, k.py, 1600, 900);
+  for (const key of ['x', 'y', 'w', 'h']) assert.ok(Math.abs(back[key] - c[key]) < 1e-6, `${key}: ${back[key]} vs ${c[key]}`);
+});

@@ -8,6 +8,7 @@
 import { idb } from '../../lib/idb.js';
 import { el, fill } from '../../lib/dom.js';
 import { fileKind } from '../../lib/saved-files.js';
+import { listMatches } from './scanner.js';
 
 const LIST = 'cc.saved.favs';
 const THUMB = (id) => `cc.saved.fav.t.${id}`;
@@ -67,7 +68,8 @@ export async function picsOf(id) { const v = await idb.get(THUMB(id)); return Ar
  * Returns { draw }.
  */
 export function favoritesView(root, { onBack, onOpen }) {
-  let list = []; const urls = [];
+  let list = []; const urls = []; let person = ''; // (who's shown: '' everyone, or a handle matched by a scan)
+  const chips = el('div', { class: 'row wrap sv-people', role: 'group', 'aria-label': 'Show favorites of', hidden: true });
   const url = (b) => { const u = URL.createObjectURL(b); urls.push(u); return u; };
   const grid = el('div', { class: 'fv-grid', role: 'list', 'aria-label': 'Favorites' });
   const note = el('p', { class: 'small muted', 'aria-live': 'polite' });
@@ -88,8 +90,16 @@ export function favoritesView(root, { onBack, onOpen }) {
 
   async function draw(msg = '') {
     list = await listFavs(); for (const u of urls.splice(0)) URL.revokeObjectURL(u);
+    const matches = await listMatches();
+    const people = [...new Set(matches.filter((m) => list.some((f) => f.id === m.fileId)).map((m) => m.handle))].sort();
+    if (person && !people.includes(person)) person = '';
+    chips.hidden = !people.length;
+    fill(chips, people.length ? ['', ...people].map((h) => el('button', { type: 'button', class: `btn small-btn sv-chip${person === h ? ' on' : ''}`, 'aria-pressed': String(person === h), text: h ? `👤 @${h}` : 'Everyone', onclick: () => { person = h; draw(); } })) : null);
+    const ofPerson = (f) => !person || matches.some((m) => m.fileId === f.id && m.handle === person);
     note.textContent = msg || (list.length ? `${list.length} favorite${list.length === 1 ? '' : 's'}. Drag ⠿ to reorder: the first ones show at the top.` : '');
-    fill(grid, list.length ? await Promise.all(list.map(card)) : el('p', { class: 'muted fv-empty', text: 'No favorites yet. Star a file (☆) in Saved Files to put it here.' }));
+    const cards = list.length ? (await Promise.all(list.map(card))).filter((c, i) => ofPerson(list[i])) : [];
+    if (person) { for (const c of cards) c.querySelector('.fv-handle').hidden = true; if (!msg) note.textContent = 'Showing one person\'s favorites: choose Everyone to reorder.'; } // (reordering is of the whole list)
+    fill(grid, cards.length ? cards : el('p', { class: 'muted fv-empty', text: list.length ? `No favorites of @${person}.` : 'No favorites yet. Star a file (☆) in Saved Files to put it here.' }));
   }
 
   // (Reordering: a card's ⠿ dragged over the others (it takes the place of the one under the finger), or ← →.)
@@ -140,7 +150,7 @@ export function favoritesView(root, { onBack, onOpen }) {
     document.body.append(dlg); dlg.showModal();
   }
 
-  fill(root, el('div', { class: 'row space' }, el('h2', { class: 'sv-h', text: '★ Favorites' }), el('button', { type: 'button', class: 'btn small-btn ghost', text: '‹ All files', onclick: onBack })), note, grid);
+  fill(root, el('div', { class: 'row space' }, el('h2', { class: 'sv-h', text: '★ Favorites' }), el('button', { type: 'button', class: 'btn small-btn ghost', text: '‹ All files', onclick: onBack })), chips, note, grid);
   draw();
   return { draw };
 }

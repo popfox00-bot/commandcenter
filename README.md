@@ -517,9 +517,18 @@ set in it, kept only on this phone.)
   (`web/tools/saved/favorites.js`).
 - **🔎 Scan for characters.** Reads a batch of the folder's photos and videos (all, or the ones you tick) on the
   phone: a photo once, a video at 12 stills from all through it; each face found is compared with your Socials
-  accounts' profile photos and who it might be is suggested, with how sure ("@amy · 92% likely"). Only suggestions:
-  nothing is changed. Say ✓ It's them or ✕ Not them to each; the yeses are kept in **⚙ Character matches** (by
-  account, each removable), inside the Vault (`web/tools/saved/scanner.js`).
+  accounts' faces (each account's profile photo, and its posts': a post with only its poster in it is that account;
+  in a post with several people, each face goes to whoever of the poster, those tagged and accepted collaborators
+  it's clearly closest to), and who it might be is suggested, with how sure ("@amy · 92% likely"). To check by,
+  each file shows its picture (a video four stills from through it) and each suggestion the face found beside the
+  account's profile photo. Say ✕ Not them, or ✓ It's them: that puts the file on that account in Socials as a
+  **draft, waiting for your OK** (nothing is shared until you share it there), and marks the file **👤 @amy** in
+  Saved Files. Chips above the list (and in ★ Favorites) show only one person's files. Photos and videos saved
+  from the phone are scanned as they're saved (from the files picked, nothing downloaded again), with a note to
+  review any that might show your accounts. Socials' data is encrypted on the phone, so scanning asks for the
+  Socials password once a session if Socials hasn't been opened. Scanned files keep a small picture on the phone,
+  shown in place of their icon. **⚙ Character matches** lists the confirmed ones by account, each removable
+  (`web/tools/saved/scanner.js`).
 
 **Files → Saved Files** keeps files in your own Google Drive folder: the folder that holds your
 "Saved Files" spreadsheet. A small Google Apps Script in that spreadsheet
@@ -570,6 +579,13 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
   encrypted file** (in Settings) opens a downloaded `ccv.` file with just the password or recovery key,
   on any device and in any browser, with nothing uploaded. Without the password and the recovery
   key, the files can't be opened by anyone, including you (`web/lib/vault.js`).
+- **Back up the extras kept on this phone** (Settings → Saved Files): what's kept only on the phone and nowhere
+  else (★ Favorites with their titles, order and pictures, files' small pictures, character matches, background
+  pictures, the Dock, Socials' and the Sports front's settings) in one file, `cc-extras-YYYY-MM-DD.ccx`, encrypted
+  on the phone with a backup password of your own (PBKDF2-SHA-256, AES-256-GCM): put in a **Backups** folder in
+  Saved Files, or saved to the phone. Restore from the newest in Saved Files or from a file, with the same
+  password (`web/lib/extras-backup.js`). Socials itself and the Vault's and Saved Files' own files aren't in it:
+  they're in your Drive already, encrypted.
 - **Decryption kit** (`web/decryption/`, also saved to a **Decryption** folder in your Drive when you
   turn encryption on, or with **💾 Save decryption kit to Drive** in Settings): three ways to open
   your files if this app ever stops working, each needing only a `ccv.` file and your password or
@@ -1403,6 +1419,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
   what the built-in engine would say but in its own, more detailed words. Each is checked before it's sent (one
   message, not too long, about what you said, a friend's words not an assistant's, at the level); one that doesn't
   hold up, or takes over 15 seconds, is replaced by the engine's. Without WebGPU it says so and the engine answers.
+  It writes comments and captions too: ✨ Generate's comments, and the automatic comments on a new post (rewritten
+  just after it's shared), each in the commenter's voice from what the photo shows (described for it from the
+  reading of the photo: who's in it, what they wear, the things, the place, the light) and the caption; ✨ Suggest
+  caption and the automatic caption in first person, the engine's hashtags kept. Each is checked (one short line
+  about the post, not a description or a title, no hashtags in comments, at the language level); any that doesn't
+  hold up stays the engine's.
   Turn off, or remove the download, in the same place. The engine files (22 MB) are cached only once it's used.
 - **Private and offline: no text leaves the app.** Every reply, comment, caption and the reading of photos and faces
   is worked out on the phone, and works offline: the built-in engine (`socials-chat.js`, `socials-predict.js`,
@@ -1450,7 +1472,11 @@ broken picture, and with Saved Files the copy in Drive brings it back at the nex
 **Password.** Socials has its own password (separate from the Vault's, kept the same way: only a
 salted PBKDF2 hash on the phone), set the first time it's opened and asked each time the app starts; five
 wrong tries in a row wait 30 seconds. ☁ (top right) → Sync and password: change it, or 🔒 lock Socials now.
-The data on the phone itself isn't encrypted (as the Vault's isn't): the password keeps the app shut.
+What's kept on the phone is encrypted too (AES-256-GCM, with a random key wrapped by one made from the password,
+PBKDF2-SHA-256): the accounts, posts and messages, and each photo and video. The password opens it once a session
+(Face ID opens the app; the password is asked for once if the key isn't open yet). Drafts put on accounts from
+Saved Files (a scan's ✓ It's them) show above the feed: **📥 N drafts from Saved Files waiting for your OK**, each
+to open on its account (then share it, as any draft) or discard.
 
 **Face ID.** Sync and password → Set up Face ID makes a passkey (kept in the phone's passwords) that opens
 Socials as well as its password (`web/lib/passkey.js`). Where the passkey can give the app a secret of its own

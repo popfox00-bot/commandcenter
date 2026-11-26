@@ -187,3 +187,21 @@ test('the AI worker\'s network fence: the app\'s own files; the model\'s files o
   await assert.rejects(f('https://evil.com/x'), /Blocked/); await assert.rejects(f(`https://huggingface.co/${model}/resolve/main/a`), /Blocked/);
   assert.equal(reached, 0); await f(`${origin}/a.js`); assert.equal(reached, 1);
 });
+
+test('on-device AI for comments and captions: what the photo shows described for it; its lines checked; the engine\'s used when it isn\'t ready', async () => {
+  const { describeScene } = await import('../web/apps/socials/socials-predict.js');
+  const { checkLine, aiComments, aiCaption } = await import('../web/apps/socials/socials-ai.js');
+  const d = describeScene({ labels: [['pizza', 0.8]], faces: 2, people: 2, bg: ['sky'], place: 'Denver', hour: 22 });
+  assert.match(d, /2 people/); assert.match(d, /pizza/); assert.match(d, /in Denver/); assert.match(d, /at night/);
+  assert.equal(describeScene(null), '');
+  assert.equal(checkLine('1. that pizza looks unreal, save me a slice', { about: d }), 'that pizza looks unreal, save me a slice');
+  assert.equal(checkLine('The image shows two people eating pizza', { about: d }), null, 'not a description');
+  assert.equal(checkLine('"so good #pizza" 😋', { about: d }), 'so good 😋', 'hashtags at the end let go, and quotes round it');
+  assert.equal(checkLine('#pizza so good', { about: d }), null, 'no hashtags in a comment');
+  assert.equal(checkLine('**Pizza By Two Friends In Denver**', { about: d }), null, 'not a title');
+  assert.equal(checkLine('pizza vibes 大海的风情', { about: d }), null);
+  assert.equal(checkLine('Totally unrelated words about my landlord and rent going up', { about: d }), null, 'about the post');
+  assert.equal(checkLine('this is fucking great', { level: 0 }).includes('fuck'), false, 'the language level kept');
+  assert.deepEqual(await aiComments({ as: [{ handle: 'bo' }], drafts: ['Love it!'], scene: d }), ['Love it!'], 'not loaded: the engine\'s');
+  assert.equal(await aiCaption({ scene: d, draft: 'Pizza night' }), null);
+});

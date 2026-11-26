@@ -4,7 +4,9 @@
 // Files works offline. Connected once in Settings → Saved Files (the script's URL and access key).
 // With encryption on (Settings), files are encrypted on the phone first and unlocked once per session.
 // Folders (with a version 3 script): open them, make, rename and delete them, move files between them
-// (and, version 4, folders into folders). File icons are colour-coded by kind.
+// (and, version 4, folders into folders). File icons are colour-coded by kind (or the file's own small picture,
+// once it's been scanned or starred). 🔎 finds your Socials accounts in photos and videos (scanner.js; files
+// saved from the phone are scanned as they're saved); the ones you confirm are marked 👤 and can be filtered by.
 
 import { el, fill, about } from '../../lib/dom.js';
 import { getConfig, savedFiles, secureFiles, knownHeader, isKitFile, KIT_FOLDER, fileKind, size } from '../../lib/saved-files.js';
@@ -12,7 +14,7 @@ import { unlocked, lock } from '../../lib/vault.js';
 import { unlockForm } from '../../lib/vault-ui.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
 import { listFavs, addFav, removeFav, favoritesView } from './favorites.js';
-import { openScanner, openMatches, scannable } from './scanner.js';
+import { openScanner, openMatches, scannable, listMatches, thumbsOf, autoScan } from './scanner.js';
 
 /** A colour-coded tile: the kind's colour and emoji, with the extension under it. */
 function icon(f) {
@@ -33,6 +35,19 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   // (Starred files: their ids, for the ☆ on each; the Favorites view when it's open.)
   let favIds = new Set(); let inFavs = false;
   listFavs().then((l) => { favIds = new Set(l.map((x) => x.id)); if (!inFavs && api) render(); });
+  // (Character matches: who's in which file (👤 on its row), the person filtered by ('' : everyone), and a
+  // scan of files just saved, to review.)
+  let matches = []; let person = ''; let scanned = null;
+  const refreshMatches = () => listMatches().then((l) => { matches = l; for (const [k, v] of thumbUrls) if (!v) thumbUrls.delete(k); if (!inFavs && api && !busy) render(); });
+  const whoIn = (id) => [...new Set(matches.filter((m) => m.fileId === id).map((m) => m.handle))];
+  // (Files' own small pictures, made when scanned (or starred): shown in place of the kind's tile.)
+  const thumbUrls = new Map();
+  refreshMatches();
+  async function thumbInto(tile, f) {
+    let u = thumbUrls.get(f.id);
+    if (u === undefined) { const [b] = await thumbsOf(f.id).catch(() => []); u = b ? URL.createObjectURL(b) : null; thumbUrls.set(f.id, u); }
+    if (u && tile.isConnected) tile.replaceWith(el('span', { class: 'sv-icon sv-thumb', 'aria-hidden': 'true' }, el('img', { src: u, alt: '' })));
+  }
 
   // Connecting (the script's URL and access key) is done in Settings → Saved Files.
   function notConnected() {
@@ -66,12 +81,39 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   async function upload(list) {
     const picked = [...list];
     if (!picked.length) return;
-    let n = 0;
+    let n = 0; const saved = []; const local = new Map();
     const ok = await act(`Saving ${picked.length === 1 ? `"${picked[0].name}"` : `${picked.length} files`}…`, async () => {
-      for (const f of picked) { await api.upload(f, 'Files', where()); n++; }
+      for (const f of picked) {
+        const out = await api.upload(f, 'Files', where()); n++;
+        if (out?.id) { saved.push({ id: out.id, name: f.name, type: f.type, size: f.size }); local.set(out.id, f); }
+      }
     });
     await reload();
-    render(ok ? `Saved ${n} file${n === 1 ? '' : 's'} to ${here ? `"${path.at(-1)?.name}"` : 'your Drive'}.` : '');
+    const done = ok ? `Saved ${n} file${n === 1 ? '' : 's'} to ${here ? `"${path.at(-1)?.name}"` : 'your Drive'}.` : '';
+    render(done);
+    if (saved.some(scannable)) scanSaved(saved, local, done);
+  }
+  // (Files just saved: scanned for your Socials accounts from the picked files themselves, then a note to review.)
+  async function scanSaved(saved, local, note = '') {
+    scanned = { busy: true, n: saved.filter(scannable).length }; render(note);
+    let r = []; try { r = await autoScan(saved, local); } catch { r = []; }
+    for (const f of saved) thumbUrls.delete(f.id);
+    if (r.locked) scanned = { locked: true, files: r.files };
+    else { const hits = r.filter((x) => x.hits.length); scanned = hits.length ? { results: r, hits: hits.length } : null; }
+    if (!inFavs && !busy) render(note);
+  }
+  function scanNote() {
+    if (!scanned) return null;
+    if (scanned.busy) return el('p', { class: 'small muted sv-scan-note', role: 'status', text: `🔎 Looking for your Socials accounts in the ${scanned.n === 1 ? 'new file' : `${scanned.n} new files`}…` });
+    const close = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Dismiss', text: '✕', onclick: () => { scanned = null; render(); } });
+    if (scanned.locked) {
+      const files = scanned.files;
+      return el('div', { class: 'card sv-scan-note', role: 'status' }, el('span', { class: 'small', text: `🔎 The new photos and videos weren't scanned: Socials is locked.` }),
+        el('button', { type: 'button', class: 'btn small-btn primary', text: 'Scan them', onclick: () => { scanned = null; render(); openScanner(files, { download: (id) => api.download(id), onChange: refreshMatches }); } }), close);
+    }
+    const { results } = scanned;
+    return el('div', { class: 'card sv-scan-note', role: 'status' }, el('span', { class: 'small', text: `🔎 ${scanned.hits === 1 ? 'A new file' : `${scanned.hits} new files`} might show your Socials accounts.` }),
+      el('button', { type: 'button', class: 'btn small-btn primary', text: 'Review', onclick: () => { scanned = null; render(); openScanner(results.map((x) => x.f), { download: (id) => api.download(id), results, onChange: refreshMatches }); } }), close);
   }
 
   async function open(f, then) {
@@ -206,9 +248,17 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
         el('button', { class: 'btn small-btn ghost', text: 'Rename', 'aria-label': `Rename folder ${d.name}`, disabled: !!busy, onclick: () => renameFolder(d) }),
         el('button', { class: 'btn small-btn ghost', text: 'Move', 'aria-label': `Move folder ${d.name}`, disabled: !!busy, onclick: () => moveFolder(d) }),
         el('button', { class: 'btn small-btn ghost bad-text', text: 'Delete', 'aria-label': `Delete folder ${d.name}`, disabled: !!busy, onclick: () => deleteFolder(d) }))))) : null;
-    const list = files.length ? el('ul', { class: 'sv-list' }, ...files.map((f) => el('li', { class: `card sv-item${f.locked ? ' sv-locked' : ''}` },
-      icon(f),
+    // (By person: the handles matched to files here; a chip each to show only theirs.)
+    const people = [...new Set(matches.filter((m) => files.some((f) => f.id === m.fileId)).map((m) => m.handle))].sort();
+    if (person && !people.includes(person)) person = '';
+    const chips = people.length ? el('div', { class: 'row wrap sv-people', role: 'group', 'aria-label': 'Show files of' },
+      ['', ...people].map((h) => el('button', { type: 'button', class: `btn small-btn sv-chip${person === h ? ' on' : ''}`, 'aria-pressed': String(person === h), text: h ? `👤 @${h}` : 'Everyone', onclick: () => { person = h; render(); } }))) : null;
+    const shown = person ? files.filter((f) => whoIn(f.id).includes(person)) : files;
+    const tileOf = (f) => { const t = icon(f); if (!f.folder && !f.locked && scannable(f)) thumbInto(t, f); return t; };
+    const list = shown.length ? el('ul', { class: 'sv-list' }, ...shown.map((f) => el('li', { class: `card sv-item${f.locked ? ' sv-locked' : ''}` },
+      tileOf(f),
       el('span', { class: 'sv-meta' }, el('strong', { class: 'sv-name', text: f.name }),
+        whoIn(f.id).length ? el('span', { class: 'small sv-match', text: `👤 ${whoIn(f.id).map((h) => `@${h}`).join(', ')}` }) : null,
         el('span', { class: 'muted small', text: [f.locked ? '' : size(f.size), new Date(f.updated).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), f.encrypted && !f.locked ? '🔒 encrypted' : isKit(f) ? 'decryption kit' : vault ? 'not encrypted' : ''].filter(Boolean).join(' · ') })),
       f.locked ? null : el('span', { class: 'row wrap sv-actions' },
         el('button', { class: 'btn small-btn', text: 'Open', disabled: !!busy, onclick: () => open(f, view) }),
@@ -221,7 +271,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
         el('button', { class: 'btn small-btn ghost bad-text', text: 'Delete', 'aria-label': `Delete ${f.name}`, disabled: !!busy, onclick: async () => {
           if (!confirm(`Delete "${f.name}" from your Drive? (It goes to Drive's trash for 30 days.)`)) return;
           if (await act(`Deleting "${f.name}"…`, () => api.remove(f.id))) { files = files.filter((x) => x.id !== f.id); render(`Deleted "${f.name}".`); }
-        } }))))) : folderList || note === 'Loading…' ? null : el('p', { class: 'muted small', text: here ? 'This folder is empty.' : 'No files saved yet.' });
+        } }))))) : person ? el('p', { class: 'muted small', text: `No files of @${person} here.` }) : folderList || note === 'Loading…' ? null : el('p', { class: 'muted small', text: here ? 'This folder is empty.' : 'No files saved yet.' });
     fill(root,
       el('div', { class: 'row space' },
         el('h2', { class: 'sv-h', text: '☁️ Saved Files' }),
@@ -232,8 +282,9 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
       vault && !unlockedNow ? unlockForm(() => show('Unlocked until the app is closed or reloaded.')) : null,
       el('button', { type: 'button', class: 'btn block sv-favs-btn', text: `★ Favorites${favIds.size ? ` (${favIds.size})` : ''}`, onclick: openFavs }),
       el('div', { class: 'row wrap sv-tools' },
-        el('button', { type: 'button', class: 'btn small-btn', text: '🔎 Scan for characters', disabled: !!busy || !files.some(scannable), onclick: () => openScanner(files, { download: (id) => api.download(id) }) }),
-        el('button', { type: 'button', class: 'btn small-btn ghost', text: '⚙ Character matches', onclick: () => openMatches() })),
+        el('button', { type: 'button', class: 'btn small-btn', text: '🔎 Scan for characters', disabled: !!busy || !files.some(scannable), onclick: () => openScanner(files, { download: (id) => api.download(id), onChange: refreshMatches, onClose: refreshMatches }) }),
+        el('button', { type: 'button', class: 'btn small-btn ghost', text: '⚙ Character matches', onclick: () => openMatches().then(refreshMatches) })),
+      scanNote(),
       crumbs,
       vault && !unlockedNow ? null : el('label', { class: `btn primary block${busy ? ' disabled' : ''}`, for: 'sv-file', text: `+ Save files ${here ? 'here' : 'to Drive'}${vault ? ' (encrypted)' : ''}` }), picker,
       folders ? el('button', { class: 'btn small-btn', text: '+ New folder', disabled: !!busy, onclick: newFolder }) : null,
@@ -241,6 +292,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
       busy || note ? el('p', { class: 'small muted', 'aria-live': 'polite', text: busy || note }) : null,
       error ? el('p', { class: 'small bad-text', role: 'alert', text: error }) : null,
       folderList,
+      chips,
       list,
       about('In your Google Drive, in the folder of your Saved Files spreadsheet. Each save is logged in the spreadsheet.'),
       vault && folders ? about('Folder names are kept as they are in Drive (not encrypted), so Drive can sort them; the files in them stay encrypted, names and all.') : null,

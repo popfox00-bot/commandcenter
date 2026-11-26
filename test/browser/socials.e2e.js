@@ -312,7 +312,7 @@ test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo w
   await ctx.route(URL_, async (route) => (down ? route.abort('internetdisconnected') : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(script.handle(JSON.parse(route.request().postData()))) })));
   const page = await ctx.newPage(); await page.goto(`${origin}${BASE}index.html#/socials/admin`);
   // (The app's storage, read or changed directly: `op` 'get' or 'delete' on `key`.)
-  const kv = (op, key) => page.evaluate(([o, k]) => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const q = r.result.transaction('kv', 'readwrite').objectStore('kv')[o](k); q.onsuccess = () => res(o === 'get' ? (q.result && (q.result.buf ? { bytes: q.result.buf.byteLength } : q.result.posts ? { image: q.result.posts[0].image === undefined ? 'none' : 'kept' } : null)) : true); q.onerror = () => res(null); }; r.onerror = () => res(null); }), [op, key]);
+  const kv = (op, key) => page.evaluate(([o, k]) => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const q = r.result.transaction('kv', 'readwrite').objectStore('kv')[o](k); q.onsuccess = () => res(o === 'get' ? (q.result && (q.result.ct ? { bytes: q.result.ct.byteLength, enc: !!q.result.enc } : q.result.buf ? { bytes: q.result.buf.byteLength } : q.result.posts ? { image: q.result.posts[0].image === undefined ? 'none' : 'kept' } : null)) : true); q.onerror = () => res(null); }; r.onerror = () => res(null); }), [op, key]);
   // (Kept the older way, before this version: a Blob inside the one key.)
   down = true;
   const png = (await photo(page)).buffer.toString('base64');
@@ -322,8 +322,10 @@ test('Socials keeps photos as bytes: the older way (Blobs) moved over; a photo w
   await page.getByRole('button', { name: 'Set password' }).click();
   await page.locator('.so-post', { hasText: 'From before' }).waitFor();
   assert.ok(await page.locator('.so-post .so-pic img').evaluate((i) => i.decode().then(() => i.naturalWidth > 0)), 'shown');
-  assert.ok((await kv('get', 'cc.socials.m.img1'))?.bytes > 0, 'its bytes kept on their own');
-  assert.equal((await kv('get', 'cc.socials'))?.image, 'none', 'no Blob kept in the state any more');
+  const m1 = await kv('get', 'cc.socials.m.img1'); assert.ok(m1?.bytes > 0 && m1.enc, 'its bytes kept on their own, encrypted');
+  assert.equal((await kv('get', 'cc.socials'))?.enc, true, 'the state encrypted (no Blob, nothing readable)');
+  // (Nothing of it readable as it's kept: the caption not in the stored bytes.)
+  assert.equal(await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const q = r.result.transaction('kv').objectStore('kv').get('cc.socials'); q.onsuccess = () => res(new TextDecoder().decode(q.result.ct).includes('From before')); }; })), false);
   // Sent to Drive; then its file lost on this device: the post says so (Drive unreachable), then gets it back.
   down = false; await page.getByRole('button', { name: /Sync and password/ }).click(); await page.getByRole('button', { name: 'Sync now' }).click();
   await page.getByText('Your recovery key').waitFor({ timeout: 60000 }); await page.getByRole('button', { name: 'I\'ve saved it' }).click();
@@ -1050,6 +1052,36 @@ test('backgrounds: a picture behind all of Socials, an account\'s own on its pro
   // Out of Socials: none.
   await page.goto(`${origin}${BASE}index.html#/clock`); await page.waitForTimeout(300);
   assert.equal(await layer.evaluate((e) => e.hidden), true);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('Socials is encrypted on the phone: nothing readable as kept; opened again with the password (and the new one after a change)', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('secret.owner'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').first().waitFor();
+  await page.getByLabel('Caption', { exact: true }).fill('Top secret caption'); await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.so-post', { hasText: 'Top secret caption' }).waitFor();
+  // As kept: nothing readable (no caption, no handle, the photo's bytes not a PNG).
+  const kept = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('command-center'); r.onsuccess = () => { const st = r.result.transaction('kv').objectStore('kv'); const all = st.getAll(); const keys = st.getAllKeys(); all.onsuccess = () => keys.onsuccess = () => { const out = { text: false, png: false, plain: [] }; all.result.forEach((v, i) => { const k = String(keys.result[i]); if (!k.startsWith('cc.socials')) return; const bytes = v?.ct ?? v?.buf; const s = bytes ? new TextDecoder().decode(bytes) : JSON.stringify(v); if (/Top secret caption|secret\.owner/.test(s)) out.text = true; if (bytes && new Uint8Array(bytes).subarray(1, 4).every((b, j) => b === [80, 78, 71][j])) out.png = true; if ((k === 'cc.socials' || k.startsWith('cc.socials.m.')) && !v?.enc) out.plain.push(k); }); res(out); }; }; }));
+  assert.deepEqual(kept, { text: false, png: false, plain: [] }, 'all of it encrypted');
+  // Reopened (a new session): the password unlocks it.
+  await page.evaluate(() => sessionStorage.clear()); await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByRole('button', { name: 'Open' }).click();
+  await page.locator('.so-post', { hasText: 'Top secret caption' }).waitFor();
+  // The password changed: the new one opens it (the data as it was).
+  await page.locator('.so-sync, [aria-label*="Sync"]').first().click();
+  await page.getByLabel('Current password').fill('heron42'); await page.getByLabel('New password', { exact: true }).fill('falcon77'); await page.getByLabel('New password again').fill('falcon77');
+  await page.getByRole('button', { name: 'Change password' }).click(); await page.waitForTimeout(800);
+  await page.evaluate(() => sessionStorage.clear()); await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('falcon77'); await page.getByRole('button', { name: 'Open' }).click();
+  await page.locator('.so-post', { hasText: 'Top secret caption' }).waitFor();
   assert.deepEqual(errors, []);
   await page.close();
 });

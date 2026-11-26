@@ -121,3 +121,63 @@ Write the next text in this chat: ONE short message (6-25 words). Respond to exa
     return checkReply(out.text, { said, draft, level, name: them });
   } catch { return null; }
 }
+
+// ---- Comments and captions, written by the model from what the photo shows (describeScene) and its caption,
+// each checked (one short line, on the post, a friend's not an assistant's) and given the engine's own as a
+// guide; anything that doesn't hold up is left to the engine's.
+
+const CBAD = /\b(as an ai|assist(ant|ance)?|help you|let me know|feel free|i understand|how can i|image|picture shows|the photo shows|description|caption:|comment:|user|assistant|hashtag)\b/i;
+/** A comment or caption from the model checked and tidied, or null. `about`: words it should touch on. */
+export function checkLine(text, { about = '', level = 0, min = 2, max = 22, name = '' } = {}) {
+  let t = String(text ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/[*_`]+/g, '').trim().split(/\n+/)[0].trim();
+  t = t.replace(/(\s+#[\p{L}\p{N}_]+)+[^\p{L}\p{N}#]{0,8}$/u, (m) => m.replace(/#[\p{L}\p{N}_]+/gu, '')).trim(); // (hashtags at the end: let go)
+  t = t.replace(/^([^\p{L}\p{N}"'“]*)["'“]+/u, '$1').replace(/["'”]+([^\p{L}\p{N}"'”]*)$/u, '$1').trim(); // (quotes round it, emoji outside them)
+  t = t.replace(/^\s*(\d+[.)]|[-*•])\s*/, '').replace(new RegExp(`^(${(name || 'x').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|comment|caption|me)\\s*:\\s*`, 'i'), '').replace(/^["'“”]+|["'“”]+$/g, '').trim();
+  const n = t.split(/\s+/).filter(Boolean).length;
+  if (n < min || n > max || CBAD.test(t) || /#\w/.test(t) || /\b(background|feels like|skyline|sounds (delicious|amazing|epic|great|fun|good))\b/i.test(t) || /[\u3000-\u9fff\uac00-\ud7af\u0400-\u04ff]/.test(t)) return null;
+  // (A title (Most Words Capitalized), not a line someone would write.)
+  const ws = t.match(/\p{L}[\p{L}']*/gu) ?? []; if (ws.length >= 4 && ws.filter((w) => /^\p{Lu}/u.test(w)).length / ws.length > 0.6 && t !== t.toUpperCase()) return null;
+  const k = new Set(words(about)); if (k.size && n > 5 && !words(t).some((x) => k.has(x))) return null;
+  return cleanWords(t, level);
+}
+const race = (p, ms) => Promise.race([p, new Promise((_, bad) => setTimeout(() => bad(new Error('slow')), ms))]);
+
+/**
+ * Comments on a post by the model, one per commenter (`as`: [{ handle, persona }]), or the engine's (`drafts`,
+ * one each) where the model's don't hold up: always as many as `as`. `scene`: describeScene's; `caption`, `by`
+ * (the poster's handle), `level` (0–3), `avoid` (comments already there).
+ */
+export async function aiComments({ as, drafts, scene = '', caption = '', by = '', level = 0, avoid = [], timeout = 12000 }) {
+  const out = [...drafts];
+  if (!ready || !as?.length) return out;
+  const seen = new Set(avoid.map((a) => String(a).toLowerCase()));
+  const deadline = Date.now() + timeout * Math.min(as.length, 3);
+  for (const [i, who] of as.entries()) {
+    const left = deadline - Date.now(); if (left < 1500) break;
+    const system = `You are ${who.handle}, a close friend of ${by}, commenting on their post on a private social app. Your vibe: ${PERSONA_TEXT[who.persona] ?? PERSONA_TEXT.classic}. ${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
+Write ONE short comment (4-16 words) about something specific in the post, like a friend would: a reaction, a compliment, a tease or a quick question. No hashtags. Never describe the photo like a caption; never mention being an AI.`;
+    const user = `${by}'s post. ${scene ? `What's in it: ${scene}.` : ''}${caption ? ` Their caption: "${caption.slice(0, 200)}".` : ''}${seen.size ? ` Already said (don't repeat): ${[...seen].slice(-4).map((x) => `"${x}"`).join(', ')}.` : ''}${drafts[i] ? ` Something like "${drafts[i]}" but in your own words.` : ''}`;
+    try {
+      const r = await race(ask({ type: 'generate', messages: [{ role: 'system', content: system }, { role: 'user', content: user }], options: { max_new_tokens: 40, temperature: 0.85 } }), left);
+      const t = checkLine(r.text, { about: `${scene} ${caption} ${drafts[i] ?? ''}`, level, name: who.handle });
+      if (t && !seen.has(t.toLowerCase())) { out[i] = t; seen.add(t.toLowerCase()); }
+    } catch { break; }
+  }
+  return out;
+}
+
+const CAP_SHOTS = [
+  { role: 'user', content: 'What\'s in my photo: one person; with coffee; wearing beige cardigan; in the morning.' }, { role: 'assistant', content: 'cardigan weather and a latte, that\'s the whole plan ☕' },
+  { role: 'user', content: 'What\'s in my photo: 3 people; feels like: friends, beach; background: sand, water.' }, { role: 'assistant', content: 'salty hair, sandy feet, best people 🌊' },
+];
+/** A caption by the model from what the photo shows (`scene`), or null: the engine's (`draft`) as a guide. */
+export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [], timeout = 12000 }) {
+  if (!ready || !scene) return null;
+  const system = `You write the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it, a little personality, an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-14 words. Never describe the photo literally; never mention being an AI.`;
+  const user = `What's in my photo: ${scene}.${draft ? ` An idea: "${draft.replace(/\s#\S+/g, '')}" (write your own, more specific).` : ''}${avoid.length ? ` Not these: ${avoid.slice(-3).map((a) => `"${a}"`).join(', ')}.` : ''}`;
+  try {
+    const r = await race(ask({ type: 'generate', messages: [{ role: 'system', content: system }, ...CAP_SHOTS, { role: 'user', content: user }], options: { max_new_tokens: 36, temperature: 0.8 } }), timeout);
+    const t = checkLine(r.text, { about: `${scene} ${draft}`, level: Math.min(level, 1), min: 2, max: 16 });
+    return t && !avoid.some((a) => String(a).toLowerCase().startsWith(t.toLowerCase())) ? t : null;
+  } catch { return null; }
+}

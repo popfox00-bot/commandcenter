@@ -357,3 +357,27 @@ test('faces: matched to accounts by how close their descriptions are (each accou
   editAccount(s, a.id, { avatar: new Blob(['new']) });
   assert.equal(normalize(JSON.parse(JSON.stringify(s))).accounts[0].face, undefined, 'a new photo: the old face let go');
 });
+
+test('face sets: a profile photo\'s face, solo posts\' faces for their poster, and a group post\'s faces each to who it clearly is; drafts from Saved Files kept', async () => {
+  const { faceSetsFrom, matchFaces } = await import('../web/apps/socials/socials-faces.js');
+  const { emptyState, addAccount, setFace, addPost, normalize, savedDrafts } = await import('../web/apps/socials/socials-core.js');
+  const vec = (k) => Array.from({ length: 128 }, (_, i) => Math.sin(i * k) * 0.1);
+  const near = (v, e) => v.map((x, i) => x + (i % 2 ? e : -e));
+  const A = vec(1); const B = vec(2); const C = vec(3);
+  const s = emptyState(); const amy = addAccount(s, { handle: 'amy', avatar: new Blob(['a']) }); const bo = addAccount(s, { handle: 'bo', avatar: new Blob(['b']) }); const cy = addAccount(s, { handle: 'cy' });
+  setFace(s, amy.id, A); setFace(s, bo.id, B);
+  const solo = addPost(s, cy.id, { image: new Blob(['x']) }); solo.faces = [C]; // (cy has no profile face: a solo post is cy)
+  const group = addPost(s, amy.id, { image: new Blob(['y']), tags: [bo.id] }); group.faces = [near(B, 0.02), near(A, 0.02)];
+  const crowd = addPost(s, amy.id, { image: new Blob(['z']) }); crowd.faces = [near(A, 0.01), near(B, 0.01), C]; // (more faces than people in it: skipped)
+  const sets = faceSetsFrom(s);
+  const of = (id) => sets.filter((x) => x.id === id).length;
+  assert.equal(of(cy.id), 1, 'a solo post counts for its poster'); assert.equal(of(amy.id), 2); assert.equal(of(bo.id), 2, 'the group post\'s faces shared out');
+  assert.deepEqual(matchFaces([{ d: near(C, 0.01) }], sets).map((x) => x.id), [cy.id], 'now found by a post alone');
+  assert.equal(matchFaces([{ d: near(A, 0.01) }], sets)[0].face, 0, 'which face it was');
+  // A draft from Saved Files: kept through a save, listed as waiting.
+  const d = addPost(s, bo.id, { image: new Blob(['q']), draft: true }); d.fromSaved = { fileId: 'f9', name: 'beach.jpg', at: 5 };
+  const back = normalize(JSON.parse(JSON.stringify(s)));
+  assert.deepEqual(back.posts.find((p) => p.id === d.id).fromSaved, { fileId: 'f9', name: 'beach.jpg', at: 5 });
+  assert.deepEqual(savedDrafts(back).map((p) => p.id), [d.id]);
+  back.posts.find((p) => p.id === d.id).draft = false; assert.deepEqual(savedDrafts(back), [], 'shared: no longer waiting');
+});

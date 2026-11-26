@@ -15,6 +15,7 @@ import { unlockForm } from '../../lib/vault-ui.js';
 import { shareFiles, canShareFiles, downloadBlob } from '../../lib/files.js';
 import { listFavs, addFav, removeFav, favoritesView } from './favorites.js';
 import { openScanner, openMatches, scannable, listMatches, thumbsOf, autoScan } from './scanner.js';
+import { noteFolder, forgetFile, searchView } from './search.js';
 
 /** A colour-coded tile: the kind's colour and emoji, with the extension under it. */
 function icon(f) {
@@ -33,7 +34,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   let here = ''; let path = []; let folders = [];
   const where = () => (here ? { id: here } : '');
   // (Starred files: their ids, for the ☆ on each; the Favorites view when it's open.)
-  let favIds = new Set(); let inFavs = false;
+  let favIds = new Set(); let inFavs = false; let inSearch = false;
   listFavs().then((l) => { favIds = new Set(l.map((x) => x.id)); if (!inFavs && api) render(); });
   // (Character matches: who's in which file (👤 on its row), the person filtered by ('' : everyone), and a
   // scan of files just saved, to review.)
@@ -58,7 +59,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   }
 
   async function show(note = '') {
-    if (inFavs) return;
+    if (inFavs || inSearch) return;
     const cfg = getConfig();
     if (!cfg) { notConnected(); return; }
     api = secureFiles(savedFiles(cfg));
@@ -68,7 +69,10 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
       render('', err.message);
     }
   }
-  async function load() { ({ files, folders, path } = await api.browse(here)); }
+  async function load() {
+    ({ files, folders, path } = await api.browse(here));
+    noteFolder(here, path.map((p) => p.name).join('/'), files).catch(() => {}); // (for 🔎 Search, offline too)
+  }
   const reload = () => load().catch(() => {});
   function go(id) { here = id; files = []; folders = []; path = []; show(); }
 
@@ -146,6 +150,21 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     busy = `Adding "${f.name}" to your favorites…`; render();
     try { const l = await addFav(f, file); favIds = new Set(l.map((x) => x.id)); busy = ''; render(`★ "${f.name}" is in your favorites.`); } catch (err) { busy = ''; render('', err.message); }
   }
+  function openSearch() {
+    inSearch = true;
+    const cfg = getConfig(); api ??= cfg ? secureFiles(savedFiles(cfg)) : null;
+    searchView(root, {
+      onBack: () => { inSearch = false; show(); },
+      onOpen: async (f) => { try { view(await api.download(f.id)); } catch (err) { alert(`Couldn't open it: ${err.message}`); } },
+      onFolder: (id) => { inSearch = false; go(id); },
+      // (Every folder looked through, its files noted: online.)
+      indexAll: async (say) => {
+        const main = await api.browse(''); await noteFolder('', '', main.files);
+        let all = []; try { all = await api.folders(); } catch { /* a script from before folders */ }
+        for (const [i, d] of all.entries()) { say(`Looking through ${i + 1} of ${all.length}: ${d.path}…`); const r = await api.browse(d.id); await noteFolder(d.id, d.path, r.files); }
+      },
+    });
+  }
   function openFavs() {
     inFavs = true;
     favoritesView(root, {
@@ -210,7 +229,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
     const d = await pickFolder(`Move "${f.name}" to`, all, (x) => x.id === here);
     if (!d) return;
     if (!await act(`Moving "${f.name}"…`, () => api.move(f.id, d.id))) return;
-    files = files.filter((x) => x.id !== f.id);
+    files = files.filter((x) => x.id !== f.id); forgetFile(f.id).catch(() => {}); // (noted again in its new folder when that's opened)
     render(`Moved "${f.name}" to ${whereTo(d)}.`);
   }
   // Move a folder (and everything in it) into another one: not into itself or a folder inside it.
@@ -270,7 +289,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
         folders ? el('button', { class: 'btn small-btn ghost', text: 'Move', 'aria-label': `Move ${f.name}`, disabled: !!busy, onclick: () => move(f) }) : null,
         el('button', { class: 'btn small-btn ghost bad-text', text: 'Delete', 'aria-label': `Delete ${f.name}`, disabled: !!busy, onclick: async () => {
           if (!confirm(`Delete "${f.name}" from your Drive? (It goes to Drive's trash for 30 days.)`)) return;
-          if (await act(`Deleting "${f.name}"…`, () => api.remove(f.id))) { files = files.filter((x) => x.id !== f.id); render(`Deleted "${f.name}".`); }
+          if (await act(`Deleting "${f.name}"…`, () => api.remove(f.id))) { files = files.filter((x) => x.id !== f.id); forgetFile(f.id).catch(() => {}); render(`Deleted "${f.name}".`); }
         } }))))) : person ? el('p', { class: 'muted small', text: `No files of @${person} here.` }) : folderList || note === 'Loading…' ? null : el('p', { class: 'muted small', text: here ? 'This folder is empty.' : 'No files saved yet.' });
     fill(root,
       el('div', { class: 'row space' },
@@ -280,7 +299,9 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
           el('button', { class: 'btn small-btn ghost', text: '⟳', 'aria-label': 'Refresh', disabled: !!busy, onclick: () => show() }),
           el('a', { class: 'btn small-btn ghost', href: '#/settings/saved', text: 'Settings' }))),
       vault && !unlockedNow ? unlockForm(() => show('Unlocked until the app is closed or reloaded.')) : null,
-      el('button', { type: 'button', class: 'btn block sv-favs-btn', text: `★ Favorites${favIds.size ? ` (${favIds.size})` : ''}`, onclick: openFavs }),
+      el('div', { class: 'row sv-top-btns' },
+        el('button', { type: 'button', class: 'btn sv-favs-btn', text: `★ Favorites${favIds.size ? ` (${favIds.size})` : ''}`, onclick: openFavs }),
+        el('button', { type: 'button', class: 'btn sv-search-btn', text: '🔎 Search', onclick: openSearch })),
       el('div', { class: 'row wrap sv-tools' },
         el('button', { type: 'button', class: 'btn small-btn', text: '🔎 Scan for characters', disabled: !!busy || !files.some(scannable), onclick: () => openScanner(files, { download: (id) => api.download(id), onChange: refreshMatches, onClose: refreshMatches }) }),
         el('button', { type: 'button', class: 'btn small-btn ghost', text: '⚙ Character matches', onclick: () => openMatches({ download: (id) => api.download(id) }).then(refreshMatches) })),
@@ -300,5 +321,5 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   }
 
   show();
-  return { show: () => { if (getConfig() && !busy && !inFavs) show(); } };
+  return { show: () => { if (getConfig() && !busy && !inFavs && !inSearch) show(); } };
 }

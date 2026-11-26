@@ -114,6 +114,8 @@ $('#versions').addEventListener('click', (e) => { if (e.target === e.currentTarg
 renderHome();
 window.addEventListener('hashchange', route);
 route();
+// (The extras' weekly backup, when it's on and due: a little after opening, out of the way.)
+setTimeout(() => { import('./lib/extras-backup.js').then((m) => m.autoBackup()).catch(() => {}); }, 15000);
 
 // Service worker: offline support and updates. A new version installs in the background and then
 // waits. If it is ready before the user has touched anything (i.e. right after opening the app), it

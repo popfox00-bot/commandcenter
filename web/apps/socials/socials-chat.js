@@ -306,3 +306,42 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   for (const [t, w] of opts) { x -= w; if (x <= 0) return t.replace(/\s+/g, ' ').trim(); }
   return opts[opts.length - 1][0].replace(/\s+/g, ' ').trim();
 }
+
+// ---- Replies to comments: the post's account answering a comment on its post, as people do: thanks for a
+// compliment (warmer the warmer it was), an answer to a question (where, who, when), banter back for a tease,
+// something about what they named ("the pizza was unreal honestly"), the commenter @mentioned now and then.
+
+const PRAISE = /\b(everything|hits|yum+|delicious|looks (so )?good|so good|need|want|jealous|dream|cozy|chef|living|serving|ate|clean|crisp|fresh|love|loving|cute|gorgeous|beautiful|stunning|amazing|iconic|fire|obsessed|perfect|pretty|hot|best|goals|incredible|unreal|slay|queen|king|legend|wow|yes+|congrats|congratulations|proud|vibes?)\b|[🔥😍🥰😻💯✨🙌👏🥹❤️💛💕]/iu;
+const TEASE = /\b(jealous|show ?off|rude|unfair|invite|without me|where was my|save me|stop it)\b|😤|🙄/i;
+const THINGS = /\b(pizza|burger|coffee|dog|pup|puppy|cat|kitty|beach|view|sunset|mountains?|lake|outfit|fit|dress|suit|shoes|sneakers|shades|hair|cake|food|car|game|concert|city|trip|hike|snow|hat|jacket)\b/i;
+
+/**
+ * The post's account's reply to a comment: `comment` (its text), `commenter` (their handle), `caption`.
+ * Plain words (made the account's own with voice/spice by the caller).
+ */
+export function commentReply(comment, { commenter = '', caption = '', rand = Math.random } = {}) {
+  const t = String(comment ?? '').trim(); const lt = lower(t); const mood = moodOf(t);
+  const at = commenter && rand() < 0.55 ? `@${commenter} ` : '';
+  const thing = (lt.match(THINGS) ?? lower(caption).match(THINGS))?.[1];
+  const q = /\?/.test(t) || /^(where|who|when|how|what|did|can|is|are|do)\b/i.test(t);
+  if (q) {
+    if (/\bwhere\b/i.test(t)) { const place = placesIn?.(`${caption} ${t}`)?.[0]; return `${at}${place ? pick([`${place}!!`, `In ${place} 📍`, `${place}, you'd love it`], rand) : pick(['Secret spot 🤫 I\'ll take you', 'I\'ll text you the spot!', 'Tell you later 👀'], rand)}`; }
+    if (/\bwho\b.*\b(took|shot|snapped)\b/i.test(t)) return `${at}${pick(['Self timer for the win 📸', 'My roommate! Hired as my photographer now', 'A very patient friend 😂'], rand)}`;
+    if (/\bwho\b/i.test(t)) return `${at}${pick(['My favorite people 💛', 'The best crew', 'Haha you know who 👀'], rand)}`;
+    if (/\bwhen\b/i.test(t)) return `${at}${pick(['Last weekend!', 'Just the other day', 'Yesterday!! Still thinking about it'], rand)}`;
+    if (/\b(invite|come|next time|join)\b/i.test(t)) return `${at}${pick(['Next time, you\'re coming 🙌', 'Obviously!! Next time', 'Say less, you\'re in'], rand)}`;
+    if (/\b(how was|was it good|fun)\b/i.test(t)) return `${at}${pick([`So good${thing ? `, the ${thing} especially` : ''}!!`, 'Honestly the best day', 'Even better than it looks'], rand)}`;
+    const r = chatReply([{ mine: true, text: t, at: Date.now() }], { rand });
+    return `${at}${r}`;
+  }
+  if (TEASE.test(t)) return `${at}${pick(['Haha next time I promise 😂', 'You\'re coming next time, no excuses', 'Don\'t be jealous 😌', 'I\'ll make it up to you'], rand)}`;
+  if (mood === 'pos' || PRAISE.test(t)) {
+    const big = (t.match(/!|🔥|😍|🥹|❤️|💛|✨/gu) ?? []).length >= 2 || /\b(obsessed|stunning|iconic|legend|incredible|queen|king)\b/i.test(t);
+    if (/\bcongrat/i.test(t)) return `${at}${pick(['Thank you so much!! 🥹', 'Thank youuu, means a lot 💛', 'Couldn\'t have done it without you!!'], rand)}`;
+    if (thing && (THINGS.test(lt) || rand() < 0.5)) return `${at}${pick([`Thank you!! The ${thing} was unreal honestly`, `Right?! The ${thing} made the day`, `The ${thing} deserves all the credit 😂`], rand)}`;
+    return `${at}${big ? pick(['Stop it 🙈 thank you!!', 'You\'re too sweet 🥹', 'Okay you just made my day 💛', 'Ahh thank youuu'], rand) : pick(['Thank you!!', 'Thanks!! 😊', 'Appreciate you 💛', 'Haha thank you'], rand)}`;
+  }
+  if (mood === 'neg') return `${at}${pick(['Aw, I know 😕', 'Haha it wasn\'t that bad', 'Lol fair'], rand)}`;
+  // (Anything else: agreed, warmly, with what they named when there's one.)
+  return `${at}${thing ? pick([`Right?! The ${thing} 🙌`, `The ${thing} was everything honestly`, `Haha the ${thing} really did that`], rand) : pick(['Haha right?!', 'Facts 😂', 'You get it 🙌', 'Literally', 'Exactly what I said'], rand)}`;
+}

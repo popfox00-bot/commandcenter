@@ -7,6 +7,7 @@ import { el, fill } from './dom.js';
 import { getConfig, setConfig, checkUrl, savedFiles, connectedSecure } from './saved-files.js';
 import { encryptionSettings, openAnywhere } from './vault-ui.js';
 import { extrasBackupSettings } from './extras-backup.js';
+import { newPhoneCard } from './new-phone.js';
 
 /** The newest apps-script/saved-files.gs (its VERSION). */
 const SCRIPT_VERSION = 5;
@@ -53,7 +54,8 @@ export function savedFilesSettings() {
       form,
       cfg ? encryptionSettings() : null,
       openAnywhere(),
-      extrasBackupSettings());
+      extrasBackupSettings(),
+      cfg ? newPhoneCard() : null);
   }
   render();
   return box;

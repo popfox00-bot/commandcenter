@@ -43,6 +43,48 @@ export async function seal(data, password, { rounds = ROUNDS } = {}) {
   const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await keyOf(password, salt, rounds), new TextEncoder().encode(JSON.stringify(data)));
   return new Blob([JSON.stringify({ ccx: 1, kdf: 'PBKDF2-SHA256', rounds, salt: b64(salt), iv: b64(iv), ct: b64(new Uint8Array(ct)) })], { type: 'application/octet-stream' });
 }
+// ---- Weekly, by itself: with it on, a backup is put in Saved Files' Backups folder once a week, when the app
+// is opened online, and only the newest KEEP kept there. The key made from your backup password (as a backup
+// needs) is kept on this phone, unusable outside the app (a non-extractable key in its own storage), so it can
+// back up without asking; restoring still asks for the password.
+const AUTO = 'cc.xb.auto'; const WEEK = 7 * 864e5; export const KEEP = 4;
+/** The weekly backup's settings: { on, last, salt, rounds } (no key shown), or null if never set up. */
+export async function autoState() { const v = await idb.get(AUTO); return v?.key ? { on: !!v.on, last: v.last ?? 0, at: v.at ?? 0 } : null; }
+/** Weekly backups turned on with `password` (its key made and kept), or off (its key let go). */
+export async function setAuto(on, password = '') {
+  if (!on) { await idb.del(AUTO); return null; }
+  if (String(password).length < 6) throw new Error('Use a backup password of at least 6 characters.');
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  await idb.set(AUTO, { on: true, key: await keyOf(password, salt, ROUNDS), salt: b64(salt), rounds: ROUNDS, last: 0, at: Date.now() });
+  return autoState();
+}
+async function sealWith(data, key, salt, rounds) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(data)));
+  return new Blob([JSON.stringify({ ccx: 1, kdf: 'PBKDF2-SHA256', rounds, salt, iv: b64(iv), ct: b64(new Uint8Array(ct)) })], { type: 'application/octet-stream' });
+}
+/**
+ * The weekly backup, if it's due (on, a week since the last, Saved Files connected, online): made, uploaded,
+ * and the older ones past the newest KEEP removed. `force`: now, due or not. Resolves to what it did:
+ * { done, name, removed } or { skipped: why }.
+ */
+export async function autoBackup({ force = false, now = Date.now() } = {}) {
+  const v = await idb.get(AUTO); if (!v?.on || !v.key) return { skipped: 'off' };
+  if (!force && now - (v.last ?? 0) < WEEK) return { skipped: 'not due' };
+  const cfg = getConfig(); if (!cfg) return { skipped: 'no Saved Files' };
+  if (globalThis.navigator?.onLine === false) return { skipped: 'offline' };
+  const api = savedFiles(cfg); const name = fileName(new Date(now));
+  await api.upload(new File([await sealWith(await gather(), v.key, v.salt, v.rounds)], name, { type: 'application/octet-stream' }), 'Backup', FOLDER);
+  await idb.set(AUTO, { ...v, last: now });
+  // (Only the newest few kept in Drive (to Drive's trash, as any deleted file).)
+  let removed = 0;
+  try {
+    const d = (await api.folders()).find((f) => f.path === FOLDER || f.name === FOLDER);
+    if (d) { const { files } = await api.browse(d.id); const old = files.filter((f) => isBackupName(f.name)).sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0)).slice(KEEP); for (const f of old) { await api.remove(f.id); removed++; } }
+  } catch { /* next time */ }
+  return { done: true, name, removed };
+}
+
 /** A backup file opened with `password`: its data. Throws if it's not one, or the password is wrong. */
 export async function open(blob, password) {
   let h; try { h = JSON.parse(await blob.text()); } catch { h = null; }
@@ -60,7 +102,7 @@ export async function restore(data) {
 export const fileName = (at = new Date()) => `cc-extras-${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}.ccx`;
 
 /** The newest backup in Saved Files' Backups folder ({ id, name } or null). */
-async function newestInDrive(api) {
+export async function newestInDrive(api) {
   const d = (await api.folders()).find((f) => f.path === FOLDER || f.name === FOLDER); if (!d) return null;
   const { files } = await api.browse(d.id);
   return files.filter((f) => isBackupName(f.name)).sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))[0] ?? null;
@@ -97,9 +139,22 @@ export function extrasBackupSettings() {
     if (!confirm(`Restore ${f.name} (${countOf(data)} things)? What's in it replaces what's on this phone.`)) return;
     done(await restore(data));
   }));
+  // (Weekly, by itself.)
+  const weekly = el('input', { type: 'checkbox', 'aria-label': 'Back up every week by itself' });
+  const weeklyNote = el('span', { class: 'small muted' });
+  const paintWeekly = async () => { const st = await autoState(); weekly.checked = !!st?.on; weeklyNote.textContent = st?.on ? (st.last ? ` Last: ${new Date(st.last).toLocaleDateString([], { month: 'short', day: 'numeric' })}. The newest ${KEEP} are kept.` : ' The first one goes once the app is next opened online.') : ' Uses the backup password above, once.'; };
+  weekly.addEventListener('change', async () => {
+    try {
+      if (weekly.checked) { if (!pw.value) { weekly.checked = false; say('Enter the backup password first, then turn this on.', true); pw.focus(); return; } await setAuto(true, pw.value); const r = await autoBackup({ force: true }); say(r.done ? `Weekly backups on. Backed up now: ${r.name}.` : 'Weekly backups on.'); }
+      else { await setAuto(false); say('Weekly backups off.'); }
+    } catch (e) { weekly.checked = false; say(e.message, true); }
+    paintWeekly();
+  });
+  paintWeekly();
   const box = el('details', { class: 'small xb' }, el('summary', { text: 'Back up the extras kept on this phone' }),
     el('p', { class: 'small muted', text: 'Favorites (titles, order, pictures), files\' small pictures and character matches, background pictures, the dock, and Socials\' and Sports\' settings: kept only on this phone otherwise. Encrypted here with a backup password of your own (it can\'t be recovered: keep it safe).' }),
     pw, el('div', { class: 'row wrap' }, toDrive, toPhone),
+    el('label', { class: 'xb-weekly' }, weekly, el('span', {}, el('strong', { text: ' Every week, by itself' }), weeklyNote)),
     el('div', { class: 'row wrap' }, fromDrive, el('label', { class: 'btn' }, 'Restore from a file…', file)),
     status);
   return box;

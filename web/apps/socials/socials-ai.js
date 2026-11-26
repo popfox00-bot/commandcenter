@@ -130,6 +130,7 @@ const CBAD = /\b(as an ai|assist(ant|ance)?|help you|let me know|feel free|i und
 /** A comment or caption from the model checked and tidied, or null. `about`: words it should touch on. */
 export function checkLine(text, { about = '', level = 0, min = 2, max = 22, name = '' } = {}) {
   let t = String(text ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/[*_`]+/g, '').trim().split(/\n+/)[0].trim();
+  if ((t.match(/"/g) ?? []).length === 2 && /^"|"\W*$/.test(t)) t = t.replace(/"/g, ''); // (a line in quotes, an emoji outside them)
   t = t.replace(/(\s+#[\p{L}\p{N}_]+)+[^\p{L}\p{N}#]{0,8}$/u, (m) => m.replace(/#[\p{L}\p{N}_]+/gu, '')).trim(); // (hashtags at the end: let go)
   t = t.replace(/^([^\p{L}\p{N}"'“]*)["'“]+/u, '$1').replace(/["'”]+([^\p{L}\p{N}"'”]*)$/u, '$1').trim(); // (quotes round it, emoji outside them)
   t = t.replace(/^\s*(\d+[.)]|[-*•])\s*/, '').replace(new RegExp(`^(${(name || 'x').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|comment|caption|me)\\s*:\\s*`, 'i'), '').replace(/^["'“”]+|["'“”]+$/g, '').trim();
@@ -166,18 +167,76 @@ Write ONE short comment (4-16 words) about something specific in the post, like 
   return out;
 }
 
+/**
+ * How good a caption reads (higher is better), to keep the better of the AI's and the engine's: specific (it
+ * names what's in the photo), a caption's length, a little personality; not generic filler, not a literal
+ * description, not a title.
+ */
+export function scoreCaption(text, scene = '') {
+  const t = String(text ?? '').replace(/\s*#[\p{L}\p{N}_]+/gu, '').replace(/["“”]/g, '').trim(); if (!t) return -9;
+  const ws = t.split(/\s+/).length;
+  const sw = new Set(words(scene).filter((w) => !/^(feels|like|one|person|people|wearing|background|look|clothes|with|night|morning)$/.test(w)));
+  let sc = 0;
+  sc += Math.min(3, words(t).filter((w) => sw.has(w)).length) * 1.5; // (names what's in it)
+  if (ws >= 3 && ws <= 10) sc += 1; else if (ws > 13) sc -= 2;
+  const emo = t.match(/\p{Extended_Pictographic}/gu) ?? [];
+  if (emo.length > 2) sc -= 1;
+  if (emo.some((e) => /[☠🦾💦🛂💡💻🧽💀🤖⚠🚫💬]/u.test(e))) sc -= 1.5; // (an emoji that doesn't belong)
+  if (/\b(i|my|me|we|our|us)\b/i.test(t)) sc += 0.5; // (a voice of its own)
+  sc -= (t.match(/\b(vibes?|feeling|perfect|amazing|beautiful|lovely|wonderful|stunning|blessed|grateful|enjoying|captured|moment|statement|here we come|has begun|dreams?)\b/gi) ?? []).length * 1.5; // (filler)
+  if (/\b(wearing|background|with a|there (is|are)|this (photo|picture|image)|in the photo)\b/i.test(t)) sc -= 2; // (a description)
+  if (/[\u3000-\u9fff]/.test(t)) sc -= 9;
+  const tw = t.match(/\p{L}[\p{L}']*/gu) ?? []; if (tw.length >= 4 && tw.filter((w) => /^\p{Lu}/u.test(w)).length / tw.length > 0.6) sc -= 2;
+  return sc;
+}
+
 const CAP_SHOTS = [
   { role: 'user', content: 'What\'s in my photo: one person; with coffee; wearing beige cardigan; in the morning.' }, { role: 'assistant', content: 'cardigan weather and a latte, that\'s the whole plan ☕' },
   { role: 'user', content: 'What\'s in my photo: 3 people; feels like: friends, beach; background: sand, water.' }, { role: 'assistant', content: 'salty hair, sandy feet, best people 🌊' },
+  { role: 'user', content: 'What\'s in my photo: with golden retriever; feels like: pet; background: green.' }, { role: 'assistant', content: 'he thinks every park is his park 🐕' },
+  { role: 'user', content: 'What\'s in my photo: with burger, fries; in Austin; at night.' }, { role: 'assistant', content: 'late night Austin burger run, no regrets 🍔' },
 ];
-/** A caption by the model from what the photo shows (`scene`), as `handle` in its `persona`'s voice, or null: the engine's (`draft`) as a guide. */
+/** The messages for a caption (what aiCaption sends the model; exported to try it out off the phone). */
+export function captionMessages({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic' }) {
+  const system = `You are ${handle || 'someone'}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it (name the thing, the place or the moment), in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-12 words. Never describe the photo literally, no filler like "vibes" or "moment"; never mention being an AI.`;
+  const user = `What's in my photo: ${scene}.${draft ? ` An idea: "${draft.replace(/\s#\S+/g, '')}" (write your own, more specific).` : ''}${avoid.length ? ` Not these: ${avoid.slice(-3).map((a) => `"${a}"`).join(', ')}.` : ''}`;
+  return [{ role: 'system', content: system }, ...CAP_SHOTS, { role: 'user', content: user }];
+}
+/** The model's caption checked, and kept only if it reads clearly better than the engine's (`draft`): else null. */
+export function pickCaption(raw, { scene = '', draft = '', level = 0, avoid = [] } = {}) {
+  const t = checkLine(raw, { about: `${scene} ${draft}`, level: Math.min(level, 1), min: 2, max: 14 });
+  if (!t || avoid.some((a) => String(a).toLowerCase().startsWith(t.toLowerCase()))) return null;
+  return scoreCaption(t, scene) >= scoreCaption(draft, scene) + 1 ? t : null; // (clearly better, or the engine's)
+}
+
+/**
+ * A caption by the model from what the photo shows (`scene`), as `handle` in its `persona`'s voice, or null: the
+ * engine's (`draft`) as a guide, and kept instead unless the model's reads clearly better (two tries).
+ */
 export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic', timeout = 12000 }) {
   if (!ready || !scene) return null;
-  const system = `You are ${handle || 'someone'}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it, in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-14 words. Never describe the photo literally; never mention being an AI.`;
-  const user = `What's in my photo: ${scene}.${draft ? ` An idea: "${draft.replace(/\s#\S+/g, '')}" (write your own, more specific).` : ''}${avoid.length ? ` Not these: ${avoid.slice(-3).map((a) => `"${a}"`).join(', ')}.` : ''}`;
+  const messages = captionMessages({ scene, draft, level, avoid, handle, persona }); const end = Date.now() + timeout;
+  for (let k = 0; k < 2; k++) {
+    const left = end - Date.now(); if (left < 1500) break;
+    try {
+      const r = await race(ask({ type: 'generate', messages, options: { max_new_tokens: 32, temperature: 0.8 } }), left);
+      const t = pickCaption(r.text, { scene, draft, level, avoid }); if (t) return t;
+    } catch { break; }
+  }
+  return null;
+}
+
+/**
+ * A reply by the model from the post's account (`poster`, its `persona`) to `commenter`'s `comment` on its own
+ * post, or null: the engine's (`draft`) as a guide; `scene`, `caption`, `level`.
+ */
+export async function aiCommentReply({ poster, persona = 'classic', commenter, comment, draft = '', scene = '', caption = '', level = 0, timeout = 12000 }) {
+  if (!ready || !comment) return null;
+  const system = `You are ${poster}, replying to a comment your close friend ${commenter} left on your own post on a private social app. Your vibe: ${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}. ${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]}
+Write ONE short reply (2-14 words) to exactly what they said: thank them for a compliment, answer a question, banter back at a tease. No hashtags; never mention being an AI.`;
+  const user = `Your post: ${scene ? `${scene}. ` : ''}${caption ? `Your caption: "${caption.slice(0, 200)}". ` : ''}${commenter} commented: "${comment.slice(0, 300)}".${draft ? ` Something like "${draft.replace(/^@\S+\s*/, '')}" but in your own words.` : ''}`;
   try {
-    const r = await race(ask({ type: 'generate', messages: [{ role: 'system', content: system }, ...CAP_SHOTS, { role: 'user', content: user }], options: { max_new_tokens: 36, temperature: 0.8 } }), timeout);
-    const t = checkLine(r.text, { about: `${scene} ${draft}`, level: Math.min(level, 1), min: 2, max: 16 });
-    return t && !avoid.some((a) => String(a).toLowerCase().startsWith(t.toLowerCase())) ? t : null;
+    const r = await race(ask({ type: 'generate', messages: [{ role: 'system', content: system }, { role: 'user', content: user }], options: { max_new_tokens: 36, temperature: 0.8 } }), timeout);
+    return checkLine(r.text, { about: `${comment} ${draft} ${caption}`, level, name: poster, max: 18 });
   } catch { return null; }
 }

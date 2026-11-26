@@ -1085,3 +1085,42 @@ test('Socials is encrypted on the phone: nothing readable as kept; opened again 
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials: replies to comments: the post\'s account answers a comment on its post in a thread under it (in its own voice); Reply under a comment answers it; the Owner\'s posts left for you', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('amy'); await page.getByRole('button', { name: 'Create account' }).click();
+  // A post from amy.
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').first().waitFor();
+  await page.getByLabel('Caption').fill('Pizza night in Denver');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.so-post').first().waitFor();
+  // The Owner comments on it: amy answers, under it.
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  const postId = await page.evaluate(async () => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); return state.posts.find((p) => p.caption.startsWith('Pizza'))?.id; });
+  assert.ok(postId);
+  await page.getByRole('button', { name: 'Search' }).click(); await page.getByLabel('Search accounts').fill('amy');
+  await page.locator('.so-person', { hasText: 'amy' }).locator('.so-person-main').click(); await page.locator('.so-tile').first().click();
+  await page.getByLabel('Add a comment').fill('where is this?? looks amazing');
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
+  // (Her automatic comments' answers too; this one's to the question: where.)
+  const reply = page.locator('.so-comment.so-reply', { hasText: 'Denver' }).first(); await reply.waitFor({ timeout: 15000 });
+  assert.match(await reply.textContent(), /^amy /, 'amy answers, where: from her caption');
+  // Reply under amy's answer: in the same thread.
+  await reply.getByRole('button', { name: 'Reply to @amy' }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Reply to @amy' }).inputValue(), '@amy ');
+  await page.getByRole('textbox', { name: 'Reply to @amy' }).fill('@amy need to go!!');
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.so-comment.so-reply').length >= 2);
+  const st = await page.evaluate(async (id) => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); const p = state.posts.find((x) => x.id === id); return p.comments.map((c) => ({ re: !!c.re, root: c.re ?? null, id: c.id })); }, postId);
+  const mineTop = st.filter((c) => !c.re).at(-1);
+  assert.equal(st.filter((c) => c.root === mineTop.id).length, 2, 'her answer and mine, both under my comment');
+  assert.deepEqual(errors, []);
+  await page.close();
+});

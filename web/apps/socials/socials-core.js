@@ -343,10 +343,12 @@ export function toggleLike(state, postId, who) {
 }
 
 /** Comment on a post as `who`. Returns the comment, or null. */
-export function addComment(state, postId, who, text) {
+export function addComment(state, postId, who, text, { re = null, at = Date.now() } = {}) {
   const p = postById(state, postId); const t = String(text ?? '').trim();
   if (!p || !t || !accountById(state, who)) return null;
-  const c = { id: newId(), by: who, text: t.slice(0, 500), at: Date.now() };
+  // (`re`: the comment it answers (a reply, shown under it); replies to replies go under the same one.)
+  const parent = re ? p.comments.find((x) => x.id === re) : null; const root = parent?.re ?? parent?.id ?? null;
+  const c = { id: newId(), by: who, text: t.slice(0, 500), at, ...(root ? { re: root } : {}) };
   p.comments.push(c); p.upd = c.at; return c;
 }
 

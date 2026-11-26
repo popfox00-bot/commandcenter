@@ -138,6 +138,10 @@ async function fakeScript(context, key = 'k3y', { version = 4 } = {}) {
     if (req.action === 'upload' && req.folder) {
       kit.push({ folder: req.folder, name: req.name, data: req.data });
       if (!folders.some((d) => d.name === req.folder && !d.parent)) folders.push({ id: `d${folders.length + 1}`, name: req.folder, parent: '' });
+      // (In that folder too, as Drive has it: listed, downloaded, deleted; same names replaced.)
+      const dir = folders.find((d) => d.name === req.folder && !d.parent).id;
+      const same = files.findIndex((x) => x.parent === dir && x.name === req.name); if (same >= 0) files.splice(same, 1);
+      files.push({ id: `k${kit.length}`, name: req.name, type: req.type, size: Buffer.from(req.data, 'base64').length, updated: NOW + (++n), data: req.data, from: req.from, parent: dir });
       return send({ ok: true, file: { id: `k${kit.length}`, name: req.name, folder: req.folder } });
     }
     if (req.action === 'upload') { const f = { id: `f${++n}`, name: req.name, type: req.type, size: Buffer.from(req.data, 'base64').length, updated: NOW + n, data: req.data, from: req.from, parent: req.folderId || '' }; files.push(f); const { data, parent, ...info } = f; return send({ ok: true, file: info }); }
@@ -570,6 +574,18 @@ test('Settings → Saved Files: the extras kept only on this phone backed up (en
   await page.getByText('Restored 3 things.').waitFor();
   const got = await page.evaluate(async () => { const { idb } = await import('./lib/idb.js'); return { m: await idb.get('cc.saved.matches'), bg: [...new Uint8Array((await idb.get('cc.bg.vault')).buf)], dock: localStorage.getItem('cc.dock.mode') }; });
   assert.equal(got.m[0].handle, 'amy'); assert.deepEqual(got.bg, [1, 2, 3, 250]); assert.equal(got.dock, '{"socials":"tucked"}');
+  // Every week, by itself: on with the password (one now), not again until a week's gone by; it opens with the password.
+  await page.getByLabel('Backup password').fill(pw);
+  await page.getByLabel('Back up every week by itself').check();
+  await page.getByText(/Weekly backups on\. Backed up now: cc-extras-/).waitFor({ timeout: 20000 });
+  const n1 = script.kit.filter((k) => k.folder === 'Backups').length;
+  const again = await page.evaluate(async () => { const m = await import('./lib/extras-backup.js'); return [await m.autoBackup(), await m.autoBackup({ now: Date.now() + 8 * 864e5 })]; });
+  assert.deepEqual(again[0], { skipped: 'not due' }); assert.equal(again[1].done, true, 'a week on: again');
+  assert.equal(script.kit.filter((k) => k.folder === 'Backups').length, n1 + 1);
+  const weeklyFile = script.kit.filter((k) => k.folder === 'Backups').at(-1);
+  const opened = await page.evaluate(async ([data, p]) => { const m = await import('./lib/extras-backup.js'); const blob = new Blob([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))]); return m.countOf(await m.open(blob, p)); }, [weeklyFile.data, pw]);
+  assert.equal(opened, 3, 'opens with the backup password');
+  await page.getByLabel('Back up every week by itself').uncheck(); await page.getByText('Weekly backups off.').waitFor();
   assert.deepEqual(external.filter((u) => !u.startsWith('https://script.google.com/')), []);
   assert.deepEqual(errors, []);
   await context.close();
@@ -622,6 +638,88 @@ test('Unknown people: faces that are none of your accounts, grouped by person ac
     const k = await knownAccounts(); return matchFaces([{ d: vec(5, 0.02) }], k.known, 0.5, { not: k.not }).map((h) => k.accounts.find((a) => a.id === h.id)?.handle);
   });
   assert.deepEqual(hit, ['lee.park']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a new phone set up from Drive with one password: Socials joined (its accounts come down), the extras restored, the Vault given the password', async () => {
+  const pw = ['otter', 'bay', '31'].join('-');
+  const cfgInit = () => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' }));
+  // The old phone: Socials (in Drive, encrypted) and a backup of the extras.
+  const a = await browser.newContext({ viewport: { width: 390, height: 844 } }); const drive = await fakeScript(a); await a.addInitScript(cfgInit);
+  const { page: pa } = await open(a, 'index.html#/socials/admin');
+  await pa.getByLabel('Password', { exact: true }).fill(pw); await pa.getByLabel('Password again').fill(pw); await pa.getByRole('button', { name: 'Set password' }).click();
+  await pa.getByLabel('Username', { exact: true }).fill('maya'); await pa.getByRole('button', { name: 'Create account' }).click();
+  await pa.getByRole('button', { name: 'I\'ve saved it' }).click();
+  await pa.waitForTimeout(500); // (its first sync done)
+  await pa.evaluate(async (p) => {
+    const { idb } = await import('./lib/idb.js'); await idb.set('cc.saved.matches', [{ fileId: 'x1', name: 'beach.jpg', accountId: 'a1', handle: 'maya', sure: 95, at: 1 }]);
+    const X = await import('./lib/extras-backup.js'); const S = await import('./lib/saved-files.js');
+    await S.savedFiles(S.getConfig()).upload(new File([await X.seal(await X.gather(), p)], X.fileName(), { type: 'application/octet-stream' }), 'Backup', X.FOLDER);
+  }, pw);
+  await a.close();
+  // The new phone: the same Drive, nothing on it yet.
+  const b = await browser.newContext({ viewport: { width: 390, height: 844 } }); const drive2 = await fakeScript(b);
+  drive2.files.push(...drive.files); drive2.folders.push(...drive.folders); await b.addInitScript(cfgInit);
+  const { page, errors } = await open(b, '#/settings/saved');
+  await page.getByText('📲 Setting up a new phone?').click();
+  await page.getByLabel('Your password').fill(pw);
+  await page.getByRole('button', { name: '📲 Set up this phone' }).click();
+  const step = (n) => page.locator('.np-step', { hasText: n });
+  await step('Vault').locator('.small').filter({ hasNotText: 'Waiting' }).waitFor({ timeout: 30000 });
+  assert.match(await step('Saved Files encryption').textContent(), /Not encrypted/);
+  assert.match(await step('Socials').textContent(), /✓.*Joined/);
+  assert.match(await step('Extras').textContent(), /✓.*Restored \d+ things from cc-extras-/);
+  assert.match(await step('Vault').textContent(), /✓.*the same one/);
+  assert.equal((await page.evaluate(async () => (await import('./lib/idb.js')).idb.get('cc.saved.matches')))[0].handle, 'maya', 'the extras back');
+  // Socials opens with that password, and its account comes down from Drive.
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  const pass = page.getByLabel('Password', { exact: true }); await pass.or(page.locator('.so-switch')).first().waitFor();
+  if (await pass.count()) { await pass.fill(pw); await page.getByRole('button', { name: /^(Open|Unlock)$/ }).first().click(); }
+  await page.locator('.so-switch', { hasText: 'maya' }).waitFor({ timeout: 20000 });
+  assert.deepEqual(errors, []);
+  await b.close();
+});
+
+test('Saved Files 🔎 Search: by name, kind, person and date across the folders seen (or all looked through), with their pictures; offline too', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  const fx = async (n) => (await readFile(join(import.meta.dirname, '../fixtures', n))).toString('base64');
+  script.folders.push({ id: 'd1', name: 'Trips', parent: '' }, { id: 'd2', name: 'Work', parent: '' });
+  script.files.push({ id: 'p1', name: 'beach_day.png', type: 'image/png', size: 10, updated: NOW - 2 * 864e5, data: await fx('icon_tags.png'), from: 'Files', parent: 'd1' });
+  script.files.push({ id: 'p2', name: 'beach-sunset.mp4', type: 'video/mp4', size: 10, updated: NOW - 400 * 864e5, data: await fx('icon_mute.png'), from: 'Files', parent: 'd1' });
+  script.files.push({ id: 't1', name: 'budget beach house.pdf', type: 'application/pdf', size: 10, updated: NOW - 864e5, data: Buffer.from('%PDF').toString('base64'), from: 'Files', parent: 'd2' });
+  script.files.push({ id: 'm1', name: 'notes.txt', type: 'text/plain', size: 2, updated: NOW, data: Buffer.from('hi').toString('base64'), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/files/saved');
+  await page.waitForSelector('.sv-item:has-text("notes.txt")');
+  await page.evaluate(async () => { const { keepMatch } = await import('./tools/saved/scanner.js'); await keepMatch({ fileId: 'p1', name: 'beach_day.png', accountId: 'a1', handle: 'amy', sure: 90 }); });
+  // Only the main folder seen so far: then every folder looked through.
+  await page.getByRole('button', { name: '🔎 Search' }).click();
+  await page.getByLabel('Search Saved Files').fill('beach');
+  await page.getByText('0 of 1 file.').waitFor();
+  await page.getByRole('button', { name: '⟳ Look through every folder' }).click();
+  await page.getByText('3 of 4 files.').waitFor();
+  const names = () => page.locator('.sv-results .sv-name').allTextContents();
+  const want = (list, msg) => page.waitForFunction((l) => JSON.stringify([...document.querySelectorAll('.sv-results .sv-name')].map((e) => e.textContent)) === JSON.stringify(l), list, { timeout: 5000 }).catch(async () => assert.deepEqual(await names(), list, msg));
+  await want(['budget beach house.pdf', 'beach_day.png', 'beach-sunset.mp4'], 'newest first, separators as spaces');
+  assert.match(await page.locator('.sv-results .sv-item', { hasText: 'beach_day.png' }).textContent(), /👤 @amy.*📁 Trips/);
+  await page.getByRole('button', { name: '🎞️ Videos' }).click(); await want(['beach-sunset.mp4']);
+  await page.getByRole('button', { name: '📄 Documents' }).click(); await want(['budget beach house.pdf']);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await page.getByLabel('Person', { exact: true }).selectOption('amy'); await want(['beach_day.png']);
+  await page.getByLabel('Person', { exact: true }).selectOption(''); await page.getByLabel('Date', { exact: true }).selectOption('older'); await want(['beach-sunset.mp4']);
+  await page.getByLabel('Date', { exact: true }).selectOption('week'); await page.getByLabel('Search Saved Files').fill('trips beach'); await want(['beach_day.png'], 'by folder name too');
+  // Folder: to where it is.
+  await page.getByRole('button', { name: 'Go to the folder of beach_day.png' }).click();
+  await page.waitForSelector('.sv-crumbs strong:has-text("Trips")');
+  // Offline: still found (opening needs the connection).
+  await page.reload(); await page.waitForSelector('.sv-item'); await context.setOffline(true);
+  await page.getByRole('button', { name: 'Refresh' }).click(); // (the folder can't be loaded now)
+  await page.getByRole('button', { name: '🔎 Search' }).click();
+  await page.getByLabel('Search Saved Files').fill('budget');
+  await page.locator('.sv-results .sv-name', { hasText: 'budget beach house.pdf' }).waitFor();
+  await context.setOffline(false);
   assert.deepEqual(errors, []);
   await context.close();
 });

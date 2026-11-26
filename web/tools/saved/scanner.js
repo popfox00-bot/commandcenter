@@ -110,20 +110,33 @@ export async function scanFiles(files, { download, local = null, known, accounts
 
 /**
  * A file confirmed as an account: put on that account in Socials as a draft (its photo, or the video and a
- * still of it), marked as from Saved Files, waiting for you to look it over and share it there. Socials must be
- * unlocked in this session. Resolves to the draft's id.
+ * still of it), marked as from Saved Files, waiting for you to look it over and share it there. Several people
+ * in one file: the first confirmed has the draft, each one after is added to it as a collaborator (and
+ * tagged), as a post with several people in it; asked when it's shared. Socials must be unlocked in this
+ * session. `getFile()`: the file (only fetched when a new draft is made). Resolves to { draftId, owner (the
+ * draft's account id), collab (true when added to one already there) }.
  */
-export async function sendToSocials(accountId, f, file) {
+export async function sendToSocials(accountId, f, getFile) {
   const S = await import('../../apps/socials/socials-store.js'); const C = await import('../../apps/socials/socials-core.js');
+  const { state } = await S.loadState();
+  if (!C.accountById(state, accountId)) throw new Error('That account isn\'t in Socials any more.');
+  const had = state.posts.find((p) => p.draft && !p.trashed && p.fromSaved?.fileId === f.id);
+  if (had) {
+    if (had.by !== accountId) {
+      C.setCollabs(state, had.id, [...(had.collab ?? []).filter((c) => c.status !== 'declined').map((c) => c.id), accountId]);
+      had.tags = [...new Set([...(had.tags ?? []), accountId])]; had.upd = Date.now();
+      await S.saveState(state);
+    }
+    return { draftId: had.id, owner: had.by, collab: had.by !== accountId };
+  }
+  const file = await getFile();
   let image = null; let video = null;
   if (isVideo(f)) { const { prepareVideo } = await import('../../apps/socials/socials-editor.js'); const v = await prepareVideo(file); video = v.video; image = v.still; }
   else image = await shrink(file, 1440).catch(() => file);
-  const { state } = await S.loadState();
-  if (!C.accountById(state, accountId)) throw new Error('That account isn\'t in Socials any more.');
   const p = C.addPost(state, accountId, { image, video, draft: true });
   p.fromSaved = { fileId: f.id, name: f.name, at: Date.now() };
   await S.saveState(state);
-  return p.id;
+  return { draftId: p.id, owner: accountId, collab: false };
 }
 
 /**
@@ -216,15 +229,17 @@ export function openScanner(files, { download, results: preset = null, onChange 
           const yes = el('button', { type: 'button', class: 'btn small-btn primary', text: '✓ It\'s them', hidden: !!was, 'aria-label': `It's @${h.handle} in ${r.f.name}`, onclick: async () => {
             yes.disabled = true; no.disabled = true; note.textContent = `Putting it in @${h.handle}'s drafts…`;
             try {
-              const draftId = await sendToSocials(h.id, r.f, await download(r.f.id));
-              await keepMatch({ fileId: r.f.id, name: r.f.name, accountId: h.id, handle: h.handle, sure: h.sure, draftId });
-              note.textContent = `✓ Matched · a draft on @${h.handle}, waiting for your OK in Socials`; yes.hidden = true; no.hidden = true; onChange();
+              const d = await sendToSocials(h.id, r.f, () => download(r.f.id));
+              await keepMatch({ fileId: r.f.id, name: r.f.name, accountId: h.id, handle: h.handle, sure: h.sure, draftId: d.draftId });
+              const ownerHandle = r.hits.find((x) => x.id === d.owner)?.handle;
+              note.textContent = d.collab ? `✓ Matched · added as a collaborator on ${ownerHandle ? `@${ownerHandle}'s` : 'the'} draft (it's one post with them both)` : `✓ Matched · a draft on @${h.handle}, waiting for your OK in Socials`;
+              yes.hidden = true; no.hidden = true; onChange();
             } catch (e) { note.textContent = e.message === 'Socials is locked.' ? 'Socials is locked: open it (or scan again) to unlock.' : `Couldn't: ${e.message}`; yes.disabled = false; no.disabled = false; }
           } });
           const no = el('button', { type: 'button', class: 'btn small-btn ghost', text: '✕ Not them', 'aria-label': `Not @${h.handle} in ${r.f.name}`, hidden: !!was, onclick: () => { row.classList.add('sc-no'); yes.hidden = true; no.hidden = true; note.textContent = 'Not them'; } });
           row.append(el('span', { class: 'row sc-yesno' }, yes, no)); return row;
         }))))) : null,
-      el('p', { class: 'small muted', text: 'Only suggestions until you say so. "It\'s them" puts the file on that account in Socials as a draft (nothing is shared until you share it there) and marks it matched here; the matches are in ⚙ Character matches.' }),
+      el('p', { class: 'small muted', text: 'Only suggestions until you say so. "It\'s them" puts the file on that account in Socials as a draft (nothing is shared until you share it there) and marks it matched here. Several people in one file: say yes to each; the first has the draft and the others are added to it as collaborators. The matches are in ⚙ Character matches.' }),
       el('button', { type: 'button', class: 'btn block', text: 'Done', onclick: () => dlg.close() }));
   }
 

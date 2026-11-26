@@ -486,26 +486,32 @@ test('Scan review: the file\'s picture and the face beside the account\'s photo;
   await page.goto(`${origin}${BASE}#/files/saved`); await page.waitForSelector('.sv-item:has-text("icon_tags.png")');
   await page.evaluate(async () => {
     const { openScanner, knownAccounts } = await import('./tools/saved/scanner.js');
-    const { accounts } = await knownAccounts(); const jordan = accounts.find((a) => a.handle === 'jordan');
+    const { accounts } = await knownAccounts(); const jordan = accounts.find((a) => a.handle === 'jordan'); const maya = accounts.find((a) => a.handle === 'maya');
     const pic = await (await fetch('./icons/icon-192.png')).blob();
     const f = { id: 'p1', name: 'icon_tags.png', type: 'image/png' };
     const files = (await import('./lib/saved-files.js')); const api = files.secureFiles(files.savedFiles(files.getConfig()));
-    openScanner([f], { download: (id) => api.download(id), results: [{ f, faces: 1, pics: [pic], hits: [{ id: jordan.id, handle: 'jordan', avatar: null, distance: 0.3, sure: 89, crop: pic }], error: '' }] });
+    openScanner([f], { download: (id) => api.download(id), results: [{ f, faces: 1, pics: [pic], hits: [{ id: jordan.id, handle: 'jordan', avatar: null, distance: 0.3, sure: 89, crop: pic }, { id: maya.id, handle: 'maya', avatar: null, distance: 0.35, sure: 80, crop: pic }], error: '' }] });
   });
   const dlg = page.getByRole('dialog', { name: 'Scan for characters' });
   await dlg.locator('.sc-preview img').waitFor();
-  assert.equal(await dlg.getByRole('img', { name: 'The face in icon_tags.png' }).count(), 1, 'the face, to compare');
-  assert.match(await dlg.locator('.sc-hit').textContent(), /@jordan\s*89% likely/);
+  assert.equal(await dlg.getByRole('img', { name: 'The face in icon_tags.png' }).count(), 2, 'each face, to compare');
+  assert.match(await dlg.locator('.sc-hit').first().textContent(), /@jordan\s*89% likely/);
   await dlg.getByRole('button', { name: 'It\'s @jordan in icon_tags.png' }).click();
   await dlg.getByText('✓ Matched · a draft on @jordan, waiting for your OK in Socials').waitFor({ timeout: 20000 });
+  // (Two people in it: the second added to the same draft as a collaborator.)
+  await dlg.getByRole('button', { name: 'It\'s @maya in icon_tags.png' }).click();
+  await dlg.getByText('✓ Matched · added as a collaborator on @jordan\'s draft (it\'s one post with them both)').waitFor({ timeout: 20000 });
   await dlg.getByRole('button', { name: 'Done' }).click();
   // Marked in Files, and a filter by person.
   await page.reload(); await page.waitForSelector('.sv-item:has-text("icon_mute.png")');
-  assert.equal(await page.locator('.sv-item:has-text("icon_tags.png") .sv-match').textContent(), '👤 @jordan');
+  assert.equal(await page.locator('.sv-item:has-text("icon_tags.png") .sv-match').textContent(), '👤 @jordan, @maya', 'both matched');
   assert.equal(await page.locator('.sv-item:has-text("icon_tags.png") .sv-thumb img').count(), 0, 'no picture kept for it until a real scan');
   await page.getByRole('button', { name: '👤 @jordan' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.sv-item:not(.sv-folder)').length === 1);
   assert.match(await page.locator('.sv-item:not(.sv-folder)').textContent(), /icon_tags\.png/);
+  await page.getByRole('button', { name: '👤 @maya' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.sv-item:not(.sv-folder)').length === 1);
+  assert.match(await page.locator('.sv-item:not(.sv-folder)').textContent(), /icon_tags\.png/, 'under each person');
   await page.getByRole('button', { name: 'Everyone' }).click();
   await page.waitForSelector('.sv-item:has-text("icon_mute.png")');
   // In Socials: the draft from Saved Files, waiting; opened on @jordan, ready to share. Kept encrypted.
@@ -519,6 +525,7 @@ test('Scan review: the file\'s picture and the face beside the account\'s photo;
   assert.match(await page.locator('.so-fs-item').textContent(), /@jordan.*icon_tags\.png/);
   await page.getByRole('button', { name: 'Open the draft on @jordan: icon_tags.png' }).click();
   assert.match(await page.locator('.so-switch').textContent(), /jordan/, 'switched to that account');
+  assert.match(await page.locator('.so-main').textContent(), /Collab · 1/, 'maya a collaborator on it');
   await page.getByRole('button', { name: 'Share' }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.so-main button.btn.primary')?.disabled);
   await page.getByRole('button', { name: 'Share' }).click();

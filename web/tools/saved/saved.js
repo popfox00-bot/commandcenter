@@ -39,7 +39,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
   // scan of files just saved, to review.)
   let matches = []; let person = ''; let scanned = null;
   const refreshMatches = () => listMatches().then((l) => { matches = l; for (const [k, v] of thumbUrls) if (!v) thumbUrls.delete(k); if (!inFavs && api && !busy) render(); });
-  const whoIn = (id) => [...new Set(matches.filter((m) => m.fileId === id).map((m) => m.handle))];
+  const whoIn = (id) => [...new Set(matches.filter((m) => m.fileId === id).map((m) => m.handle))].sort(); // (several people in a file: each)
   // (Files' own small pictures, made when scanned (or starred): shown in place of the kind's tile.)
   const thumbUrls = new Map();
   refreshMatches();

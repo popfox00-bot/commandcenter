@@ -523,7 +523,10 @@ set in it, kept only on this phone.)
   each file shows its picture (a video four stills from through it) and each suggestion the face found beside the
   account's profile photo. Say ✕ Not them, or ✓ It's them: that puts the file on that account in Socials as a
   **draft, waiting for your OK** (nothing is shared until you share it there), and marks the file **👤 @amy** in
-  Saved Files. Chips above the list (and in ★ Favorites) show only one person's files. Photos and videos saved
+  Saved Files. A file with several of your accounts in it can match each of them (say ✓ to each: the first has the
+  draft and each after is added to it as a collaborator, tagged, so it's one post with them all; the file is marked
+  **👤 @amy, @bo**). Chips above the list (and in ★ Favorites) show only one person's files (a file with several
+  people is under each). Photos and videos saved
   from the phone are scanned as they're saved (from the files picked, nothing downloaded again), with a note to
   review any that might show your accounts. Socials' data is encrypted on the phone, so scanning asks for the
   Socials password once a session if Socials hasn't been opened. Scanned files keep a small picture on the phone,

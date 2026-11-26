@@ -3,7 +3,9 @@
 // (Tame … Adult). Turned on in Sync and password: a one-time download (~1.2 GB) from Hugging Face, then it
 // works offline. It needs WebGPU (iPhone with iOS 26 or later, current Chrome/Edge): without it, or while it
 // loads, or when what it writes doesn't hold up (too long, off topic, sounding like an assistant), the reply
-// comes from the built-in engine (socials-chat.js) as before. Nothing is sent anywhere.
+// comes from the built-in engine (socials-chat.js) as before. Nothing you write, nor anything written back, ever
+// leaves the phone: the worker's network is fenced in (socials-ai-guard.js): the model's own files, downloaded
+// once, and then nothing remote at all.
 
 import { store } from '../../lib/dom.js';
 import { cleanWords } from './socials-style.js';
@@ -49,11 +51,12 @@ const ask = (msg, progress) => new Promise((resolve, reject) => { const id = ++s
 export function aiLoad(onProgress = () => {}, options = {}) {
   if (ready) return Promise.resolve();
   const files = new Map();
-  loadP ??= ask({ type: 'load', options }, (p) => {
+  // (Downloading allowed only when it isn't on the phone yet; the worker refuses anything remote otherwise.)
+  loadP ??= aiDownloaded().then((have) => ask({ type: 'load', options: { ...options, download: options.download ?? !have } }, (p) => {
     if (!p.file) return; files.set(p.file, { loaded: p.status === 'done' ? (p.total || files.get(p.file)?.total || 0) : p.loaded, total: p.total || files.get(p.file)?.total || 0 });
     let l = 0; let t = 0; for (const f of files.values()) { l += f.loaded; t += f.total; }
     onProgress(t ? Math.min(1, l / t) : 0, l, t);
-  }).then(() => { ready = true; }, (e) => { loadP = null; throw e; });
+  })).then(() => { ready = true; }, (e) => { loadP = null; throw e; });
   return loadP;
 }
 export const aiReady = () => ready;

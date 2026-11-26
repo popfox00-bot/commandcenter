@@ -4,19 +4,34 @@
 // Messages: { id, type: 'load' } → progress…, ready | error; { id, type: 'generate', messages, options } →
 // done { text } | error.
 
-import * as tf from '../../vendor/transformers/transformers.min.js';
+import { guardedFetch, fenceWorker } from './socials-ai-guard.js';
+
+// (The network fenced in before anything else loads: the app's own files; Hugging Face's files for this model
+// only while it's being downloaded; nothing else, ever (socials-ai-guard.js).)
+let remote = false; let model = 'onnx-community/Qwen2.5-1.5B-Instruct';
+const fence = { origin: self.location.origin, model: () => model, remote: () => remote };
+self.fetch = guardedFetch(self.fetch.bind(self), fence);
+fenceWorker(self, fence);
+// (Loaded once the fence is up; the messages listened for straight away, below.)
+const tfP = import('../../vendor/transformers/transformers.min.js').then((tf) => {
+  tf.env.allowLocalModels = false;
+  tf.env.useBrowserCache = true;
+  tf.env.backends.onnx.wasm.wasmPaths = new URL('../../vendor/transformers/', import.meta.url).href;
+  tf.env.backends.onnx.wasm.numThreads = 1;
+  return tf;
+});
 
 export const MODEL = 'onnx-community/Qwen2.5-1.5B-Instruct';
-tf.env.allowLocalModels = false;
-tf.env.useBrowserCache = true;
-tf.env.backends.onnx.wasm.wasmPaths = new URL('../../vendor/transformers/', import.meta.url).href;
-tf.env.backends.onnx.wasm.numThreads = 1;
 
 let gen = null; let loading = null;
 async function load(id, o = {}) {
+  // (Downloading only when asked to (the model not on the phone yet); otherwise everything from the phone.)
+  remote = !!o.download; model = o.model ?? MODEL;
   // (`o`: another model, number type or device, for testing on a machine without WebGPU.)
+  const tf = await tfP;
   loading ??= tf.pipeline('text-generation', o.model ?? MODEL, { dtype: o.dtype ?? 'q4f16', device: o.device ?? 'webgpu', progress_callback: (p) => { if (p.status === 'progress' || p.status === 'done') postMessage({ id, type: 'progress', file: p.file, loaded: p.loaded ?? 0, total: p.total ?? 0, status: p.status }); } });
-  try { gen = await loading; } catch (e) { loading = null; throw e; }
+  try { gen = await loading; } catch (e) { loading = null; remote = false; throw e; }
+  remote = false; // (Downloaded: nothing remote from here on.)
   return gen;
 }
 

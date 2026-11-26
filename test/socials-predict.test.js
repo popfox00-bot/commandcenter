@@ -167,3 +167,23 @@ test('language levels: Tame never swears (cleaned), Casual only mild, Spicy and 
   assert.equal(checkReply('the weather on mars has been interesting lately with all these dust storms happening', { said: 'i got a puppy', draft: 'A puppy?! Send pics' }), null, 'off topic');
   assert.equal(checkReply('holy shit you got the job', { said: 'i got the job', level: 0 }), 'holy cow you got the job', 'cleaned to the level');
 });
+
+test('the AI worker\'s network fence: the app\'s own files; the model\'s files only while downloading; nothing carrying anything, ever', async () => {
+  const { allowRequest, guardedFetch } = await import('../web/apps/socials/socials-ai-guard.js');
+  const origin = 'https://example.github.io'; const model = 'onnx-community/Qwen2.5-1.5B-Instruct';
+  const ok = (o) => allowRequest({ origin, model, remote: true, ...o }).ok;
+  assert.ok(ok({ url: `${origin}/commandcenter/web/vendor/transformers/ort-wasm-simd-threaded.jsep.wasm` }), 'its own files');
+  assert.ok(ok({ url: `https://huggingface.co/${model}/resolve/main/onnx/model_q4f16.onnx` }), 'the model, while downloading');
+  assert.ok(ok({ url: 'https://us.aws.cdn.hf.co/xet-bridge-us/abc' }), 'its file servers');
+  assert.ok(!allowRequest({ origin, model, remote: false, url: `https://huggingface.co/${model}/resolve/main/config.json` }).ok, 'downloaded: nothing remote');
+  assert.ok(!ok({ url: 'https://api.example.com/v1/chat', method: 'POST', hasBody: true }), 'no posting anything anywhere');
+  assert.ok(!ok({ url: `https://huggingface.co/${model}/resolve/main/x.json`, method: 'POST', hasBody: true }));
+  assert.ok(!ok({ url: 'https://evil.com/collect?msg=hello' }), 'no other hosts');
+  assert.ok(!ok({ url: 'https://huggingface.co/api/whoami' }), 'not other Hugging Face pages');
+  assert.ok(!ok({ url: `https://huggingface.co/${model}/resolve/main/config.json?text=my+secret` }), 'no query strings');
+  assert.ok(!ok({ url: 'http://huggingface.co/x' }), 'https only');
+  // The wrapped fetch: refused without reaching the network.
+  let reached = 0; const f = guardedFetch(async () => { reached++; return new Response('ok'); }, { origin, model, remote: () => false });
+  await assert.rejects(f('https://evil.com/x'), /Blocked/); await assert.rejects(f(`https://huggingface.co/${model}/resolve/main/a`), /Blocked/);
+  assert.equal(reached, 0); await f(`${origin}/a.js`); assert.equal(reached, 1);
+});

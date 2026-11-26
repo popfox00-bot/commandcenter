@@ -1386,6 +1386,16 @@ Profile, ✈ for messages), where everything is made by you in the app.
   message, not too long, about what you said, a friend's words not an assistant's, at the level); one that doesn't
   hold up, or takes over 15 seconds, is replaced by the engine's. Without WebGPU it says so and the engine answers.
   Turn off, or remove the download, in the same place. The engine files (22 MB) are cached only once it's used.
+- **Private and offline: no text leaves the app.** Every reply, comment, caption and the reading of photos and faces
+  is worked out on the phone, and works offline: the built-in engine (`socials-chat.js`, `socials-predict.js`,
+  `socials-style.js`) is part of the app, precached; the photo readers and face recognition are vendored models;
+  the AI model is downloaded once and kept by the browser. The AI's worker has its network fenced in
+  (`socials-ai-guard.js`): its own files from the app; while the model is being downloaded, plain GETs of that
+  model's files from Hugging Face only (no body, no query, no other host or page); once it's on the phone, nothing
+  remote at all; XMLHttpRequest goes through the same check, and WebSocket, EventSource and sendBeacon are taken away.
+  A browser test watches every request while a post is read and captioned, comments are generated and messages are
+  answered, and fails if any leaves the app. (Socials' only other network uses: the Sports front's public scores,
+  and your own Saved Files copy, if set up, encrypted with your password on the phone before it's uploaded.)
 - **Language: Tame → Adult.** A slider in Sync and password for the words in generated replies and comments
   (`socials-style.js`): **Tame** never swears (anything that slips in is cleaned: "holy shit" → "holy cow"),
   **Casual** says damn and hell now and then, **Spicy** swears freely like close friends do, **Adult (18+)** adds

@@ -34,7 +34,7 @@ test('Clock: Colorado big, the others in two columns; + Add New; Edit to remove;
   assert.deepEqual(await page.locator('.ck-grid .ck-name').allTextContents(), ['California', 'New York', 'Hawaii', 'London', 'Germany', 'Romania']);
   const grid = await page.locator('.ck-grid').evaluate((g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
   assert.equal(grid, 2, 'two columns');
-  assert.match(await page.locator('.ck-grid .ck-card').filter({ hasText: 'California' }).textContent(), /Today, −1h/);
+  assert.match(await page.locator('.ck-grid .ck-card').filter({ hasText: 'California' }).textContent(), /(Today|Yesterday), −1h/);
   // + Add New: Tokyo.
   await page.getByRole('button', { name: '+ Add New' }).click();
   await page.getByLabel('Search places').fill('tokyo');

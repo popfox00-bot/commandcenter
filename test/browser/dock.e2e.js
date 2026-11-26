@@ -52,7 +52,7 @@ test('the Dock: Home in the middle, four Favorites; open an app, go Home, change
   assert.deepEqual(await labels(), ['Units', 'Clock', 'Home', 'Socials', 'Draw']);
   await page.reload(); assert.deepEqual(await labels(), ['Units', 'Clock', 'Home', 'Socials', 'Draw'], 'kept');
   // Typing: the Dock steps out of the way.
-  await page.goto(`${origin}${BASE}index.html#/units`); const box2 = page.locator('#app-host input[type="number"], #app-host input[type="text"], #app-host input[inputmode]').first(); await box2.waitFor();
+  await page.goto(`${origin}${BASE}index.html#/units`); const box2 = page.locator('#app-host input[type="number"]:visible, #app-host input[type="text"]:visible, #app-host input[inputmode]:visible').first(); await box2.waitFor();
   await page.waitForTimeout(300); await box2.click();
   await page.waitForFunction(() => document.body.classList.contains('dock-typing'), null, { timeout: 3000 });
   assert.equal(await dock.isVisible(), false, 'hidden while typing');

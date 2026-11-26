@@ -5,7 +5,7 @@
 // the next day), a post shared with it, and what it's said already (never the same again). All on the phone,
 // offline. Pure: give it the history. `rand` and `now` for tests.
 
-import { readText, emojisIn, intentOf, generateComment } from './socials-predict.js';
+import { readText, emojisIn, intentOf, generateComment, placesIn } from './socials-predict.js';
 
 const pick = (a, rand) => a[Math.floor(rand() * a.length) % a.length];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -76,6 +76,101 @@ const TOPIC_TALK = {
 const DOING = ['Just got back from the gym', 'Making dinner', 'Watching a movie', 'Just chilling at home', 'Out getting coffee', 'Working, but bored', 'Cleaning my room lol', 'About to go for a walk', 'Scrolling on my phone honestly'];
 const FEELING = ['I\'m good!', 'Pretty good!', 'Doing great!', 'Not bad at all!', 'Honestly so good today'];
 
+// ---- Its words back: what they said, said back to them (I → you, my → your) and built on, so the reply is about
+// what they actually said, not a stock line.
+
+const FLIP = { i: 'you', "i'm": "you're", im: "you're", "i've": "you've", ive: "you've", "i'll": "you'll", "i'd": "you'd", me: 'you', my: 'your', mine: 'yours', myself: 'yourself', we: 'you guys', "we're": "you guys are", "we've": "you guys have", us: 'you guys', our: 'your', ours: 'yours', am: 'are' };
+/** A sentence of theirs said back: "I got my license" → "you got your license" (null if it talks to it: "you"). */
+export function flip(text) {
+  const t = String(text ?? '').trim().replace(/[.!?…]+$/u, '').replace(/\p{Extended_Pictographic}(‍\p{Extended_Pictographic}|️)*/gu, '').trim();
+  if (!t || /\b(you|your|you're|u|ur)\b/i.test(t)) return null;
+  let out = t.split(/(\s+)/).map((w) => { const k = w.toLowerCase().replace(/[^a-z']/g, ''); const f = FLIP[k]; return f ? w.replace(new RegExp(k.replace(/'/g, "'"), 'i'), f) : w; }).join('');
+  out = out.replace(/\byou was\b/gi, 'you were').replace(/\byou guys was\b/gi, 'you guys were');
+  return out;
+}
+
+const ADJ = 'best|new|first|cutest|biggest|worst|little|big|huge|cute|amazing|good|great|perfect|favorite|favourite|crazy|fancy|cozy|delicious|long|short|old|last|whole|tiny|beautiful|gorgeous|fresh|hot|cold|spicy|sweet|own';
+const SKIP = new Set('day time thing things way lot bit kind sort today tonight tomorrow week weekend morning night moment while one ones stuff people guy guys idea point reason'.split(' '));
+/** The thing they talk about, with what they said of it: "I had the best pizza" → { phrase: 'the best pizza', noun: 'pizza' }. */
+export function phraseIn(text) {
+  const t = lower(text).replace(/#\S+/g, ' ');
+  const re = new RegExp(`\\b(the|a|an|my|our|this|that|some|these|those)\\s+((?:(?:${ADJ}|really|so|super|very)\\s+){0,2})([a-z][a-z'-]{2,14})(?:\\s+([a-z]{3,14}))?\\b`, 'g');
+  let best = null;
+  for (const m of t.matchAll(re)) {
+    let noun = m[3]; let extra = '';
+    // (Two words that go together: "ice cream", "road trip", "birthday party".)
+    if (m[4] && /^(cream|trip|party|game|show|class|date|night|dinner|lunch|truck|shop|place|bar|day|cake|movie|concert|interview|exam|test|job|car|house|apartment|dress|shoes|book|song|album|tickets|ticket|flight|team|match|run|hike)$/.test(m[4]) && !SKIP.has(noun)) { extra = ` ${m[4]}`; }
+    if (SKIP.has(noun) || /^(be|go|do|get|got|have|see|make|so|very|really|just|been|being)$/.test(noun)) continue;
+    const det = { my: 'your', our: 'your', this: 'that', these: 'those' }[m[1]] ?? m[1];
+    const cand = { phrase: `${det} ${m[2]}${noun}${extra}`.replace(/\s+/g, ' ').trim(), noun: `${noun}${extra}`, adj: m[2].trim(), own: /^(my|our)$/.test(m[1]) };
+    if (!best || cand.adj.length > best.adj.length) best = cand;
+  }
+  // (Said without a "the": "best show ever".)
+  if (!best) { const m = t.match(new RegExp(`\\b(${ADJ})\\s+([a-z]{3,14})(\\s+ever)?\\b`)); if (m && !SKIP.has(m[2]) && !/^(and|but|the|so|for|with)$/.test(m[2])) best = { phrase: `${m[1]} ${m[2]}${m[3] ?? ''}`, noun: m[2], adj: m[1], own: false, bare: true }; }
+  return best;
+}
+
+const FEEL = {
+  tired: ['Get some rest tonight', 'Go take a nap!', 'Long day?'], exhausted: ['Get some rest tonight', 'You deserve a break'], sleepy: ['Go to sleep lol', 'Nap time'],
+  sick: ['Feel better soon!', 'Rest up and drink water', 'Do you need anything?'], bored: ['Want to hang out?', 'Same honestly', 'Come over!'], hungry: ['Same, what are you getting?', 'Food run?', 'What are you craving?'],
+  stressed: ['What\'s going on?', 'Take a breath, you\'ve got this', 'Want to talk about it?'], sad: ['What happened?', 'Want to talk?', 'Sending a hug'], excited: ['Why?! Tell me', 'Love that energy', 'For what?!'],
+  happy: ['Love that for you', 'What happened?!', 'Yay!'], nervous: ['You\'ve got this', 'For what?', 'It\'ll go great'], busy: ['Don\'t work too hard', 'Busy with what?', 'Take a break soon'],
+  proud: ['You should be!', 'So proud of you too'], cold: ['Get a blanket lol', 'Same, it\'s freezing'], hot: ['Same, it\'s so hot', 'Stay cool!'], done: ['Same lol', 'What happened?'],
+};
+const NEWS = /^(i|we)\s+(just\s+|finally\s+|officially\s+)?(got|finished|passed|won|made|bought|started|booked|adopted|landed|beat|ran|hit|signed|moved|graduated|aced|found|met|tried|saw|watched|did|completed|scored|sold|built|cooked|baked|painted|wrote|learned|lost|broke|failed|missed|crashed|quit)\b/i;
+const BAD_NEWS = /\b(lost|broke|failed|missed|crashed|quit|died)\b/i;
+const NEWS2 = /^(my|our)\s+([a-z]+)\s+(just\s+|finally\s+)?([a-z]+ed|got|won|made|did|ate|ran|took|threw|broke|lost|found)\b/i;
+
+/** Replies made from their own words: [text, weight]. `ctx`: { rand, mood, talk, askedQ, said }. */
+function reflect(text, { rand, mood, talk, askedQ, said }) {
+  const out = []; const e = (pool) => pick(pool, rand);
+  const sentences = String(text ?? '').split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+  const bare = (x) => { let y = x; for (let i = 0; i < 2; i++) y = y.replace(/^(ugh+|omg|so|well|guess what|yay|ok|okay|lol|haha+|wow|yo|hey|honestly|literally|bro|dude|man|oh|ah+)[,!.\s]+/i, ''); return y; };
+  const main = bare(sentences.find((x) => NEWS.test(bare(x)) || NEWS2.test(bare(x)) || /\bi'?m\b/i.test(x) || /\b(is|was|are|were)\b/i.test(x)) ?? sentences[sentences.length - 1] ?? '');
+  let said2 = false;
+  const ph = phraseIn(text); const places = placesIn(text); const when = lower(text).match(WHEN)?.[1];
+  // (News: said back as a question, and a reaction to it.)
+  if ((NEWS.test(main) || NEWS2.test(main)) && main.split(/\s+/).length <= 12) {
+    const f = flip(main);
+    if (f) {
+      said2 = true; const bad = BAD_NEWS.test(main);
+      // (What kind of news: done something big, been somewhere or tried something, or learned something.)
+      const kind = bad ? 'bad' : /\b(got|passed|won|graduated|finished|aced|landed|signed|bought|booked|adopted|completed|scored|sold|built|beat|hit|made)\b/i.test(main) ? 'win' : /\b(learned|found|figured)\b/i.test(main) ? 'learn' : 'did';
+      const P2 = ph ? (ph.bare ? `the ${ph.noun}` : ph.phrase.replace(/^(a|an|some) /, 'the ')) : null;
+      const react = { bad: ['Oh no', 'Noo, I\'m sorry', 'Ugh, that\'s the worst'], win: ['That\'s huge', 'Congrats!!', 'No way', 'I\'m so happy for you', 'Let\'s go'], learn: ['That\'s amazing', 'No way', 'So smart', 'Love that'], did: ['Ooh', 'No way', 'Jealous', 'Love that', 'Fun!!'] }[kind];
+      const emj = { bad: ['😕', '🫂'], win: ['🎉', '🙌', '🥳', '👏'], learn: ['🤩', '👏', '🙌'], did: ['😄', '👀', '🙌', '😍'] }[kind];
+      const ask = { bad: ['What happened?', 'Are you okay?', 'Want to talk about it?'], win: ['How do you feel?', 'We have to celebrate!', ...(P2 ? [`Tell me everything about ${P2}`] : [])], learn: ['Show me!!', 'How long did that take?', ...(P2 ? [`Send a video of ${P2}!`] : [])], did: ['How was it?!', 'Was it good?', 'Would you go again?', ...(P2 ? [`How was ${P2}?`] : [])] }[kind];
+      out.push([`${cap(f)}?! ${pick(react, rand)} ${e(emj)} ${pick(ask, rand)}`, 10]);
+    }
+  }
+  // (How they feel: "I'm so tired" → "So tired? Get some rest tonight".)
+  const fm = lower(main).match(/\bi'?m\s+(so |really |super |kinda |kind of |pretty |very |a little |literally )?([a-z]+)\b/);
+  if (fm && FEEL[fm[2]]) { const deg = (fm[1] ?? '').trim(); out.push([`${cap(deg ? `${deg} ` : '')}${fm[2]}? ${pick(FEEL[fm[2]], rand)} ${mood === 'neg' ? e(['💛', '🫂', '😕']) : e(['😊', '🙌', '😄'])}`, 10]); }
+  // (What they think of something: "the weather is so nice" → "Agreed, the weather is so nice!".)
+  const om = main.match(/^(?:omg |honestly |ok |okay |wow )?((?:the|this|that|my|our|today|it)\b[a-z' ]{0,24}?)\s+(is|was|are|were|looks|looked|tastes|tasted|sounds|sounded)\s+(so |really |super |kinda |pretty |very |literally )?([a-z]+)\b/i);
+  if (om && !/\b(you|your)\b/i.test(om[1])) {
+    said2 = true; const subj = flip(om[1]) ?? om[1]; const adj = om[4].toLowerCase(); const good = POS.test(adj) || /^(nice|beautiful|gorgeous|fun|cool|cute|delicious|insane|crazy|wild|epic)$/.test(adj);
+    const lead = pick(['Agreed,', 'Right?!', 'Yes!!', 'Honestly,', 'Seriously,'], rand); const sj = /[!?]$/.test(lead) ? cap(subj.toLowerCase()) : subj.toLowerCase();
+    out.push([good ? `${lead} ${sj} ${om[2].toLowerCase()} ${(om[3] ?? 'so ').trim()} ${adj}${pick(['!', '', ' 😍'], rand)} ${e(['😍', '🙌', '✨', '💯'])}`.replace(/\s+/g, ' ') : `${cap((om[3] ?? '').trim() ? `${om[3].trim()} ${adj}` : adj)}?! ${pick([`Ugh, sorry ${subj.toLowerCase()} ${om[2].toLowerCase()} like that`, 'What happened?', 'That\'s annoying'], rand)} ${e(['😕', '😩'])}`, 9]);
+  }
+  // (A place, and when: "Denver tomorrow?! So fun! What are you doing there?")
+  if (places.length) {
+    const pl = places[0];
+    out.push([`${pl}${when && !/later/.test(when) ? ` ${when}` : ''}?! ${pick(['So fun', 'I\'m so jealous', `I love ${pl}`, `I've always wanted to go to ${pl}`], rand)} ${e(['😍', '✈️', '🙌'])} ${pick([`What are you doing in ${pl}?`, 'Who are you going with?', `Bring me back something from ${pl}`, 'Send pics!!'], rand)}`, 9]);
+  }
+  // (The thing they're talking about: said back, and something about it.)
+  if (ph && !places.length && !said2) {
+    const P = ph.phrase; const n = ph.noun; const P2 = ph.bare ? `the ${n}` : P.replace(/^(a|an|some) /, 'the ');
+    const pool = talk?.ask?.length ? [...talk.ask, `How's ${P2}?`] : [`Tell me about ${P2}!`, `How's ${P2}?`, `Send a pic of ${P2}!`, ...(/^(the|that|those|your)\b/.test(P2) ? [`Where'd you get ${P2}?`] : [])];
+    out.push([`${cap(ph.adj ? P.replace(/^(the|a|an|that|some|those|your) /, '') : P)}?! ${pick(['Love that', 'Ooh', 'No way', 'Okay I need details', 'Wait yes'], rand)} ${talk ? e(talk.e) : e(['👀', '😄', '🙌', '😍'])} ${pick(pool, rand)}`, 8]);
+    if (ph.adj && /best|amazing|perfect|favorite|delicious|great|good/.test(ph.adj)) out.push([`${cap(ph.adj)} ${n} ever?! ${pick([`Okay now I want ${n === n.replace(/s$/, '') ? 'one' : 'some'}`, `I'm so jealous`, 'Take me next time'], rand)} ${e(talk?.e ?? ['😋', '🤩', '👀'])}`, 8]);
+    if (ph.own) out.push([`${cap(P)}? ${pick(['Aw I love that', 'So cute', 'Okay show me'], rand)} ${e(['🥰', '😄', '👀'])}`, 6]);
+  }
+  // (Answering its question: the answer's own words back.)
+  if (askedQ && ph) out.push([`${cap(ph.phrase)}?${ph.bare ? '!' : ''} ${mood === 'neg' ? pick(['Aw no', 'Ugh, sorry'], rand) : pick(['Love that', 'Nice!!', 'Ahh so good'], rand)} ${mood === 'neg' ? e(['😕', '🫂']) : e(['😊', '🙌', '💛'])}${talk ? ` ${pick(talk.ask, rand)}` : ''}`, 9]);
+  return out;
+}
+
 /**
  * A reply from the other account to the Owner, from the conversation so far: `history` [{ mine (the Owner's),
  * text, at, post?: { caption, scene } }] oldest first. A sentence or two, with emojis that fit, never one it's
@@ -94,7 +189,7 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   const talk = tp ? TOPIC_TALK[tp.id] : null;
   const it = intentOf(text); const mood = moodOf(text);
   const opts = []; // [text, weight]
-  const add = (t, w = 1) => { if (t && !mine.has(lower(t).trim())) opts.push([t, w]); };
+  const add = (t, w = 1, keep = false) => { if (t && !mine.has(lower(t).trim())) opts.push([t, w, keep]); };
   const e = (pool) => pick(pool, rand);
   const emo = emojisIn(text);
 
@@ -102,7 +197,7 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   const shared = [...fresh].reverse().find((m) => m.post)?.post;
   if (shared) {
     const c = generateComment(shared.caption ?? '', { rand, photo: shared.scene ?? null });
-    add(c, 6); add(`${c} ${pick(['Where was this?', 'When was this?!', 'Love it'], rand)}`, 4);
+    add(c, 6, true); add(`${c} ${pick(['Where was this?', 'When was this?!', 'Love it'], rand)}`, 4, true);
   }
   // (Saying goodbye.)
   if (BYE.test(text) && !shared) { const night = /night|gn/i.test(text); return `${pick(night ? ['Night!', 'Night night', 'Sleep well!', 'Good night!'] : ['Bye!!', 'Talk soon!', 'Okay ttyl!', 'See you!'], rand)} ${e(night ? ['😴', '🌙', '💛', '❤️'] : ['👋', '❤️', '💛', '😄'])}`; }
@@ -118,11 +213,11 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   // (Asked something back: "you?", "how are you?", "wyd".)
   if (ASK_BACK.test(text) || it === 'howareyou') {
     const doing = /\b(wyd|what are you (up to|doing)|what('?s| is) up|whats up|wbu|what about you)\b/i.test(text);
-    add(doing ? `${pick(DOING, rand)} ${e(['😄', '🙂', '😌', '🛋️'])}` : `${pick(FEELING, rand)} ${e(['😊', '🙂', '💛', '😄'])} ${pick(['Thanks for asking', 'What about you?', 'Busy day but good', 'Just relaxing now'], rand)}`, 8);
+    add(doing ? `${pick(DOING, rand)} ${e(['😄', '🙂', '😌', '🛋️'])}` : `${pick(FEELING, rand)} ${e(['😊', '🙂', '💛', '😄'])} ${pick(['Thanks for asking', 'What about you?', 'Busy day but good', 'Just relaxing now'], rand)}`, 10, true);
   }
   // (A plan from before, now over: how did it go?)
   const plans = plansIn(h.filter((m) => m !== undefined)).filter((p) => over(p, now) && !h.some((m) => !m.mine && m.at > p.at && lower(m.text).includes('how was')));
-  if (plans.length && !askedQ && !shared) { const p = plans[plans.length - 1]; add(`${/^(hi|hey|hello|yo|hiya|heyy+|good morning|morning|gm)\b/i.test(text) ? `${pick(['Hey!!', 'Hiii!', 'Heyy!'], rand)} ` : ''}How was ${p.what}?? ${e(['👀', '😄', '🥳'])}`, 9); }
+  if (plans.length && !askedQ && !shared) { const p = plans[plans.length - 1]; add(`${/^(hi|hey|hello|yo|hiya|heyy+|good morning|morning|gm)\b/i.test(text) ? `${pick(['Hey!!', 'Hiii!', 'Heyy!'], rand)} ` : ''}How was ${p.what}?? ${e(['👀', '😄', '🥳'])}`, 12, true); }
   // (A plan now: excited about it, and a question.)
   const now1 = plansIn(fresh)[0];
   if (now1) add(`${pick(['Ooh fun!', 'Ahh that sounds so fun', 'Nice!! Have the best time', 'Jealous!'], rand)} ${e(['🙌', '🥳', '😄'])} ${talk ? pick(talk.ask, rand) : pick(['Who\'s going?', 'What time?', 'Send pics!'], rand)}`, 7);
@@ -144,6 +239,9 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   if (kw && it === 'chat') add(`Wait, ${kw}? Tell me more ${e(['👀', '😄', '🙂'])}`, 3);
   if (mood === 'neg' && !askedQ && !ASK_BACK.test(text)) add(`${pick(['Oh no', 'Aw', 'Ugh'], rand)} ${e(['😕', '🫂'])} ${pick(['What happened?', 'Are you okay?', 'Want to talk?'], rand)}`, 4);
   if (mood === 'pos' && !askedQ && !ASK_BACK.test(text)) add(`${pick(['Love that!', 'Yay!', 'That\'s awesome'], rand)} ${e(['😊', '🙌', '💛'])}`, 3);
+  // (Its words back come first: about what they actually said. The stock lines only when there's nothing to echo.)
+  const echo = BYE.test(text) ? [] : reflect(text, { rand, mood, talk, askedQ, said });
+  if (echo.length) { for (const o of opts) if (!o[2]) o[1] *= 0.05; for (const [t, w] of echo) { if (t && !mine.has(lower(t).trim())) opts.push([t, w, true]); } }
   // (The general ones: only now and then when there's something better.)
   const gw = opts.some(([, w]) => w >= 5) ? 0 : opts.length ? 0.12 : 1;
   for (const g of ['Haha nice', 'Oh really? Tell me more!', 'Love that', 'Wait what', 'Omg', 'Same honestly', 'That\'s so true']) add(`${g} ${emo.length && rand() < 0.5 ? pick(emo, rand) : e(['😄', '😊', '🙂', '👀'])}`, gw);

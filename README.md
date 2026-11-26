@@ -1351,7 +1351,11 @@ Profile, ✈ for messages), where everything is made by you in the app.
   like; ✨ Suggest caption gives the next one (it replaces the last suggestion, else goes under what you wrote).
 - **Replies in messages (the Owner account).** When the Owner messages another account, it answers by itself a
   moment later ("…" typing first; send more first and it answers them all), from the whole conversation
-  (`web/apps/socials/socials-chat.js`): an answer to its own question ("good!" to its "how are you?" gets "Love
+  (`web/apps/socials/socials-chat.js`), in your own words said back and built on: "I got the job!" → "You got the job?!
+  Congrats!! Tell me everything about the job", "the weather is so nice" → "Agreed, the weather is so nice!", "I'm so
+  tired" → "So tired? Get some rest tonight", "heading to Denver tomorrow" → "Denver tomorrow?! I love Denver. Who are
+  you going with?", "I had the best pizza" → "Best pizza ever?! Take me next time" (stock lines only when there's
+  nothing of theirs to work with); an answer to its own question ("good!" to its "how are you?" gets "Love
   that!", "not great" gets "Aw no, what happened?"); asked back ("you?", "wyd") it says how it is or what it's
   doing; plans you mentioned are followed up once they're over ("Going to a concert tonight", the next day:
   "How was the concert??"); what the chat's about gets a fitting reaction and a question to keep it going; a

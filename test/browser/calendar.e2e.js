@@ -574,3 +574,54 @@ test('Settings → Saved Files: the extras kept only on this phone backed up (en
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Unknown people: faces that are none of your accounts, grouped by person across scans; made a Socials account (the face its profile photo, its files matched, known to later scans); or set aside', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  const fx = async (n) => (await readFile(join(import.meta.dirname, '../fixtures', n))).toString('base64');
+  for (const [id, n] of [['p1', 'icon_tags.png'], ['p2', 'icon_mute.png'], ['p3', 'counter_pill.png']]) script.files.push({ id, name: n, type: 'image/png', size: 10, updated: NOW, data: await fx(n), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/files/saved');
+  await page.waitForSelector('.sv-item:has-text("counter_pill.png")');
+  // (Two scans' unknown faces, as the scanner leaves them: one person in two files, another in one.)
+  await page.evaluate(async () => {
+    const { addStrangers } = await import('./tools/saved/scanner.js');
+    const vec = (k, e = 0) => Array.from({ length: 128 }, (_, i) => Math.sin(i * k) * 0.1 + (i % 2 ? e : -e));
+    const crop = await (await fetch('./icons/icon-192.png')).blob();
+    await addStrangers([{ f: { id: 'p1', name: 'icon_tags.png' }, unknown: [{ d: vec(5), size: 0.3, crop }, { d: vec(9), size: 0.2, crop }] }]);
+    await addStrangers([{ f: { id: 'p2', name: 'icon_mute.png' }, unknown: [{ d: vec(5, 0.01), size: 0.4, crop }] }]);
+  });
+  await page.getByRole('button', { name: '⚙ Character matches' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Character matches' });
+  await dlg.getByRole('tab', { name: '👥 Unknown people · 2' }).click();
+  const first = dlg.locator('.sc-stranger').first();
+  assert.match(await first.textContent(), /In 2 files.*icon_tags\.png, icon_mute\.png|In 2 files.*icon_mute\.png, icon_tags\.png/, 'the same person, both files');
+  // Set aside, and back.
+  await dlg.locator('.sc-stranger').nth(1).getByRole('button', { name: 'Not someone: set aside the person in 1 file' }).click();
+  await dlg.getByRole('tab', { name: '👥 Unknown people · 1' }).waitFor();
+  await dlg.getByRole('button', { name: 'Show the 1 set aside' }).click();
+  await dlg.getByRole('button', { name: 'Bring back' }).click();
+  await dlg.getByRole('tab', { name: '👥 Unknown people · 2' }).waitFor();
+  // Made a Socials account.
+  await first.getByRole('button', { name: /Make a Socials account/ }).click();
+  await first.getByLabel('Username').fill('Lee.Park'); await first.getByLabel('Name', { exact: true }).fill('Lee');
+  await first.getByRole('button', { name: 'Make the account' }).click();
+  await dlg.getByText('@lee.park is a Socials account now, with this face as its profile photo; 2 files matched to it.').waitFor();
+  await dlg.getByRole('tab', { name: '👥 Unknown people · 1' }).waitFor();
+  const acc = await page.evaluate(async () => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); const a = state.accounts.find((x) => x.handle === 'lee.park'); return { avatar: !!a?.avatar, face: a?.face?.length, learned: a?.learned?.length ?? 0, name: a?.name }; });
+  assert.deepEqual(acc, { avatar: true, face: 128, learned: 1, name: 'Lee' }, 'its profile photo and faces');
+  await dlg.getByRole('tab', { name: 'Matches' }).click();
+  await dlg.getByText('@lee.park · 2').waitFor();
+  await dlg.getByRole('button', { name: 'Close' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.sv-match').length === 2);
+  assert.equal(await page.locator('.sv-item:has-text("icon_mute.png") .sv-match').textContent(), '👤 @lee.park');
+  // Later scans know it: a face like theirs now matches the account.
+  const hit = await page.evaluate(async () => {
+    const { knownAccounts } = await import('./tools/saved/scanner.js'); const { matchFaces } = await import('./apps/socials/socials-faces.js');
+    const vec = (k, e = 0) => Array.from({ length: 128 }, (_, i) => Math.sin(i * k) * 0.1 + (i % 2 ? e : -e));
+    const k = await knownAccounts(); return matchFaces([{ d: vec(5, 0.02) }], k.known, 0.5, { not: k.not }).map((h) => k.accounts.find((a) => a.id === h.id)?.handle);
+  });
+  assert.deepEqual(hit, ['lee.park']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

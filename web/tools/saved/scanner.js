@@ -43,7 +43,76 @@ export async function knownAccounts() {
   }
   if (await F.fillPostFaces(state, { limit: 40 })) changed = true;
   if (changed) await S.saveState(state);
-  return { known: F.faceSetsFrom(state), accounts: (state.accounts ?? []).map((a) => ({ id: a.id, handle: a.handle, avatar: a.avatar })) };
+  return { known: F.faceSetsFrom(state), not: F.notFacesFrom(state), accounts: (state.accounts ?? []).map((a) => ({ id: a.id, handle: a.handle, avatar: a.avatar })) };
+}
+
+/** What you said about a face, learned by that account in Socials (✓: it's them; ✕ `not`: it isn't). */
+export async function learn(accountId, d, { not = false } = {}) {
+  if (!Array.isArray(d)) return false;
+  const S = await import('../../apps/socials/socials-store.js'); const C = await import('../../apps/socials/socials-core.js');
+  const { state } = await S.loadState(); const changed = C.learnFace(state, accountId, d, { not });
+  if (changed) await S.saveState(state);
+  return changed;
+}
+/** ✕ Not them: never suggested for that file again, and the face learned as not that account. */
+const REJECTS = 'cc.saved.rejects';
+export async function listRejects() { const v = await idb.get(REJECTS); return Array.isArray(v) ? v : []; }
+export async function rejectMatch(fileId, accountId, d = null) {
+  const list = (await listRejects()).filter((x) => !(x.fileId === fileId && x.accountId === accountId));
+  await idb.set(REJECTS, [{ fileId, accountId, at: Date.now() }, ...list].slice(0, 2000));
+  if (d) await learn(accountId, d, { not: true }).catch(() => false);
+}
+
+// ---- Unknown people: faces matched to none of your accounts, grouped across scans (one group a person: each
+// face joins the group with a face closest to it, under 0.45 apart), each face once per file. A group can be
+// made a Socials account (its clearest face the profile photo; its files matched to it), or set aside ("Not
+// someone": its faces keep joining it, hidden). Kept on this phone (Saved Files' storage, as the files' small
+// pictures are).
+const STRANGERS = 'cc.saved.strangers';
+const near = (a, b) => { let t = 0; for (let i = 0; i < 128; i++) { const x = a[i] - b[i]; t += x * x; } return Math.sqrt(t); };
+/** The groups: [{ id, faces: [{ d, fileId, name, size, crop: { buf, type } }], hidden, at }], the most files first. */
+export async function listStrangers() { const v = await idb.get(STRANGERS); return (Array.isArray(v) ? v : []).sort((a, b) => b.faces.length - a.faces.length || b.at - a.at); }
+/** Unknown faces (from scanFiles' results) added to the groups. */
+export async function addStrangers(results) {
+  const groups = await listStrangers(); let changed = false;
+  for (const r of results) for (const u of r.unknown ?? []) {
+    let best = null; let bd = 0.45;
+    for (const g of groups) for (const f of g.faces) { const x = near(u.d, f.d); if (x < bd) { bd = x; best = g; } }
+    const face = { d: u.d, fileId: r.f.id, name: r.f.name, size: u.size, crop: u.crop ? { buf: await u.crop.arrayBuffer(), type: 'image/jpeg' } : null };
+    if (best) {
+      const same = best.faces.findIndex((f) => f.fileId === r.f.id);
+      if (same >= 0) { if ((best.faces[same].size ?? 0) < u.size) { best.faces[same] = face; changed = true; } continue; }
+      best.faces.push(face); best.faces = best.faces.slice(-40); best.at = Date.now();
+    } else groups.push({ id: `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, faces: [face], hidden: false, at: Date.now() });
+    changed = true;
+  }
+  if (changed) await idb.set(STRANGERS, groups.slice(0, 300));
+  return changed;
+}
+const keepStrangers = (groups) => idb.set(STRANGERS, groups);
+/** A group set aside (its faces keep joining it, not shown) or brought back. */
+export async function hideStranger(id, hidden = true) { await keepStrangers((await listStrangers()).map((g) => (g.id === id ? { ...g, hidden } : g))); }
+/** The clearest face of a group (the biggest). */
+export const bestFace = (g) => g.faces.reduce((a, b) => ((b.size ?? 0) > (a.size ?? 0) && b.crop ? b : a), g.faces.find((f) => f.crop) ?? g.faces[0]);
+
+/**
+ * A group made a Socials account: its clearest face its profile photo (and its face), the group's other faces
+ * learned as it; each of its files matched to it. `kind`: 'friend' or 'celebrity'. Resolves to { id, handle }.
+ */
+export async function strangerToAccount(groupId, { handle, name = '', kind = 'friend' }) {
+  const g = (await listStrangers()).find((x) => x.id === groupId); if (!g) throw new Error('That group is gone.');
+  const S = await import('../../apps/socials/socials-store.js'); const C = await import('../../apps/socials/socials-core.js');
+  const { state } = await S.loadState();
+  const problem = C.handleProblem(state, handle); if (problem) throw new Error(problem);
+  const best = bestFace(g);
+  const a = C.addAccount(state, { handle, name, kind, avatar: best.crop ? new Blob([best.crop.buf], { type: best.crop.type }) : null });
+  if (a.avatarId) C.setFace(state, a.id, best.d);
+  for (const f of g.faces) if (f !== best) C.learnFace(state, a.id, f.d);
+  await S.saveState(state);
+  const files = [...new Map(g.faces.map((f) => [f.fileId, f.name])).entries()];
+  for (const [fileId, fname] of files) await keepMatch({ fileId, name: fname, accountId: a.id, handle: a.handle, sure: 100 });
+  await keepStrangers((await listStrangers()).filter((x) => x.id !== groupId));
+  return { id: a.id, handle: a.handle, files: files.map(([id, n]) => ({ id, name: n })) };
 }
 
 /** Socials unlocked here with its password (for the scanner): true, or false if it's wrong. */
@@ -79,9 +148,9 @@ async function keepThumbs(id, blobs) { if (blobs.length) await idb.set(THUMB(id)
  * [{ f, faces, pics: [Blob], hits: [{ id, handle, avatar, distance, sure, crop (the face, a Blob) }], error }]
  * (in the files' order); `cancelled()` stops between files.
  */
-export async function scanFiles(files, { download, local = null, known, accounts = [], stills = 12, onProgress = () => {}, cancelled = () => false }) {
+export async function scanFiles(files, { download, local = null, known, not = [], accounts = [], stills = 12, onProgress = () => {}, cancelled = () => false }) {
   const { facesIn, matchFaces } = await import('../../apps/socials/socials-faces.js');
-  const out = [];
+  const out = []; const rejects = await listRejects();
   for (const [i, f] of files.entries()) {
     if (cancelled()) break;
     onProgress({ i, n: files.length, name: f.name, still: 0, stills: isVideo(f) ? stills : 1 });
@@ -97,14 +166,27 @@ export async function scanFiles(files, { download, local = null, known, accounts
       const pick = isVideo(f) ? [0.1, 0.4, 0.65, 0.9].map((q) => shots[Math.min(shots.length - 1, Math.floor(q * shots.length))]).filter((x, j, a) => x && a.indexOf(x) === j) : shots;
       try { pics = await Promise.all(pick.map((b) => shrink(b, isVideo(f) ? 200 : 360))); await keepThumbs(f.id, pics); } catch { pics = []; }
     } catch (e) { error = e.message; }
-    const hits = [];
-    for (const h of matchFaces(faces, known)) {
-      const a = accounts.find((x) => x.id === h.id); const face = faces[h.face];
+    const hits = []; const used = new Set();
+    for (const h of matchFaces(faces, known, 0.5, { not })) {
+      const face = faces[h.face]; used.add(h.face);
+      if (rejects.some((x) => x.fileId === f.id && x.accountId === h.id)) continue; // (✕ Not them, said before)
+      const a = accounts.find((x) => x.id === h.id);
       let crop = null; try { crop = await shrink(face.shot, 120, face.box); } catch { /* none */ }
-      hits.push({ id: h.id, handle: a?.handle ?? '?', avatar: a?.avatar ?? null, distance: h.distance, sure: sureOf(h.distance), crop });
+      hits.push({ id: h.id, handle: a?.handle ?? '?', avatar: a?.avatar ?? null, distance: h.distance, sure: sureOf(h.distance), crop, d: face.d });
     }
-    out.push({ f, faces: faces.length, pics, hits, error });
+    // (The faces that are none of your accounts, for Unknown people: each person once (a video shows them many
+    // times), their biggest; small, far-off faces left out.)
+    const unknown = [];
+    for (const [k, face] of faces.entries()) {
+      if (used.has(k) || face.size < 0.06 || matchFaces([face], known, 0.5).length) continue;
+      const same = unknown.find((u) => near(u.d, face.d) < 0.4);
+      if (same && same.size >= face.size) continue;
+      let crop = null; try { crop = await shrink(face.shot, 256, face.box); } catch { /* none */ }
+      const u = { d: face.d, size: face.size, crop }; if (same) Object.assign(same, u); else unknown.push(u);
+    }
+    out.push({ f, faces: faces.length, pics, hits, unknown, error });
   }
+  try { await addStrangers(out); } catch { /* kept next time */ }
   return out;
 }
 
@@ -147,7 +229,7 @@ export async function autoScan(saved, local) {
   const todo = saved.filter(scannable); if (!todo.length) return [];
   let k; try { k = await knownAccounts(); } catch (e) { if (e.locked) return { locked: true, files: todo }; return []; }
   if (!k.known.length) return [];
-  return scanFiles(todo, { local, download: () => { throw new Error('Not on this phone.'); }, known: k.known, accounts: k.accounts, stills: 8 });
+  return scanFiles(todo, { local, download: () => { throw new Error('Not on this phone.'); }, known: k.known, not: k.not, accounts: k.accounts, stills: 8 });
 }
 
 /**
@@ -198,7 +280,7 @@ export function openScanner(files, { download, results: preset = null, onChange 
     let k;
     try { k = await knownAccounts(); } catch (e) { if (e.locked) { unlock(run); return; } fill(body, el('p', { class: 'bad-text', text: `Couldn't read Socials: ${e.message}` })); return; }
     if (!k.known.length) { fill(body, el('p', { class: 'muted', text: 'None of your Socials accounts has a profile photo with a face yet: add some there, then scan.' })); return; }
-    const results = await scanFiles(todo, { download, known: k.known, accounts: k.accounts, cancelled: () => stop, onProgress: ({ i, n, name, still, stills }) => {
+    const results = await scanFiles(todo, { download, known: k.known, not: k.not, accounts: k.accounts, cancelled: () => stop, onProgress: ({ i, n, name, still, stills }) => {
       const q = (i + (stills ? still / stills : 0)) / n; bar.firstChild.style.width = `${Math.max(3, Math.round(q * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(q * 100)));
       status.textContent = `${i + 1} of ${n}: ${name}${stills > 1 ? ` (still ${still} of ${stills})` : ''}`;
     } });
@@ -214,6 +296,7 @@ export function openScanner(files, { download, results: preset = null, onChange 
     fill(body,
       el('p', { class: 'small', text: `Scanned ${results.length} file${results.length === 1 ? '' : 's'}: ${withHits.length} with someone who might be one of your accounts${unknown ? `, ${unknown} with faces not recognized` : ''}${faceless ? `, ${faceless} with no faces found` : ''}.` }),
       errors.length ? el('p', { class: 'small bad-text', text: `Couldn't read ${errors.length}: ${errors.map((r) => r.f.name).join(', ')}` }) : null,
+      results.some((r) => r.unknown?.length) ? el('p', { class: 'small' }, `👥 ${results.reduce((t, r) => t + (r.unknown?.length ?? 0), 0)} face${results.reduce((t, r) => t + (r.unknown?.length ?? 0), 0) === 1 ? '' : 's'} not one of your accounts: grouped by person in `, el('button', { type: 'button', class: 'so-link sc-link', text: 'Unknown people', onclick: () => { dlg.close(); openMatches({ download, tab: 'unknown' }); } }), ', to make into accounts.') : null,
       withHits.length ? el('ul', { class: 'sc-results' }, withHits.map((r) => el('li', { class: 'sc-file' },
         el('strong', { class: 'sc-name', text: `${isVideo(r.f) ? '🎬' : '🖼️'} ${r.f.name}` }),
         preview(r),
@@ -230,13 +313,14 @@ export function openScanner(files, { download, results: preset = null, onChange 
             yes.disabled = true; no.disabled = true; note.textContent = `Putting it in @${h.handle}'s drafts…`;
             try {
               const d = await sendToSocials(h.id, r.f, () => download(r.f.id));
+              learn(h.id, h.d).catch(() => false); // (more of their faces: matched better next time)
               await keepMatch({ fileId: r.f.id, name: r.f.name, accountId: h.id, handle: h.handle, sure: h.sure, draftId: d.draftId });
               const ownerHandle = r.hits.find((x) => x.id === d.owner)?.handle;
               note.textContent = d.collab ? `✓ Matched · added as a collaborator on ${ownerHandle ? `@${ownerHandle}'s` : 'the'} draft (it's one post with them both)` : `✓ Matched · a draft on @${h.handle}, waiting for your OK in Socials`;
               yes.hidden = true; no.hidden = true; onChange();
             } catch (e) { note.textContent = e.message === 'Socials is locked.' ? 'Socials is locked: open it (or scan again) to unlock.' : `Couldn't: ${e.message}`; yes.disabled = false; no.disabled = false; }
           } });
-          const no = el('button', { type: 'button', class: 'btn small-btn ghost', text: '✕ Not them', 'aria-label': `Not @${h.handle} in ${r.f.name}`, hidden: !!was, onclick: () => { row.classList.add('sc-no'); yes.hidden = true; no.hidden = true; note.textContent = 'Not them'; } });
+          const no = el('button', { type: 'button', class: 'btn small-btn ghost', text: '✕ Not them', 'aria-label': `Not @${h.handle} in ${r.f.name}`, hidden: !!was, onclick: () => { row.classList.add('sc-no'); yes.hidden = true; no.hidden = true; note.textContent = 'Not them (not suggested again)'; rejectMatch(r.f.id, h.id, h.d).catch(() => {}); } });
           row.append(el('span', { class: 'row sc-yesno' }, yes, no)); return row;
         }))))) : null,
       el('p', { class: 'small muted', text: 'Only suggestions until you say so. "It\'s them" puts the file on that account in Socials as a draft (nothing is shared until you share it there) and marks it matched here. Several people in one file: say yes to each; the first has the draft and the others are added to it as collaborators. The matches are in ⚙ Character matches.' }),
@@ -247,13 +331,25 @@ export function openScanner(files, { download, results: preset = null, onChange 
   if (preset) review(preset); else choose();
 }
 
-/** Character matches: the files you said were your Socials accounts, as a page (in a dialog), each removable. Resolves once it's closed. */
-export async function openMatches() {
-  const body = el('div', {});
+/**
+ * Character matches, as a page (in a dialog): Matches (the files you said were your Socials accounts, by account,
+ * each removable) and Unknown people (faces that are none of your accounts, grouped by person: make one a Socials
+ * account, or set it aside). `download(id)`: a file (to put a new account's files in its drafts); `tab`. Resolves
+ * once it's closed.
+ */
+export async function openMatches({ download = null, tab = 'matches' } = {}) {
+  const body = el('div', { class: 'sc-body' });
+  const tabs = el('div', { class: 'row sc-tabs', role: 'tablist' });
   const dlg = el('dialog', { class: 'ed-dialog sc-dialog', 'aria-label': 'Character matches' }, el('div', { class: 'sheet' },
-    el('div', { class: 'row space' }, el('h2', { text: '🧑‍🤝‍🧑 Character matches' }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })), body));
-  const closed = new Promise((ok) => dlg.addEventListener('close', () => { dlg.remove(); ok(); }));
-  async function draw() {
+    el('div', { class: 'row space' }, el('h2', { text: '🧑‍🤝‍🧑 Character matches' }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })), tabs, body));
+  const urls = []; const url = (b) => { const u = URL.createObjectURL(b); urls.push(u); return u; };
+  const closed = new Promise((ok) => dlg.addEventListener('close', () => { dlg.remove(); for (const u of urls) URL.revokeObjectURL(u); ok(); }));
+  let showHidden = false;
+  const paintTabs = async () => {
+    const n = (await listStrangers()).filter((g) => !g.hidden).length;
+    fill(tabs, [['matches', 'Matches'], ['unknown', `👥 Unknown people${n ? ` · ${n}` : ''}`]].map(([id, label]) => el('button', { type: 'button', role: 'tab', class: `btn small-btn sv-chip${tab === id ? ' on' : ''}`, 'aria-selected': String(tab === id), text: label, onclick: () => { tab = id; draw(); } })));
+  };
+  async function matchesTab() {
     const list = await listMatches();
     const by = new Map(); for (const m of list) { if (!by.has(m.handle)) by.set(m.handle, []); by.get(m.handle).push(m); }
     fill(body,
@@ -262,5 +358,47 @@ export async function openMatches() {
         el('ul', { class: 'sc-matches' }, ms.map((m) => el('li', {}, el('span', { class: 'sc-mname', text: m.name }), el('span', { class: 'small muted', text: ` ${m.sure}% · ${new Date(m.at).toLocaleDateString([], { month: 'short', day: 'numeric' })}` }),
           el('button', { type: 'button', class: 'btn small-btn ghost', text: 'Remove', 'aria-label': `Remove ${m.name} as @${handle}`, onclick: async () => { await dropMatch(m.fileId, m.accountId); draw(); } })))))) : el('p', { class: 'muted', text: 'No matches kept yet.' }));
   }
+  function makeForm(g, row) {
+    const handle = el('input', { type: 'text', class: 'sc-in', 'aria-label': 'Username', placeholder: 'username', autocapitalize: 'none', autocomplete: 'off' });
+    const name = el('input', { type: 'text', class: 'sc-in', 'aria-label': 'Name', placeholder: 'Name (optional)' });
+    const kind = el('select', { class: 'sc-in', 'aria-label': 'Kind of account' }, el('option', { value: 'friend', text: 'Friend' }), el('option', { value: 'celebrity', text: 'Celebrity' }));
+    const drafts = el('input', { type: 'checkbox', checked: false }); const err = el('p', { class: 'small bad-text', role: 'alert' });
+    const go = el('button', { type: 'submit', class: 'btn primary', text: 'Make the account' });
+    const files = [...new Set(g.faces.map((f) => f.fileId))].length;
+    const form = el('form', { class: 'sc-make' }, handle, name, kind,
+      download ? el('label', { class: 'small' }, drafts, ` Also put ${files === 1 ? 'the file' : `the ${files} files`} in its drafts (waiting for your OK)`) : null, el('div', { class: 'row' }, go, el('button', { type: 'button', class: 'btn ghost', text: 'Cancel', onclick: () => form.remove() })), err);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault(); err.textContent = ''; go.disabled = true;
+      try {
+        const made = await strangerToAccount(g.id, { handle: handle.value, name: name.value.trim(), kind: kind.value });
+        let n = 0;
+        if (drafts.checked && download) for (const f of made.files) { go.textContent = `Drafts… ${n + 1} of ${made.files.length}`; try { const d = await sendToSocials(made.id, f, () => download(f.id)); await keepMatch({ fileId: f.id, name: f.name, accountId: made.id, handle: made.handle, sure: 100, draftId: d.draftId }); n++; } catch { /* that one */ } }
+        tab = 'unknown'; await draw(`@${made.handle} is a Socials account now, with this face as its profile photo; ${made.files.length} file${made.files.length === 1 ? '' : 's'} matched to it${n ? `, ${n} in its drafts` : ''}.`);
+      } catch (x) { err.textContent = x.message === 'Socials is locked.' ? 'Socials is locked: scan once (it asks for the password), or open Socials, then try again.' : x.message; go.disabled = false; go.textContent = 'Make the account'; }
+    });
+    row.append(form); handle.focus();
+  }
+  async function unknownTab(msg = '') {
+    const all = await listStrangers(); const shown = all.filter((g) => showHidden || !g.hidden);
+    const hiddenN = all.filter((g) => g.hidden).length;
+    fill(body,
+      msg ? el('p', { class: 'small', role: 'status', text: msg }) : null,
+      el('p', { class: 'small muted', text: 'Faces found by scans that are none of your Socials accounts, grouped by person (the most files first). Make one an account: its clearest face becomes the profile photo, its files are matched to it, and later scans know it.' }),
+      shown.length ? el('ul', { class: 'sc-strangers' }, shown.map((g) => {
+        const b = bestFace(g); const files = [...new Map(g.faces.map((f) => [f.fileId, f.name])).values()];
+        const row = el('li', { class: `sc-stranger${g.hidden ? ' sc-hidden' : ''}` },
+          el('div', { class: 'row sc-stranger-head' },
+            b?.crop ? el('img', { class: 'sc-face sc-face-big', src: url(new Blob([b.crop.buf], { type: b.crop.type })), alt: `Unknown person in ${files.length} file${files.length === 1 ? '' : 's'}` }) : el('span', { class: 'sc-face sc-face-big sc-noface', text: '🙂' }),
+            el('span', { class: 'sc-who' }, el('strong', { text: `In ${files.length} file${files.length === 1 ? '' : 's'}` }), el('span', { class: 'small muted', text: files.slice(0, 3).join(', ') + (files.length > 3 ? ` +${files.length - 3}` : '') }),
+              g.faces.length > 1 ? el('span', { class: 'sc-more', 'aria-hidden': 'true' }, g.faces.filter((f) => f !== b && f.crop).slice(0, 5).map((f) => el('img', { src: url(new Blob([f.crop.buf], { type: f.crop.type })), alt: '' }))) : null)),
+          el('div', { class: 'row wrap' },
+            g.hidden ? el('button', { type: 'button', class: 'btn small-btn', text: 'Bring back', onclick: async () => { await hideStranger(g.id, false); draw(); } })
+              : [el('button', { type: 'button', class: 'btn small-btn primary', text: '＋ Make a Socials account', 'aria-label': `Make a Socials account of the person in ${files.length} file${files.length === 1 ? '' : 's'}`, onclick: (e) => { e.currentTarget.disabled = true; makeForm(g, row); } }),
+                el('button', { type: 'button', class: 'btn small-btn ghost', text: 'Not someone', 'aria-label': `Not someone: set aside the person in ${files.length} file${files.length === 1 ? '' : 's'}`, onclick: async () => { await hideStranger(g.id, true); draw(); } })]));
+        return row;
+      })) : el('p', { class: 'muted', text: all.length ? 'None to show.' : 'No unknown faces yet: they\'re gathered as you scan.' }),
+      hiddenN ? el('button', { type: 'button', class: 'so-link sc-link', text: showHidden ? 'Hide the ones set aside' : `Show the ${hiddenN} set aside`, onclick: () => { showHidden = !showHidden; draw(); } }) : null);
+  }
+  async function draw(msg = '') { await paintTabs(); if (tab === 'unknown') await unknownTab(msg); else await matchesTab(); }
   document.body.append(dlg); dlg.showModal(); await draw(); return closed;
 }

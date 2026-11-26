@@ -52,10 +52,12 @@ export function faceDistance(a, b) {
  * The accounts in a photo: for each face its closest account (by `known`: [{ id, d }]) if close enough
  * (`limit`), each account once, the closest first: [{ id, distance, face (its index in `faces`) }].
  */
-export function matchFaces(faces, known, limit = 0.5) {
+export function matchFaces(faces, known, limit = 0.5, { not = [] } = {}) {
   const hits = new Map();
+  // (`not`: [{ id, d }], faces you said aren't that account: a face closer to one of those than to the account isn't it.)
+  const notOf = (id, d) => not.reduce((m, x) => (x.id === id ? Math.min(m, faceDistance(d, x.d)) : m), Infinity);
   for (const [i, f] of (faces ?? []).entries()) {
-    let best = null; for (const k of known ?? []) { const dist = faceDistance(f.d, k.d); if (dist < limit && (!best || dist < best.distance)) best = { id: k.id, distance: dist, face: i }; }
+    let best = null; for (const k of known ?? []) { const dist = faceDistance(f.d, k.d); if (dist < limit && (!best || dist < best.distance) && !(notOf(k.id, f.d) < Math.max(0.12, dist))) best = { id: k.id, distance: dist, face: i }; }
     if (best && (!hits.has(best.id) || hits.get(best.id).distance > best.distance)) hits.set(best.id, best);
   }
   return [...hits.values()].sort((a, b) => a.distance - b.distance);
@@ -75,6 +77,8 @@ const closest = (d, set) => set.reduce((m, x) => Math.min(m, faceDistance(d, x))
 export function faceSetsFrom(state, { perAccount = 12 } = {}) {
   const sets = new Map();
   for (const a of state.accounts ?? []) if (a.face && a.faceOf === a.avatarId) sets.set(a.id, [a.face]);
+  // (Then the faces you confirmed as it (✓ It's them), the newest first.)
+  for (const a of state.accounts ?? []) for (const d of [...(a.learned ?? [])].reverse()) { const s = sets.get(a.id) ?? []; s.push(d); sets.set(a.id, s); }
   const add = (id, d) => { const s = sets.get(id) ?? []; s.push(d); sets.set(id, s); };
   const posts = [...(state.posts ?? [])].filter((p) => !p.trashed && Array.isArray(p.faces) && p.faces.length).sort((a, b) => b.at - a.at);
   // (Alone in it first: those are sure.)
@@ -94,9 +98,12 @@ export function faceSetsFrom(state, { perAccount = 12 } = {}) {
     }
   }
   const out = [];
-  for (const [id, s] of sets) for (const d of s.slice(0, 1 + perAccount)) out.push({ id, d });
+  for (const [id, s] of sets) for (const d of s.slice(0, 1 + perAccount + (state.accounts?.find((a) => a.id === id)?.learned?.length ?? 0))) out.push({ id, d });
   return out;
 }
+
+/** The faces you said aren't each account (✕ Not them): [{ id, d }], for matchFaces' `not`. */
+export const notFacesFrom = (state) => (state.accounts ?? []).flatMap((a) => (a.notFaces ?? []).map((d) => ({ id: a.id, d })));
 
 /** Posts' faces read where they haven't been (their first photo), at most `limit` this time: how many were read. */
 export async function fillPostFaces(state, { limit = 12 } = {}) {

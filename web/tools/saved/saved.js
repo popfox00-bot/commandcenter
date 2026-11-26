@@ -283,7 +283,7 @@ export function mount(host, { onEdit = null, onWrite = null } = {}) {
       el('button', { type: 'button', class: 'btn block sv-favs-btn', text: `★ Favorites${favIds.size ? ` (${favIds.size})` : ''}`, onclick: openFavs }),
       el('div', { class: 'row wrap sv-tools' },
         el('button', { type: 'button', class: 'btn small-btn', text: '🔎 Scan for characters', disabled: !!busy || !files.some(scannable), onclick: () => openScanner(files, { download: (id) => api.download(id), onChange: refreshMatches, onClose: refreshMatches }) }),
-        el('button', { type: 'button', class: 'btn small-btn ghost', text: '⚙ Character matches', onclick: () => openMatches().then(refreshMatches) })),
+        el('button', { type: 'button', class: 'btn small-btn ghost', text: '⚙ Character matches', onclick: () => openMatches({ download: (id) => api.download(id) }).then(refreshMatches) })),
       scanNote(),
       crumbs,
       vault && !unlockedNow ? null : el('label', { class: `btn primary block${busy ? ' disabled' : ''}`, for: 'sv-file', text: `+ Save files ${here ? 'here' : 'to Drive'}${vault ? ' (encrypted)' : ''}` }), picker,

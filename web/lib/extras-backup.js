@@ -1,6 +1,6 @@
 // A backup of what's kept only on this phone and isn't anywhere else: Saved Files' favorites (their titles,
 // order and pictures), files' small pictures and character matches, the background pictures, the dock, and
-// Socials' and the Sports front's settings. Encrypted on the phone with a backup password of your own
+// Socials' and the Sports front's settings, the scanner's unknown people and its "not them" answers. Encrypted on the phone with a backup password of your own
 // (PBKDF2-SHA-256 → AES-256-GCM) into one file, `cc-extras-YYYY-MM-DD.ccx`, put in Saved Files' "Backups"
 // folder or saved to the phone; restored from either, with the same password. (Socials itself, the Vault's
 // files and Saved Files' own files are kept in your Drive already, encrypted, so they aren't in it.)
@@ -12,7 +12,7 @@ import { downloadBlob } from './files.js';
 
 export const FOLDER = 'Backups';
 const ROUNDS = 310_000;
-const IDB_KEYS = [/^cc\.saved\.favs$/, /^cc\.saved\.fav\.t\./, /^cc\.saved\.thumb\./, /^cc\.saved\.matches$/, /^cc\.bg\./];
+const IDB_KEYS = [/^cc\.saved\.favs$/, /^cc\.saved\.fav\.t\./, /^cc\.saved\.thumb\./, /^cc\.saved\.matches$/, /^cc\.saved\.(strangers|rejects)$/, /^cc\.bg\./];
 const LS_KEYS = ['cc.dock', 'cc.dock.mode', 'cc.socials.level', 'cc.socials.ai', 'cc.socials.faces', 'cc.socials.autoreply', 'cc.socials.autocomment', 'cc.socials.sports.prefs', 'cc.socials.sports.likes'];
 export const isBackupName = (n) => /^cc-extras-\d{4}-\d{2}-\d{2}.*\.ccx$/.test(String(n ?? ''));
 

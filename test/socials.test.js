@@ -381,3 +381,27 @@ test('face sets: a profile photo\'s face, solo posts\' faces for their poster, a
   assert.deepEqual(savedDrafts(back).map((p) => p.id), [d.id]);
   back.posts.find((p) => p.id === d.id).draft = false; assert.deepEqual(savedDrafts(back), [], 'shared: no longer waiting');
 });
+
+test('faces learned from what you said: ✓ more of an account\'s faces (matched better), ✕ faces that aren\'t it (not suggested again); kept, at most 24, the latest word wins', async () => {
+  const { faceSetsFrom, matchFaces, notFacesFrom } = await import('../web/apps/socials/socials-faces.js');
+  const { emptyState, addAccount, setFace, learnFace, normalize, LEARNED } = await import('../web/apps/socials/socials-core.js');
+  const vec = (k) => Array.from({ length: 128 }, (_, i) => Math.sin(i * k) * 0.1);
+  const near = (v, e) => v.map((x, i) => x + (i % 2 ? e : -e));
+  const A = vec(1); const B = vec(2); const side = near(A, 0.035); // (amy from another angle: too far from her profile photo)
+  const s = emptyState(); const amy = addAccount(s, { handle: 'amy', avatar: new Blob(['a']) }); const bo = addAccount(s, { handle: 'bo', avatar: new Blob(['b']) });
+  setFace(s, amy.id, A); setFace(s, bo.id, B);
+  assert.deepEqual(matchFaces([{ d: near(side, 0.03) }], faceSetsFrom(s)), [], 'not found from the profile photo alone');
+  assert.ok(learnFace(s, amy.id, side)); assert.equal(learnFace(s, amy.id, near(side, 0.001)), false, 'much the same: once');
+  assert.deepEqual(matchFaces([{ d: near(side, 0.03) }], faceSetsFrom(s)).map((x) => x.id), [amy.id], 'found once learned');
+  // ✕ Not them: that face isn't amy, so it isn't suggested as her.
+  const look = near(A, 0.02);
+  assert.deepEqual(matchFaces([{ d: look }], faceSetsFrom(s)).map((x) => x.id), [amy.id]);
+  learnFace(s, amy.id, look, { not: true });
+  assert.deepEqual(matchFaces([{ d: look }], faceSetsFrom(s), 0.5, { not: notFacesFrom(s) }), [], 'not suggested again');
+  assert.deepEqual(matchFaces([{ d: A }], faceSetsFrom(s), 0.5, { not: notFacesFrom(s) }).map((x) => x.id), [amy.id], 'her own photo still her');
+  learnFace(s, amy.id, look); assert.equal(amy.notFaces.length, 0, 'said the other way: the latest wins');
+  for (let i = 0; i < 40; i++) learnFace(s, bo.id, vec(10 + i));
+  assert.equal(bo.learned.length, LEARNED, 'at most 24');
+  const back = normalize(JSON.parse(JSON.stringify(s)));
+  assert.equal(back.accounts.find((a) => a.id === bo.id).learned.length, LEARNED); assert.equal(back.accounts.find((a) => a.id === amy.id).learned.length, 2, 'kept');
+});

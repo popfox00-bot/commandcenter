@@ -170,10 +170,10 @@ const CAP_SHOTS = [
   { role: 'user', content: 'What\'s in my photo: one person; with coffee; wearing beige cardigan; in the morning.' }, { role: 'assistant', content: 'cardigan weather and a latte, that\'s the whole plan ☕' },
   { role: 'user', content: 'What\'s in my photo: 3 people; feels like: friends, beach; background: sand, water.' }, { role: 'assistant', content: 'salty hair, sandy feet, best people 🌊' },
 ];
-/** A caption by the model from what the photo shows (`scene`), or null: the engine's (`draft`) as a guide. */
-export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [], timeout = 12000 }) {
+/** A caption by the model from what the photo shows (`scene`), as `handle` in its `persona`'s voice, or null: the engine's (`draft`) as a guide. */
+export async function aiCaption({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic', timeout = 12000 }) {
   if (!ready || !scene) return null;
-  const system = `You write the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it, a little personality, an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-14 words. Never describe the photo literally; never mention being an AI.`;
+  const system = `You are ${handle || 'someone'}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it, in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-14 words. Never describe the photo literally; never mention being an AI.`;
   const user = `What's in my photo: ${scene}.${draft ? ` An idea: "${draft.replace(/\s#\S+/g, '')}" (write your own, more specific).` : ''}${avoid.length ? ` Not these: ${avoid.slice(-3).map((a) => `"${a}"`).join(', ')}.` : ''}`;
   try {
     const r = await race(ask({ type: 'generate', messages: [{ role: 'system', content: system }, ...CAP_SHOTS, { role: 'user', content: user }], options: { max_new_tokens: 36, temperature: 0.8 } }), timeout);

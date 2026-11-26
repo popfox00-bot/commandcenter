@@ -532,6 +532,15 @@ set in it, kept only on this phone.)
   Socials password once a session if Socials hasn't been opened. Scanned files keep a small picture on the phone,
   shown in place of their icon. **⚙ Character matches** lists the confirmed ones by account, each removable
   (`web/tools/saved/scanner.js`).
+  It learns from your answers: each ✓ adds that face to the account's known faces (from more angles, so it's found
+  more often), and each ✕ remembers that face isn't that account (it isn't suggested for it again, here or for
+  Socials' own collaborators). Up to 24 of each per account, kept with Socials (encrypted).
+  **👥 Unknown people** (a tab in ⚙ Character matches): faces that are none of your accounts, gathered as you scan
+  and grouped by person across files (the most files first, each with its clearest face and a few others).
+  **＋ Make a Socials account** makes one from a group (a username, a name, Friend or Celebrity): its clearest face
+  is the profile photo, its other faces are learned, its files are matched to it (and, if you tick it, put in its
+  drafts), and later scans know it. **Not someone** sets a group aside (its faces keep joining it, hidden; bring it
+  back any time).
 
 **Files → Saved Files** keeps files in your own Google Drive folder: the folder that holds your
 "Saved Files" spreadsheet. A small Google Apps Script in that spreadsheet
@@ -584,7 +593,7 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
   key, the files can't be opened by anyone, including you (`web/lib/vault.js`).
 - **Back up the extras kept on this phone** (Settings → Saved Files): what's kept only on the phone and nowhere
   else (★ Favorites with their titles, order and pictures, files' small pictures, character matches, background
-  pictures, the Dock, Socials' and the Sports front's settings) in one file, `cc-extras-YYYY-MM-DD.ccx`, encrypted
+  pictures, the Dock, Socials' and the Sports front's settings, the scanner's unknown people) in one file, `cc-extras-YYYY-MM-DD.ccx`, encrypted
   on the phone with a backup password of your own (PBKDF2-SHA-256, AES-256-GCM): put in a **Backups** folder in
   Saved Files, or saved to the phone. Restore from the newest in Saved Files or from a file, with the same
   password (`web/lib/extras-backup.js`). Socials itself and the Vault's and Saved Files' own files aren't in it:
@@ -1425,7 +1434,7 @@ Profile, ✈ for messages), where everything is made by you in the app.
   It writes comments and captions too: ✨ Generate's comments, and the automatic comments on a new post (rewritten
   just after it's shared), each in the commenter's voice from what the photo shows (described for it from the
   reading of the photo: who's in it, what they wear, the things, the place, the light) and the caption; ✨ Suggest
-  caption and the automatic caption in first person, the engine's hashtags kept. Each is checked (one short line
+  caption and the automatic caption in first person, as the posting account (in its own voice), the engine's hashtags kept. Each is checked (one short line
   about the post, not a description or a title, no hashtags in comments, at the language level); any that doesn't
   hold up stays the engine's.
   Turn off, or remove the download, in the same place. The engine files (22 MB) are cached only once it's used.

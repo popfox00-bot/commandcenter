@@ -28,7 +28,7 @@ import {
 } from './socials-core.js';
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
 import { chatReplyStyled, moodOf } from './socials-chat.js';
-import { personaOf, styleOf, spice, CONTENT_LEVELS } from './socials-style.js';
+import { personaOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
@@ -877,13 +877,13 @@ function mountAdmin(host) {
   /** The accounts whose faces are in a post's first photo (or a video's frames): [{ id, distance }]. */
   async function peopleIn(item) {
     const known = await knownFaces();
-    const { facesIn, matchFaces } = await import('./socials-faces.js');
+    const { facesIn, matchFaces, notFacesFrom } = await import('./socials-faces.js');
     if (!known.length) { if (item.kind === 'photo' && item.image) { try { item.faces = (await facesIn(item.image)).slice(0, 8).map((f) => f.d); } catch { /* none */ } } return []; }
     const shots = item.kind === 'video' && item.video ? await videoFrames(item.video, { n: 3 }).catch(() => []) : [];
     const faces = []; for (const b of shots.length ? shots : [item.image]) { try { faces.push(...await facesIn(b)); } catch { /* that one */ } }
     // (A photo's faces kept for its post, once it's made: who's in it, for matching later.)
     if (item.kind === 'photo') item.faces = faces.slice(0, 8).map((f) => f.d);
-    return matchFaces(faces, known);
+    return matchFaces(faces, known, 0.5, { not: notFacesFrom(state) });
   }
 
   // ---- The photos and videos of a post being made or edited. Each file picked is read in full straight away
@@ -1019,15 +1019,17 @@ function mountAdmin(host) {
     const mx = mediaEditor(mine ? mediaOf(draft).map((it) => ({ kind: it.kind, image: it.image, video: it.video, fit: it.fit ?? null })) : [], { onChange: () => { sync(); autoCaption(); findPeople(); } });
     caption.addEventListener('input', sync);
     // (✨ Suggest caption: from what the photo shows (and when and where); again for another.)
-    let suggested = []; let lastSuggestion = '';
-    // (A caption: the engine's, from what the photo shows; with the on-device AI on, written by it with the
-    // engine's as its guide (and the engine's hashtags kept).)
+    let suggested = []; let lastSuggestion = ''; const rawSeen = [];
+    // (A caption: the engine's, from what the photo shows, in the posting account's own voice (hype, chill, warm,
+    // witty or classic: as its comments and messages are), at the language level; with the on-device AI on,
+    // written by it as that account with the engine's as its guide. The engine's hashtags kept.)
     const captionFor = async (sc) => {
-      const c = suggestCaption(sc, { avoid: suggested });
-      if (!aiOn() || !aiReady()) return c;
-      const t = await aiCaption({ scene: describeScene(sc), draft: c, level: levelNow(), avoid: suggested });
-      if (!t) return c;
-      const tags = c.match(/#[\p{L}\p{N}_]+/gu) ?? [];
+      const c = suggestCaption(sc, { avoid: rawSeen }); rawSeen.push(c); // (the engine's own, so each is another)
+      const tags = c.match(/#[\p{L}\p{N}_]+/gu) ?? []; const body = c.replace(/\s*#[\p{L}\p{N}_]+/gu, '').trim();
+      const persona = personaOf(m.handle, m.kind);
+      let t = null;
+      if (aiOn() && aiReady()) t = await aiCaption({ scene: describeScene(sc), draft: body, level: levelNow(), avoid: suggested, handle: m.handle, persona });
+      t ??= spice(voice(body, { persona }), Math.min(levelNow(), 2), { persona, mood: 'pos' });
       return `${t}${tags.length ? ` ${tags.join(' ')}` : ''}`;
     };
     const suggest = el('button', { type: 'button', class: 'btn so-suggest', text: '✨ Suggest caption' });

@@ -215,6 +215,22 @@ export function cleanFace(a) {
   if (!Array.isArray(a?.face) || a.face.length !== 128 || !a.face.every(Number.isFinite) || !a.faceOf || a.faceOf !== a.avatarId) return {};
   return { face: a.face.map((v) => Math.round(v * 10000) / 10000), faceOf: a.faceOf };
 }
+// (Faces learned for an account from what you've said: ✓ It's them (more of its faces, from more angles), ✕ Not
+// them (faces that aren't it, so they aren't suggested again). At most LEARNED of each, the newest kept.)
+export const LEARNED = 24;
+const fdist = (a, b) => { let t = 0; for (let i = 0; i < 128; i++) { const d = a[i] - b[i]; t += d * d; } return Math.sqrt(t); };
+const cleanFaces = (v) => (Array.isArray(v) ? v.filter((d) => Array.isArray(d) && d.length === 128 && d.every(Number.isFinite)).slice(-LEARNED).map((d) => d.map((x) => Math.round(x * 10000) / 10000)) : []);
+/** A face learned for an account (`not`: one that isn't it). Returns whether it was new. */
+export function learnFace(state, id, d, { not = false } = {}) {
+  const a = accountById(state, id); if (!a || !Array.isArray(d) || d.length !== 128) return false;
+  const key = not ? 'notFaces' : 'learned'; const list = cleanFaces(a[key]);
+  if (list.some((x) => fdist(x, d) < 0.12)) return false; // (much the same as one it has)
+  a[key] = cleanFaces([...list, d]);
+  // (Said both ways: the latest wins.)
+  const other = not ? 'learned' : 'notFaces'; if (a[other]?.length) a[other] = cleanFaces(a[other]).filter((x) => fdist(x, d) >= 0.12);
+  return true;
+}
+
 /** Keep an account's face (from its current profile photo). */
 export function setFace(state, id, face) {
   const a = accountById(state, id); if (!a || !a.avatarId) return null;
@@ -507,7 +523,7 @@ export function countLabel(n) {
 export function normalize(raw) {
   const s = emptyState(); if (!raw || typeof raw !== 'object') return s;
   const ok = (v) => typeof v === 'string' && v.length > 0;
-  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], ...cleanFace(a), at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
+  s.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a) => a && ok(a.id) && ok(a.handle)).map((a) => ({ id: a.id, handle: a.handle, name: a.name ?? '', bio: a.bio ?? '', avatar: a.avatar ?? null, avatarId: a.avatarId ?? (a.avatar ? newId() : null), owner: !!a.owner, kind: kindOf(a.kind), following: Array.isArray(a.following) ? a.following.filter(ok) : [], saved: Array.isArray(a.saved) ? [...new Set(a.saved.filter(ok))] : [], ...cleanFace(a), ...(cleanFaces(a.learned).length ? { learned: cleanFaces(a.learned) } : {}), ...(cleanFaces(a.notFaces).length ? { notFaces: cleanFaces(a.notFaces) } : {}), at: a.at ?? 0, upd: a.upd ?? a.at ?? 0 }));
   // (Exactly one Owner: the one made so last, else the oldest account.)
   { const owners = s.accounts.filter((a) => a.owner).sort((a, b) => b.upd - a.upd); for (const a of owners.slice(1)) a.owner = false; if (!owners.length && s.accounts.length) [...s.accounts].sort((a, b) => a.at - b.at)[0].owner = true; }
   const ids = new Set(s.accounts.map((a) => a.id));

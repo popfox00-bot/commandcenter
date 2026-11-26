@@ -392,7 +392,10 @@ export function generateComment(caption, { rand = Math.random, avoid = [], tagge
     // (In the voice of whoever's commenting.)
     return as ? voice(text, { persona: personaOf(String(as).replace(/^@/, '')), rand }) : text;
   }
-  const g = generalFact(caption, photo, rand); return `${pick(g.say, rand)} ${pick(g.emoji, rand)}`;
+  // (Everything said already: a general line not said yet.)
+  const g = generalFact(caption, photo, rand);
+  for (let k = 0; k < 40; k++) { const t2 = `${pick(g.say, rand)} ${pick(g.emoji, rand)}`; if (!said.has(t2.toLowerCase())) return t2; }
+  return `${pick(g.say, rand)} ${pick(g.emoji, rand)}${pick(g.emoji, rand)}`;
 }
 
 /** `n` different comments for a post (as `generateComment`; `as`: who says each, by turn): different words, things and emojis. */

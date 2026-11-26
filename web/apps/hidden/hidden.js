@@ -1,11 +1,12 @@
-// The hidden page: reached only from a sequence of taps on the Photo Editor's switches, and behind its own
-// password (web/lib/hidden-lock.js): set the first time, asked for after that. It says "Welcome!" and holds
+// The Vault: reached from Files' ⚙ settings → Admin, behind its own password (web/lib/hidden-lock.js) or Face
+// ID: set the first time, asked for after that. It says "Welcome!" and holds
 // its apps: Magic (Downloads, FM, Reverse Fill, Fashion) and Saved Files, opened only once it's unlocked.
 
 import { el } from '../../lib/dom.js';
 import { childrenOf } from '../index.js';
 import { renderHub } from '../hub.js';
 import { hasPassword, isOpen, setPassword, tryPassword, waitLeft, lock, openWithPasskey } from '../../lib/hidden-lock.js';
+import { bgSetting, showBg, loadBg } from '../../lib/bg-image.js';
 import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePasskey, removePasskey } from '../../lib/passkey.js';
 
 export function mount(host) {
@@ -16,13 +17,15 @@ export function mount(host) {
     // (Opened on the way to one of its apps: on to it.)
     let next = null; try { next = sessionStorage.getItem('cc.hidden.next'); sessionStorage.removeItem('cc.hidden.next'); } catch { next = null; }
     if (next && next !== '#/hidden') { location.replace(next); return; }
+    loadBg('vault').then((b) => { if (isOpen()) showBg(b); });
     const apps = el('div', { class: 'hid-apps' });
     renderHub(apps, childrenOf('hidden'));
     box.replaceChildren(el('section', { class: 'card hid-card' },
-      el('h2', { class: 'hid-welcome', text: 'Welcome!' }),
+      el('h2', { class: 'hid-welcome', text: '🔐 Vault' }),
       apps,
       el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn', text: '🔒 Lock', onclick: () => { lock(); ask(); location.hash = '#/'; } })),
-      faceIdSetting()));
+      faceIdSetting(),
+      el('div', { class: 'hid-bg' }, el('p', { class: 'small' }, el('strong', { text: 'Background ' }), 'behind the Vault and its apps: a picture of yours, kept only on this phone.'), bgSetting('vault', 'Vault background', (b) => showBg(b)))));
   }
 
   // (Face ID (a passkey) to open it, as well as the password: set up or turned off here, once it's open.)
@@ -31,10 +34,10 @@ export function mount(host) {
     const drawIt = async () => {
       if (!passkeysSupported()) { box.replaceChildren(); return; }
       const on = hasPasskey('hidden'); const note = el('p', { class: 'small muted', 'aria-live': 'polite' });
-      box.replaceChildren(el('p', { class: 'small' }, el('strong', { text: 'Face ID ' }), on ? 'is on: it opens this area as well as your password.' : 'can open this area as well as your password (a passkey, kept in your phone\'s passwords).'),
+      box.replaceChildren(el('p', { class: 'small' }, el('strong', { text: 'Face ID ' }), on ? 'is on: it opens the Vault as well as your password.' : 'can open the Vault as well as your password (a passkey, kept in your phone\'s passwords).'),
         el('button', { type: 'button', class: 'btn', text: on ? 'Turn off Face ID' : 'Set up Face ID', onclick: async () => {
           if (on) { removePasskey('hidden'); drawIt(); return; }
-          try { await createPasskey('hidden', 'Hidden area'); drawIt(); } catch (e) { note.textContent = e?.name === 'NotAllowedError' ? 'Cancelled.' : e.message; }
+          try { await createPasskey('hidden', 'Vault'); drawIt(); } catch (e) { note.textContent = e?.name === 'NotAllowedError' ? 'Cancelled.' : e.message; }
         } }), note);
       if (!on && !(await deviceCanPasskey())) note.textContent = 'This device may not have Face ID or a fingerprint for passkeys.';
     };
@@ -45,7 +48,7 @@ export function mount(host) {
     const first = !hasPassword();
     const pw = el('input', { type: 'password', class: 'hid-pw', autocomplete: first ? 'new-password' : 'current-password', 'aria-label': first ? 'New password' : 'Password' });
     const again = first ? el('input', { type: 'password', class: 'hid-pw', autocomplete: 'new-password', 'aria-label': 'The same again' }) : null;
-    const note = el('p', { class: 'small muted', 'aria-live': 'polite', text: first ? 'Set a password for this area. It\'s kept only on this phone, as a hash.' : '' });
+    const note = el('p', { class: 'small muted', 'aria-live': 'polite', text: first ? 'Set a password for the Vault. It\'s kept only on this phone, as a hash.' : '' });
     const go = el('button', { type: 'submit', class: 'btn primary block', text: first ? 'Set password' : 'Open' });
     const form = el('form', { class: 'card hid-card', onsubmit: async (e) => {
       e.preventDefault();
@@ -62,7 +65,7 @@ export function mount(host) {
         form.classList.remove('hid-shake'); void form.offsetWidth; form.classList.add('hid-shake');
       } catch (err) { note.textContent = err.message; } finally { go.disabled = false; pw.focus(); }
     } },
-      el('h2', { text: first ? 'Set a password' : 'Password' }),
+      el('h2', { text: first ? '🔐 Vault: set a password' : '🔐 Vault' }),
       pw, again, note, go);
     // (Face ID, when it's set up: as well as the password.)
     if (!first && hasPasskey('hidden')) {
@@ -72,6 +75,7 @@ export function mount(host) {
       } }));
     }
     box.replaceChildren(form);
+    showBg(null); // (Locked: no picture of its showing.)
     pw.focus();
   }
 

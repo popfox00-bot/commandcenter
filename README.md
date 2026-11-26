@@ -24,7 +24,7 @@ middle a rounded square (the app's icon) that goes back to the home screen, and 
 each opening its app in one tap (the one you're in outlined). To start: Notes and Clock on the left, Socials and
 Calculator on the right. Hold one down (or right-click it) to pick another app for that place, or use Settings →
 **Dock** (Left 1, Left 2, Right 1, Right 2); picking one already in the Dock swaps the two. Kept on the phone.
-The hidden area's apps are never offered. It steps out of the way while you type (the keyboard's up), and
+The Vault's apps are never offered. It steps out of the way while you type (the keyboard's up), and
 anything full screen sits over it; Socials' own tab bar sits just above it (`web/lib/dock.js`). Apps with a page
 of their own (WorldAtlas, Trade Desk, Inkling, Laundry Timer, Games) keep their own look, without it.
 It can be **tucked away**: then only a small Command logo shows at the bottom left; tap it to open the Dock (the
@@ -504,7 +504,22 @@ It needs a connection, and it's careful about what it fetches:
 
 ### Saved Files
 
-(Behind its password, with Magic. A photo opened from it goes to Files → Photo Editor, a PDF to Files → PDF.)
+(In the **Vault**, with Magic: reached from Files' settings, behind its own password or Face ID. A photo opened
+from it goes to Files → Photo Editor, a PDF to Files → PDF. The Vault can have a **background picture** of yours,
+set in it, kept only on this phone.)
+
+- **★ Favorites.** ☆ on a file stars it (★ takes it off); **★ Favorites** shows the starred ones as cards in two
+  columns, about four to six on a phone's screen (scroll for the rest): each its picture (a photo; a video's frame
+  with a row of four stills from all through it under it; any other file its kind's icon), its title (the file's
+  name to start) and, if you add one, a description: tap a card to change them, open the file, or unfavorite it.
+  Drag a card's ⠿ (or ← → on it) to put the ones you like most first: they fill the columns from the top. Kept on
+  this phone (list, titles, order and the pictures made from each file), so they show offline too
+  (`web/tools/saved/favorites.js`).
+- **🔎 Scan for characters.** Reads a batch of the folder's photos and videos (all, or the ones you tick) on the
+  phone: a photo once, a video at 12 stills from all through it; each face found is compared with your Socials
+  accounts' profile photos and who it might be is suggested, with how sure ("@amy · 92% likely"). Only suggestions:
+  nothing is changed. Say ✓ It's them or ✕ Not them to each; the yeses are kept in **⚙ Character matches** (by
+  account, each removable), inside the Vault (`web/tools/saved/scanner.js`).
 
 **Files → Saved Files** keeps files in your own Google Drive folder: the folder that holds your
 "Saved Files" spreadsheet. A small Google Apps Script in that spreadsheet
@@ -1376,6 +1391,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
   comments on posts are in their commenters' voices too, with livelier lines ("Not the red dress being this good",
   "Frame this immediately", "Okay whoever took this ate").
   Turn it off in Sync and password (then ✨ Generate reply from @… does it on a tap).
+- **🖼 Backgrounds.** A picture of yours behind all of Socials (Sync and password → Background), and one per account
+  on its own profile page (Edit profile → Profile background), with a veil of the page's color over it so text
+  stays readable. Kept only on this phone (`web/lib/bg-image.js`).
 - **🤖 AI replies (on the phone).** Sync and password → AI replies: a small language model (Qwen2.5 1.5B Instruct,
   4-bit, about 1.2 GB) that runs on the phone's GPU with WebGPU (iPhone with iOS 26 or later, current Chrome/Edge)
   through Transformers.js (`web/vendor/transformers`, `web/apps/socials/socials-ai.js` and its worker). Downloaded
@@ -1411,7 +1429,7 @@ Profile, ✈ for messages), where everything is made by you in the app.
   **Download selected**. On a phone they go to the share sheet (Save to Photos); elsewhere a download, or a zip.
 - **Open in… (the Owner account).** On the Owner account, any photo post's ⋯ → Open in… → 🖼️ Photo Editor,
   🎭 FM or 👕 Fashion (as the base, the person to dress, or as the piece, what to put on) opens a copy of the
-  photo there (FM and Fashion behind the hidden area's password as always). What's done there stays there.
+  photo there (FM and Fashion behind the Vault's password as always). What's done there stays there.
 - **Messages.** ✈ (with how many are unread) lists the account in use's chats; start one with any other
   account (or Message on its profile). "Answer as @…" switches to the other account to reply. The account list
   shows each account's unread count: the Owner first, with **+ Add New** under it (a new account: Friend or
@@ -1429,17 +1447,17 @@ after the app is closed and opened again. What was kept as Blobs before 3.06 is 
 opened (each that still reads); a photo whose file can't be read says so on its post instead of showing a
 broken picture, and with Saved Files the copy in Drive brings it back at the next sync.
 
-**Password.** Socials has its own password (separate from the hidden area's, kept the same way: only a
+**Password.** Socials has its own password (separate from the Vault's, kept the same way: only a
 salted PBKDF2 hash on the phone), set the first time it's opened and asked each time the app starts; five
 wrong tries in a row wait 30 seconds. ☁ (top right) → Sync and password: change it, or 🔒 lock Socials now.
-The data on the phone itself isn't encrypted (as the hidden area's isn't): the password keeps the app shut.
+The data on the phone itself isn't encrypted (as the Vault's isn't): the password keeps the app shut.
 
 **Face ID.** Sync and password → Set up Face ID makes a passkey (kept in the phone's passwords) that opens
 Socials as well as its password (`web/lib/passkey.js`). Where the passkey can give the app a secret of its own
 (WebAuthn's prf: iCloud Keychain on iOS 18 and later, among others), that secret encrypts the Socials password
 on the device, so Face ID alone opens Socials and lets it sync; otherwise Face ID opens it and the password is
 asked for once (until the app is closed) to sync. Changing the password turns that Face ID off, to set up again.
-The hidden area offers the same (Set up Face ID once it's open). Turn either off any time; the passwords
+The Vault offers the same (Set up Face ID once it's open). Turn either off any time; the passwords
 always work.
 
 **On your other devices (through your Drive).** With [Saved Files](#saved-files) set up, Socials keeps a copy

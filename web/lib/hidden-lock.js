@@ -1,4 +1,4 @@
-// The hidden area's password: set once on this phone, then asked for each time it's opened. Only a salted
+// The Vault's password (the area once called hidden; its keys keep that name): set once on this phone, then asked for each time it's opened. Only a salted
 // hash of it is kept (PBKDF2-SHA-256 with a random salt, many rounds), never the password itself. Opened
 // once, it stays open until this tab is closed (session storage) or it's locked again. A few wrong tries
 // in a row: a short wait before the next.
@@ -57,20 +57,3 @@ export function makeLock(key, openKey) {
 
 const hidden = makeLock('cc.hidden.lock', 'cc.hidden.open');
 export const { hasPassword, isOpen, lock, setPassword, waitLeft, tryPassword, openWithPasskey } = hidden;
-
-/** The order of Photo Editor switches that leads to it. */
-export const SEQUENCE = ['cutout', 'photo', 'collage', 'photo', 'cutout', 'collage', 'cutout'];
-
-/**
- * A watcher of the taps on those switches: `tap(tab, now)` true when the last taps (within 20 seconds of the
- * first of them) are the sequence.
- */
-export function sequenceWatcher(seq = SEQUENCE, within = 20_000) {
-  let taps = [];
-  return (tab, now = Date.now()) => {
-    taps = [...taps, { tab, at: now }].slice(-seq.length);
-    const hit = taps.length === seq.length && taps.every((t, i) => t.tab === seq[i]) && now - taps[0].at <= within;
-    if (hit) taps = [];
-    return hit;
-  };
-}

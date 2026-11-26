@@ -9,6 +9,7 @@ import { VERSION, HISTORY } from './version.js';
 import { updatesCard } from './lib/home-extras.js';
 import { updateToLatest } from './lib/update.js';
 import { mountDock } from './lib/dock.js';
+import { loadBg, showBg } from './lib/bg-image.js';
 
 const views = { home: $('#view-home'), app: $('#view-app'), jobs: $('#view-jobs') };
 let mountedApp = null;
@@ -42,7 +43,7 @@ async function route() {
   if (moved) { location.replace(moved); return; }
   const [, section = ''] = (location.hash || '#/').split('/');
   const app = APPS.find((a) => a.id === section && a.load);
-  // (An app of the hidden area, opened while it's locked: its password first, then on to where it was going.)
+  // (An app of the Vault, opened while it's locked: its password first, then on to where it was going.)
   if (isLocked(app) && !hiddenOpen()) { try { sessionStorage.setItem('cc.hidden.next', location.hash); } catch { /* private mode */ } location.replace('#/hidden'); return; }
   const view = section === 'jobs' ? 'jobs' : app ? 'app' : 'home';
   if (view === 'home') renderHome(); // the order may have changed in Settings
@@ -67,6 +68,10 @@ async function route() {
     mountedApp.unmount?.();
     mountedApp = null;
   }
+  // (Background pictures: the Vault's behind it and its apps; Socials puts up its own; elsewhere none.)
+  const inVault = view === 'app' && (app.id === 'hidden' || isLocked(app));
+  if (!(view === 'app' && app.id === 'socials')) showBg(null);
+  if (inVault && hiddenOpen()) { const here = location.hash; loadBg('vault').then((b) => { if (location.hash === here && hiddenOpen()) showBg(b); }); }
   if (view === 'app' && !mountedApp) mountedApp = await mountInto($('#app-host'), app, app.id);
   if (view !== 'app') document.title = view === 'home' ? 'Command Center' : `${$('#title').textContent} · Command Center`;
   window.scrollTo(0, 0);

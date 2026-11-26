@@ -1,5 +1,5 @@
 // Passkeys (Face ID, Touch ID, a fingerprint, the phone's own screen lock) to open a locked part of the app
-// (the hidden area, Socials) as well as its password: never instead of it, so the password still works and
+// (the Vault, Socials) as well as its password: never instead of it, so the password still works and
 // a passkey can be turned off any time. All on this device: the app has no server, so a passkey here proves
 // that the phone's owner (Face ID) is present, as the password does, and nothing is sent anywhere.
 //

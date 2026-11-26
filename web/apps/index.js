@@ -3,7 +3,7 @@
 // opened from Settings; other apps load on first open. Two apps hold others:
 // - Files: Photo Editor (with Collage and Cutout), Convert, PDF and Scan (documents, and QR codes):
 //   all on this phone, offline.
-// - Magic (in the hidden area, behind its password): Downloads (a video from a link: needs a connection),
+// - Magic (in the Vault, behind its password): Downloads (a video from a link: needs a connection),
 //   FM (FaceMask), Reverse Fill and Fashion. Saved Files (your own Google Drive folder) is in the hidden
 //   area too, an app of its own.
 // Games is Fox Games, a self-contained page of its own (web/apps/games/fox/). Trade Desk is the LHS
@@ -45,8 +45,8 @@ export const APPS = [
   { id: 'refill', name: 'Reverse Fill', icon: '🎨', tint: 'amber', note: 'Take off a label, logo or stain', href: '#/refill', parent: 'magic', home: false, locked: true, load: () => import('./refill/refill.js') },
   { id: 'fashion', name: 'Fashion', icon: '👕', tint: 'pink', note: 'Put a top, pants, hat or shoes on', href: '#/fashion', parent: 'magic', home: false, locked: true, load: () => import('./fashion/fashion.js') },
   { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'hidden', home: false, locked: true, load: () => import('./saved/saved-app.js') },
-  // Not anywhere on screen: reached by a sequence of taps (see web/lib/hidden-lock.js), behind a password.
-  { id: 'hidden', name: 'Hidden', icon: '🔒', tint: 'slate', note: '', href: '#/hidden', home: false, load: () => import('./hidden/hidden.js') },
+  // The Vault: not on the home screen; Files' ⚙ settings → Admin, behind its own password (web/lib/hidden-lock.js).
+  { id: 'hidden', name: 'Vault', icon: '🔐', tint: 'slate', note: '', href: '#/hidden', home: false, load: () => import('./hidden/hidden.js') },
   // Not on the home screen: opened from Settings.
   { id: 'jobs', name: 'Jobs', icon: '⏱', tint: 'slate', note: 'Background runs & settings', href: '#/jobs', home: false },
 ];
@@ -70,9 +70,9 @@ export const FILES_APPS = [
   { id: 'scan', name: 'Scan', icon: '📷', tint: 'ink', note: 'Documents · QR codes', tabs: ['scan', 'qr'] },
 ];
 
-/** The apps inside an app (Magic's, the hidden area's), for its page of them. */
+/** The apps inside an app (Magic's, the Vault's), for its page of them. */
 export const childrenOf = (id) => APPS.filter((a) => a.parent === id);
-/** Whether an app is in the hidden area (Magic and its apps, Saved Files): opened only once it's unlocked. */
+/** Whether an app is in the Vault (Magic and its apps, Saved Files): opened only once it's unlocked. */
 export const isLocked = (app) => !!app?.locked;
 
 export const HOME_ORDER_KEY = 'cc.home.order';

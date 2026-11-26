@@ -392,3 +392,69 @@ test('Saved Files encryption: turn it on (recovery key shown once), files encryp
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Saved Files ★ Favorites: starred files as two columns of cards (title, description), reordered by dragging, kept on the phone', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  const fx = async (n) => (await readFile(join(import.meta.dirname, '../fixtures', n))).toString('base64');
+  for (const [i, n] of ['counter_pill.png', 'icon_tags.png', 'icon_mute.png', 'feed_dark_gray_media_723.png'].entries()) script.files.push({ id: `p${i}`, name: n, type: 'image/png', size: 10, updated: NOW - i * 1000, data: await fx(n), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors } = await open(context, '#/files/saved');
+  await page.waitForSelector('.sv-item:has-text("icon_tags.png")');
+  for (const n of ['counter_pill.png', 'icon_tags.png', 'icon_mute.png']) { await page.getByRole('button', { name: `Favorite ${n}` }).click(); await page.getByRole('button', { name: `Unfavorite ${n}` }).waitFor(); }
+  await page.getByRole('button', { name: /★ Favorites \(3\)/ }).click();
+  const cards = page.locator('.fv-card'); await cards.nth(2).waitFor();
+  const titles = () => page.locator('.fv-title').allTextContents();
+  assert.deepEqual(await titles(), ['icon mute', 'icon tags', 'counter pill'], 'the newest starred first; names as titles');
+  // Two columns.
+  const [a, b, c] = await Promise.all([0, 1, 2].map((i) => cards.nth(i).boundingBox()));
+  assert.ok(Math.abs(a.y - b.y) < 2 && b.x > a.x && c.y > a.y + 50, 'two columns, filled from the top');
+  assert.ok(a.height < 300 && a.width < 200, 'small enough for 4–6 on a screen');
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  // A title and description of its own.
+  await page.getByRole('button', { name: 'counter pill: details' }).click();
+  await page.getByLabel('Title').fill('The pill'); await page.getByLabel('Description').fill('My favorite button');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.locator('.fv-desc', { hasText: 'My favorite button' }).waitFor();
+  // Dragged to the front.
+  const h = cards.nth(2).locator('.fv-handle'); const hb = await h.boundingBox(); const tb = await cards.nth(0).boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2); await page.mouse.down();
+  await page.mouse.move(tb.x + 30, tb.y + 60, { steps: 8 }); await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector('.fv-title')?.textContent === 'The pill');
+  assert.deepEqual((await titles())[0], 'The pill');
+  // Kept: after a reload, offline too (the cards come from the phone).
+  await page.reload(); await page.waitForSelector('.sv-item'); await context.setOffline(true);
+  await page.getByRole('button', { name: /★ Favorites \(3\)/ }).click(); await page.locator('.fv-card').nth(2).waitFor();
+  assert.deepEqual(await titles(), ['The pill', 'icon mute', 'icon tags']);
+  assert.equal(await page.locator('.fv-card img.fv-pic').count(), 3, 'their pictures kept');
+  await context.setOffline(false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Saved Files 🔎 Scan for characters: pick files, scanned on the phone, suggestions only; Character matches kept and removable', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const script = await fakeScript(context);
+  const fx = async (n) => (await readFile(join(import.meta.dirname, '../fixtures', n))).toString('base64');
+  script.files.push({ id: 'p1', name: 'icon_tags.png', type: 'image/png', size: 10, updated: NOW, data: await fx('icon_tags.png'), from: 'Files', parent: '' });
+  script.files.push({ id: 't1', name: 'notes.txt', type: 'text/plain', size: 4, updated: NOW - 1, data: Buffer.from('hi').toString('base64'), from: 'Files', parent: '' });
+  await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
+  const { page, errors, external } = await open(context, '#/files/saved');
+  await page.waitForSelector('.sv-item:has-text("icon_tags.png")');
+  await page.getByRole('button', { name: '🔎 Scan for characters' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Scan for characters' });
+  assert.deepEqual((await dlg.locator('.sc-pick li').allTextContents()).map((t) => t.trim()), ['🖼️ icon_tags.png'], 'only photos and videos');
+  await dlg.getByRole('button', { name: /^Scan 1 file/ }).click();
+  await dlg.getByText('None of your Socials accounts has a profile photo with a face yet').waitFor({ timeout: 20000 });
+  await dlg.getByRole('button', { name: 'Close' }).click();
+  // Character matches: a kept one shows, by account, and can be removed.
+  await page.evaluate(async () => { const { keepMatch } = await import('./tools/saved/scanner.js'); await keepMatch({ fileId: 'p1', name: 'icon_tags.png', accountId: 'a1', handle: 'amy', sure: 91 }); });
+  await page.getByRole('button', { name: '⚙ Character matches' }).click();
+  const m = page.getByRole('dialog', { name: 'Character matches' });
+  await m.getByText('@amy · 1').waitFor(); assert.match(await m.textContent(), /icon_tags\.png.*91%/);
+  await m.getByRole('button', { name: 'Remove icon_tags.png as @amy' }).click();
+  await m.getByText('No matches kept yet.').waitFor();
+  assert.deepEqual(external.filter((u) => !u.startsWith('https://script.google.com/')), [], 'nothing but your own Saved Files');
+  assert.deepEqual(errors, []);
+  await context.close();
+});

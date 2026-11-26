@@ -27,7 +27,7 @@ export function setDockTucked(appId, tucked) {
 /** The Favorites to start with: two on the left, two on the right. */
 export const DEFAULT_DOCK = ['notes', 'clock', 'socials', 'calculator'];
 
-/** The apps a Favorite can be: any of the app's own, not the hidden area's (a Dock shouldn't give it away). */
+/** The apps a Favorite can be: any of the app's own, not the Vault's (a Dock shouldn't give it away). */
 export function dockChoices(apps) {
   return apps.filter((a) => a.href && !a.locked && a.parent !== 'hidden' && !['hidden', 'jobs'].includes(a.id));
 }

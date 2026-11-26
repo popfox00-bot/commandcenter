@@ -1909,3 +1909,58 @@ body.has-dock.dock-tucked .so-reels { height: calc(100dvh - 56px - env(safe-area
 .so-ai { display: grid; gap: 6px; margin-top: 8px; }
 .so-ai p { margin: 0; }
 .so-ai-bar { height: 6px; }
+.studio-top { display: flex; justify-content: flex-end; margin: -4px 0 4px; }
+.studio-settings .sheet { display: grid; gap: 10px; }
+.studio-admin-row { display: flex; justify-content: center; padding-top: 6px; }
+.studio-admin { background: none; border: 0; color: var(--muted); font: inherit; font-size: .8rem; padding: 10px 16px; cursor: pointer; }
+/* ---- Background pictures (web/lib/bg-image.js): behind the page, fixed, with a veil of the page's color. */
+.cc-bgimg { position: fixed; inset: 0; z-index: -1; background-size: cover; background-position: center; pointer-events: none; }
+.cc-bgimg::after { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); }
+body.has-bgimg .topbar { background: color-mix(in srgb, var(--bg) 60%, transparent); }
+.cc-bg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cc-bg-thumb { width: 44px; height: 44px; border-radius: 10px; background: var(--surface) center / cover no-repeat; border: 1px solid var(--border); flex: none; }
+.cc-bg-thumb.none { background-image: repeating-linear-gradient(45deg, transparent 0 6px, color-mix(in srgb, var(--muted) 18%, transparent) 6px 8px); }
+.cc-bg-label { display: grid; flex: 1; min-width: 8rem; }
+.cc-bg-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.cc-bg-row label.btn { position: relative; }
+.so-bg-settings { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--border); }
+.so-bg-settings p { margin: 0; }
+.hid-bg { display: grid; gap: 6px; }
+body.has-bgimg .so-tabs, body.has-bgimg .so-top { background: color-mix(in srgb, var(--bg) 82%, transparent); }
+/* ---- Saved Files → ★ Favorites: two columns of cards (4–6 on a phone's screen), ⠿ to reorder. */
+.sv-favs-btn { margin: 6px 0; }
+.sv-fav-on { color: #f5b301; }
+.fv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; margin-top: 8px; }
+.fv-card { position: relative; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden; touch-action: manipulation; transition: box-shadow .15s, transform .15s; }
+.fv-card.dragging { box-shadow: 0 10px 26px rgb(0 0 0 / .3); transform: scale(1.03); z-index: 3; opacity: .95; }
+.fv-open { display: grid; gap: 4px; width: 100%; padding: 0 0 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.fv-picbox { position: relative; display: block; aspect-ratio: 1; background: #000; }
+.fv-pic { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fv-nopic { display: grid; place-items: center; font-size: 2.6rem; background: var(--surface); }
+.fv-play { position: absolute; left: 8px; bottom: 6px; color: #fff; font-size: 1.1rem; text-shadow: 0 1px 6px rgb(0 0 0 / .7); }
+.fv-stills { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 0 6px; }
+.fv-stills img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; display: block; }
+.fv-title { padding: 0 8px; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fv-desc { padding: 0 8px; font-size: .78rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fv-handle { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; border: 0; border-radius: 9px; background: rgb(0 0 0 / .45); color: #fff; font-size: 1.1rem; cursor: grab; touch-action: none; }
+.fv-empty { grid-column: 1 / -1; }
+.fv-details .sheet { display: grid; gap: 8px; }
+.fv-big { width: 100%; max-height: 45vh; object-fit: contain; background: #000; border-radius: 10px; }
+.fv-stills-big { padding: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.fv-label { display: grid; gap: 4px; font-size: .85rem; }
+.fv-in { width: 100%; font-size: 16px; }
+/* ---- Saved Files → 🔎 Scan for characters, and Character matches. */
+.sv-tools { margin: 0 0 6px; }
+.sc-dialog .sheet { display: grid; gap: 10px; max-height: 85dvh; overflow-y: auto; }
+.sc-pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 40dvh; overflow-y: auto; }
+.sc-pick label { display: flex; gap: 6px; align-items: center; font-size: .9rem; overflow-wrap: anywhere; }
+.sc-results, .sc-hits, .sc-matches { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sc-file { border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; display: grid; gap: 6px; }
+.sc-name { overflow-wrap: anywhere; }
+.sc-hit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sc-hit.sc-no { opacity: .45; text-decoration: line-through; }
+.sc-av { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.sc-who { flex: 1; min-width: 7rem; }
+.sc-acc h3 { margin: 6px 0; font-size: 1rem; }
+.sc-matches li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sc-mname { overflow-wrap: anywhere; }

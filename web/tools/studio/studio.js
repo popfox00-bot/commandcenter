@@ -1,7 +1,8 @@
 // "Files" app: a page of its own apps (Photo Editor, Convert, PDF, Scan), each opened from it. Photo
 // Editor has Edit, Collage and Cutout; Scan has Documents and QR codes (scan, make, app codes).
 // Routes: #/files (its page of apps) and #/files/<tab> (photo, collage, cutout, convert, pdf, scan,
-// qr). A file handed over from Saved Files (in Magic) opens in the Photo Editor or PDF.
+// qr). A file handed over from Saved Files (in Magic) opens in the Photo Editor or PDF. Its ⚙ settings hold
+// Admin, the way into the Vault.
 // Going from a photo being edited to Collage puts it in a frame; to Cutout asks what to do with it.
 // Each tab is mounted the first time it is opened and then kept alive while hidden, so switching
 // tabs never loses a conversion in progress or an open photo.
@@ -11,7 +12,6 @@ import { handoff } from '../../lib/handoff.js';
 import { FILES_APPS } from '../../apps/index.js';
 import { renderHub } from '../../apps/hub.js';
 import { recentIn } from '../../lib/home-extras.js';
-import { sequenceWatcher } from '../../lib/hidden-lock.js';
 
 const TABS = [
   { id: 'photo', label: 'Photo', load: () => import('../editor/editor.js') },
@@ -43,13 +43,19 @@ export function mount(host) {
   const near = el('div', { class: 'studio-recent' });
   let nearOnly = () => false; const nearRecent = recentIn(near, (href) => nearOnly(href));
   host.append(hub, sub, near, body);
-  // (A certain order of taps on the Photo Editor's switches opens the hidden area: web/lib/hidden-lock.js.)
-  const watch = sequenceWatcher();
-  sub.addEventListener('click', (e) => {
-    const a = e.target.closest?.('a.seg'); if (!a) return;
-    const tab = (a.getAttribute('href') || '').split('/')[2];
-    if (inPhoto(tab) && watch(tab)) { e.preventDefault(); location.hash = '#/hidden'; }
-  });
+  // (Its ⚙ settings, at the top of its page: Admin, at the bottom of them, opens the Vault (behind its password).)
+  const gear = el('button', { type: 'button', class: 'icon-btn studio-gear', 'aria-label': 'Files settings', text: '⚙', onclick: () => openSettings() });
+  hub.prepend(el('div', { class: 'studio-top' }, gear));
+  function openSettings() {
+    const dlg = el('dialog', { class: 'ed-dialog studio-settings', 'aria-label': 'Files settings' }, el('div', { class: 'sheet' },
+      el('div', { class: 'row space' }, el('h2', { text: 'Files settings' }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })),
+      el('p', { class: 'small muted', text: 'Photo Editor, Convert, PDF and Scan work on this phone, offline. Saved Files and backgrounds are set up in Settings.' }),
+      el('a', { class: 'btn block', href: '#/settings', text: 'Open Settings', onclick: () => dlg.close() }),
+      el('div', { class: 'studio-admin-row' }, el('button', { type: 'button', class: 'studio-admin', text: 'Admin', onclick: () => { dlg.close(); location.hash = '#/hidden'; } }))));
+    dlg.addEventListener('close', () => dlg.remove());
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    document.body.append(dlg); dlg.showModal();
+  }
   let shown = null;    // the tab on screen
   const handed = {};   // the editor photo (its key) last handed to Collage / Cutout
 

@@ -244,12 +244,12 @@ test('Socials extras: a photo fitted square and filtered Mono in the editor (not
   assert.deepEqual(await page.locator('.so-section').allTextContents(), ['Owner', 'Friends · 1', 'Celebrities']);
   assert.match(await page.locator('.so-person').first().textContent(), /owner\.meOwner/);
   // A DM from alt.acct to the Owner; the Owner sees it unread, answers.
-  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: 'Messages' }).click();
   await page.getByRole('button', { name: 'Message @owner.me' }).click();
   await page.getByLabel('Message', { exact: true }).fill('Hey owner!'); await page.getByRole('button', { name: 'Send' }).click();
   await page.locator('.so-bubble.mine', { hasText: 'Hey owner!' }).waitFor();
-  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   await page.getByRole('button', { name: 'Messages, 1 unread' }).click();
   await page.getByRole('button', { name: /Chat with @alt\.acct, 1 unread/ }).click();
@@ -297,7 +297,7 @@ test('Socials offline: posts made offline wait for Saved Files, counted for the 
   await page.getByRole('button', { name: /Sync and password/ }).click();
   assert.equal(await page.locator('.so-waiting:not([hidden])').count(), 0, 'only on the Owner account');
   // Back online: saved; nothing waiting.
-  await page.getByRole('button', { name: 'Back' }).click(); await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   down = false;
   await page.getByRole('button', { name: /Sync and password/ }).click(); await page.getByRole('button', { name: 'Sync now' }).click();
   await page.getByText('Everything is saved to Saved Files.').waitFor({ timeout: 20000 });
@@ -531,7 +531,7 @@ test('Socials collab: invite while posting; a collab request in their messages; 
   await page.getByRole('button', { name: 'Accept' }).click();
   await page.getByText('You accepted: it\'s on your profile').waitFor();
   // On pal's profile, the same post, "owner.me and pal".
-  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: 'Profile' }).click();
   assert.equal(await page.locator('.so-grid .so-tile').count(), 1, 'on pal\'s profile');
   await page.locator('.so-grid .so-tile').first().click();
@@ -877,7 +877,7 @@ test('Socials: ✓ Accept All in Messages accepts every collab request at once',
   assert.equal(await page.locator('.so-badge-inline').count(), 0, 'no unread chats');
   await page.getByRole('button', { name: /Chat with @owner\.me/ }).click();
   assert.equal(await page.getByText('You accepted: it\'s on your profile').count(), 2);
-  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: 'Profile' }).click();
   assert.equal(await page.locator('.so-grid .so-tile').count(), 2, 'both on pal\'s profile');
   await page.close();
@@ -1022,5 +1022,34 @@ test('Socials: writing text never leaves the app: posting (photo read, auto-capt
   await page.getByLabel('Message', { exact: true }).fill('i just got the job!!'); await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 10000 });
   assert.deepEqual(outside, [], 'nothing left the app');
+  await page.close();
+});
+
+test('backgrounds: a picture behind all of Socials, an account\'s own on its profile page; gone outside Socials', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  const layer = page.locator('.cc-bgimg');
+  const bgOf = () => layer.evaluate((e) => (e.hidden ? '' : e.style.backgroundImage));
+  await page.locator('.so-sync, [aria-label*="Sync"]').first().click();
+  await page.getByLabel('Choose a picture for Socials background').setInputFiles(await photo(page));
+  await page.waitForFunction(() => !document.querySelector('.cc-bgimg')?.hidden);
+  const app = await bgOf(); assert.match(app, /^url\("blob:/);
+  // The Owner's profile: its own picture there.
+  await page.getByRole('button', { name: 'Profile' }).click();
+  await page.getByRole('button', { name: 'Edit profile' }).click();
+  await page.getByLabel('Choose a picture for Profile background').setInputFiles({ ...(await photo(page)), name: 'p.png' });
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.waitForFunction((a) => { const e = document.querySelector('.cc-bgimg'); return e && !e.hidden && e.style.backgroundImage !== a; }, app);
+  assert.notEqual(await bgOf(), app, 'its own on the profile');
+  await page.getByRole('button', { name: 'Home' }).first().click(); await page.waitForTimeout(200);
+  // Out of Socials: none.
+  await page.goto(`${origin}${BASE}index.html#/clock`); await page.waitForTimeout(300);
+  assert.equal(await layer.evaluate((e) => e.hidden), true);
+  assert.deepEqual(errors, []);
   await page.close();
 });

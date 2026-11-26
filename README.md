@@ -515,6 +515,12 @@ set in it, kept only on this phone.)
   Drag a card's ⠿ (or ← → on it) to put the ones you like most first: they fill the columns from the top. Kept on
   this phone (list, titles, order and the pictures made from each file), so they show offline too
   (`web/tools/saved/favorites.js`).
+- **🔎 Search.** Next to ★ Favorites: every file seen in Saved Files (each folder's list is noted as it's opened,
+  or all of them with **⟳ Look through every folder**), found by words in its name or folder, by kind (Photos,
+  Videos, Documents, Other), by person (the character matches) and by date (this week, month, year, older), with
+  their small pictures and 👤 marks. It works offline (opening a file needs the connection); **Folder** goes to
+  where it is. The list is kept on this phone, encrypted with Saved Files' key when encryption is on (searchable
+  once it's unlocked) (`web/tools/saved/search.js`).
 - **🔎 Scan for characters.** Reads a batch of the folder's photos and videos (all, or the ones you tick) on the
   phone: a photo once, a video at 12 stills from all through it; each face found is compared with your Socials
   accounts' faces (each account's profile photo, and its posts': a post with only its poster in it is that account;
@@ -597,7 +603,15 @@ Google sign-in, API key or client secret, and nothing about your Drive is in thi
   on the phone with a backup password of your own (PBKDF2-SHA-256, AES-256-GCM): put in a **Backups** folder in
   Saved Files, or saved to the phone. Restore from the newest in Saved Files or from a file, with the same
   password (`web/lib/extras-backup.js`). Socials itself and the Vault's and Saved Files' own files aren't in it:
-  they're in your Drive already, encrypted.
+  they're in your Drive already, encrypted. **Every week, by itself** (a switch there, set with the backup password
+  once): a backup goes to Backups once a week when the app's opened online, and only the newest 4 are kept. The key
+  made from that password stays on the phone, unusable outside the app (non-extractable); restoring still asks
+  for the password.
+- **📲 Setting up a new phone?** (Settings → Saved Files, once it's connected with its URL and key): one password
+  brings everything back from your Drive: Saved Files' encryption unlocked, Socials joined (its accounts and posts
+  come down when it's opened), the newest backup of the extras restored, and the Vault given the same password
+  (untick to set its own). Each part shows how it went; one with a different password asks for it
+  (`web/lib/new-phone.js`).
 - **Decryption kit** (`web/decryption/`, also saved to a **Decryption** folder in your Drive when you
   turn encryption on, or with **💾 Save decryption kit to Drive** in Settings): three ways to open
   your files if this app ever stops working, each needing only a `ccv.` file and your password or
@@ -1436,7 +1450,16 @@ Profile, ✈ for messages), where everything is made by you in the app.
   reading of the photo: who's in it, what they wear, the things, the place, the light) and the caption; ✨ Suggest
   caption and the automatic caption in first person, as the posting account (in its own voice), the engine's hashtags kept. Each is checked (one short line
   about the post, not a description or a title, no hashtags in comments, at the language level); any that doesn't
-  hold up stays the engine's.
+  hold up stays the engine's. A caption from the AI is kept only when it reads clearly better than the engine's (it
+  names what's in the photo, a caption's length, no filler like "vibes", not a description or a title; two tries):
+  in a trial over a dozen kinds of photo it was kept for about a quarter, the ones it did best.
+- **Replies to comments** (Sync and password → Replies to comments, on to start): your other accounts answer
+  comments on their own posts, a moment after you comment as another account, and about half of the generated
+  and automatic comments: thanks for a compliment, an answer to a question (where: the place in its caption),
+  banter back at a tease, something about what they named, the commenter @mentioned now and then; in the
+  account's own voice, by the AI when it's on. Replies show under each comment (one level); **Reply** under any
+  comment answers it as the account in use. The Owner's own posts are yours to answer (`commentReply` in
+  `socials-chat.js`).
   Turn off, or remove the download, in the same place. The engine files (22 MB) are cached only once it's used.
 - **Private and offline: no text leaves the app.** Every reply, comment, caption and the reading of photos and faces
   is worked out on the phone, and works offline: the built-in engine (`socials-chat.js`, `socials-predict.js`,

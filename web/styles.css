@@ -1328,6 +1328,8 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .so-like.on { color: #ed4956; }
 .so-likes { font-weight: 700; padding: 0 12px; }
 .so-caption, .so-comment { margin: 4px 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.so-comment.so-reply { margin-left: 34px; font-size: .95em; }
+.so-reply-btn { margin-left: 8px; font-size: .8rem; padding: 0; }
 .so-link { font: inherit; background: none; border: 0; padding: 4px 12px; color: var(--accent, #0095f6); font-weight: 600; cursor: pointer; text-align: left; }
 .so-link.muted { color: var(--muted); font-weight: 400; }
 .so-comment-add { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; }
@@ -1925,6 +1927,14 @@ body.has-bgimg .topbar { background: color-mix(in srgb, var(--bg) 60%, transpare
 .xb { display: grid; gap: 8px; }
 .xb > summary { cursor: pointer; }
 .xb-pw { font-size: 16px; max-width: 22rem; }
+.xb-weekly { display: flex; gap: 6px; align-items: flex-start; }
+.np-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.np-step { display: grid; grid-template-columns: 1.4em 1fr; gap: 6px; align-items: start; }
+.np-text { display: grid; }
+.np-mark { font-weight: 700; }
+.np-done .np-mark, .np-skip .np-mark { color: var(--ok, #16a34a); }
+.np-wrong .np-mark { color: var(--bad, #dc2626); }
+.np-again { grid-column: 2; gap: 6px; }
 .xb-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
 .cc-bg-row label.btn { position: relative; }
 .so-bg-settings { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--border); }
@@ -1955,6 +1965,10 @@ body.has-bgimg .so-tabs, body.has-bgimg .so-top { background: color-mix(in srgb,
 .fv-in { width: 100%; font-size: 16px; }
 /* ---- Saved Files → 🔎 Scan for characters, and Character matches. */
 .sv-tools { margin: 0 0 6px; }
+.sv-top-btns { gap: 8px; }
+.sv-top-btns > .btn { flex: 1; }
+.sv-search-in { width: 100%; font-size: 16px; margin: 6px 0; }
+.sv-search-sel { font-size: 16px; width: auto; }
 .sc-dialog .sheet { display: grid; gap: 10px; max-height: 85dvh; overflow-y: auto; }
 .sc-pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 40dvh; overflow-y: auto; }
 .sc-pick label { display: flex; gap: 6px; align-items: center; font-size: .9rem; overflow-wrap: anywhere; }

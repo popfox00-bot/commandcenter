@@ -27,9 +27,9 @@ import {
   cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, setFace, MAX_COLLAB, live, draftsOf, savedDrafts, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
-import { chatReplyStyled, moodOf } from './socials-chat.js';
+import { chatReplyStyled, moodOf, commentReply } from './socials-chat.js';
 import { personaOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
-import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, AI_SIZE } from './socials-ai.js';
+import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
@@ -60,6 +60,8 @@ const SEEN_KEY = 'cc.socials.seen';
 // (Comments made for each new post, from three other accounts: on unless the Owner turns them off.)
 const AUTO_KEY = 'cc.socials.autocomment';
 const autoOn = () => store.get(AUTO_KEY) !== '0';
+const CREPLY_KEY = 'cc.socials.commentreply';
+const creplyOn = () => store.get(CREPLY_KEY) !== '0';
 const REPLY_KEY = 'cc.socials.autoreply';
 const replyOn = () => store.get(REPLY_KEY) !== '0';
 const LEVEL_KEY = 'cc.socials.level';
@@ -456,12 +458,21 @@ function mountAdmin(host) {
       const big = el('span', { class: 'so-burst', 'aria-hidden': 'true', text: '♥' }); main.querySelector(`[data-post="${p.id}"] .so-pic`)?.append(big); setTimeout(() => big.remove(), 700);
     }
     const menu = postMenu(p, by);
-    const shown = full ? p.comments : p.comments.slice(-2);
+    // (Comments, each with its replies under it (the full post: all; the feed: the last two).)
+    const tops = p.comments.filter((c) => !c.re); const repliesTo = (c) => p.comments.filter((x) => x.re === c.id);
+    const shown = full ? tops : tops.slice(-2);
+    const replyOf = replying?.post === p.id ? p.comments.find((c) => c.id === replying.comment) : null;
     const commentBox = full && m ? (() => {
-      const input = el('input', { class: 'so-input so-comment-input', type: 'text', placeholder: `Add a comment as ${m.handle}…`, 'aria-label': 'Add a comment', maxlength: '500' });
-      const post = () => { if (addComment(state, p.id, state.me, input.value)) { save(); draw(); } };
+      const ra = replyOf ? accountById(state, replying.to ?? replyOf.by) : null; // (who's answered: the one whose Reply was tapped)
+      const input = el('input', { class: 'so-input so-comment-input', type: 'text', placeholder: ra ? `Reply to @${ra.handle} as ${m.handle}…` : `Add a comment as ${m.handle}…`, 'aria-label': ra ? `Reply to @${ra.handle}` : 'Add a comment', maxlength: '500' });
+      if (ra && !input.value) input.value = `@${ra.handle} `;
+      const post = () => {
+        const c = addComment(state, p.id, state.me, input.value, { re: replyOf?.id ?? null }); if (!c) return;
+        replying = null; save(); draw(); answerComment(p, c);
+      };
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') post(); });
-      return el('div', { class: 'so-comment-add' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Post', onclick: post }));
+      return el('div', { class: 'so-comment-add' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Post', onclick: post }),
+        ra ? el('button', { type: 'button', class: 'so-link muted', text: 'Cancel', 'aria-label': 'Cancel the reply', onclick: () => { replying = null; draw(); } }) : null);
     })() : null;
     const genBox = full && m?.owner ? generateCommentBox(p) : null;
     return el('article', { class: 'so-post', 'data-post': p.id },
@@ -473,7 +484,12 @@ function mountAdmin(host) {
       p.likes.length ? el('div', { class: 'so-likes', text: `${countLabel(p.likes.length)} like${p.likes.length === 1 ? '' : 's'}` }) : null,
       p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', ...captionNodes(p.caption)) : null,
       !full && p.comments.length > 2 ? el('button', { type: 'button', class: 'so-link muted', text: `View all ${p.comments.length} comments`, onclick: () => go({ name: 'post', id: p.id }) }) : null,
-      ...shown.map((c) => { const a = accountById(state, c.by); return a ? el('p', { class: 'so-comment' }, handleBtn(a), ' ', c.text, full ? el('span', { class: 'muted small', text: `  ${timeAgo(c.at)}` }) : null) : null; }),
+      ...shown.flatMap((c) => {
+        const line = (x, reply) => { const a = accountById(state, x.by); return a ? el('p', { class: `so-comment${reply ? ' so-reply' : ''}` }, handleBtn(a), ' ', x.text, full ? el('span', { class: 'muted small', text: `  ${timeAgo(x.at)}` }) : null,
+          full && m ? el('button', { type: 'button', class: 'so-link so-reply-btn', text: 'Reply', 'aria-label': `Reply to @${a.handle}`, onclick: () => { replying = { post: p.id, comment: c.id, to: x.by }; draw(); main.querySelector('.so-comment-input')?.focus(); } }) : null) : null; };
+        const rs = repliesTo(c);
+        return [line(c, false), ...(full ? rs : rs.slice(-1)).map((x) => line(x, true)), !full && rs.length > 1 ? el('button', { type: 'button', class: 'so-link muted so-reply', text: `View ${rs.length - 1} more repl${rs.length === 2 ? 'y' : 'ies'}`, onclick: () => go({ name: 'post', id: p.id }) }) : null];
+      }),
       genBox, commentBox);
   }
 
@@ -484,6 +500,31 @@ function mountAdmin(host) {
    * where there are enough; or all from the one picked) say something about the post, made for its caption,
    * hashtags and the people tagged.
    */
+  // (Replies to comments: the post's account answers a comment on its post (one you wrote as another account,
+  // a moment later; generated ones, about half of them), in its own voice, by the AI when it's on. Its own
+  // comments and the Owner's replies to it aren't answered (no back and forth by itself).)
+  let replying = null; // ({ post, comment, to }: the comment being replied to, in the post's box)
+  async function replyFor(p, c) {
+    const poster = accountById(state, p.by); const who = accountById(state, c.by); if (!poster || !who) return null;
+    const persona = personaOf(poster.handle, poster.kind);
+    const draft = spice(voice(commentReply(c.text.replace(/^@\S+\s*/, ''), { commenter: who.handle, caption: p.caption }), { persona }), levelNow(), { persona, mood: 'pos' });
+    if (!aiOn() || !aiReady()) return draft;
+    const ai = await aiCommentReply({ poster: poster.handle, persona, commenter: who.handle, comment: c.text, draft, scene: describeScene(p.scene), caption: p.caption, level: levelNow() }).catch(() => null);
+    return ai ? (/^@/.test(draft) && !/^@/.test(ai) && Math.random() < 0.5 ? `@${who.handle} ${ai}` : ai) : draft;
+  }
+  function answerComment(p, c, { now = false } = {}) {
+    // (The Owner's own posts: yours to answer (Reply under a comment); it doesn't speak for you.)
+    if (!creplyOn() || c.by === p.by || accountById(state, p.by)?.owner) return;
+    // (A reply to the poster's own reply: left there; a thread doesn't go on by itself.)
+    if (c.re && p.comments.some((x) => x.re === c.re && x.by === p.by && x.at < c.at) && Math.random() < 0.5) return;
+    const go2 = async () => {
+      const text = await replyFor(p, c); if (!text || !alive || !postById(state, p.id)) return;
+      if (addComment(state, p.id, p.by, text, { re: c.id, at: Math.max(Date.now(), c.at + 1000) })) { save(); if (['post', 'feed', 'profile'].includes(view.name)) draw(); }
+    };
+    if (now) return go2();
+    setTimeout(go2, 1500 + Math.random() * 2500);
+  }
+
   // (A new post's automatic comments rewritten by the on-device AI, after it's shared: each from the photo and
   // caption, in the commenter's own way; any it can't do well stay as they are.)
   async function rewriteAuto(p) {
@@ -525,8 +566,12 @@ function mountAdmin(host) {
         btn.textContent = label; btn.disabled = false;
       }
       let added = 0;
-      written.forEach((t, i) => { if (addComment(state, p.id, who[i], t === texts[i] ? spice(t, levelNow(), { persona: persona(who[i]), mood: 'pos' }) : t)) added++; });
+      const made = [];
+      written.forEach((t, i) => { const c = addComment(state, p.id, who[i], t === texts[i] ? spice(t, levelNow(), { persona: persona(who[i]), mood: 'pos' }) : t); if (c) { added++; made.push(c); } });
       if (added) { save(); draw(); }
+      // (The poster answers about half of them (one at least).)
+      const answer = made.filter((c, i) => i === 0 || Math.random() < 0.5);
+      for (const c of answer) await answerComment(p, c, { now: true });
     };
     return el('div', { class: 'so-gen', role: 'group', 'aria-label': 'Generate comments' },
       el('span', { class: 'so-gen-label', text: '✨ Generate' }),
@@ -1093,7 +1138,10 @@ function mountAdmin(host) {
         if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), by: m.handle }).map((t, i) => spice(t, levelNow(), { persona: personaOf(who[i]?.handle, who[i]?.kind), mood: 'pos' })) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
-        if (autoOn() && aiOn() && aiReady()) rewriteAuto(p);
+        // (Its automatic comments: rewritten by the AI when it's on; then the poster answers about half.)
+        (autoOn() && aiOn() && aiReady() ? rewriteAuto(p) : Promise.resolve()).then(async () => {
+          const cs = p.comments.filter((c) => c.by !== p.by && !c.re); for (const [i, c] of cs.entries()) if (i === 0 || Math.random() < 0.5) await answerComment(p, c, { now: true });
+        });
         // (Then to Saved Files straight away, its progress shown; else it's posted here.)
         if (connected() && sessionPw && navigator.onLine !== false) { posting = true; showUp('Uploading to Saved Files…', 0.4); runSync(); }
         else { showUp(connected() ? 'Posted ✓ (it uploads to Saved Files when it can)' : 'Posted ✓', 1, true); hideUp(2400); }
@@ -1520,6 +1568,8 @@ function mountAdmin(host) {
           el('span', {}, el('strong', { text: 'Comments on new posts' }), el('span', { class: 'muted small', text: ' Three of your other accounts leave a kind word (with an emoji) on each new post.' }))) : null,
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: faceOn() }); c.addEventListener('change', () => store.set(FACE_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Recognize faces in new posts' }), el('span', { class: 'muted small', text: ' Faces in a new post are compared with your accounts\' profile photos, on this phone; anyone recognized is added as a collaborator (and tagged), for you to change before sharing.' }))) : null,
+        me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: creplyOn() }); c.addEventListener('change', () => store.set(CREPLY_KEY, c.checked ? '1' : '0')); return c; })(),
+          el('span', {}, el('strong', { text: 'Replies to comments' }), el('span', { class: 'muted small', text: ' Your other accounts answer comments on their own posts (thanks, an answer, banter back), in their own voice, shown under each comment. Your Owner account\'s posts are yours to answer (Reply).' }))) : null,
         me()?.owner ? el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: replyOn() }); c.addEventListener('change', () => store.set(REPLY_KEY, c.checked ? '1' : '0')); return c; })(),
           el('span', {}, el('strong', { text: 'Replies in messages' }), el('span', { class: 'muted small', text: ' When you message one of your other accounts, it answers by itself a moment later, to what you said and what you\'ve talked about before.' }))) : null,
         me()?.owner ? textSettings() : null,

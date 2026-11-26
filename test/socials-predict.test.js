@@ -205,3 +205,19 @@ test('on-device AI for comments and captions: what the photo shows described for
   assert.deepEqual(await aiComments({ as: [{ handle: 'bo' }], drafts: ['Love it!'], scene: d }), ['Love it!'], 'not loaded: the engine\'s');
   assert.equal(await aiCaption({ scene: d, draft: 'Pizza night' }), null);
 });
+
+test('replies to comments: thanks for praise, answers (where from the caption), banter for a tease, something about what they named; threads keep one level', async () => {
+  const { commentReply } = await import('../web/apps/socials/socials-chat.js');
+  const { emptyState, addAccount, addPost, addComment } = await import('../web/apps/socials/socials-core.js');
+  const r = (c) => commentReply(c, { commenter: 'amy', caption: 'Pizza night in Denver', rand: () => 0.9 });
+  assert.match(r('where is this?? looks amazing'), /Denver/);
+  assert.match(r('omg you look stunning!! 😍🔥'), /thank|sweet|day|stop/i);
+  assert.match(r('so jealous, invite me next time'), /next time|jealous|make it up/i);
+  assert.match(r('that pizza looks unreal'), /pizza/i);
+  assert.match(r('congrats grad!!'), /thank|means|without you/i);
+  assert.match(commentReply('love it', { commenter: 'amy', rand: () => 0.1 }), /^@amy /, 'the commenter @mentioned now and then');
+  const s = emptyState(); const a = addAccount(s, { handle: 'a' }); const b = addAccount(s, { handle: 'b' });
+  const p = addPost(s, a.id, { image: new Blob(['x']) });
+  const c1 = addComment(s, p.id, b.id, 'nice'); const c2 = addComment(s, p.id, a.id, 'thanks!', { re: c1.id }); const c3 = addComment(s, p.id, b.id, 'np', { re: c2.id });
+  assert.equal(c2.re, c1.id); assert.equal(c3.re, c1.id, 'a reply to a reply: under the same comment');
+});

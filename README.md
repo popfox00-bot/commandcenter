@@ -1366,7 +1366,16 @@ Profile, ✈ for messages), where everything is made by you in the app.
   doing; plans you mentioned are followed up once they're over ("Going to a concert tonight", the next day:
   "How was the concert??"); what the chat's about gets a fitting reaction and a question to keep it going; a
   shared post gets a comment made for its photo; goodbyes get a goodbye; and it never sends the same thing
-  twice in a chat. Turn it off in Sync and password (then ✨ Generate reply from @… does it on a tap).
+  twice in a chat (nor opens or asks the same way it did lately). Each account has a **voice** of its own, always
+  the same (`web/apps/socials/socials-style.js`): hype ("WAIT you got the job?!! let's gooo 🎉🎉"), chill
+  ("you got the job? no way fr"), warm (sweet, a heart), witty ("…(no notes)") or classic; celebrities are hype, warm
+  or classic. And it leans toward how **you** text in that chat: all lowercase if you write that way, emojis only if
+  you use them (lots if you do), your !!!, short replies if you text short, your "lol" / "fr". It adds something of
+  its own now and then ("I've been craving tacos all week"), brings back something from earlier in the chat ("Also
+  still thinking about the new taco truck lol"), and sometimes answers in two quick messages, as people do. The
+  comments on posts are in their commenters' voices too, with livelier lines ("Not the red dress being this good",
+  "Frame this immediately", "Okay whoever took this ate").
+  Turn it off in Sync and password (then ✨ Generate reply from @… does it on a tap).
 - **Download post (the Owner account).** ⋯ → Download post on any post saves its photos and videos: one
   straight away; several open a picker (all picked to start: tap to leave some out) with **Download all** and
   **Download selected**. On a phone they go to the share sheet (Save to Photos); elsewhere a download, or a zip.

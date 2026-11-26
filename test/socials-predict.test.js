@@ -115,3 +115,31 @@ test('chat replies say their own words back and build on them, not stock lines',
   assert.ok(share(many('my dog learned a new trick'), /Your dog learned a new trick\?!/) > 0.6);
   for (const r of many('we tried the new taco truck')) assert.doesNotMatch(r, /Congrats|How's a /);
 });
+
+test('voices and styles: each account its own voice (always the same); replies lean toward how the Owner texts; two messages sometimes; comments in their commenter\'s voice', async () => {
+  const { personaOf, voice, styleOf, PERSONAS } = await import('../web/apps/socials/socials-style.js');
+  const { chatReplyStyled } = await import('../web/apps/socials/socials-chat.js');
+  const { generateComments } = await import('../web/apps/socials/socials-predict.js');
+  assert.equal(personaOf('amy'), personaOf('amy')); assert.ok(PERSONAS.includes(personaOf('zed')));
+  assert.ok(['hype', 'warm', 'classic'].includes(personaOf('anyone', 'celebrity')));
+  const seen = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'].map((h) => personaOf(h))); assert.ok(seen.size >= 3, 'different accounts, different voices');
+  // How someone texts.
+  const st = styleOf(['omg i got the job lol', 'sooo excited', 'we should celebrate fr']);
+  assert.equal(st.lower, true); assert.ok(st.emoji < 0.25); assert.ok(st.slang.includes('lol') && st.slang.includes('fr')); assert.equal(st.stretch, true);
+  assert.equal(styleOf([]), null);
+  // The voices.
+  assert.match(voice('Love that! 😍 Where from?', { persona: 'chill', rand: () => 0.9 }), /^love that! 😍 where from\?$/);
+  assert.match(voice('So fun!', { persona: 'hype', rand: () => 0.1 }), /!!/);
+  assert.match(voice('Congrats', { persona: 'warm', rand: () => 0.1 }), /[💛🥹❤️🥰]/u);
+  assert.equal(voice('Nice! 😍 Tell me more', { style: { lower: true, emoji: 0, bang: 1, short: false, slang: [], stretch: false }, rand: () => 0.1 }), 'nice! tell me more', 'lowercase, no emojis, like them');
+  // A lowercase, no-emoji texter gets replies that way, from every voice.
+  let lowerCount = 0; let emojiCount = 0; let two = 0;
+  for (const persona of PERSONAS) for (let i = 0; i < 12; i++) {
+    const r = chatReplyStyled([{ mine: true, text: 'i just had the best tacos', at: 1 }, { mine: false, text: 'Ooh nice!', at: 2 }, { mine: true, text: 'ya they were so good', at: 3 }], { persona, now: 9 });
+    if (/^[\p{Ll}]/u.test(r)) lowerCount++; if (/\p{Extended_Pictographic}/u.test(r)) emojiCount++; if (r.includes('\n')) two++;
+  }
+  assert.ok(lowerCount / 60 > 0.7, `lowercase like them (${lowerCount}/60)`); assert.ok(emojiCount / 60 < 0.6, `mostly no emojis like them (${emojiCount}/60)`); assert.ok(two > 0, 'two messages now and then');
+  // Comments: in voices of their own, and lively.
+  const c = []; for (let i = 0; i < 20; i++) c.push(...generateComments('Gala night', 3, { photo: { labels: [['gown', 0.6]], people: 1, outfit: { color: 'red' } }, as: ['bo', 'cy', 'dee'] }));
+  assert.ok(new Set(c).size > 25, 'varied'); assert.ok(c.some((x) => /red dress/.test(x)));
+});

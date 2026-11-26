@@ -27,7 +27,8 @@ import {
   cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, MAX_COLLAB, live, draftsOf, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, suggestCaption } from './socials-predict.js';
-import { chatReply } from './socials-chat.js';
+import { chatReplyStyled } from './socials-chat.js';
+import { personaOf } from './socials-style.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
@@ -1152,7 +1153,8 @@ function mountAdmin(host) {
   /** What `from` would say back to `to` now, from their conversation. */
   function replyText(from, to) {
     const hist = conversation(state, from, to).slice(-40).map((x) => ({ mine: x.from === to, text: x.text, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
-    return chatReply(hist);
+    const a = accountById(state, from);
+    return chatReplyStyled(hist, { persona: personaOf(a?.handle, a?.kind) });
   }
   /** `from` answers `to` (the Owner) in a moment; more from the Owner first: it waits and answers it all. */
   function autoReply(from, to) {
@@ -1160,12 +1162,16 @@ function mountAdmin(host) {
     clearTimeout(typing.get(from)?.t);
     const start = () => {
       const text = replyText(from, to);
-      const t = setTimeout(() => {
-        typing.delete(from); if (!alive) return;
-        const r = sendMessage(state, from, to, text);
+      // (Two messages sometimes: the first, then "typing" again, then the second.)
+      const [one, ...more] = text.split('\n').map((x) => x.trim()).filter(Boolean);
+      const sendOne = (line, then) => setTimeout(() => {
+        if (!alive) return;
+        const r = sendMessage(state, from, to, line);
         if (r) { if (view.name === 'chat' && view.id === from && state.me === to) markRead(state, to, from, r.at); save(); }
+        if (then) { typing.set(from, { t: then(), shown: true }); } else typing.delete(from);
         draw();
-      }, Math.min(4200, 900 + text.length * 35));
+      }, Math.min(4200, 900 + line.length * 35));
+      const t = sendOne(one ?? text, more.length ? () => sendOne(more.join(' '), null) : null);
       typing.set(from, { t, shown: true }); if (view.name === 'chat' && view.id === from) draw();
     };
     typing.set(from, { t: setTimeout(start, 700), shown: false });
@@ -1192,7 +1198,7 @@ function mountAdmin(host) {
     const last = msgs[msgs.length - 1];
     if (m.owner && last && last.from === m.id && (last.text || last.post) && !typing.has(o.id)) {
       list.append(el('div', { class: 'so-gen so-gen-reply' }, el('button', { type: 'button', class: 'btn so-gen-btn', text: `✨ Generate reply from @${o.handle}`, onclick: () => {
-        const r = sendMessage(state, o.id, m.id, replyText(o.id, m.id));
+        let r = null; for (const line of replyText(o.id, m.id).split('\n').filter(Boolean)) r = sendMessage(state, o.id, m.id, line.trim()) ?? r;
         if (r) { markRead(state, m.id, o.id, r.at); save(); draw(); }
       } })));
     }

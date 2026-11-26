@@ -993,7 +993,7 @@ test('Socials settings: the language slider (Tame → Adult) kept; AI replies sa
   assert.equal(await slider.inputValue(), '0'); assert.match(await page.locator('.so-level-name').textContent(), /Tame/);
   await slider.fill('3'); assert.match(await page.locator('.so-level-name').textContent(), /Adult/);
   assert.equal(await page.evaluate(() => localStorage.getItem('cc.socials.level')), '3');
-  await page.locator('.so-ai p[aria-live]').filter({ hasText: /Not available on this device|Not downloaded/ }).waitFor();
+  await page.locator('.so-ai:not(.so-tts) p[aria-live]').filter({ hasText: /Not available on this device|Not downloaded/ }).waitFor();
   assert.ok(await page.getByText('Recognize faces in new posts').count() === 1);
   assert.deepEqual(errors, []);
   await page.close();
@@ -1134,7 +1134,7 @@ test('Socials: an account\'s Voice and Into in its profile (kept); home-screen s
   await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
   await page.getByLabel('Username', { exact: true }).fill('kai');
-  await page.getByLabel('Voice').selectOption('chill'); await page.getByLabel('Into').fill('surfing, dry humor');
+  await page.getByLabel('Voice', { exact: true }).selectOption('chill'); await page.getByLabel('Into').fill('surfing, dry humor');
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByText('Welcome to your feed').waitFor();
   const acc = await page.evaluate(async () => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); const a = state.accounts.find((x) => x.handle === 'kai'); return [a.voice, a.interests]; });
@@ -1142,7 +1142,7 @@ test('Socials: an account\'s Voice and Into in its profile (kept); home-screen s
   // Edit profile shows them, to change.
   await page.getByRole('button', { name: 'Profile' }).first().click();
   await page.getByRole('button', { name: 'Edit profile' }).click();
-  assert.equal(await page.getByLabel('Voice').inputValue(), 'chill'); assert.equal(await page.getByLabel('Into').inputValue(), 'surfing, dry humor');
+  assert.equal(await page.getByLabel('Voice', { exact: true }).inputValue(), 'chill'); assert.equal(await page.getByLabel('Into').inputValue(), 'surfing, dry humor');
   // Shortcuts: a new post (after the password), then messages.
   await page.goto(`${origin}${BASE}index.html#/socials/new`); await page.reload();
   const pass = page.getByLabel('Password', { exact: true }); await pass.or(page.getByText(/New post as @/)).first().waitFor();
@@ -1155,4 +1155,56 @@ test('Socials: an account\'s Voice and Into in its profile (kept); home-screen s
   await inbox.first().waitFor();
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test('Socials read aloud: 🔊 on messages, comments and captions speaks in the account\'s voice; its Speaking voice and speed in Edit profile; new replies read aloud; natural voices offered as a download', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  // (The phone's speech, recorded: what's said, in which voice, how fast.)
+  await context.addInitScript(() => {
+    const voices = [{ voiceURI: 'v-sam', name: 'Samantha', lang: 'en-US', localService: true }, { voiceURI: 'v-dan', name: 'Daniel', lang: 'en-GB', localService: true }, { voiceURI: 'v-net', name: 'Online Voice', lang: 'en-US', localService: false }];
+    globalThis.__said = [];
+    globalThis.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+    Object.defineProperty(globalThis, 'speechSynthesis', { value: { getVoices: () => voices, addEventListener() {}, cancel() {}, speak(u) { globalThis.__said.push({ text: u.text, voice: u.voice?.voiceURI, rate: u.rate }); setTimeout(() => u.onend?.(), 30); } }, configurable: true });
+  });
+  const page = await context.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  // An account with its own speaking voice (only this phone's voices that speak on the device are offered).
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('kai');
+  const opts = await page.getByLabel('Speaking voice').locator('option').allTextContents();
+  assert.ok(opts.includes('Daniel (en-GB)') && !opts.some((o) => /Online Voice/.test(o)), `on-device voices only: ${opts}`);
+  await page.getByLabel('Speaking voice').selectOption('p:v-dan'); await page.getByLabel('Speaking speed').selectOption('1.15');
+  await page.getByRole('button', { name: '▶ Preview' }).click();
+  await page.waitForFunction(() => globalThis.__said.length === 1);
+  assert.deepEqual(await page.evaluate(() => globalThis.__said[0].voice), 'v-dan');
+  await page.getByRole('button', { name: 'Create account' }).click(); await page.getByText('Welcome to your feed').waitFor();
+  // A post with a caption: 🔊 reads it (hashtags as words, no emojis).
+  await page.getByRole('button', { name: 'New post' }).first().click();
+  await page.getByLabel('Photo or video').setInputFiles(await photo(page)); await page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click();
+  await page.locator('.so-mrow[data-status="ready"]').first().waitFor();
+  await page.getByLabel('Caption').fill('Sunset surf 🌅 #golden_hour'); await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.so-post').first().getByRole('button', { name: 'Comments', exact: true }).click();
+  await page.getByRole('button', { name: 'Play @kai\'s caption aloud' }).click();
+  await page.waitForFunction(() => globalThis.__said.some((x) => x.text === 'Sunset surf golden hour'));
+  const said = await page.evaluate(() => globalThis.__said.find((x) => x.text === 'Sunset surf golden hour'));
+  assert.equal(said.voice, 'v-dan'); assert.ok(said.rate > 1, 'faster');
+  // Settings: read new replies aloud; natural voices offered (not downloaded here).
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: /^Use @owner\.me/ }).click();
+  await page.getByRole('button', { name: 'Sync and password' }).click();
+  await page.getByText('🗣 Natural voices (on this phone)').waitFor();
+  assert.match(await page.locator('.so-tts').textContent(), /28 voices.*Not downloaded \(about 105 MB, once\)/);
+  await page.getByText('🔊 Read new replies aloud').click();
+  // A message to kai: its reply is spoken as it comes, in its voice.
+  await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @kai' }).click();
+  await page.getByLabel('Message', { exact: true }).fill('how was the surf today?'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 10000 });
+  await page.waitForFunction(() => globalThis.__said.filter((x) => x.voice === 'v-dan').length >= 3);
+  // 🔊 on a message bubble too.
+  await page.locator('.so-bubble.mine').getByRole('button', { name: /Play @owner\.me's message aloud/ }).click();
+  await page.waitForFunction(() => globalThis.__said.some((x) => x.text === 'how was the surf today?'));
+  assert.deepEqual(errors, []);
+  await context.close();
 });

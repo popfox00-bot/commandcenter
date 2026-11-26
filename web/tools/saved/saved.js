@@ -35,11 +35,11 @@ export function mount(host, { onEdit = null, onWrite = null, open: start = '' } 
   const where = () => (here ? { id: here } : '');
   // (Starred files: their ids, for the ☆ on each; the Favorites view when it's open.)
   let favIds = new Set(); let inFavs = false; let inSearch = false;
-  listFavs().then((l) => { favIds = new Set(l.map((x) => x.id)); if (!inFavs && api) render(); });
+  listFavs().then((l) => { favIds = new Set(l.map((x) => x.id)); if (!inFavs && !inSearch && api) render(); });
   // (Character matches: who's in which file (👤 on its row), the person filtered by ('' : everyone), and a
   // scan of files just saved, to review.)
   let matches = []; let person = ''; let scanned = null;
-  const refreshMatches = () => listMatches().then((l) => { matches = l; for (const [k, v] of thumbUrls) if (!v) thumbUrls.delete(k); if (!inFavs && api && !busy) render(); });
+  const refreshMatches = () => listMatches().then((l) => { matches = l; for (const [k, v] of thumbUrls) if (!v) thumbUrls.delete(k); if (!inFavs && !inSearch && api && !busy) render(); });
   const whoIn = (id) => [...new Set(matches.filter((m) => m.fileId === id).map((m) => m.handle))].sort(); // (several people in a file: each)
   // (Files' own small pictures, made when scanned (or starred): shown in place of the kind's tile.)
   const thumbUrls = new Map();
@@ -108,7 +108,7 @@ export function mount(host, { onEdit = null, onWrite = null, open: start = '' } 
     for (const f of saved) thumbUrls.delete(f.id);
     if (r.locked) scanned = { locked: true, files: r.files };
     else { const hits = r.filter((x) => x.hits.length); scanned = hits.length ? { results: r, hits: hits.length } : null; }
-    if (!inFavs && !busy) render(note);
+    if (!inFavs && !inSearch && !busy) render(note);
   }
   function scanNote() {
     if (!scanned) return null;

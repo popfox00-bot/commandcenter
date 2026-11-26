@@ -5,4 +5,4 @@ useDefault = true
 
 [allowlist]
 description = "Vendored third-party build, unchanged"
-paths = ['''^web/vendor/transformers/''']
+paths = ['''^web/vendor/transformers/''', '''^web/vendor/kokoro/''']

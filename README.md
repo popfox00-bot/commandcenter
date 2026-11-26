@@ -1457,6 +1457,22 @@ Profile, ✈ for messages), where everything is made by you in the app.
   😏 Witty, 🙂 Classic; or its own, from its username, as before) and what it's into ("surfing, dry humor"). Its
   comments, replies, captions and messages take that voice (the built-in engine's too), and the AI writes as it,
   from its bio and interests (letting them show only when they fit).
+- **🔊 Read aloud.** Every message, comment and caption has a 🔊 that plays it in its account's speaking voice
+  (again to stop), and **🔊 Read new replies aloud** (Sync and password) speaks each reply in a chat as it comes.
+  Each account's **Speaking voice** and speed are in Edit profile (▶ Preview); left as "its own", one is picked from
+  its username, quicker and brighter for a hype account, slower and lower for a chill one. Two kinds of voice, both
+  on the phone and offline (`socials-speech.js`):
+  - **This phone's voices** (the browser's speech): nothing to download. On an iPhone, more and better ones
+    (Enhanced, Premium) are added free in Settings → Accessibility → Spoken Content → Voices, and show up here.
+    Only voices that speak on the device are offered (a computer's browser can list online ones that send the
+    text away: those aren't).
+  - **🗣 Natural voices** (Sync and password; a one-time download, about 105 MB): a small speech model (Kokoro 82M,
+    8-bit, run by Transformers.js with WebAssembly, so no WebGPU needed; words to sounds by eSpeak NG) with 28
+    English voices, American and British, women and men, that sound much more like people
+    (`socials-tts-worker.js`, `web/vendor/kokoro`: kokoro-js and phonemizer, Apache-2.0; eSpeak NG inside it is
+    GPL-3.0). Its network is fenced in as the AI replies' is: the model's own files once, then nothing remote. It
+    speaks sentence by sentence (the next made while one plays), so it starts after the first short phrase is
+    made (a few seconds on a phone). When they're off or not ready, this phone's voice speaks instead.
 - **Replies to comments** (Sync and password → Replies to comments, on to start): your other accounts answer
   comments on their own posts, a moment after you comment as another account, and about half of the generated
   and automatic comments: thanks for a compliment, an answer to a question (where: the place in its caption),

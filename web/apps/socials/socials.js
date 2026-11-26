@@ -31,6 +31,7 @@ import { chatReplyStyled, moodOf, commentReply } from './socials-chat.js';
 import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
+import { speak, stopSpeaking, canSpeak, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, phoneVoices, phoneVoicesReady } from './socials-speech.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
@@ -60,6 +61,8 @@ const SEEN_KEY = 'cc.socials.seen';
 // (Comments made for each new post, from three other accounts: on unless the Owner turns them off.)
 const AUTO_KEY = 'cc.socials.autocomment';
 const autoOn = () => store.get(AUTO_KEY) !== '0';
+const READ_KEY = 'cc.socials.readaloud'; // (new message replies read aloud as they come, in the chat)
+const readOn = () => store.get(READ_KEY) === 'on';
 const CREPLY_KEY = 'cc.socials.commentreply';
 const creplyOn = () => store.get(CREPLY_KEY) !== '0';
 const REPLY_KEY = 'cc.socials.autoreply';
@@ -485,10 +488,10 @@ function mountAdmin(host, { open = '' } = {}) {
       viewsOf(p) ? el('div', { class: 'so-views muted small', text: `👁 ${countLabel(viewsOf(p))} view${viewsOf(p) === 1 ? '' : 's'}` }) : null,
       tagLine(p),
       p.likes.length ? el('div', { class: 'so-likes', text: `${countLabel(p.likes.length)} like${p.likes.length === 1 ? '' : 's'}` }) : null,
-      p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', ...captionNodes(p.caption)) : null,
+      p.caption ? el('p', { class: 'so-caption' }, handleBtn(by), ' ', ...captionNodes(p.caption), full ? sayBtn(p.caption, by, `@${by.handle}'s caption`) : null) : null,
       !full && p.comments.length > 2 ? el('button', { type: 'button', class: 'so-link muted', text: `View all ${p.comments.length} comments`, onclick: () => go({ name: 'post', id: p.id }) }) : null,
       ...shown.flatMap((c) => {
-        const line = (x, reply) => { const a = accountById(state, x.by); return a ? el('p', { class: `so-comment${reply ? ' so-reply' : ''}` }, handleBtn(a), ' ', x.text, full ? el('span', { class: 'muted small', text: `  ${timeAgo(x.at)}` }) : null,
+        const line = (x, reply) => { const a = accountById(state, x.by); return a ? el('p', { class: `so-comment${reply ? ' so-reply' : ''}` }, handleBtn(a), ' ', x.text, full ? el('span', { class: 'muted small', text: `  ${timeAgo(x.at)}` }) : null, full ? sayBtn(x.text, a, `@${a.handle}'s comment`) : null,
           full && m ? el('button', { type: 'button', class: 'so-link so-reply-btn', text: 'Reply', 'aria-label': `Reply to @${a.handle}`, onclick: () => { replying = { post: p.id, comment: c.id, to: x.by }; draw(); main.querySelector('.so-comment-input')?.focus(); } }) : null) : null; };
         const rs = repliesTo(c);
         return [line(c, false), ...(full ? rs : rs.slice(-1)).map((x) => line(x, true)), !full && rs.length > 1 ? el('button', { type: 'button', class: 'so-link muted so-reply', text: `View ${rs.length - 1} more repl${rs.length === 2 ? 'y' : 'ies'}`, onclick: () => go({ name: 'post', id: p.id }) }) : null];
@@ -507,6 +510,15 @@ function mountAdmin(host, { open = '' } = {}) {
   // a moment later; generated ones, about half of them), in its own voice, by the AI when it's on. Its own
   // comments and the Owner's replies to it aren't answered (no back and forth by itself).)
   let replying = null; // ({ post, comment, to }: the comment being replied to, in the post's box)
+  // (🔊: a message, comment or caption read aloud in its account's voice (socials-speech.js); again to stop.)
+  let saying = null;
+  const sayBtn = (text, a, what = 'it') => (!canSpeak() || !text ? null : el('button', { type: 'button', class: 'so-say', 'aria-label': `Play ${what} aloud`, text: '🔊', onclick: async (e) => {
+    e.stopPropagation(); const b = e.currentTarget;
+    if (saying === b) { stopSpeaking(); return; }
+    saying?.classList.remove('on'); saying = b; b.classList.add('on');
+    if (naturalOn() && !naturalReady()) await naturalLoad().catch(() => {});
+    await speak(text, a); if (saying === b) { saying = null; b.classList.remove('on'); }
+  } }));
   async function replyFor(p, c) {
     const poster = accountById(state, p.by); const who = accountById(state, c.by); if (!poster || !who) return null;
     const persona = personaFor(poster);
@@ -882,19 +894,37 @@ function mountAdmin(host, { open = '' } = {}) {
       [['hype', '🔥 Hype: big reactions, caps, emojis'], ['chill', '😌 Chill: laid-back, lowercase'], ['warm', '💛 Warm: sweet, supportive'], ['witty', '😏 Witty: teasing one-liners'], ['classic', '🙂 Classic: friendly, natural']].map(([v, t]) => el('option', { value: v, text: t })));
     voiceSel.value = a?.voice ?? '';
     const interests = el('input', { class: 'so-input', type: 'text', placeholder: 'Into (e.g. surfing, dry humor, coffee)', 'aria-label': 'Into', maxlength: '120', value: a?.interests ?? '' });
+    // (Its speaking voice, for 🔊: a natural one (when they're downloaded) or one of this phone's; and its speed.)
+    const sayVoice = el('select', { class: 'so-input', 'aria-label': 'Speaking voice' });
+    const saySpeed = el('select', { class: 'so-input', 'aria-label': 'Speaking speed' }, [['0.85', 'Slower'], ['1', 'Normal speed'], ['1.15', 'Faster']].map(([v, t]) => el('option', { value: v, text: t })));
+    saySpeed.value = String(a?.speech?.speed ?? 1) === '1' ? '1' : String(a?.speech?.speed ?? 1);
+    const fillVoices = async () => {
+      const nat = await naturalDownloaded(); const phone = await phoneVoicesReady();
+      fill(sayVoice, el('option', { value: '', text: 'Speaking voice: its own' }),
+        nat ? el('optgroup', { label: 'Natural voices' }, NATURAL.map((v) => el('option', { value: `n:${v.id}`, text: `${v.name} (${v.accent}, ${v.gender === 'F' ? 'woman' : 'man'})` }))) : null,
+        phone.length ? el('optgroup', { label: 'This phone\'s voices' }, phone.slice(0, 80).map((v) => el('option', { value: `p:${v.id}`, text: `${v.name} (${v.lang})` }))) : null);
+      sayVoice.value = a?.speech?.voice ?? '';
+      if (sayVoice.value !== (a?.speech?.voice ?? '')) sayVoice.value = '';
+    };
+    fillVoices();
+    const preview = el('button', { type: 'button', class: 'btn small', text: '▶ Preview', onclick: async () => {
+      const who = { ...(a ?? {}), handle: handle.value || a?.handle || 'me', kind, voice: voiceSel.value || undefined, speech: { voice: sayVoice.value || undefined, speed: Number(saySpeed.value) } };
+      if (naturalOn() && !naturalReady()) { preview.textContent = 'Loading…'; await naturalLoad().catch(() => {}); preview.textContent = '▶ Preview'; }
+      speak(`Hey! It's ${who.handle}. This is how I sound.`, who).catch(() => {});
+    } });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const submit = () => {
       err.textContent = '';
       const p = handleProblem(state, handle.value, a?.id ?? null); if (p) { err.textContent = p; return; }
       // (A new profile photo is also posted, whole, as it was picked.)
       const postPic = (id) => { if (changed && pic && full) addPost(state, id, { image: full, caption: 'New profile picture 📸' }); };
-      const how = { voice: voiceSel.value || null, interests: interests.value };
+      const how = { voice: voiceSel.value || null, interests: interests.value, speech: { voice: sayVoice.value || undefined, speed: Number(saySpeed.value) } };
       if (a) { editAccount(state, a.id, { handle: handle.value, name: name.value, bio: bio.value, ...how, ...(a.owner ? {} : { kind }), ...(changed ? { avatar: pic } : {}) }); postPic(a.id); save(); go({ name: 'profile', id: a.id }); }
       else { const n = addAccount(state, { handle: handle.value, name: name.value, bio: bio.value, avatar: pic, kind }); editAccount(state, n.id, how); postPic(n.id); useAccount(n.id); save(); go({ name: 'feed' }); }
     };
     return el('div', { class: 'so-form' },
       el('label', { class: 'so-form-pic' }, prev, el('span', { class: 'so-link', text: a?.avatar ? 'Change profile photo' : 'Add profile photo' }), file),
-      handle, name, bio, kindPick, voiceSel, interests,
+      handle, name, bio, kindPick, voiceSel, interests, el('div', { class: 'so-row so-say-row' }, sayVoice, saySpeed, preview),
       el('p', { class: 'muted small so-voice-note', text: 'Voice and Into: how this account sounds in its comments, replies, captions and messages (the AI uses its bio and what it\'s into too).' }), err,
       a ? bgSetting(`socials.profile.${a.id}`, 'Profile background', (b) => { profileBgs.set(a.id, b); applyBg(); }) : null,
       el('button', { type: 'button', class: 'btn primary', text: a ? 'Done' : 'Create account', onclick: submit }));
@@ -1359,7 +1389,10 @@ function mountAdmin(host, { open = '' } = {}) {
       const sendOne = (line, then) => setTimeout(() => {
         if (!alive || !mine()) return;
         const r = sendMessage(state, from, to, line);
-        if (r) { if (view.name === 'chat' && view.id === from && state.me === to) markRead(state, to, from, r.at); save(); }
+        if (r) {
+          if (view.name === 'chat' && view.id === from && state.me === to) { markRead(state, to, from, r.at); if (readOn()) speak(line, accountById(state, from)).catch(() => {}); }
+          save();
+        }
         if (then) typing.set(from, { t: then(), shown: true, token }); else typing.delete(from);
         draw();
       }, wait(line));
@@ -1378,7 +1411,7 @@ function mountAdmin(host, { open = '' } = {}) {
     for (const x of msgs) {
       const day = new Date(x.at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
       if (day !== lastDay) { list.append(el('div', { class: 'so-chat-day', text: day })); lastDay = day; }
-      list.append(el('div', { class: `so-bubble${x.from === m.id ? ' mine' : ''}${x.post ? ' so-bubble-post' : ''}`, title: new Date(x.at).toLocaleString() }, x.post ? sharedCard(x.post) : null, x.collab ? collabCard(x, m) : null, x.text || null, el('span', { class: 'so-bubble-time', text: new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })));
+      list.append(el('div', { class: `so-bubble${x.from === m.id ? ' mine' : ''}${x.post ? ' so-bubble-post' : ''}`, title: new Date(x.at).toLocaleString() }, x.post ? sharedCard(x.post) : null, x.collab ? collabCard(x, m) : null, x.text || null, x.text ? sayBtn(x.text, accountById(state, x.from), `@${accountById(state, x.from)?.handle}'s message`) : null, el('span', { class: 'so-bubble-time', text: new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })));
     }
     if (!msgs.length) list.append(el('p', { class: 'muted so-pad', text: `Say hi to @${o.handle}. (Switch to @${o.handle} to answer as them.)` }));
     if (typing.get(o.id)?.shown) list.append(el('div', { class: 'so-bubble so-typing', 'aria-label': `@${o.handle} is typing` }, el('span', { class: 'so-typing-dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'))));
@@ -1514,9 +1547,29 @@ function mountAdmin(host, { open = '' } = {}) {
         status, bar, el('div', { class: 'so-row' }, go, off, rm));
     };
     drawAi();
+    // (Read aloud: new replies in a chat, and the natural voices (a download).)
+    const readBox = el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: readOn() }); c.addEventListener('change', () => store.set(READ_KEY, c.checked ? 'on' : 'off')); return c; })(),
+      el('span', {}, el('strong', { text: '🔊 Read new replies aloud' }), el('span', { class: 'muted small', text: ' In a chat, each reply is spoken as it comes, in that account\'s voice. Any message, comment or caption plays with its 🔊.' })));
+    const tvBox = el('div', { class: 'so-ai so-tts' });
+    const drawTv = async (msg = '') => {
+      const have = await naturalDownloaded(); const on = naturalOn();
+      const status = el('p', { class: 'small muted', 'aria-live': 'polite', text: msg || (naturalReady() && on ? 'Ready: on this phone, works offline.' : have ? (on ? 'Downloaded. They load the first time something\'s played.' : 'Downloaded, turned off.') : `Not downloaded (about ${TTS_SIZE}, once). Until then, this phone's own voices speak.`) });
+      const bar = el('div', { class: 'so-upbar-track so-ai-bar', hidden: true, role: 'progressbar', 'aria-label': 'Natural voices download', 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('span', { class: 'so-upbar-fill' }));
+      const go = el('button', { type: 'button', class: 'btn primary', text: have ? (on ? 'Load now' : 'Turn on') : `Download and turn on (${TTS_SIZE})`, disabled: on && naturalReady() });
+      go.addEventListener('click', async () => {
+        go.disabled = true; setNaturalOn(true); bar.hidden = false; status.textContent = have ? 'Loading the voices…' : 'Downloading the voices… keep Socials open.';
+        try { await naturalLoad((q) => { bar.firstChild.style.width = `${Math.max(3, Math.round(q * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(q * 100))); status.textContent = `${have ? 'Loading' : 'Downloading'}… ${Math.round(q * 100)}%`; }); drawTv(`Ready: ${NATURAL.length} natural voices (each account picks one in Edit profile → Speaking voice).`); } catch (e) { drawTv(`Couldn't load them: ${e.message}. This phone's voices speak instead.`); }
+      });
+      const off = on ? el('button', { type: 'button', class: 'btn', text: 'Turn off', onclick: () => { setNaturalOn(false); drawTv('Turned off: this phone\'s voices speak (the download stays).'); } }) : null;
+      const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the natural voices (${TTS_SIZE}) from this phone?`)) return; await naturalRemove(); drawTv('Removed.'); } }) : null;
+      fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }),
+        el('p', { class: 'small muted', text: `A small speech model on your phone: ${NATURAL.length} voices (American and British, women and men) that sound much more like people than the phone's own. Downloaded once, then it works offline; what it reads never leaves the phone. No WebGPU needed.` }),
+        status, bar, el('div', { class: 'so-row' }, go, off, rm));
+    };
+    drawTv();
     return el('div', { class: 'so-text-settings' },
       el('div', { class: 'so-level-row' }, el('span', {}, el('strong', { text: 'Language' }), ' · ', name), el('span', { class: 'small muted', text: 'Tame → Adult' })),
-      range, note, aiBox);
+      range, note, aiBox, readBox, tvBox);
   }
 
   function settings() {
@@ -1646,7 +1699,7 @@ function mountAdmin(host, { open = '' } = {}) {
   }
   if (sessionOpen) start(); else gate();
 
-  return () => { alive = false; reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); globalThis.removeEventListener?.('offline', onOffline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
+  return () => { alive = false; stopSpeaking(); reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); globalThis.removeEventListener?.('offline', onOffline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
 }
 
 /** A picked photo made ready to keep: at most `edge` px on its long side (or a centered square), as JPEG. */

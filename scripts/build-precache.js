@@ -13,7 +13,7 @@ export function listWebFiles(dir = WEB) {
     if (SKIP.has(name)) continue;
     const p = join(dir, name);
     // (Socials' AI engine (22 MB): cached when AI replies are turned on, not by everyone (sw.js keeps it then).)
-    if (relative(WEB, p).split('\\').join('/') === 'vendor/transformers') continue;
+    if (['vendor/transformers', 'vendor/kokoro'].includes(relative(WEB, p).split('\\').join('/'))) continue; // (Socials' AI and voices: cached when first used)
     if (statSync(p).isDirectory()) out.push(...listWebFiles(p));
     else out.push(relative(WEB, p).split('\\').join('/'));
   }

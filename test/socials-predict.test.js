@@ -242,3 +242,24 @@ test('an account\'s own voice and what it\'s into: chosen in its profile (else i
   const m = JSON.parse(await readFile(new URL('../web/manifest.webmanifest', import.meta.url), 'utf8'));
   assert.deepEqual(m.shortcuts.map((x) => x.url), ['./#/socials/new', './#/socials/inbox', './#/saved/search', './#/saved/scan']);
 });
+
+test('read aloud: text made sayable, cut into pieces (the first short), each account its own voice (chosen, natural when ready, else this phone\'s), kept', async () => {
+  const { sayable, pieces, speakerFor, NATURAL } = await import('../web/apps/socials/socials-speech.js');
+  const { cleanSpeech, emptyState, addAccount, editAccount, normalize } = await import('../web/apps/socials/socials-core.js');
+  assert.equal(sayable('omg 😍🔥 @amy.j look!!! #summer_vibes https://x.y'), 'omg amy j look! summer vibes');
+  assert.deepEqual(pieces('Omg you look stunning!! Where is this? I need to go.'), ['Omg you look stunning!!', 'Where is this? I need to go.']);
+  assert.equal(pieces('Seriously, this is the most beautiful beach I have seen in a very long time. Love it.')[0], 'Seriously,', 'the first short, to start sooner');
+  const voices = [{ id: 'v-en1', name: 'Samantha', lang: 'en-US' }, { id: 'v-en2', name: 'Daniel', lang: 'en-GB' }, { id: 'v-fr', name: 'Thomas', lang: 'fr-FR' }];
+  const amy = { handle: 'amy' };
+  const p = speakerFor(amy, { voices }); assert.equal(p.kind, 'phone'); assert.ok(['v-en1', 'v-en2'].includes(p.voice), 'its own: an English one of this phone\'s');
+  assert.equal(speakerFor(amy, { voices }).voice, p.voice, 'the same every time');
+  assert.deepEqual(speakerFor({ handle: 'amy', speech: { voice: 'p:v-fr' } }, { voices }).voice, 'v-fr', 'chosen');
+  assert.equal(speakerFor({ handle: 'amy', speech: { voice: 'n:bm_george' } }, { voices, naturalReady: true }).kind, 'natural');
+  assert.equal(speakerFor({ handle: 'amy', speech: { voice: 'n:bm_george' } }, { voices, naturalReady: false }).kind, 'phone', 'natural not ready: this phone\'s');
+  assert.ok(speakerFor({ handle: 'zed', voice: 'hype' }, { voices }).rate > speakerFor({ handle: 'zed', voice: 'chill' }, { voices }).rate, 'hype quicker than chill');
+  assert.ok(Math.abs(speakerFor({ handle: 'zed', speech: { speed: 1.15 } }, { voices }).rate / speakerFor({ handle: 'zed' }, { voices }).rate - 1.15) < 1e-9, 'its speed on top');
+  assert.equal(NATURAL.length, 28);
+  assert.deepEqual(cleanSpeech({ voice: 'n:af_heart', speed: 1.15 }), { voice: 'n:af_heart', speed: 1.15 }); assert.equal(cleanSpeech({ voice: 'x', speed: 1 }), null); assert.equal(cleanSpeech({ speed: 3 }), null);
+  const s = emptyState(); const a = addAccount(s, { handle: 'kai' }); editAccount(s, a.id, { speech: { voice: 'p:v-en2', speed: 0.85 } });
+  assert.deepEqual(normalize(JSON.parse(JSON.stringify(s))).accounts[0].speech, { voice: 'p:v-en2', speed: 0.85 });
+});

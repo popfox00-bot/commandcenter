@@ -1493,6 +1493,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **Chats** fill the screen as Messages does: the name at the top, the conversation in between, the box right
   above the keyboard; sized to what's visible (the visual viewport) so typing doesn't shift the page, and the newest
   messages stay in sight when the keyboard opens.
+- **👥 Group chats.** Messages → 👥 New group: pick two or more accounts (and a name, if you like). When the Owner
+  says something there, one, two or sometimes three of the others answer, one after another (each "typing" first,
+  its name over its message), from the whole group conversation, in its own way and, while chatting, read aloud in
+  its own voice. Groups are listed in Messages with their unread count; tap the group's name to rename it, see who's
+  in it, or leave it (a group left with fewer than two goes). Kept and synced like the rest (`groups` in the state;
+  `createGroup`, `sendGroupMessage`, `groupConversation` in `socials-core.js`).
 - **🔊 Read aloud.** Every message, comment and caption has a 🔊 that plays it in its account's speaking voice
   (again to stop). **🔊 Play replies while chatting** (Sync and password, on unless turned off): for two minutes after
   you send a message in a chat (`ACTIVE_CHAT_MS`), replies there play by themselves as they come, one after another

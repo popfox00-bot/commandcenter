@@ -23,7 +23,7 @@ import {
   emptyState, normalize, addAccount, editAccount, removeAccount, accountById, toggleFollow, isFollowing,
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
-  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, taggedIn, captionParts, mediaOf, shuffled,
+  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, createGroup, groupById, groupName, renameGroup, leaveGroup, sendGroupMessage, groupConversation, taggedIn, captionParts, mediaOf, shuffled,
   cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, setFace, MAX_COLLAB, live, draftsOf, savedDrafts, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
@@ -1338,10 +1338,11 @@ function mountAdmin(host, { open = '' } = {}) {
   // ---- Messages: the account in use's chats with the other accounts.
   function inbox() {
     const m = me(); const chats = conversationsOf(state, m.id);
-    const others = accountsInOrder(state).filter((a) => a.id !== m.id && !chats.some((c) => c.other.id === a.id));
+    const others = accountsInOrder(state).filter((a) => a.id !== m.id && !chats.some((c) => c.other?.id === a.id));
     return el('div', {}, backBar(`Messages · @${m.handle}`, { name: 'feed' }),
       acceptAllBar(m),
-      chats.length ? el('div', { class: 'so-people' }, chats.map((c) => el('div', { class: 'so-person' },
+      state.accounts.length >= 3 ? el('div', { class: 'so-row so-pad-x' }, el('button', { type: 'button', class: 'btn small', text: '👥 New group', onclick: () => go({ name: 'newgroup' }) })) : null,
+      chats.length ? el('div', { class: 'so-people' }, chats.map((c) => c.group ? groupRow(c, m) : el('div', { class: 'so-person' },
         el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Chat with @${c.other.handle}${c.unread ? `, ${c.unread} unread` : ''}`, onclick: () => go({ name: 'chat', id: c.other.id }) }, avatar(c.other, 'm'),
           el('span', { class: 'so-person-text' }, el('strong', { text: c.other.handle }), el('span', { class: `small${c.unread ? ' so-unread' : ' muted'}`, text: `${c.last.from === m.id ? 'You: ' : ''}${c.last.text ? c.last.text.slice(0, 60) : c.last.collab ? '🤝 Collab request' : 'Shared a post'} · ${timeAgo(c.last.at)}` }))),
         c.unread ? el('span', { class: 'so-badge so-badge-inline', 'aria-hidden': 'true', text: String(c.unread) }) : null)))
@@ -1349,6 +1350,33 @@ function mountAdmin(host, { open = '' } = {}) {
       others.length ? el('div', {}, el('h3', { class: 'so-section', text: 'New message' }), el('div', { class: 'so-people' }, others.map((a) => el('div', { class: 'so-person' },
         el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Message @${a.handle}`, onclick: () => go({ name: 'chat', id: a.id }) }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', {}, a.handle, a.owner ? el('span', { class: 'so-owner', text: 'Owner' }) : null), el('span', { class: 'muted small', text: a.name || 'Send a message' }))))))) : null,
       state.accounts.length < 2 ? el('p', { class: 'muted so-pad small', text: 'Make another account to message it (Accounts → Add account); switch to it to answer.' }) : null);
+  }
+
+  /** A group chat in Messages: its members' pictures, its name, the last message. */
+  function groupRow(c, m) {
+    const g = c.group; const name = groupName(state, g, m.id); const by = c.last.from ? accountById(state, c.last.from) : null;
+    return el('div', { class: 'so-person' },
+      el('button', { type: 'button', class: 'so-person-main', 'aria-label': `Group chat ${name}${c.unread ? `, ${c.unread} unread` : ''}`, onclick: () => go({ name: 'chat', id: g.id }) }, groupFace(g, m),
+        el('span', { class: 'so-person-text' }, el('strong', { text: `👥 ${name}` }), el('span', { class: `small${c.unread ? ' so-unread' : ' muted'}`, text: c.last.text ? `${by ? (by.id === m.id ? 'You: ' : `${by.handle}: `) : ''}${c.last.text.slice(0, 60)}` : `${g.members.length} people` }))),
+      c.unread ? el('span', { class: 'so-badge so-badge-inline', 'aria-hidden': 'true', text: String(c.unread) }) : null);
+  }
+  /** A group's face: two of its other members' pictures, overlapping. */
+  const groupFace = (g, m, size = 'm') => el('span', { class: `so-group-face so-group-face-${size}`, 'aria-hidden': 'true' }, g.members.filter((id) => id !== m.id).slice(0, 2).map((id) => avatar(accountById(state, id), 's')));
+
+  /** 👥 New group: pick two or more accounts (and a name, if you like). */
+  function newGroup() {
+    const m = me(); const picked = new Set();
+    const nameIn = el('input', { class: 'so-input', type: 'text', placeholder: 'Group name (optional)', 'aria-label': 'Group name', maxlength: '60' });
+    const go2 = el('button', { type: 'button', class: 'btn primary block', text: 'Start the group', disabled: true, onclick: () => {
+      const g = createGroup(state, m.id, [...picked], nameIn.value); if (!g) return; save(); go({ name: 'chat', id: g.id });
+    } });
+    const paint = () => { go2.disabled = picked.size < 2; go2.textContent = picked.size < 2 ? 'Pick at least two' : `Start the group (${picked.size + 1} people)`; };
+    const list = el('div', { class: 'so-people' }, accountsInOrder(state).filter((a) => a.id !== m.id).map((a) => {
+      const c = el('input', { type: 'checkbox', 'aria-label': `Add @${a.handle}` }); c.addEventListener('change', () => { if (c.checked) picked.add(a.id); else picked.delete(a.id); paint(); });
+      return el('label', { class: 'so-person so-pick' }, c, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', { text: a.handle }), el('span', { class: 'muted small', text: a.name || '' })));
+    }));
+    paint();
+    return el('div', {}, backBar('New group', { name: 'inbox' }), el('div', { class: 'so-pad so-newgroup' }, nameIn, el('p', { class: 'small muted', text: 'Everyone in it sees every message, and each replies in their own voice.' }), list, go2));
   }
 
   /** ✓ Accept All: every collab request the account in use hasn't answered (`from`: that one's only), at once. */
@@ -1478,6 +1506,100 @@ function mountAdmin(host, { open = '' } = {}) {
       acceptAllBar(m, o.id),
       list,
       el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send })));
+  }
+
+  // ---- Group chats: when the Owner says something, one, two or more of the others answer, one after another (each
+  // "typing" first), from the whole group conversation, each in its own way (and voice, read aloud while chatting).
+  function groupHist(gid, who, n = 40) {
+    return groupConversation(state, gid).slice(-n).map((x) => ({ mine: x.from === who, text: x.from === who ? x.text : `${accountById(state, x.from)?.handle ?? 'someone'}: ${x.text}`, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
+  }
+  /** What `who` would say next in the group (the engine answers the others' latest, as it answers the Owner in a chat). */
+  function groupReplyText(gid, who) {
+    const hist = groupHist(gid, who).map((x) => ({ ...x, text: x.mine ? x.text : x.text.replace(/^[^:]{1,40}: /, '') }));
+    const a = accountById(state, who); const persona = personaFor(a);
+    const lastOther = [...hist].reverse().find((x) => !x.mine)?.text ?? '';
+    return spice(chatReplyStyled(hist.map((x) => ({ ...x, mine: !x.mine })), { persona }), levelFor(groupById(state, gid)?.members.map((id) => accountById(state, id)) ?? [a]), { persona, mood: moodOf(lastOther) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
+  }
+  async function groupAiText(gid, who, draft) {
+    if (!aiOn() || !aiReady()) return null;
+    const g = groupById(state, gid); const a = accountById(state, who); const owner = accountById(state, g?.by);
+    const hist = groupHist(gid, who, 14).map((x) => ({ mine: x.mine, text: x.text, post: x.post ? { caption: x.post.caption } : null }));
+    return aiReply({ history: hist, them: a?.handle ?? 'friend', me: `${owner?.handle ?? 'you'} and friends in the group chat "${groupName(state, g)}"`, persona: personaFor(a), about: aboutOf(a), style: null, level: levelFor(g?.members.map((id) => accountById(state, id)) ?? [a]), draft: draft.replace(/\n/g, ' ') });
+  }
+  /** After the Owner's message in a group: some of the others answer in turn (more from the Owner first: they wait). */
+  function groupAutoReply(gid, from) {
+    const g = groupById(state, gid); if (!g || !replyOn() || !accountById(state, from)?.owner) return;
+    clearTimeout(typing.get(gid)?.t);
+    const token = {}; const mine = () => typing.get(gid)?.token === token;
+    const others = shuffled(g.members.filter((id) => id !== from));
+    const n = Math.min(others.length, 1 + (Math.random() < 0.6 ? 1 : 0) + (others.length >= 3 && Math.random() < 0.35 ? 1 : 0));
+    const queue = others.slice(0, n);
+    const next = () => {
+      const who = queue.shift(); if (!who) { typing.delete(gid); if (view.name === 'chat' && view.id === gid) draw(); return; }
+      typing.set(gid, { t: setTimeout(async () => {
+        if (!alive || !mine()) return;
+        typing.set(gid, { t: 0, shown: true, who, token }); if (view.name === 'chat' && view.id === gid) draw();
+        const draft = groupReplyText(gid, who); const ai = await groupAiText(gid, who, draft).catch(() => null);
+        if (!alive || !mine()) return;
+        const line = (ai ?? draft).split('\n').map((x) => x.trim()).filter(Boolean).join(' ');
+        if (activeChat(gid)) prepareVoice(line, accountById(state, who));
+        typing.set(gid, { t: setTimeout(() => {
+          if (!alive || !mine()) return;
+          const r = sendGroupMessage(state, who, gid, line);
+          if (r) { if (view.name === 'chat' && view.id === gid) { markRead(state, state.me, gid, r.at); autoSay(line, accountById(state, who), gid); } save(); }
+          next();
+          if (view.name === 'chat' && view.id === gid) draw();
+        }, ai ? 500 : Math.min(4200, 900 + line.length * 35)), shown: true, who, token });
+      }, 600 + Math.random() * 1400), shown: false, token });
+    };
+    next();
+  }
+
+  function groupChat(gid) {
+    const m = me(); const g = groupById(state, gid);
+    if (!g || !g.members.includes(m.id)) return inbox();
+    const msgs = groupConversation(state, gid); const name = groupName(state, g, m.id);
+    if (msgs.length) { markRead(state, m.id, gid, msgs[msgs.length - 1].at); saveState(state); }
+    // (The newest message from someone else, made ready in its natural voice, so its 🔊 plays at once.)
+    { const last = [...msgs].reverse().find((x) => x.from !== m.id && x.text); const la = last && accountById(state, last.from); if (la) { if (naturalOn() && !naturalReady()) naturalLoad().then(() => prepareVoice(last.text, la), () => {}); else prepareVoice(last.text, la); } }
+    const list = el('div', { class: 'so-chat', role: 'log', 'aria-label': `Group chat ${name}` });
+    chatAtEnd = true; list.addEventListener('scroll', () => { chatAtEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60; }, { passive: true });
+    let lastDay = ''; let lastFrom = '';
+    for (const x of msgs) {
+      const day = new Date(x.at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      if (day !== lastDay) { list.append(el('div', { class: 'so-chat-day', text: day })); lastDay = day; lastFrom = ''; }
+      const a = accountById(state, x.from); const mineMsg = x.from === m.id;
+      // (Someone else's: their name over their first message in a row.)
+      if (!mineMsg && x.from !== lastFrom && a) list.append(el('div', { class: 'so-bubble-who' }, avatar(a, 's'), el('span', { class: 'small muted', text: a.handle })));
+      lastFrom = x.from;
+      list.append(el('div', { class: `so-bubble${mineMsg ? ' mine' : ''}${x.post ? ' so-bubble-post' : ''}`, title: new Date(x.at).toLocaleString() }, x.post ? sharedCard(x.post) : null, x.text || null, x.text && a ? sayBtn(x.text, a, `@${a.handle}'s message`) : null, el('span', { class: 'so-bubble-time', text: new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })));
+    }
+    if (!msgs.length) list.append(el('p', { class: 'muted so-pad', text: `Say hi to ${name}.` }));
+    const t = typing.get(gid); const typer = t?.shown && accountById(state, t.who);
+    if (typer) list.append(el('div', { class: 'so-bubble so-typing', 'aria-label': `@${typer.handle} is typing` }, el('span', { class: 'so-typing-dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'))));
+    const input = el('input', { class: 'so-input', type: 'text', placeholder: 'Message the group…', 'aria-label': 'Message', maxlength: '2000', enterkeyhint: 'send' });
+    const send = () => { if (readOn()) primeAudio(); if (sendGroupMessage(state, m.id, gid, input.value)) { chatting.set(gid, Date.now()); save(); groupAutoReply(gid, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+    return el('div', { class: 'so-chat-wrap' },
+      el('div', { class: 'so-back' }, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Back', text: '‹', onclick: () => go({ name: 'inbox' }) }),
+        el('button', { type: 'button', class: 'so-chat-who', 'aria-label': `About the group ${name}`, onclick: () => groupInfo(gid) }, groupFace(g, m, 's'), el('strong', { text: name }))),
+      list,
+      el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send })));
+  }
+  /** A group's details: rename it, who's in it, leave it. */
+  function groupInfo(gid) {
+    const g = groupById(state, gid); const m = me(); if (!g) return;
+    const nameIn = el('input', { class: 'so-input', type: 'text', value: g.name, placeholder: groupName(state, { ...g, name: '' }, m.id), 'aria-label': 'Group name', maxlength: '60' });
+    const dlg = el('dialog', { class: 'ed-dialog vp-dialog', 'aria-label': 'Group' }, el('div', { class: 'sheet' },
+      el('div', { class: 'row space' }, el('h2', { text: '👥 Group' }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })),
+      nameIn,
+      el('button', { type: 'button', class: 'btn', text: 'Save name', onclick: () => { renameGroup(state, gid, nameIn.value); save(); dlg.close(); draw(); } }),
+      el('h3', { class: 'so-section', text: `${g.members.length} people` }),
+      el('div', { class: 'so-people' }, g.members.map((id) => accountById(state, id)).filter(Boolean).map((a) => el('div', { class: 'so-person' }, avatar(a, 'm'), el('span', { class: 'so-person-text' }, el('strong', { text: a.handle }), el('span', { class: 'muted small', text: a.id === m.id ? 'You' : (a.name || '') }))))),
+      el('button', { type: 'button', class: 'btn danger', text: 'Leave the group', onclick: () => { if (!confirm(`Leave ${groupName(state, g, m.id)}?`)) return; leaveGroup(state, gid, m.id); save(); dlg.close(); go({ name: 'inbox' }); } })));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg); dlg.showModal();
   }
 
   // ---- The password: asked first, every time the app starts.
@@ -1761,7 +1883,7 @@ function mountAdmin(host, { open = '' } = {}) {
     if (v.name !== 'chat' && (autoBusy || autoQ.length)) { autoQ.length = 0; stopSpeaking(); }
     // (Reels and a chat fill the screen below the bars: how far down they start.)
     if (v.name === 'reels' || v.name === 'chat') root.style.setProperty('--so-reels-top', `${Math.round(main.getBoundingClientRect().top + (globalThis.scrollY || 0))}px`);
-    fill(main, v.name === 'settings' ? settings() : v.name === 'reels' ? reels() : v.name === 'inbox' ? inbox() : v.name === 'chat' ? chat(v.id) : v.name === 'editpost' ? editPostView(v.id) : v.name === 'tag' ? tagView(v.tag) : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
+    fill(main, v.name === 'settings' ? settings() : v.name === 'reels' ? reels() : v.name === 'inbox' ? inbox() : v.name === 'chat' ? (groupById(state, v.id) ? groupChat(v.id) : chat(v.id)) : v.name === 'newgroup' ? newGroup() : v.name === 'editpost' ? editPostView(v.id) : v.name === 'tag' ? tagView(v.tag) : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
       : v.name === 'post' ? onePost(v.id) : v.name === 'accounts' ? accounts() : v.name === 'newaccount' ? newAccount() : v.name === 'edit' ? edit() : v.name === 'people' ? people(v.id, v.kind) : v.name === 'fromsaved' ? fromSavedView() : feed());
   }
 

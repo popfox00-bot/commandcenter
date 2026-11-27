@@ -2070,3 +2070,16 @@ audio.vid-player { background: none; }
 .vid-quest ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
 .vid-clips .file-name { white-space: normal; }
 .cv-video { margin-top: 14px; }
+
+/* ---------- Socials group chats ---------- */
+.so-group-face { position: relative; display: inline-block; flex: none; }
+.so-group-face-m { width: 48px; height: 44px; }
+.so-group-face-s { width: 40px; height: 32px; }
+.so-group-face > * { position: absolute; border: 2px solid var(--bg); border-radius: 50%; }
+.so-group-face > :first-child { left: 0; top: 0; }
+.so-group-face > :nth-child(2) { right: 0; bottom: 0; }
+.so-bubble-who { display: flex; align-items: center; gap: 6px; margin: 8px 0 0 2px; }
+.so-pick { cursor: pointer; }
+.so-pick input { width: 22px; height: 22px; flex: none; }
+.so-newgroup { display: grid; gap: 10px; }
+.so-pad-x { padding: 6px 12px; }

@@ -65,7 +65,7 @@ test('home screen of apps: Files holds the others; Magic and Saved Files only on
   await page.click('.app-tile >> text=Files');
   await page.waitForSelector('.studio-hub .app-tile');
   assert.equal(await page.textContent('#title'), 'Files');
-  assert.deepEqual(await page.$$eval('.studio-hub .app-name', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'Convert', 'PDF', 'Scan']);
+  assert.deepEqual(await page.$$eval('.studio-hub .app-name', (els) => els.map((e) => e.textContent)), ['Photo Editor', 'Video Editor', 'Convert', 'PDF', 'Scan']);
   await page.click('.studio-hub .app-tile >> text=Photo Editor');
   await page.waitForSelector('.studio-sub:not([hidden]) [role=tab]');
   assert.equal(await page.textContent('#title'), 'Photo Editor');

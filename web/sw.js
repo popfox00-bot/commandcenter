@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "1a85411e12cf",
+  "version": "53a13e52dde4",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",
@@ -229,6 +229,12 @@ const PRECACHE = {
     "tools/scan/scan-core.js",
     "tools/scan/scan.js",
     "tools/studio/studio.js",
+    "tools/video/video-core.js",
+    "tools/video/video-edit.js",
+    "tools/video/video-ops.js",
+    "tools/video/video-ui.js",
+    "tools/video/video3d-worker.js",
+    "tools/video/video3d.js",
     "vendor/esrgan/LICENSE",
     "vendor/esrgan/x2/group1-shard1of1.bin",
     "vendor/esrgan/x2/model.json",
@@ -240,6 +246,9 @@ const PRECACHE = {
     "vendor/face/model/face_recognition_model.bin",
     "vendor/face/model/tiny_face_detector_model-weights_manifest.json",
     "vendor/face/model/tiny_face_detector_model.bin",
+    "vendor/mediabunny/LICENSE",
+    "vendor/mediabunny/mediabunny-aac-encoder.min.mjs",
+    "vendor/mediabunny/mediabunny.min.mjs",
     "vendor/mediapipe/LICENSE",
     "vendor/mediapipe/efficientnet_lite0_int8.tflite",
     "vendor/mediapipe/face_landmarker.task",

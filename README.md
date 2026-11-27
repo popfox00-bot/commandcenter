@@ -39,6 +39,7 @@ its own tab bar.
   Files (your Drive) and Jobs.
 - **[Files](#files-draw-and-qr)** is a page of its own apps, all on your phone, offline: the
   [Photo Editor](#photo-editor) (Edit, [Collage](#collage--superimpose), [Cutout](#cutout-and-characters)),
+  the [Video Editor](#video-editor) (trim, crop, resize, rotate, sound, reverse, combine, and 2D → 3D for VR),
   the [File Converter](#file-converter), [Write on PDF](#write-on-pdf) and [Scan](#scan) (documents, and
   [QR codes](#qr--barcode): scan with a link safety check before anything opens, make your own).
   Converted images have an **Edit** button (opens the photo editor) and converted PDFs a **Write on
@@ -89,7 +90,7 @@ choices that keep usage under them.
 
 ## Contents
 
-- [Files, Draw and QR](#files-draw-and-qr): [Saved Files](#saved-files) · [Downloads](#downloads)
+- [Files, Draw and QR](#files-draw-and-qr): [Video Editor](#video-editor) · [Saved Files](#saved-files) · [Downloads](#downloads)
 - [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters · [Reverse Fill](#reverse-fill) · [Fashion](#fashion)
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Socials](#socials) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
@@ -116,6 +117,34 @@ Everything they do happens in the browser on your phone. Nothing is uploaded (ex
 to [Saved Files](#saved-files), your own Drive; [Downloads](#downloads) only fetches the video link
 you paste), and after the first visit they work offline: the
 service worker precaches the whole app, including its libraries.
+
+### Video Editor
+
+**Files → 🎬 Video Editor**, on the phone (its own H.264 encoder through WebCodecs, with
+[Mediabunny](https://mediabunny.dev), MPL-2.0, in `web/vendor/mediabunny/`). Every file made is MP4 (H.264 +
+AAC) and is checked before it's offered (it opens; its size, length, frame count and sound are as they should be);
+anything off is shown in red or as a warning, never left out. Needs WebCodecs (iPhone: iOS 16.4 or later); a
+browser without says so plainly.
+
+- **✂️ Edit**: trim (start/end, or **Here** at the player's position), centered crop (1:1, 9:16, 16:9, 4:5,
+  4:3), size (longer side), rotate, flip, and sound kept, removed or **replaced** by another file's (music, a
+  recording, a video). Also **⏪ Reverse** (picture and sound), **➕ Combine** (clips joined in order, fitted into
+  the first one's frame) and **🎵 Sound only** (.m4a). Sound already in AAC is copied untouched.
+- **🥽 2D → 3D** makes a stereoscopic copy for VR headsets (Meta Quest: Skybox VR, DeoVR, Meta's player):
+  - Layouts: **Full SBS** (2W×H, `_SBS_LR`), **Half SBS** (W×H, each eye squeezed to half width, `_3dh`) and
+    **Top-Bottom** (W×2H, each eye full size, `_TB`). The endings are in one place (`VR_SUFFIXES` in
+    `web/tools/video/video-core.js`). Size per eye: 1080 / 1440 / 1920 px on the longer side, or the source's.
+  - Depth from an AI model on the phone (Depth Anything V2 Small, Apache-2.0, ~26 MB, downloaded once from
+    Hugging Face, then offline; WebGPU where there is one). It's steadied between frames (small flicker smoothed
+    away, real movement kept) and started afresh at scene cuts; near edges are grown and softened before the eyes
+    are drawn, and the gaps uncovered behind near things are filled from the background side.
+  - Controls: 3D strength, Pop-out (screen plane), Steadiness, Depth detail, depth every 1/2/3 frames (cuts
+    always), Swap eyes, trim. **Preview this frame** shows it side by side, as depth, red-cyan or cross-eye, and
+    estimates the time; converting shows frames done / total, time left and **Cancel**. Frame rate, length and
+    sound are kept (AAC copied as it is; other sound encoded to AAC).
+  - Speed: about a second a frame on a phone with WebAssembly (faster with WebGPU), so a minute of 30 fps video
+    can take half an hour; Fast detail and every 2nd or 3rd frame cut that down.
+  - Next to the file: how to watch it on a Quest.
 
 ### File Converter
 

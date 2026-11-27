@@ -21,7 +21,7 @@ export const APPS = [
   { id: 'sports', name: 'Sports', icon: '🏆', tint: 'green', note: 'Your teams · Live scores', href: '#/sports', cat: 'updates', home: false, parent: 'updates', load: () => import('./sports/sports.js') },
   { id: 'packages', name: 'Packages', icon: '📦', tint: 'amber', note: 'Tracking numbers · Live status', href: '#/packages', cat: 'updates', home: false, parent: 'updates', load: () => import('./packages/packages.js') },
   { id: 'notes', name: 'Notes', icon: '📝', tint: 'green', note: 'Notes · Grocery list', href: '#/notes', cat: 'productivity', load: () => import('./notes/notes.js') },
-  { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Convert · PDF · Scan', href: '#/files', cat: 'productivity', load: () => import('../tools/studio/studio.js') },
+  { id: 'files', name: 'Files', icon: '🗂️', tint: 'blue', note: 'Photos · Video · Convert · PDF · Scan', href: '#/files', cat: 'productivity', load: () => import('../tools/studio/studio.js') },
   { id: 'magic', name: 'Magic', icon: '🪄', tint: 'purple', note: 'Downloads · FM · Reverse Fill · Fashion', href: '#/magic', parent: 'hidden', home: false, locked: true, load: () => import('./magic/magic.js') },
   { id: 'draw', name: 'Draw', icon: '✏️', tint: 'pink', note: 'Sketch and design', href: '#/draw', cat: 'productivity', load: () => import('../tools/draw/draw.js') },
   { id: 'units', name: 'Units', icon: '📐', tint: 'teal', note: 'Units · Currency', href: '#/units', cat: 'productivity', load: () => import('./units/units.js') },
@@ -65,6 +65,7 @@ export const CATEGORIES = [
 /** Files' own apps (routes #/files/<tab>; each lists the tabs that are part of it). */
 export const FILES_APPS = [
   { id: 'photo', name: 'Photo Editor', icon: '🖼️', tint: 'blue', note: 'Edit · Collage · Cutout', tabs: ['photo', 'collage', 'cutout'] },
+  { id: 'video', name: 'Video Editor', icon: '🎬', tint: 'purple', note: 'Edit · 2D → 3D for VR', tabs: ['video', 'video3d'] },
   { id: 'convert', name: 'Convert', icon: '🔁', tint: 'green', note: 'Photos and PDFs', tabs: ['convert'] },
   { id: 'pdf', name: 'PDF', icon: '📄', tint: 'red', note: 'Write · Sign', tabs: ['pdf'] },
   { id: 'scan', name: 'Scan', icon: '📷', tint: 'ink', note: 'Documents · QR codes', tabs: ['scan', 'qr'] },

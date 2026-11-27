@@ -33,6 +33,7 @@ export function mount(host, { onEdit, onWrite } = {}) {
     drop, inputList,
     el('h3', { text: 'Convert to' }), formatBar, optionsBox,
     convertBtn, progress, resultsBox,
+    el('a', { class: 'btn ghost block cv-video', href: '#/files/video', text: '🎬 Videos? Trim, crop, combine or make 3D in Video Editor' }),
     about('Converted on this phone; nothing is uploaded. Location and camera details are removed from converted files.'),
   );
   host.append(fileInput);

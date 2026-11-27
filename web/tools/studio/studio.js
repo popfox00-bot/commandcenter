@@ -1,6 +1,6 @@
-// "Files" app: a page of its own apps (Photo Editor, Convert, PDF, Scan), each opened from it. Photo
-// Editor has Edit, Collage and Cutout; Scan has Documents and QR codes (scan, make, app codes).
-// Routes: #/files (its page of apps) and #/files/<tab> (photo, collage, cutout, convert, pdf, scan,
+// "Files" app: a page of its own apps (Photo Editor, Video Editor, Convert, PDF, Scan), each opened from it. Photo
+// Editor has Edit, Collage and Cutout; Video Editor has Edit and 2D → 3D; Scan has Documents and QR codes.
+// Routes: #/files (its page of apps) and #/files/<tab> (photo, collage, cutout, video, video3d, convert, pdf, scan,
 // qr). A file handed over from Saved Files (in Magic) opens in the Photo Editor or PDF. Its ⚙ settings hold
 // Admin, the way into the Vault.
 // Going from a photo being edited to Collage puts it in a frame; to Cutout asks what to do with it.
@@ -21,15 +21,18 @@ const TABS = [
   { id: 'scan', label: 'Scan', load: () => import('../scan/scan.js') },
   { id: 'qr', label: 'QR codes', load: () => import('../qr/qr.js') },
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
+  { id: 'video', label: 'Video', load: () => import('../video/video-edit.js') },
+  { id: 'video3d', label: '2D → 3D', load: () => import('../video/video3d.js') },
 ];
 const hashFor = (id) => `#/files/${id}`;
 // The switches inside an app of Files: Photo Editor's three, Scan's two.
 const PHOTO = [['photo', '✏️ Edit'], ['collage', '🧩 Collage'], ['cutout', '✂️ Cutout']];
 const SCAN = [['scan', '📄 Documents'], ['qr', '▦ QR codes']];
+const VIDEO = [['video', '✂️ Edit'], ['video3d', '🥽 2D → 3D']];
 /** The pane a tab shows (its own). */
 const paneOf = (id) => TABS.find((t) => t.id === id)?.pane ?? id;
 const inPhoto = (id) => PHOTO.some(([p]) => p === id);
-const switchesOf = (id) => (inPhoto(id) ? PHOTO : SCAN.some(([p]) => p === id) ? SCAN : null);
+const switchesOf = (id) => (inPhoto(id) ? PHOTO : SCAN.some(([p]) => p === id) ? SCAN : VIDEO.some(([p]) => p === id) ? VIDEO : null);
 
 export function mount(host) {
   const panes = new Map(); // id -> { node, api }
@@ -49,7 +52,7 @@ export function mount(host) {
   function openSettings() {
     const dlg = el('dialog', { class: 'ed-dialog studio-settings', 'aria-label': 'Files settings' }, el('div', { class: 'sheet' },
       el('div', { class: 'row space' }, el('h2', { text: 'Files settings' }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })),
-      el('p', { class: 'small muted', text: 'Photo Editor, Convert, PDF and Scan work on this phone, offline. Saved Files and backgrounds are set up in Settings.' }),
+      el('p', { class: 'small muted', text: 'Photo Editor, Video Editor, Convert, PDF and Scan work on this phone, offline (2D → 3D downloads its AI model once). Saved Files and backgrounds are set up in Settings.' }),
       el('a', { class: 'btn block', href: '#/settings', text: 'Open Settings', onclick: () => dlg.close() }),
       el('div', { class: 'studio-admin-row' }, el('button', { type: 'button', class: 'studio-admin', text: 'Admin', onclick: () => { dlg.close(); location.hash = '#/hidden'; } }))));
     dlg.addEventListener('close', () => dlg.remove());
@@ -86,7 +89,7 @@ export function mount(host) {
     const from = shown; shown = id;
     const sw = switchesOf(id);
     sub.hidden = !sw;
-    sub.setAttribute('aria-label', inPhoto(id) ? 'Photo Editor' : 'Scan');
+    sub.setAttribute('aria-label', inPhoto(id) ? 'Photo Editor' : sw === VIDEO ? 'Video Editor' : 'Scan');
     sub.replaceChildren(...(sw ?? []).map(([t, label]) => el('a', {
       class: `seg${t === id ? ' active' : ''}`, role: 'tab', 'aria-selected': String(t === id), text: label, href: hashFor(t),
     })));
@@ -96,6 +99,8 @@ export function mount(host) {
     if (given && !panes.has(pid)) { await ensure(pid, { ...optsFor(pid), file: given }); } else if (given) { const p = await panes.get(pid).ready; p.api?.openFile?.(given, given.name); }
     const pane = await ensure(pid, optsFor(pid));
     await pane.ready;
+    // (Another tab was opened while this one loaded: that one is shown, not this.)
+    if (shown !== id) return;
     for (const [k, p] of panes) p.node.hidden = k !== pid;
     pane.api?.show?.();
     if (paneOf(from) === 'photo' && (id === 'collage' || id === 'cutout')) handOff(id, pane);

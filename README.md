@@ -1538,8 +1538,10 @@ Profile, ✈ for messages), where everything is made by you in the app.
     switch on (iOS 17's audio session). Anything that can't be heard says why in a short note, and **🔊 Test**
     (by the natural voices' download) plays a line and tells you which voice played, how long it took, or what
     went wrong. **Speed:** the voices run on the phone's graphics chip (WebGPU) where it can (several times faster),
-    else on its processor (about two seconds of work per second of speech), and back to the processor if the chip
-    fails. Replies are made while they're "typing" and the newest message when a chat opens, and lines made are
+    except on an iPhone or iPad, where it's a switch (⚡ Use the graphics chip, off by default: it can take more memory
+    than Safari allows a page, which closes it); a load that never finished (the page was closed) means the next one
+    uses the processor. Otherwise on its processor (about two seconds of work per second of speech), and back to the processor if the chip
+    fails. Replies are made while they're "typing" and the newest message when a chat opens (when the voices are loaded already: opening a chat never loads them), and lines made are
     kept a while, so their 🔊 plays at once. Trying voices out (the picker's ▶, Edit profile's ▶ Preview) plays a
     sample of each natural voice made ahead and kept with the app (`web/apps/socials/voices/`, ~640 KB): at once,
     and before the voices are downloaded (the picker lists them all). If the audio player says it's playing but its clock doesn't move (silent, as seen on iPhones), the

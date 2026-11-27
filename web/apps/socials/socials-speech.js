@@ -149,23 +149,35 @@ export async function naturalDownloaded() {
 export function naturalLoad(onProgress = () => {}) {
   if (ready) return Promise.resolve();
   const files = new Map(); let voices = 0;
-  loadP ??= Promise.all([naturalDownloaded(), gpuDevice()]).then(([have, device]) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES, device } }, (p) => {
+  loadP ??= Promise.all([naturalDownloaded(), gpuDevice()]).then(([have, device]) => { store.set(LOADING_KEY, String(Date.now())); return [have, device]; }).then(([have, device]) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES, device } }, (p) => {
     if (p.status === 'voice') voices = p.loaded / p.total;
     else if (p.file) files.set(p.file, { loaded: p.status === 'done' ? (p.total || files.get(p.file)?.total || 0) : p.loaded, total: p.total || files.get(p.file)?.total || 0 });
     let l = 0; let t = 0; for (const f of files.values()) { l += f.loaded; t += f.total; }
     onProgress(Math.min(1, (t ? l / t : 0) * 0.86 + voices * 0.14));
-  })).then((r) => { ready = true; runsOn = r?.device ?? 'wasm'; }, (e) => { loadP = null; throw e; });
+  })).then((r) => { ready = true; runsOn = r?.device ?? 'wasm'; store.set(LOADING_KEY, ''); }, (e) => { loadP = null; store.set(LOADING_KEY, ''); throw e; });
   return loadP;
 }
 export const naturalReady = () => ready;
 let runsOn = '';
-/** 'webgpu' when this phone's graphics chip can run the voices (much faster), else 'wasm'. */
+// (The graphics chip: faster, but on an iPhone or iPad it can take more memory than Safari allows a page, and the page
+// is closed ("A problem repeatedly occurred"). So there it's only used when turned on (Sync and password); and if a
+// load didn't finish last time (the page was closed while loading), the processor is used, whatever the setting.)
+const GPU_KEY = 'cc.socials.tts.gpu'; const LOADING_KEY = 'cc.socials.tts.loading';
+const isAppleMobile = () => { const n = globalThis.navigator; return /iPhone|iPad|iPod/.test(n?.userAgent ?? '') || (n?.platform === 'MacIntel' && (n?.maxTouchPoints ?? 0) > 1); };
+/** Whether the voices may use the graphics chip: on by default except on an iPhone or iPad (where it's a choice). */
+export const gpuVoicesOn = () => { const v = store.get(GPU_KEY); return v ? v === 'on' : !isAppleMobile(); };
+export const setGpuVoices = (on) => store.set(GPU_KEY, on ? 'on' : 'off');
+/** Whether the last load of the voices never finished (the page was closed during it: out of memory, most likely). */
+const crashedBefore = !!store.get(LOADING_KEY); // (as the app opened: a load still marked as going is one that never finished)
+export const lastLoadCrashed = () => crashedBefore;
+/** 'webgpu' when this phone's graphics chip can run the voices (much faster) and may, else 'wasm'. */
 async function gpuDevice() {
+  if (!gpuVoicesOn() || lastLoadCrashed()) return 'wasm';
   try { const a = await globalThis.navigator?.gpu?.requestAdapter(); return a && !a.isFallbackAdapter && !a.info?.isFallbackAdapter ? 'webgpu' : 'wasm'; } catch { return 'wasm'; } // (not a software stand-in: slower than the processor)
 }
 
 // ---- Lines made already (kept a while, so a 🔊 tapped again, or a reply made while "typing", plays at once).
-const made = new Map(); const MADE_MAX = 80;
+const made = new Map(); const MADE_MAX = 24; // (in memory; the rest are kept on the phone when Socials gives a place)
 const madeKey = (voice, speed, t) => `${voice}|${speed.toFixed(3)}|${t}`;
 function remember(k, v) { made.delete(k); made.set(k, v); while (made.size > MADE_MAX) made.delete(made.keys().next().value); }
 // (And kept on the phone too, when Socials gives a place for it (socials-store.js' voiceStore: encrypted, its names

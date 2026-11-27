@@ -5,12 +5,13 @@
 
 import { el, fill } from '../../lib/dom.js';
 import * as SP from './socials-speech.js';
-import { NATURAL, phoneVoicesReady, phoneTags, naturalDownloaded, speak, stopSpeaking, naturalReady, naturalLoad, setNaturalOn, TTS_SIZE, primeAudio } from './socials-speech.js';
+import { NATURAL, phoneVoicesReady, phoneTags, naturalDownloaded, speak, stopSpeaking, naturalLoad, setNaturalOn, TTS_SIZE, primeAudio, SAMPLE_LINE, sampleUrl } from './socials-speech.js';
 
 /** Every voice to choose from, described: [{ value, name, kind ('natural' | 'blend' | 'phone'), tags, best }]. */
 export async function voiceCatalog() {
   const nat = await naturalDownloaded();
-  const out = nat ? NATURAL.map((v) => ({ value: `n:${v.id}`, name: v.name, kind: v.blend ? 'blend' : 'natural', tags: v.tags, best: v.best })) : [];
+  // (The natural voices are always listed: each plays its sample (made ahead) at once, downloaded or not.)
+  const out = NATURAL.map((v) => ({ value: `n:${v.id}`, name: v.name, kind: v.blend ? 'blend' : 'natural', tags: v.tags, best: v.best, downloaded: nat }));
   // (This phone's: the best-sounding first (premium, enhanced), the novelty and old robotic ones last.)
   const q = (v, t) => (/\(premium\)/i.test(v.name) ? 0 : /\(enhanced\)/i.test(v.name) ? 1 : t.includes('novelty') ? 4 : t.includes('retro') ? 3 : 2);
   const phone = (await phoneVoicesReady()).map((v) => { const tags = phoneTags(v); return { value: `p:${v.id}`, name: v.name.replace(/\s*\((enhanced|premium|compact)\)/i, ''), kind: 'phone', tags, best: /\((enhanced|premium)\)/i.test(v.name), q: q(v, tags), en: /^en/i.test(v.lang) ? 0 : 1 }; });
@@ -56,8 +57,9 @@ export function pickVoice({ current = '', who = {} } = {}) {
       if (playing === b) { stopSpeaking(); return; }
       primeAudio(); // (first, in the tap: an iPhone lets sound start only now)
       playing?.classList.remove('on'); playing = b; b.classList.add('on');
-      if (value.startsWith('n:') && !naturalReady()) { b.textContent = '⏳'; note.textContent = 'Loading the natural voices (once a session)…'; await naturalLoad().catch((x) => { note.textContent = `The natural voices couldn't load: ${x.message}`; }); b.textContent = '▶'; }
-      await speak(`Hi, I'm ${who.handle || 'your account'}. This is how I'd sound.`, { ...who, speech: { ...(who.speech ?? {}), voice: value || undefined } }, { natural: value.startsWith('n:') }).catch(() => {});
+      // (A natural voice plays its sample, made ahead: at once, downloaded or not.)
+      const nat = value.startsWith('n:');
+      await speak(nat ? SAMPLE_LINE : `Hi, I'm ${who.handle || 'your account'}. This is how I'd sound.`, { ...who, speech: { ...(who.speech ?? {}), voice: value || undefined } }, nat ? { sample: sampleUrl(value.slice(2)) } : {}).catch(() => {});
       if (playing === b) { playing = null; b.classList.remove('on'); }
       if (SP.lastProblem) note.textContent = SP.lastProblem;
     };
@@ -70,10 +72,10 @@ export function pickVoice({ current = '', who = {} } = {}) {
         el('button', { type: 'button', class: `btn small-btn${current === v.value ? '' : ' primary'}`, text: current === v.value ? '✓ In use' : 'Use', 'aria-label': `Use ${v.name}`, onclick: () => { picked = v.value; dlg.close(); } })));
     // (No natural voices yet: offered here, downloaded without leaving.)
     const drawBanner = () => {
-      const has = all.some((v) => v.kind !== 'phone'); banner.hidden = has; if (has) return;
+      const has = all.some((v) => v.kind !== 'phone' && v.downloaded); banner.hidden = has; if (has) return;
       const bar = el('div', { class: 'so-upbar-track', hidden: true, role: 'progressbar', 'aria-label': 'Natural voices download', 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('span', { class: 'so-upbar-fill' }));
       const go = el('button', { type: 'button', class: 'btn primary', text: `Download them (${TTS_SIZE})` });
-      const msg = el('span', { class: 'small muted', text: 'This phone\'s own voices can sound robotic. The natural voices are 43 voices that sound like people, on the phone and offline once downloaded.' });
+      const msg = el('span', { class: 'small muted', text: 'This phone\'s own voices can sound robotic. The natural voices are 43 voices that sound like people (▶ plays each one now); download them to use them, on the phone and offline after.' });
       go.addEventListener('click', async () => {
         go.disabled = true; bar.hidden = false; setNaturalOn(true);
         try { await naturalLoad((x) => { bar.firstChild.style.width = `${Math.max(3, Math.round(x * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(x * 100))); go.textContent = `Downloading… ${Math.round(x * 100)}%`; }); all = await voiceCatalog(); kind = 'natural'; paint(); } catch (e) { msg.textContent = `Couldn't download them: ${e.message}`; go.disabled = false; go.textContent = 'Try again'; }

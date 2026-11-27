@@ -32,7 +32,7 @@ import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS }
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
-import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove } from './socials-speech.js';
+import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl } from './socials-speech.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
@@ -918,8 +918,10 @@ function mountAdmin(host, { open = '' } = {}) {
     sayPitch.value = [0.88, 1.12].includes(a?.speech?.pitch) ? String(a.speech.pitch) : '1';
     const preview = el('button', { type: 'button', class: 'btn small', text: '▶ Preview', onclick: async () => {
       primeAudio();
-      if ((sayValue.startsWith('n:') || naturalOn()) && !naturalReady()) { preview.textContent = 'Loading…'; await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}`)); preview.textContent = '▶ Preview'; }
-      await speak(`Hey! It's ${who().handle}. This is how I sound.`, who(), { natural: sayValue.startsWith('n:') }).catch(() => {});
+      // (A natural voice picked: its sample, made ahead, at once. Otherwise the line said live.)
+      if (sayValue.startsWith('n:')) { await speak(SAMPLE_LINE, who(), { sample: sampleUrl(sayValue.slice(2)) }).catch(() => {}); if (lastProblem) toast(lastProblem); return; }
+      if (naturalOn() && !naturalReady()) { preview.textContent = 'Loading…'; await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}`)); preview.textContent = '▶ Preview'; }
+      await speak(`Hey! It's ${who().handle}. This is how I sound.`, who()).catch(() => {});
       if (lastProblem) toast(lastProblem);
     } });
     const err = el('p', { class: 'so-err', role: 'alert' });
@@ -1393,6 +1395,8 @@ function mountAdmin(host, { open = '' } = {}) {
       const ai = await aiText(from, to, draft).catch(() => null);
       if (!alive || !mine()) return;
       const text = ai ?? draft;
+      // (Its voice made now, while it's "typing", so it's read at once when it arrives.)
+      if (readOn()) for (const line of text.split('\n')) prepareVoice(line, accountById(state, from));
       // (Two messages sometimes: the first, then "typing" again, then the second.)
       const [one, ...more] = text.split('\n').map((x) => x.trim()).filter(Boolean);
       const wait = (line) => (ai ? 500 : Math.min(4200, 900 + line.length * 35));
@@ -1416,6 +1420,8 @@ function mountAdmin(host, { open = '' } = {}) {
     const m = me(); const o = accountById(state, otherId); if (!o || o.id === m.id) return inbox();
     const msgs = conversation(state, m.id, o.id);
     if (msgs.length) { markRead(state, m.id, o.id, msgs[msgs.length - 1].at); saveState(state); }
+    // (The newest message from them, made ready in its natural voice, so its 🔊 plays at once.)
+    { const last = [...msgs].reverse().find((x) => x.from === o.id && x.text); if (last) { if (naturalOn() && !naturalReady()) naturalLoad().then(() => prepareVoice(last.text, o), () => {}); else prepareVoice(last.text, o); } }
     const list = el('div', { class: 'so-chat', role: 'log', 'aria-label': `Messages with @${o.handle}` });
     chatAtEnd = true; list.addEventListener('scroll', () => { chatAtEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60; }, { passive: true });
     let lastDay = '';
@@ -1584,7 +1590,8 @@ function mountAdmin(host, { open = '' } = {}) {
       } });
       fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }),
         el('p', { class: 'small muted', text: `A small speech model on your phone: ${NATURAL.filter((v) => !v.blend).length} voices (American and British, women and men) and ${NATURAL.filter((v) => v.blend).length} blends of them, each described in a few words, that sound much more like people than the phone's own. Downloaded once, then it works offline; what it reads never leaves the phone. No WebGPU needed.` }),
-        status, bar, el('div', { class: 'so-row' }, go, off, rm, test));
+        status, bar, el('div', { class: 'so-row' }, go, off, rm, test),
+        el('p', { class: 'small muted', text: 'They\'re made on the phone, so a message takes a moment the first time (much less on a phone whose graphics chip can run them); replies are made while they\'re being "typed". For voices that speak instantly: on an iPhone, Settings → Accessibility → Spoken Content → Voices → English, and download an "Enhanced" or "Premium" voice; Socials uses the best this phone has.' }));
     };
     drawTv();
     return el('div', { class: 'so-text-settings' },

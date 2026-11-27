@@ -1192,6 +1192,9 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   await context.addInitScript(() => {
     const voices = [{ voiceURI: 'v-sam', name: 'Samantha', lang: 'en-US', localService: true }, { voiceURI: 'v-dan', name: 'Daniel', lang: 'en-GB', localService: true }, { voiceURI: 'v-net', name: 'Online Voice', lang: 'en-US', localService: false }];
     globalThis.__said = [];
+    // (What the audio player is given to play, and how long each is.)
+    globalThis.__clips = []; const play0 = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () { const el = this; el.addEventListener('loadedmetadata', () => globalThis.__clips.push({ secs: el.duration }), { once: true }); return play0.call(this); };
     globalThis.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
     Object.defineProperty(globalThis, 'speechSynthesis', { value: { getVoices: () => voices, addEventListener() {}, cancel() {}, speak(u) { if (u.text.trim()) globalThis.__said.push({ text: u.text, voice: u.voice?.voiceURI, rate: u.rate }); else globalThis.__primed = (globalThis.__primed ?? 0) + 1; setTimeout(() => { u.onstart?.(); u.onend?.(); }, 30); } }, configurable: true });
   });
@@ -1206,6 +1209,11 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   // The picker: each voice described by words, filtered by them; on-device voices only.
   await page.getByRole('button', { name: 'Choose its speaking voice' }).click();
   const vp = page.getByRole('dialog', { name: 'Speaking voice' });
+  // The natural voices are listed before they're downloaded: ▶ plays each one's sample (made ahead, kept with the app) at once.
+  await vp.getByRole('button', { name: 'Play Heart', exact: true }).click();
+  await page.waitForFunction(() => (globalThis.__clips ?? []).some((x) => x.secs > 1));
+  assert.equal(await page.evaluate(() => globalThis.__said.length), 0, 'a sample, not this phone\'s voice');
+  await vp.getByRole('button', { name: '📱 This phone' }).click();
   await vp.locator('.vp-card', { hasText: 'Daniel' }).waitFor();
   assert.equal(await vp.locator('.vp-card', { hasText: 'Online Voice' }).count(), 0, 'on-device voices only');
   assert.match(await vp.locator('.vp-card', { hasText: 'Daniel' }).textContent(), /polished.*deep.*man.*British/);

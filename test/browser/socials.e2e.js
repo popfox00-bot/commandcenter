@@ -1112,18 +1112,22 @@ test('Socials: replies to comments: the post\'s account answers a comment on its
   await page.locator('.so-person', { hasText: 'amy' }).locator('.so-person-main').click(); await page.locator('.so-tile').first().click();
   await page.getByLabel('Add a comment').fill('where is this?? looks amazing');
   await page.getByRole('button', { name: 'Post', exact: true }).click();
-  // (Her automatic comments' answers too; this one's to the question: where.)
-  const reply = page.locator('.so-comment.so-reply', { hasText: 'Denver' }).first(); await reply.waitFor({ timeout: 15000 });
-  assert.match(await reply.textContent(), /^amy /, 'amy answers, where: from her caption');
+  // (Her automatic comments get answers too: this is hers to mine, found by what it answers.)
+  const comments = () => page.evaluate(async (id) => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); return state.posts.find((x) => x.id === id).comments.map((c) => ({ id: c.id, re: c.re ?? null, text: c.text, by: c.by })); }, postId);
+  let mine; let answer;
+  for (let k = 0; k < 100 && !answer; k++) { const cs = await comments(); mine = cs.find((c) => c.text === 'where is this?? looks amazing'); answer = cs.find((c) => c.re === mine?.id); if (!answer) await page.waitForTimeout(250); }
+  if (!answer) console.log('DBG', JSON.stringify(await comments()));
+  assert.ok(answer, 'amy answers my comment'); assert.match(answer.text, /denv/i, 'where: from her caption (in her voice: Denverrr!!)');
+  const reply = page.locator('.so-comment.so-reply', { hasText: answer.text }).first(); await reply.waitFor();
+  assert.match(await reply.textContent(), /^amy /);
   // Reply under amy's answer: in the same thread.
   await reply.getByRole('button', { name: 'Reply to @amy' }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Reply to @amy' }).inputValue(), '@amy ');
   await page.getByRole('textbox', { name: 'Reply to @amy' }).fill('@amy need to go!!');
   await page.getByRole('button', { name: 'Post', exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll('.so-comment.so-reply').length >= 2);
-  const st = await page.evaluate(async (id) => { const { loadState } = await import('./apps/socials/socials-store.js'); const { state } = await loadState(); const p = state.posts.find((x) => x.id === id); return p.comments.map((c) => ({ re: !!c.re, root: c.re ?? null, id: c.id })); }, postId);
-  const mineTop = st.filter((c) => !c.re).at(-1);
-  assert.equal(st.filter((c) => c.root === mineTop.id).length, 2, 'her answer and mine, both under my comment');
+  await page.locator('.so-comment.so-reply', { hasText: 'need to go!!' }).waitFor();
+  const st = await comments();
+  assert.deepEqual(st.filter((c) => c.re === mine.id).map((c) => c.text).sort(), [answer.text, '@amy need to go!!'].sort(), 'her answer and mine, both under my comment');
   assert.deepEqual(errors, []);
   await page.close();
 });

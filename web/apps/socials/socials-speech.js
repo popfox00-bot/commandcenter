@@ -17,13 +17,49 @@ const ON_KEY = 'cc.socials.voices'; // natural voices on ('on')
 export const naturalOn = () => store.get(ON_KEY) === 'on';
 export const setNaturalOn = (on) => store.set(ON_KEY, on ? 'on' : 'off');
 
-/** The natural voices (the better ones first in each group): [{ id, name, accent, gender }]. */
+/**
+ * The natural voices, each described by a few words: [{ id, name, accent, gender, tags, best? }]. The model's
+ * own 28 (the better ones first in each group), then blends of two (their styles mixed: a voice of its own, no
+ * more to download).
+ */
+const ACCENT = { US: 'American', UK: 'British', mix: 'transatlantic' };
 export const NATURAL = [
-  ['af_heart', 'Heart', 'US', 'F'], ['af_bella', 'Bella', 'US', 'F'], ['af_nicole', 'Nicole', 'US', 'F'], ['af_sarah', 'Sarah', 'US', 'F'], ['af_kore', 'Kore', 'US', 'F'], ['af_aoede', 'Aoede', 'US', 'F'], ['af_nova', 'Nova', 'US', 'F'], ['af_alloy', 'Alloy', 'US', 'F'], ['af_sky', 'Sky', 'US', 'F'], ['af_jessica', 'Jessica', 'US', 'F'], ['af_river', 'River', 'US', 'F'],
-  ['am_michael', 'Michael', 'US', 'M'], ['am_fenrir', 'Fenrir', 'US', 'M'], ['am_puck', 'Puck', 'US', 'M'], ['am_echo', 'Echo', 'US', 'M'], ['am_eric', 'Eric', 'US', 'M'], ['am_liam', 'Liam', 'US', 'M'], ['am_onyx', 'Onyx', 'US', 'M'], ['am_adam', 'Adam', 'US', 'M'], ['am_santa', 'Santa', 'US', 'M'],
-  ['bf_emma', 'Emma', 'UK', 'F'], ['bf_isabella', 'Isabella', 'UK', 'F'], ['bf_alice', 'Alice', 'UK', 'F'], ['bf_lily', 'Lily', 'UK', 'F'],
-  ['bm_george', 'George', 'UK', 'M'], ['bm_fable', 'Fable', 'UK', 'M'], ['bm_lewis', 'Lewis', 'UK', 'M'], ['bm_daniel', 'Daniel', 'UK', 'M'],
-].map(([id, name, accent, gender]) => ({ id, name, accent, gender }));
+  ['af_heart', 'Heart', 'US', 'F', 'warm expressive friendly', 1], ['af_bella', 'Bella', 'US', 'F', 'bright energetic upbeat', 1], ['af_nicole', 'Nicole', 'US', 'F', 'soft breathy intimate', 1], ['af_sarah', 'Sarah', 'US', 'F', 'mature calm composed'], ['af_kore', 'Kore', 'US', 'F', 'clear even confident'], ['af_aoede', 'Aoede', 'US', 'F', 'smooth melodic gentle'], ['af_nova', 'Nova', 'US', 'F', 'crisp newsy polished'], ['af_alloy', 'Alloy', 'US', 'F', 'neutral steady plain'], ['af_sky', 'Sky', 'US', 'F', 'light youthful airy'], ['af_jessica', 'Jessica', 'US', 'F', 'casual chatty relaxed'], ['af_river', 'River', 'US', 'F', 'mellow laid-back soft'],
+  ['am_michael', 'Michael', 'US', 'M', 'deep warm narrator', 1], ['am_fenrir', 'Fenrir', 'US', 'M', 'bold strong gravelly', 1], ['am_puck', 'Puck', 'US', 'M', 'playful lively cheeky', 1], ['am_echo', 'Echo', 'US', 'M', 'calm even soft-spoken'], ['am_eric', 'Eric', 'US', 'M', 'plain steady everyday'], ['am_liam', 'Liam', 'US', 'M', 'young casual friendly'], ['am_onyx', 'Onyx', 'US', 'M', 'deep low resonant'], ['am_adam', 'Adam', 'US', 'M', 'flat robotic dry'], ['am_santa', 'Santa', 'US', 'M', 'jolly booming novelty'],
+  ['bf_emma', 'Emma', 'UK', 'F', 'polished warm elegant', 1], ['bf_isabella', 'Isabella', 'UK', 'F', 'refined gentle smooth'], ['bf_alice', 'Alice', 'UK', 'F', 'bright crisp precise'], ['bf_lily', 'Lily', 'UK', 'F', 'soft young sweet'],
+  ['bm_george', 'George', 'UK', 'M', 'classic deep narrator', 1], ['bm_fable', 'Fable', 'UK', 'M', 'storyteller expressive warm'], ['bm_lewis', 'Lewis', 'UK', 'M', 'relaxed mellow low'], ['bm_daniel', 'Daniel', 'UK', 'M', 'formal measured calm'],
+  // (Blends: two voices' styles mixed.)
+  ['af_heart+bf_emma', 'Harbor', 'mix', 'F', 'warm polished soft', 1], ['af_bella+af_nicole', 'Velvet', 'US', 'F', 'breathy smooth sultry', 1], ['af_sarah+bf_isabella', 'Grace', 'mix', 'F', 'mature refined calm'], ['af_sky+bf_lily', 'Pip', 'mix', 'F', 'youthful light sweet'], ['af_kore*0.6+af_nova*0.4', 'Quinn', 'US', 'F', 'clear crisp confident'], ['af_aoede+af_river', 'Willow', 'US', 'F', 'dreamy soft melodic'],
+  ['am_michael+bm_george', 'Atlas', 'mix', 'M', 'deep steady narrator', 1], ['am_fenrir+am_onyx', 'Granite', 'US', 'M', 'gravelly very-deep bold', 1], ['am_puck+am_liam', 'Rio', 'US', 'M', 'youthful playful upbeat'], ['bm_fable+bm_lewis', 'Bard', 'UK', 'M', 'storyteller mellow warm'], ['am_echo+bm_daniel', 'Sage', 'mix', 'M', 'calm measured gentle'],
+  ['af_heart+am_michael', 'Rowan', 'US', 'N', 'androgynous warm soft', 1], ['bf_emma+bm_george', 'Ash', 'UK', 'N', 'androgynous polished calm'], ['af_nicole*0.6+am_echo*0.4', 'Haze', 'US', 'N', 'whispery hushed androgynous'], ['af_bella*0.5+am_puck*0.5', 'Spark', 'US', 'N', 'energetic playful androgynous'],
+].map(([id, name, accent, gender, words, best]) => ({ id, name, accent, gender, best: !!best, blend: id.includes('+'), tags: [...words.split(' '), ACCENT[accent], gender === 'F' ? 'woman' : gender === 'M' ? 'man' : 'neutral', ...(id.includes('+') ? ['blend'] : [])] }));
+export const naturalById = (id) => NATURAL.find((v) => v.id === id) ?? null;
+/** The model's own voices (the files the blends are made from). */
+export const BASE_VOICES = NATURAL.filter((v) => !v.blend).map((v) => v.id);
+
+// (This phone's voices, described: the ones phones and computers commonly have, by name; others by their
+// language and region.)
+const KNOWN = {
+  samantha: 'clear friendly woman', alex: 'natural warm man', ava: 'natural warm woman', allison: 'bright friendly woman', susan: 'calm clear woman', tom: 'steady plain man', zoe: 'warm youthful woman', evan: 'calm natural man', nathan: 'young casual man', joelle: 'soft young woman', noelle: 'bright young woman', aaron: 'calm man', nicky: 'young friendly woman',
+  daniel: 'polished deep man', kate: 'warm polished woman', serena: 'refined calm woman', oliver: 'young polished man', arthur: 'deep classic man', martha: 'mature warm woman', stephanie: 'bright polished woman', jamie: 'casual man',
+  karen: 'bright friendly woman', lee: 'relaxed man', moira: 'soft lilting woman', tessa: 'clear warm woman', rishi: 'clear friendly man', veena: 'soft clear woman', fiona: 'lilting warm woman', catherine: 'calm woman', gordon: 'deep man', isha: 'clear woman', sangeeta: 'soft woman',
+  fred: 'retro robotic man', ralph: 'deep retro man', kathy: 'retro plain woman', junior: 'retro young boy', albert: 'novelty croaky old', bahh: 'novelty bleating funny', bells: 'novelty musical chiming', boing: 'novelty bouncy funny', bubbles: 'novelty gurgling underwater', cellos: 'novelty musical singing', 'good news': 'novelty cheerful singing', 'bad news': 'novelty gloomy singing', jester: 'novelty silly playful', organ: 'novelty musical eerie', superstar: 'novelty singing showy', trinoids: 'novelty alien robotic', whisper: 'novelty whispered hushed', wobble: 'novelty wobbly funny', zarvox: 'novelty robotic alien', grandma: 'elderly warm woman', grandpa: 'elderly warm man', rocko: 'casual man', sandy: 'bright woman', shelley: 'calm woman', eddy: 'plain man', reed: 'calm man', flo: 'friendly woman',
+  'google us english': 'clear plain woman', 'google uk english female': 'clear polished woman', 'google uk english male': 'clear polished man', 'microsoft zira': 'clear plain woman', 'microsoft david': 'plain steady man', 'microsoft mark': 'plain man', 'microsoft hazel': 'polished woman', 'microsoft george': 'polished man', 'microsoft aria': 'natural warm woman', 'microsoft guy': 'natural warm man', 'microsoft jenny': 'natural friendly woman',
+};
+const REGION = { US: 'American', GB: 'British', AU: 'Australian', IE: 'Irish', IN: 'Indian', ZA: 'South African', NZ: 'New Zealand', CA: 'Canadian', SG: 'Singaporean', SC: 'Scottish' };
+let langNames = null;
+/** A phone voice's tags, from its name (when it's a known one) and its language. */
+export function phoneTags(v) {
+  const name = String(v?.name ?? '').toLowerCase().replace(/\s*\((enhanced|premium|compact)\)/g, '').replace(/\s+(online|natural).*$/, '').trim();
+  const key = Object.keys(KNOWN).sort((a, b) => b.length - a.length).find((k) => name === k || name.startsWith(`${k} `) || name.startsWith(`${k} -`));
+  const tags = key ? KNOWN[key].split(' ') : [];
+  const [lang, region] = String(v?.lang ?? '').replace('_', '-').split('-');
+  if (/^en$/i.test(lang)) { const r = REGION[(region ?? '').toUpperCase()]; if (r) tags.push(r); }
+  else if (lang) { try { langNames ??= new Intl.DisplayNames(['en'], { type: 'language' }); tags.push(langNames.of(lang)); } catch { tags.push(lang); } }
+  if (/\((enhanced|premium)\)/i.test(v?.name ?? '')) tags.push(/premium/i.test(v.name) ? 'premium' : 'enhanced');
+  return [...new Set(tags)];
+}
+
 const GOOD = ['af_heart', 'af_bella', 'af_nicole', 'am_michael', 'am_fenrir', 'am_puck', 'bf_emma', 'bm_george', 'af_sarah', 'af_kore', 'bm_fable', 'bf_isabella'];
 
 const hash = (s) => { let h = 2166136261; for (const ch of String(s ?? '')) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -51,11 +87,13 @@ const STYLE = { hype: [1.12, 1.15], chill: [0.92, 0.9], warm: [1, 1.06], witty: 
  * on and `naturalReady`; else this phone's English ones).
  */
 export function speakerFor(a, { naturalReady = false, voices = phoneVoices() } = {}) {
-  const [r0, p0] = STYLE[personaFor(a)] ?? STYLE.classic; const rate = r0 * (Number(a?.speech?.speed) || 1);
+  const [r0, p00] = STYLE[personaFor(a)] ?? STYLE.classic; const rate = r0 * (Number(a?.speech?.speed) || 1);
+  const p0 = p00 * (Number(a?.speech?.pitch) || 1); // (its own pitch on top: deeper or higher)
   const want = String(a?.speech?.voice ?? '');
-  if (want.startsWith('n:') && naturalReady && NATURAL.some((v) => v.id === want.slice(2))) return { kind: 'natural', voice: want.slice(2), rate, pitch: p0 };
+  const shift = Number(a?.speech?.pitch) || 1; // (a natural voice: only its own pitch setting moves it)
+  if (want.startsWith('n:') && naturalReady && naturalById(want.slice(2))) return { kind: 'natural', voice: want.slice(2), rate, pitch: p0, shift };
   if (want.startsWith('p:') && voices.some((v) => v.id === want.slice(2))) return { kind: 'phone', voice: want.slice(2), rate, pitch: p0 };
-  if (naturalReady && naturalOn()) return { kind: 'natural', voice: GOOD[hash(a?.handle) % GOOD.length], rate, pitch: p0 };
+  if (naturalReady && naturalOn()) return { kind: 'natural', voice: GOOD[hash(a?.handle) % GOOD.length], rate, pitch: p0, shift };
   const en = voices.filter((v) => /^en/i.test(v.lang)); const pool = en.length ? en : voices;
   return { kind: 'phone', voice: pool.length ? pool[hash(a?.handle) % pool.length].id : '', rate, pitch: p0 };
 }
@@ -97,14 +135,14 @@ export async function naturalDownloaded() {
   try {
     const m = await caches.open('transformers-cache'); const hasModel = (await m.keys()).some((r) => r.url.includes(TTS_MODEL) && /model_quantized\.onnx/.test(r.url));
     const v = await caches.open('kokoro-voices'); const have = new Set((await v.keys()).map((r) => r.url.split('/').pop()));
-    return hasModel && NATURAL.every((x) => have.has(`${x.id}.bin`));
+    return hasModel && BASE_VOICES.every((x) => have.has(`${x}.bin`));
   } catch { return false; }
 }
 /** The natural voices loaded (downloaded the first time): `onProgress(0..1)`. */
 export function naturalLoad(onProgress = () => {}) {
   if (ready) return Promise.resolve();
   const files = new Map(); let voices = 0;
-  loadP ??= naturalDownloaded().then((have) => ask({ type: 'load', options: { download: !have, voices: NATURAL.map((v) => v.id) } }, (p) => {
+  loadP ??= naturalDownloaded().then((have) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES } }, (p) => {
     if (p.status === 'voice') voices = p.loaded / p.total;
     else if (p.file) files.set(p.file, { loaded: p.status === 'done' ? (p.total || files.get(p.file)?.total || 0) : p.loaded, total: p.total || files.get(p.file)?.total || 0 });
     let l = 0; let t = 0; for (const f of files.values()) { l += f.loaded; t += f.total; }
@@ -137,22 +175,24 @@ export const canSpeak = () => !!globalThis.speechSynthesis || ready;
  * `text` said as account `a` (its voice, speed and pitch), what was being said stopped first. Resolves when
  * it's done (or stopped): { kind } how it was said, or { kind: 'none' } if it couldn't be.
  */
-export async function speak(text, a, { onStart = () => {} } = {}) {
+export async function speak(text, a, { onStart = () => {}, natural = false } = {}) {
   stopSpeaking(); const my = token;
   const words = sayable(text); if (!words) return { kind: 'none' };
-  const sp = speakerFor(a, { naturalReady: ready && naturalOn() });
+  const sp = speakerFor(a, { naturalReady: ready && (naturalOn() || natural) }); // (`natural`: a natural voice tried out, even with them off)
   if (sp.kind === 'natural') {
     try {
       // (Piece by piece: the next made while this one plays.)
       ctx ??= new (globalThis.AudioContext || globalThis.webkitAudioContext)();
       if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
-      const parts = pieces(words); const make = (t) => ask({ type: 'speak', text: t, voice: sp.voice, speed: Math.max(0.7, Math.min(1.4, sp.rate)) });
+      const parts = pieces(words); const shift = sp.shift ?? 1;
+      // (Pitch: made at speed ÷ pitch, played back that much faster or slower: higher or deeper, at its own pace.)
+      const make = (t) => ask({ type: 'speak', text: t, voice: sp.voice, speed: Math.max(0.55, Math.min(1.6, sp.rate / shift)) });
       let next = make(parts[0]); let started = false;
       for (let i = 0; i < parts.length; i++) {
         const out = await next; if (my !== token) return { kind: 'natural' };
         if (i + 1 < parts.length) next = make(parts[i + 1]);
         const buf = ctx.createBuffer(1, out.audio.length, out.rate); buf.copyToChannel(out.audio, 0);
-        const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); playing = src;
+        const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = shift; src.connect(ctx.destination); playing = src;
         if (!started) { started = true; onStart(); }
         src.start();
         await new Promise((ok) => { src.onended = ok; });

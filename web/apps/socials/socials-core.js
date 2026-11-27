@@ -41,12 +41,13 @@ const kindOf = (k) => (k === 'celebrity' ? 'celebrity' : 'friend');
 
 // (An account's voice, chosen in its profile (socials-style.js' personas); none: its own, from its handle.)
 export const VOICES = ['hype', 'chill', 'warm', 'witty', 'classic'];
-// (How it sounds read aloud (socials-speech.js): its voice ('n:<natural voice>' or 'p:<this phone's voice>'), and speed.)
+// (How it sounds read aloud (socials-speech.js): its voice ('n:<natural voice>' or 'p:<this phone's voice>'), speed and pitch.)
 export function cleanSpeech(s) {
   if (!s || typeof s !== 'object') return null;
-  const voice = typeof s.voice === 'string' && /^[np]:.{1,200}$/.test(s.voice) ? s.voice : '';
+  const voice = typeof s.voice === 'string' && /^[np]:[^\n]{1,200}$/.test(s.voice) ? s.voice : '';
   const speed = Number(s.speed); const sp = Number.isFinite(speed) && speed >= 0.7 && speed <= 1.4 && speed !== 1 ? Math.round(speed * 100) / 100 : 0;
-  return voice || sp ? { ...(voice ? { voice } : {}), ...(sp ? { speed: sp } : {}) } : null;
+  const pitch = Number(s.pitch); const pt = Number.isFinite(pitch) && pitch >= 0.8 && pitch <= 1.25 && pitch !== 1 ? Math.round(pitch * 100) / 100 : 0;
+  return voice || sp || pt ? { ...(voice ? { voice } : {}), ...(sp ? { speed: sp } : {}), ...(pt ? { pitch: pt } : {}) } : null;
 }
 export function addAccount(state, { handle, name = '', bio = '', avatar = null, kind = 'friend' }) {
   const p = handleProblem(state, handle); if (p) throw new Error(p);

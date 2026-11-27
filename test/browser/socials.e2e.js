@@ -815,9 +815,12 @@ test('Socials: each file shown loading then ready; reordered by dragging (or ↑
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   await page.getByRole('button', { name: 'Search' }).click(); await page.locator('.so-grid .so-tile').first().click();
   await page.getByRole('button', { name: 'Generate 3 comments' }).click();
-  await page.locator('.so-comment').nth(2).waitFor();
-  const comments = await page.locator('.so-comment').allTextContents();
+  await page.locator('.so-comment:not(.so-reply)').nth(2).waitFor();
+  const comments = await page.locator('.so-comment:not(.so-reply)').allTextContents();
   assert.equal(new Set(comments).size, comments.length, 'all different');
+  // (Its account's answers to them: none the same.)
+  await page.waitForTimeout(500); const answers = (await page.locator('.so-comment.so-reply').allTextContents()).map((t) => t.replace(/\s*@\S+/, ''));
+  assert.equal(new Set(answers).size, answers.length, `its answers all different: ${answers.join(' | ')}`);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -1174,9 +1177,20 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   // An account with its own speaking voice (only this phone's voices that speak on the device are offered).
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
   await page.getByLabel('Username', { exact: true }).fill('kai');
-  const opts = await page.getByLabel('Speaking voice').locator('option').allTextContents();
-  assert.ok(opts.includes('Daniel (en-GB)') && !opts.some((o) => /Online Voice/.test(o)), `on-device voices only: ${opts}`);
-  await page.getByLabel('Speaking voice').selectOption('p:v-dan'); await page.getByLabel('Speaking speed').selectOption('1.15');
+  // The picker: each voice described by words, filtered by them; on-device voices only.
+  await page.getByRole('button', { name: 'Choose its speaking voice' }).click();
+  const vp = page.getByRole('dialog', { name: 'Speaking voice' });
+  await vp.locator('.vp-card', { hasText: 'Daniel' }).waitFor();
+  assert.equal(await vp.locator('.vp-card', { hasText: 'Online Voice' }).count(), 0, 'on-device voices only');
+  assert.match(await vp.locator('.vp-card', { hasText: 'Daniel' }).textContent(), /polished.*deep.*man.*British/);
+  await vp.getByRole('button', { name: 'British', exact: true }).click();
+  assert.deepEqual(await vp.locator('.vp-card strong').allTextContents(), ['Daniel']);
+  await vp.getByRole('button', { name: 'Play Daniel' }).click();
+  await page.waitForFunction(() => globalThis.__said.some((x) => x.voice === 'v-dan'));
+  await vp.getByRole('button', { name: 'Use Daniel' }).click();
+  await page.locator('.so-say-line', { hasText: 'Daniel · polished · deep · man · British' }).waitFor();
+  await page.getByLabel('Speaking speed').selectOption('1.15'); await page.getByLabel('Speaking pitch').selectOption('0.88');
+  await page.evaluate(() => { globalThis.__said.length = 0; });
   await page.getByRole('button', { name: '▶ Preview' }).click();
   await page.waitForFunction(() => globalThis.__said.length === 1);
   assert.deepEqual(await page.evaluate(() => globalThis.__said[0].voice), 'v-dan');

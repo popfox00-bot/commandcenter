@@ -1413,6 +1413,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const msgs = conversation(state, m.id, o.id);
     if (msgs.length) { markRead(state, m.id, o.id, msgs[msgs.length - 1].at); saveState(state); }
     const list = el('div', { class: 'so-chat', role: 'log', 'aria-label': `Messages with @${o.handle}` });
+    chatAtEnd = true; list.addEventListener('scroll', () => { chatAtEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60; }, { passive: true });
     let lastDay = '';
     for (const x of msgs) {
       const day = new Date(x.at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
@@ -1686,6 +1687,24 @@ function mountAdmin(host, { open = '' } = {}) {
       el('button', { type: 'button', class: 'btn primary', text: 'I\'ve saved it', onclick: () => { sync.keyOnScreen = null; go({ name: 'feed' }); } }));
   }
 
+  // (A chat fills the screen above the keyboard, as Messages does: its header at the top, the messages between,
+  // the box right over the keyboard. The page itself doesn't move: an iPhone scrolls the whole page up to show a
+  // box being typed in, which pushed the chat off the top; instead the chat is sized to what's visible (the
+  // visual viewport) and kept in place, the newest messages in sight.)
+  let chatOn = false; let chatAtEnd = true; // (whether you were at the latest message: kept there as it resizes)
+  const fitChat = () => {
+    const vv = globalThis.visualViewport; const h = vv ? vv.height : globalThis.innerHeight; const top = vv ? vv.offsetTop : 0;
+    document.documentElement.style.setProperty('--so-vvh', `${Math.round(h)}px`); document.documentElement.style.setProperty('--so-vvtop', `${Math.round(top)}px`);
+    const list = main.querySelector('.so-chat'); if (list && chatAtEnd) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  };
+  function chatScreen(on) {
+    if (on === chatOn) { if (on) fitChat(); return; }
+    chatOn = on; const vv = globalThis.visualViewport;
+    document.documentElement.classList.toggle('so-chat-open', on);
+    if (on) { fitChat(); vv?.addEventListener('resize', fitChat); vv?.addEventListener('scroll', fitChat); globalThis.addEventListener('resize', fitChat); }
+    else { vv?.removeEventListener('resize', fitChat); vv?.removeEventListener('scroll', fitChat); globalThis.removeEventListener('resize', fitChat); }
+  }
+
   function draw() {
     if (!alive) return;
     if (!sessionOpen) { gate(); return; }
@@ -1699,7 +1718,7 @@ function mountAdmin(host, { open = '' } = {}) {
     if (!me()) { fill(main, settings()); return; }
     const v = view;
     reelObserver?.disconnect();
-    root.classList.toggle('so-in-reels', v.name === 'reels'); root.classList.toggle('so-in-chat', v.name === 'chat');
+    root.classList.toggle('so-in-reels', v.name === 'reels'); root.classList.toggle('so-in-chat', v.name === 'chat'); chatScreen(v.name === 'chat');
     // (Reels and a chat fill the screen below the bars: how far down they start.)
     if (v.name === 'reels' || v.name === 'chat') root.style.setProperty('--so-reels-top', `${Math.round(main.getBoundingClientRect().top + (globalThis.scrollY || 0))}px`);
     fill(main, v.name === 'settings' ? settings() : v.name === 'reels' ? reels() : v.name === 'inbox' ? inbox() : v.name === 'chat' ? chat(v.id) : v.name === 'editpost' ? editPostView(v.id) : v.name === 'tag' ? tagView(v.tag) : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)
@@ -1716,7 +1735,7 @@ function mountAdmin(host, { open = '' } = {}) {
   }
   if (sessionOpen) start(); else gate();
 
-  return () => { alive = false; stopSpeaking(); reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); globalThis.removeEventListener?.('offline', onOffline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
+  return () => { alive = false; chatScreen(false); stopSpeaking(); reelObserver?.disconnect(); clearTimeout(sync.timer); globalThis.removeEventListener?.('online', onOnline); globalThis.removeEventListener?.('offline', onOffline); for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
 }
 
 /** A picked photo made ready to keep: at most `edge` px on its long side (or a centered square), as JPEG. */

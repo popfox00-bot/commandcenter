@@ -633,12 +633,14 @@ test('Socials: Tag and Collab folded and alphabetical, collab tags too; # Commun
   assert.match((await theirs.allTextContents()).slice(before).join(' '), /good|great|not bad|chilling|gym|dinner|movie|home|coffee|working|cleaning|walk|phone/i);
   // The account list: last used first (mo was made last, then amy (just replied), then zed)…
   const order = async () => (await page.locator('.so-person-main').evaluateAll((l) => l.map((e) => e.getAttribute('aria-label')))).map((t) => t.replace(/^Use @/, '').replace(/ \(Owner\)$/, ''));
+  await page.getByRole('button', { name: 'Back', exact: true }).first().click(); // (a chat fills the screen: back to switch accounts)
   await page.locator('.so-switch').click();
   assert.deepEqual(await order(), ['owner.me', 'mo', 'amy', 'zed']);
   // …but one with an unread message goes to the top (below the Owner).
   await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
   await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @zed' }).click();
   await page.getByLabel('Message', { exact: true }).fill('hi zed'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).first().click();
   await page.locator('.so-switch').click();
   assert.deepEqual(await order(), ['owner.me', 'zed', 'mo', 'amy']);
   await page.getByRole('button', { name: 'Use @amy' }).click(); await page.locator('.so-switch').click();
@@ -1246,4 +1248,35 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   await page.waitForFunction(() => globalThis.__said.some((x) => x.text === 'how was the surf today?'));
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+test('Socials chat: the whole screen, its header at the top and the box at the bottom; the page itself never scrolls; the latest messages in sight', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill('amy'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @amy' }).click();
+  for (let i = 1; i <= 14; i++) { await page.getByLabel('Message', { exact: true }).fill(`message number ${i}`); await page.getByRole('button', { name: 'Send', exact: true }).click(); }
+  await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 10000 });
+  await page.getByLabel('Message', { exact: true }).focus();
+  const box = await page.evaluate(() => { const w = document.querySelector('.so-chat-wrap').getBoundingClientRect(); const head = document.querySelector('.so-chat-wrap .so-back').getBoundingClientRect(); const bar = document.querySelector('.so-chat-bar').getBoundingClientRect(); const list = document.querySelector('.so-chat'); return { top: w.top, bottom: w.bottom, head: head.top, bar: bar.bottom, vh: innerHeight, scrollY, scrolled: list.scrollHeight - list.scrollTop - list.clientHeight }; });
+  assert.ok(Math.abs(box.top) < 1 && Math.abs(box.bottom - box.vh) < 1, `the whole screen: ${JSON.stringify(box)}`);
+  assert.ok(box.head >= 0 && box.head < 80, 'its header at the top, in sight');
+  assert.ok(Math.abs(box.bar - box.vh) < 1, 'the box at the bottom');
+  assert.equal(box.scrollY, 0, 'the page itself not scrolled');
+  assert.ok(box.scrolled < 40, 'the latest messages in sight');
+  // The keyboard up (the visible part of the screen shorter): the chat fits what's left, header and box both in sight.
+  await page.setViewportSize({ width: 390, height: 450 }); await page.waitForTimeout(200);
+  const kb = await page.evaluate(() => ({ head: document.querySelector('.so-chat-wrap .so-back').getBoundingClientRect().top, bar: document.querySelector('.so-chat-bar').getBoundingClientRect().bottom, vh: visualViewport.height, last: document.querySelector('.so-chat').lastElementChild.getBoundingClientRect().bottom, barTop: document.querySelector('.so-chat-bar').getBoundingClientRect().top }));
+  assert.ok(kb.head >= 0 && Math.abs(kb.bar - kb.vh) < 1 && kb.last <= kb.barTop + 1, `fits above the keyboard: ${JSON.stringify(kb)}`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Leaving the chat: the page as it was.
+  await page.getByRole('button', { name: 'Back', exact: true }).first().click();
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('so-chat-open')), false);
+  assert.deepEqual(errors, []);
+  await page.close();
 });

@@ -471,6 +471,8 @@ test('Scan review: the file\'s picture and the face beside the account\'s photo;
   script.files.push({ id: 'p2', name: 'icon_mute.png', type: 'image/png', size: 10, updated: NOW - 1, data: await fx('icon_mute.png'), from: 'Files', parent: '' });
   await context.addInitScript(() => localStorage.setItem('cc.savedFiles', JSON.stringify({ url: 'https://script.google.com/macros/s/TEST/exec', key: 'k3y' })));
   const { page, errors, external } = await open(context, 'index.html');
+  // (Socials' recovery key comes with its first sync to Drive, whenever that is: put aside as it shows.)
+  await page.addLocatorHandler(page.getByRole('button', { name: 'I\'ve saved it' }), (b) => b.click());
   // Socials, with its password and two accounts.
   await page.locator('.app-name', { hasText: 'Socials' }).click();
   await page.locator('.sp-feed').waitFor();

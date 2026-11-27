@@ -5,7 +5,7 @@
 // the leagues and hold Admin.
 
 import { el, fill, store } from '../../lib/dom.js';
-import { SPORTS_LEAGUES, boardUrls, postsFrom, mergeFeed, feedOrder, likesOf, lightness, cardColor, summaryUrl, playerRows, qualified, DEFAULT_MINS, STAT_SPORT } from './socials-sports-core.js';
+import { SPORTS_LEAGUES, boardUrls, postsFrom, mergeFeed, feedOrder, likesOf, lightness, cardColor, summaryUrl, playerRows, qualified, outPlayers, DEFAULT_MINS, MIN_FIELDS, STAT_SPORT } from './socials-sports-core.js';
 
 const FEED_KEY = 'cc.socials.sports';
 const PREFS_KEY = 'cc.socials.sports.prefs';
@@ -69,14 +69,22 @@ export function sportsFront(host, { onAdmin }) {
   }
 
   /** A game's players' stats (offense only, those over the minimums), each team's; loaded as its post comes into view. */
+  // (Who's OUT for a team (its injury report), as a note.)
+  const outNote = (b, t) => { const o = b?.out?.[t.id] ?? []; return o.length ? el('p', { class: 'small sp-out', 'aria-label': `${t.short}: out` }, el('strong', { text: '🚫 OUT: ' }), o.map((x) => `${x.who}${x.pos ? ` (${x.pos})` : ''}`).join(', ')) : null; };
   function playersBox(p) {
-    if (!STAT_SPORT[p.league] || p.state === 'pre') return null;
+    if (!STAT_SPORT[p.league]) return null;
     const b = boxes[p.id];
+    // (Not started: only who's out.)
+    if (p.state === 'pre') {
+      const notes = b ? [p.away, p.home].map((t) => { const n = outNote(b, t); return n ? el('div', { class: 'sp-out-team' }, el('div', { class: 'sp-lhead' }, badge(t), el('strong', { text: t.short })), n) : null; }).filter(Boolean) : [];
+      return notes.length ? el('div', { class: 'sp-players sp-out-box' }, el('strong', { class: 'sp-out-h', text: 'Injury report' }), ...notes) : null;
+    }
     const body = !b ? el('p', { class: 'small muted sp-pl-wait', text: loading.has(p.id) ? 'Loading player stats…' : 'Player stats load when you scroll to it.' })
       : el('div', { class: 'sp-pl-teams' }, [p.away, p.home].map((t) => {
         const list = qualified(b.rows?.[t.id] ?? [], prefs.mins);
         return el('div', { class: 'sp-pl-team', 'aria-label': `${t.short} player stats` }, el('div', { class: 'sp-lhead' }, badge(t), el('strong', { text: t.short })),
-          list.length ? el('ul', { class: 'sp-pl-rows' }, list.map((x) => el('li', {}, el('strong', { class: 'sp-pl-who', text: `${x.who}${x.pos ? ` ${x.pos}` : ''}` }), el('span', { class: 'sp-pl-line', text: x.line })))) : el('p', { class: 'small muted', text: 'No one over the minimums yet.' }));
+          list.length ? el('ul', { class: 'sp-pl-rows' }, list.map((x) => el('li', {}, el('strong', { class: 'sp-pl-who', text: `${x.who}${x.pos ? ` ${x.pos}` : ''}` }), el('span', { class: 'sp-pl-line', text: x.line })))) : el('p', { class: 'small muted', text: 'No one over the minimums yet.' }),
+          outNote(b, t));
       }));
     return el('details', { class: 'sp-players', open: true }, el('summary', {}, el('strong', { text: 'Player stats' }), el('span', { class: 'small muted', text: ' · offense' })), body);
   }
@@ -84,7 +92,7 @@ export function sportsFront(host, { onAdmin }) {
     const p = feed[id]; const u = summaryUrl(id); if (!p || !u || loading.has(id)) return;
     const b = boxes[id]; if (b && (b.done || Date.now() - b.at < 90000)) return;
     loading.add(id);
-    try { const res = await fetch(u, { cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' }); if (res.ok) { boxes[id] = { at: Date.now(), done: p.state === 'post', rows: playerRows(await res.json(), p.league) }; keepBoxes(); } } catch { /* next time */ }
+    try { const res = await fetch(u, { cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' }); if (res.ok) { const j = await res.json(); boxes[id] = { at: Date.now(), done: p.state === 'post', rows: playerRows(j, p.league), out: outPlayers(j) }; keepBoxes(); } } catch { /* next time */ }
     loading.delete(id); if (alive) redrawPost(id);
   }
   const seen = 'IntersectionObserver' in globalThis ? new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) loadBox(e.target.dataset.id); }, { rootMargin: '200px' }) : null;
@@ -139,17 +147,17 @@ export function sportsFront(host, { onAdmin }) {
     });
     fill(sheet, el('div', { class: 'sp-sheet-card' },
       el('div', { class: 'sp-sheet-head' }, el('strong', { text: 'Settings' }), el('button', { type: 'button', class: 'sp-icon', 'aria-label': 'Close', text: '✕', onclick: () => { sheet.hidden = true; } })),
+      el('button', { type: 'button', class: 'btn block sp-admin sp-admin-top', text: '🔐 Admin', onclick: () => { sheet.hidden = true; onAdmin(); } }),
       el('h3', { class: 'sp-sheet-h', text: 'Leagues in your feed' }), el('div', { class: 'sp-toggles' }, toggles),
       el('h3', { class: 'sp-sheet-h', text: 'Player stats: the least to show' }),
       el('p', { class: 'small muted', text: 'Offense only. A player shows in a game\'s post once they reach any of these.' }),
-      el('div', { class: 'sp-mins' }, [['pass', '🏈 Passing yards'], ['rush', '🏈 Rushing yards'], ['rec', '🏈 Receiving yards'], ['pts', '🏀 Points'], ['ast', '🏀 Assists']].map(([k, label]) => {
+      el('div', { class: 'sp-mins' }, MIN_FIELDS.map(([k, label]) => {
         const inp = el('input', { type: 'number', min: '0', max: '999', inputmode: 'numeric', class: 'sp-min-input', value: String(prefs.mins[k]), 'aria-label': `Least ${label.replace(/^\S+ /, '').toLowerCase()} to show` });
         inp.addEventListener('change', () => { const v = Math.max(0, Math.min(999, Math.round(Number(inp.value) || 0))); inp.value = String(v); prefs.mins = { ...prefs.mins, [k]: v }; keepPrefs(); draw(); });
         return el('label', { class: 'sp-min' }, el('span', { text: label }), inp);
-      }), el('button', { type: 'button', class: 'sp-link', text: 'Reset to 100 / 25 / 25 / 10 / 5', onclick: () => { prefs.mins = { ...DEFAULT_MINS }; keepPrefs(); openSheet(); draw(); } })),
+      }), el('button', { type: 'button', class: 'sp-link', text: `Reset to ${Object.values(DEFAULT_MINS).join(' / ')}`, onclick: () => { prefs.mins = { ...DEFAULT_MINS }; keepPrefs(); openSheet(); draw(); } })),
       el('button', { type: 'button', class: 'btn block', text: '↻ Refresh scores', onclick: () => { sheet.hidden = true; refresh(); } }),
-      el('p', { class: 'small muted', text: 'Scores and stats from ESPN, updated by themselves while Socials is open.' }),
-      el('div', { class: 'sp-sheet-foot' }, el('button', { type: 'button', class: 'sp-admin', text: 'Admin', onclick: () => { sheet.hidden = true; onAdmin(); } }))));
+      el('p', { class: 'small muted', text: 'Scores and stats from ESPN, updated by themselves while Socials is open.' })));
     sheet.hidden = false;
   }
 

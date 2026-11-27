@@ -58,13 +58,16 @@ export function gameSummary(data = store.json(SPORTS_CACHE, {})) {
 }
 
 /**
- * Every game today of the teams Sports follows (from what it last loaded), once each, live ones first, then
+ * Every game today of the teams Sports follows and the nationally televised NFL and NBA games (📺, from what it
+ * last loaded), once each, live ones first, then
  * by start time: [{ game, live, done }].
  */
-export function todayGames(data = store.json(SPORTS_CACHE, {}), now = new Date()) {
+export function todayGames(data = store.json(SPORTS_CACHE, {}), now = new Date(), socials = store.json('cc.socials.sports', null)) {
   const k = (d) => new Date(d).toDateString(); const today = k(now);
   const seen = new Map();
-  for (const v of Object.values(data ?? {})) for (const g of v?.games ?? []) if (g?.id && g.date && k(g.date) === today) seen.set(g.id, g);
+  // (Socials' Sports front's primetime games too, as it last loaded them: its posts' ids are "league:espn id".)
+  for (const p of Object.values(socials?.feed ?? socials ?? {})) if (p?.primetime && p.date && k(p.date) === today) { const id = String(p.id).split(':').pop(); seen.set(id, { id, date: p.date, state: p.state, completed: p.state === 'post', detail: p.detail, home: p.home, away: p.away, tv: p.tv, primetime: true }); }
+  for (const v of Object.values(data ?? {})) for (const g of v?.games ?? []) if (g?.id && g.date && k(g.date) === today) seen.set(g.id, { ...seen.get(g.id), ...g });
   return [...seen.values()].map((game) => ({ game, live: game.state === 'in', done: game.state === 'post' || !!game.completed }))
     .sort((a, b) => (b.live - a.live) || Date.parse(a.game.date) - Date.parse(b.game.date));
 }
@@ -132,7 +135,7 @@ export function updatesCard() {
         el('a', { class: 'small muted upd-prev-label', href: '#/updates/sports', text: `Sports · ${today.length === 1 ? 'today' : `${today.length} games today`}${live ? ' · Live' : ''}` }),
         el('span', { class: `upd-games${today.length > 4 ? ' many' : ''}` }, ...today.map(({ game, live: on, done }) => el('a', { class: `upd-game-line${on ? ' live' : ''}`, href: `#/updates/sports/${encodeURIComponent(game.id)}`, 'aria-label': `${game.away?.abbr ?? ''} at ${game.home?.abbr ?? ''}: open this game` },
           el('strong', { class: 'upd-game-teams', text: `${side(game.away)} @ ${side(game.home)}` }),
-          el('span', { class: 'small muted upd-game-when', text: on ? `🔴 ${game.detail || 'Live'}` : done ? 'Final' : `${timeOf(game.date)}${game.tv ? ` · ${game.tv}` : ''}` }))))));
+          el('span', { class: 'small muted upd-game-when', text: `${game.primetime ? '📺 ' : ''}${on ? `🔴 ${game.detail || 'Live'}` : done ? 'Final' : `${timeOf(game.date)}${game.tv ? ` · ${game.tv}` : ''}`}` }))))));
   } else {
     let line = 'Open to see your teams'; let sub = '';
     if (g) { const { game } = g; line = `${side(game.away)} @ ${side(game.home)}`; sub = g.live ? `🔴 ${game.detail || 'Live'}` : game.completed ? `Final · ${dayOf(game.date)}` : `${dayOf(game.date)} ${timeOf(game.date)}`; }

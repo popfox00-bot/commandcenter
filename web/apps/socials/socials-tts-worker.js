@@ -1,4 +1,4 @@
-// Socials' natural voices, in a worker of their own: a small speech model (Kokoro 82M, 8-bit, ~90 MB, with its
+// Socials' natural voices, in a worker of their own: a small speech model (Kokoro 82M, full 32-bit quality, ~310 MB, with its
 // English voices, ~15 MB) run on the phone by Transformers.js (WebAssembly: no WebGPU needed), its words turned
 // into sounds by eSpeak NG (vendor/kokoro). Downloaded from Hugging Face once, then kept by the browser: it
 // works offline after, and the text it speaks never leaves the phone (the network fenced in as the AI replies'
@@ -24,7 +24,7 @@ let tts = null; let loading = null;
 async function load(id, o = {}) {
   remote = !!o.download;
   const { KokoroTTS } = await libP;
-  loading ??= KokoroTTS.from_pretrained(TTS_MODEL, { dtype: 'q8', device: 'wasm', progress_callback: (p) => { if (p.status === 'progress' || p.status === 'done') postMessage({ id, type: 'progress', file: p.file, loaded: p.loaded ?? 0, total: p.total ?? 0, status: p.status }); } });
+  loading ??= KokoroTTS.from_pretrained(TTS_MODEL, { dtype: o.dtype ?? 'fp32', device: 'wasm', progress_callback: (p) => { if (p.status === 'progress' || p.status === 'done') postMessage({ id, type: 'progress', file: p.file, loaded: p.loaded ?? 0, total: p.total ?? 0, status: p.status }); } });
   try {
     tts = await loading;
     // (The voices, each a small file: all of them now, while downloading is allowed, kept where the library looks.)
@@ -40,6 +40,8 @@ async function load(id, o = {}) {
     }
   } catch (e) { loading = null; remote = false; throw e; }
   remote = false; // (Downloaded: nothing remote from here on.)
+  // (The older 8-bit model, from before: let go.)
+  try { const c = await caches.open('transformers-cache'); for (const r of await c.keys()) if (r.url.includes(TTS_MODEL) && /model_(quantized|fp16)\.onnx/.test(r.url)) await c.delete(r); } catch { /* none */ }
   return tts;
 }
 
@@ -54,6 +56,7 @@ async function handle(e) {
       const t = tts ?? await load(id);
       const out = await t.generate(String(e.data.text ?? '').slice(0, 600), { voice: e.data.voice, speed: e.data.speed ?? 1 });
       const audio = out.audio instanceof Float32Array ? out.audio : new Float32Array(out.audio);
+      if (!audio.length || Number.isNaN(audio[0]) || Number.isNaN(audio[audio.length >> 1])) throw new Error('No sound came out.'); // (this phone's voice instead)
       postMessage({ id, type: 'done', audio, rate: out.sampling_rate }, [audio.buffer]);
     }
   } catch (err) { postMessage({ id, type: 'error', error: String(err?.message ?? err) }); }

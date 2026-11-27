@@ -102,6 +102,15 @@ test('each team\'s players\' stats, offense only, over the minimums (football ya
     A('C. Braun', ['20', '3-6', '0-1', '1-2', '1', '2', '3', '1', '0', '0', '0', '1', '+2', '7']), { athlete: { shortName: 'DNP Guy' }, didNotPlay: true, stats: [] }] }] }] } };
   const s = playerStats(bb, 'nba');
   assert.deepEqual(s['7'].map((x) => x.who), ['N. Jokic', 'J. Murray'], '9 points but 6 assists: in; 7 points, 1 assist: out');
-  assert.equal(s['7'][0].line, '32 PTS, 11 AST, 14 REB, 12-19 FG, 2-4 3PT');
+  assert.equal(s['7'][0].line, '32 PTS, 14 REB, 11 AST, 2 STL, 1 BLK, 12-19 FG, 2-4 3PT');
+  // Rebounds, stocks (steals + blocks) and 3-pointers made count too.
+  const bb2 = { boxscore: { players: [{ team: { id: '8' }, statistics: [{ labels: ['MIN', 'FG', '3PT', 'FT', 'OREB', 'DREB', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', '+/-', 'PTS'], athletes: [
+    A('Big Man', ['30', '2-4', '0-0', '0-0', '4', '6', '10', '1', '0', '1', '0', '2', '0', '4']), A('Pest', ['25', '1-3', '0-1', '0-0', '0', '2', '2', '1', '2', '1', '0', '1', '0', '2']), A('Shooter', ['22', '3-6', '3-5', '0-0', '0', '1', '1', '0', '0', '0', '0', '1', '0', '9']), A('Bench', ['8', '1-2', '0-0', '0-0', '0', '1', '1', '1', '0', '0', '0', '0', '0', '2'])] }] }] } };
+  assert.deepEqual(playerStats(bb2, 'nba')['8'].map((x) => x.who).sort(), ['Big Man', 'Pest', 'Shooter'], '10 rebounds; 3 stocks; 3 threes: in; the bench player: out');
+  assert.deepEqual(playerStats(bb2, 'nba', { reb: 11, stocks: 4, tpm: 4 })['8'], [], 'the minimums raised: out');
+  // Who's out, from the injury report.
+  const { outPlayers } = await import('../web/apps/socials/socials-sports-core.js');
+  const inj = { injuries: [{ team: { id: '7' }, injuries: [{ status: 'Out', athlete: { displayName: 'Aaron Gordon', position: { abbreviation: 'PF' } }, details: { type: 'Hamstring' } }, { status: 'Questionable', athlete: { displayName: 'Jamal Murray' } }] }, { team: { id: '9' }, injuries: [] }] };
+  assert.deepEqual(outPlayers(inj), { 7: [{ who: 'Aaron Gordon', pos: 'PF', detail: 'Hamstring' }] }, 'out only, not questionable');
   assert.match(summaryUrl('nfl:401'), /football\/nfl\/summary\?event=401$/); assert.equal(summaryUrl('nhl:5'), null);
 });

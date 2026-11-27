@@ -1289,12 +1289,16 @@ open (every minute while a game is on, else every few minutes) and on ↻, so a 
 final with its leaders; kept for offline (four days). Its ⚙ settings choose the leagues. **Primetime**: a nationally televised NFL or NBA game coming up (on NBC, ESPN, ABC, Prime Video, TNT, NBA TV,
 Peacock, Netflix…; CBS and FOX count off a Sunday afternoon, when theirs are regional) is a post before it starts
 (📺 PRIMETIME, its network and time; the 📺 Primetime chip shows only those), then its live score and final.
-**Player stats**: an NFL, college football or NBA game's post lists each team's players who did enough, offense
-only (passing, rushing and receiving yards; points, assists, rebounds), from the game's box score (read when its
-post comes into view; a final kept). How much counts is set in ⚙: at least 100 passing, 25 rushing and 25
-receiving yards, 10 points or 5 assists to start. Your own Socials
-(below) is reached from its settings, behind Socials' password or Face ID; leaving Socials goes back to the
-front.
+Primetime games are also in the Sports app's games (📺 Primetime · NFL/NBA, whoever plays) and on the home
+screen's Updates card with today's games. Each team's stat leaders show by their full names (wrapping, never cut
+off). **Player stats**: an NFL, college football or NBA game's post lists each team's players who did enough,
+offense only (passing, rushing and receiving yards; points, rebounds, assists, stocks (steals + blocks) and
+3-pointers made), from the game's box score (read when its post comes into view; a final kept). How much counts
+is set in ⚙: at least 100 passing, 25 rushing and 25 receiving yards; 10 points, 8 rebounds, 5 assists, 3 stocks
+or 3 threes, to start. **🚫 OUT**: under each team, who's out (the injury report: listed Out or on injured
+reserve, not questionable or doubtful); before a primetime game starts, its post shows that report. Your own
+Socials (below) is reached from **🔐 Admin**, at the top of its settings, behind Socials' password or Face ID;
+leaving Socials goes back to the front.
 
 **Your Socials.** A photo and video feed laid out the way phone photo apps are (a row of accounts across the top, posts with
 the photo or video, ♥ and 💬, likes, caption and comments, a tab bar of Home, Search, New post, Reels and
@@ -1471,9 +1475,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
     Only voices that speak on the device are offered (a computer's browser can list online ones that send the
     text away: those aren't). Each is described too: the common ones by name (Samantha: clear · friendly · woman;
     Moira: soft · lilting · Irish; the iPhone's novelty voices: Zarvox, Bells, Whisper…), any other by its accent or
-    language, and "enhanced" or "premium" for the better downloads.
-  - **🗣 Natural voices** (Sync and password; a one-time download, about 105 MB): a small speech model (Kokoro 82M,
-    8-bit, run by Transformers.js with WebAssembly, so no WebGPU needed; words to sounds by eSpeak NG) with 28
+    language, and "enhanced" or "premium" for the better downloads. An account's own voice (not chosen) is the
+    best-sounding of them (premium, then enhanced), never a novelty or old robotic one; the picker lists them
+    best first.
+  - **🗣 Natural voices** (Sync and password, or right in the voice picker; a one-time download, about 330 MB): a
+    small speech model (Kokoro 82M at full 32-bit quality: the 8-bit version sounded metallic and was no faster,
+    the 16-bit one went silent on some voices; run by Transformers.js with WebAssembly, so no WebGPU needed; words to sounds by eSpeak NG) with 28
     English voices, American and British, women and men, that sound much more like people, and 15 blends of two
     of them (their styles mixed into a voice of its own: transatlantic, very deep, androgynous…, nothing more to
     download; the vendored kokoro.js takes "a+b" or "a*0.6+b*0.4"). Pitch moves a natural voice by making it at

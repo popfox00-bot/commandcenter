@@ -946,12 +946,14 @@ test('Socials\' Sports front: a nationally televised NFL game coming up (📺 Pr
   const T = (id, abbr, name, short, color) => ({ id, abbreviation: abbr, displayName: name, shortDisplayName: short, color, alternateColor: 'ffffff' });
   const LAR = T('14', 'LAR', 'Los Angeles Rams', 'Rams', '003594'); const GB = T('9', 'GB', 'Green Bay Packers', 'Packers', '204e32');
   const DEN = T('7', 'DEN', 'Denver Broncos', 'Broncos', 'fb4f14'); const KC = T('12', 'KC', 'Kansas City Chiefs', 'Chiefs', 'e31837');
+  const lead = (name, who, value) => ({ name, shortDisplayName: name.slice(0, 4).toUpperCase(), leaders: [{ displayValue: value, athlete: { shortName: who.replace(/^(\w)\w*\s/, '$1. '), displayName: who } }] });
   const game = (id, state, date, home, away, hs, as, extra = {}) => ({ id, date, competitions: [{ status: { type: { state, completed: state === 'post', shortDetail: state === 'post' ? 'Final' : '8:20 PM' } }, broadcasts: extra.broadcasts ?? [], headlines: [], leaders: [], competitors: [
-    { homeAway: 'home', team: home, score: hs, records: [{ summary: '8-3' }], leaders: [] }, { homeAway: 'away', team: away, score: as, records: [{ summary: '7-4' }], leaders: [] }] }] });
+    { homeAway: 'home', team: home, score: hs, records: [{ summary: '8-3' }], leaders: state === 'post' ? [lead('passingYards', 'Bo Nix', '22/30, 264 YDS, 2 TD'), lead('receivingYards', 'Courtland Sutton', '6 REC, 98 YDS, 1 TD')] : [] }, { homeAway: 'away', team: away, score: as, records: [{ summary: '7-4' }], leaders: [] }] }] });
   const A = (who, stats, pos) => ({ athlete: { shortName: who, position: { abbreviation: pos } }, stats });
   const box = { boxscore: { players: [
     { team: { id: '7' }, statistics: [{ name: 'passing', labels: ['C/ATT', 'YDS', 'AVG', 'TD', 'INT'], athletes: [A('B. Nix', ['22/30', '264', '8.8', '2', '0'], 'QB')] }, { name: 'rushing', labels: ['CAR', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('J. Dobbins', ['16', '81', '5.1', '1', '19'], 'RB')] }, { name: 'receiving', labels: ['REC', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('C. Sutton', ['6', '98', '16', '1', '41'], 'WR'), A('E. Engram', ['2', '18', '9', '0', '11'], 'TE')] }] },
-    { team: { id: '12' }, statistics: [{ name: 'passing', labels: ['C/ATT', 'YDS', 'AVG', 'TD', 'INT'], athletes: [A('P. Mahomes', ['25/38', '241', '6.3', '1', '1'], 'QB')] }, { name: 'receiving', labels: ['REC', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('T. Kelce', ['7', '64', '9.1', '0', '18'], 'TE')] }] }] } };
+    { team: { id: '12' }, statistics: [{ name: 'passing', labels: ['C/ATT', 'YDS', 'AVG', 'TD', 'INT'], athletes: [A('P. Mahomes', ['25/38', '241', '6.3', '1', '1'], 'QB')] }, { name: 'receiving', labels: ['REC', 'YDS', 'AVG', 'TD', 'LONG'], athletes: [A('T. Kelce', ['7', '64', '9.1', '0', '18'], 'TE')] }] }] },
+    injuries: [{ team: { id: '7' }, injuries: [{ status: 'Out', athlete: { displayName: 'Marvin Mims Jr.', position: { abbreviation: 'WR' } } }, { status: 'Questionable', athlete: { displayName: 'Courtland Sutton' } }] }, { team: { id: '9' }, injuries: [{ status: 'Out', athlete: { displayName: 'Jordan Love', position: { abbreviation: 'QB' } } }] }] };
   await page.route('https://site.api.espn.com/**', (r) => {
     const u = r.request().url();
     const body = u.includes('/nfl/summary') ? box
@@ -964,18 +966,30 @@ test('Socials\' Sports front: a nationally televised NFL game coming up (📺 Pr
   assert.match(await prime.locator('.sp-state').textContent(), /PRIMETIME/); assert.equal(await prime.locator('.sp-tv').textContent(), 'NBC');
   assert.match(await prime.locator('.sp-caption').textContent(), /Rams at Packers, .* on NBC\./);
   assert.equal(await page.locator('.sp-post[data-id="nfl:502"]').count(), 0, 'a local-TV game: not until it starts');
+  // (Not started: who's out, from the injury report.)
+  // (Its post is drawn again once the report's in: scrolled to, whichever copy is there.)
+  const into = (sel) => page.evaluate((q) => document.querySelector(q)?.scrollIntoView({ block: 'center' }), sel);
+  await into('.sp-post[data-id="nfl:501"]'); await prime.locator('.sp-out').first().waitFor({ timeout: 8000 });
+  assert.match(await prime.locator('.sp-out-box').textContent(), /Injury report.*Packers.*🚫 OUT: Jordan Love \(QB\)/);
   await page.getByRole('tab', { name: /Primetime/ }).click();
   assert.deepEqual(await page.locator('.sp-post').evaluateAll((l) => l.map((x) => x.dataset.id)), ['nfl:501']);
   await page.getByRole('tab', { name: /All/ }).click();
   // The final: each team's players over the minimums.
-  const fin = page.locator('.sp-post[data-id="nfl:500"]'); await fin.scrollIntoViewIfNeeded();
+  const fin = page.locator('.sp-post[data-id="nfl:500"]'); await into('.sp-post[data-id="nfl:500"]');
   await fin.locator('.sp-pl-team').first().waitFor({ timeout: 8000 });
   const den = fin.locator('.sp-pl-team', { hasText: 'Broncos' });
   assert.match(await den.textContent(), /B\. Nix QB22\/30, 264 pass yds, 2 TD/); assert.match(await den.textContent(), /C\. Sutton WR6 rec, 98 rec yds, 1 TD/);
   assert.doesNotMatch(await den.textContent(), /Engram/, '18 receiving yards: under 25');
   assert.match(await fin.locator('.sp-pl-team', { hasText: 'Chiefs' }).textContent(), /T\. Kelce/);
+  assert.match(await den.locator('.sp-out').textContent(), /🚫 OUT: Marvin Mims Jr\. \(WR\)/, 'out, not the questionable');
+  // Leaders by their full names, never cut off.
+  const who = fin.locator('.sp-lwho', { hasText: 'Courtland Sutton' }); await who.waitFor();
+  assert.ok(await who.evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && getComputedStyle(e).textOverflow !== 'ellipsis'), 'the whole name shows');
   // Settings: receiving yards at least 70: Kelce's 64 out, Sutton's 98 still in.
   await page.getByRole('button', { name: 'Settings' }).click();
+  // (Admin first in the settings; rebounds, stocks and 3-pointers among the minimums.)
+  assert.equal(await page.locator('.sp-sheet-card > :nth-child(2)').textContent(), '🔐 Admin');
+  for (const l of ['rebounds', 'stocks (steals + blocks)', '3-pointers made']) assert.equal(await page.getByLabel(`Least ${l} to show`).count(), 1, l);
   await page.getByLabel('Least receiving yards to show').fill('70'); await page.getByLabel('Least receiving yards to show').dispatchEvent('change');
   await page.getByRole('button', { name: 'Close' }).click();
   assert.doesNotMatch(await fin.locator('.sp-pl-team', { hasText: 'Chiefs' }).textContent(), /Kelce/);
@@ -1213,7 +1227,7 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: /^Use @owner\.me/ }).click();
   await page.getByRole('button', { name: 'Sync and password' }).click();
   await page.getByText('🗣 Natural voices (on this phone)').waitFor();
-  assert.match(await page.locator('.so-tts').textContent(), /28 voices.*Not downloaded \(about 105 MB, once\)/);
+  assert.match(await page.locator('.so-tts').textContent(), /28 voices.*Not downloaded \(about 330 MB, once\)/);
   await page.getByText('🔊 Read new replies aloud').click();
   // A message to kai: its reply is spoken as it comes, in its voice.
   await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @kai' }).click();

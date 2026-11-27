@@ -1338,6 +1338,8 @@ details.about > p { margin: 4px 0 0; color: var(--text); line-height: 1.5; }
 .so-say-line { color: var(--muted); overflow-wrap: anywhere; }
 .vp-dialog .sheet { display: grid; gap: 8px; max-height: 88dvh; overflow-y: auto; }
 .vp-chips { gap: 6px; }
+.vp-banner { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent, #2563eb) 40%, var(--border)); }
+.vp-banner[hidden] { display: none; }
 .vp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .vp-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; }
 .vp-card.on { border-color: var(--accent, #2563eb); }
@@ -1748,13 +1750,14 @@ body.se-open { overflow: hidden; }
 .sp-rec { font-size: .78rem; opacity: .85; }
 .sp-score { font-size: 2.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .sp-lose { opacity: .62; }
+.upd-prime { padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, #f59e0b 22%, transparent); white-space: nowrap; }
 .sp-badge { display: inline-grid; place-items: center; min-width: 30px; height: 22px; padding: 0 5px; border-radius: 6px; font-size: .68rem; font-weight: 800; letter-spacing: .02em; border: 2px solid; text-shadow: none; }
 .sp-badge-big { min-width: 46px; height: 46px; border-radius: 50%; font-size: .85rem; border-width: 3px; box-shadow: 0 2px 6px rgba(0, 0, 0, .35); }
 .sp-venue { font-size: .75rem; opacity: .8; text-shadow: 0 1px 2px rgba(0, 0, 0, .5); }
 .sp-leaders { list-style: none; margin: 0; padding: 8px 12px 2px; display: grid; gap: 6px; }
 .sp-leaders li { display: grid; grid-template-columns: 3.4em auto 1fr auto; align-items: center; gap: 8px; font-size: .9rem; }
 .sp-lstat { font-size: .72rem; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
-.sp-lwho { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-lwho { overflow-wrap: anywhere; min-width: 0; }
 .sp-lval { font-variant-numeric: tabular-nums; text-align: right; }
 .sp-actions { display: flex; align-items: center; gap: 8px; padding: 4px 8px 0; }
 .sp-act { background: none; border: 0; font-size: 1.5rem; min-width: 44px; min-height: 44px; cursor: pointer; color: var(--text); }
@@ -1775,6 +1778,11 @@ body.se-open { overflow: hidden; }
 .sp-toggle.on .sp-switch { background: #16a34a; } .sp-toggle.on .sp-switch::after { left: 21px; }
 .sp-sheet-foot { display: flex; justify-content: center; padding-top: 6px; }
 .sp-admin { background: none; border: 0; color: var(--muted); font-size: .8rem; padding: 10px 16px; cursor: pointer; }
+.sp-admin.sp-admin-top { color: var(--text); font-size: 1rem; border: 1px solid var(--border); border-radius: 12px; margin: 4px 0 6px; }
+.sp-out { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.sp-out strong { color: #ef4444; }
+.sp-out-box { padding: 10px 12px; display: grid; gap: 8px; }
+.sp-out-h { font-size: .9rem; }
 /* Clock, v2: each place over its picture; the tabs one card in a line; the timer to the phone's width. */
 .ck-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 .ck-seg { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; padding: 6px 4px; border: 0; border-left: 1px solid var(--border); background: none; color: var(--text); font: inherit; font-size: clamp(.78rem, 3.4vw, .95rem); font-weight: 600; white-space: nowrap; cursor: pointer; min-width: 0; }
@@ -1802,7 +1810,8 @@ body.se-open { overflow: hidden; }
 .sp-lteam + .sp-lteam { border-left: 1px solid var(--border); }
 .sp-lhead { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: .9rem; }
 .sp-lrows { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
-.sp-lrows li { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: baseline; font-size: .82rem; min-width: 0; }
+.sp-lrows li { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; row-gap: 1px; align-items: baseline; font-size: .82rem; min-width: 0; }
+.sp-lrows .sp-lval { grid-column: 1 / -1; text-align: left; }
 .sp-lrows .sp-lstat { font-size: .66rem; }
 /* Socials: a post's upload progress; a reel's several videos. */
 .so-upbar { min-width: 0; max-width: 100%; position: sticky; top: 0; z-index: 30; margin: 0 0 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); display: grid; gap: 6px; box-shadow: 0 2px 10px rgba(0, 0, 0, .12); }

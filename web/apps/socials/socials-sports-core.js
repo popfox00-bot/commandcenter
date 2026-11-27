@@ -44,7 +44,7 @@ const amount = (v) => { const m = String(v ?? '').match(/(\d+(?:\.\d+)?)\s*(?:YD
 /** The stat leaders: for each stat, whoever did best of the two teams (at most `n`). */
 export function topLeaders(comp, n = 4) {
   const all = [];
-  const read = (groups, abbr) => { for (const g of groups ?? []) { const top = g.leaders?.[0]; if (!top) continue; const who = top.athlete?.shortName ?? top.athlete?.displayName ?? ''; const value = top.displayValue ?? (top.value != null ? String(top.value) : ''); if (who && value) all.push({ stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', key: g.name ?? g.shortDisplayName ?? '', who, value, team: abbr ?? top.team?.abbreviation ?? '' }); } };
+  const read = (groups, abbr) => { for (const g of groups ?? []) { const top = g.leaders?.[0]; if (!top) continue; const who = top.athlete?.displayName ?? top.athlete?.shortName ?? ''; const value = top.displayValue ?? (top.value != null ? String(top.value) : ''); if (who && value) all.push({ stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', key: g.name ?? g.shortDisplayName ?? '', who, value, team: abbr ?? top.team?.abbreviation ?? '' }); } };
   read(comp?.leaders, '');
   for (const c of comp?.competitors ?? []) read(c.leaders, c.team?.abbreviation ?? '');
   const best = new Map();
@@ -59,11 +59,11 @@ export function topLeaders(comp, n = 4) {
  */
 export function teamLeaders(comp, n = 3) {
   const out = { home: [], away: [] };
-  const read = (groups) => (groups ?? []).map((g) => { const top = g.leaders?.[0]; const who = top?.athlete?.shortName ?? top?.athlete?.displayName ?? ''; const value = top?.displayValue ?? (top?.value != null ? String(top.value) : ''); return who && value && !/rating/i.test(g.name ?? '') ? { stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value: compact(value) } : null; }).filter(Boolean);
+  const read = (groups) => (groups ?? []).map((g) => { const top = g.leaders?.[0]; const who = top?.athlete?.displayName ?? top?.athlete?.shortName ?? ''; const value = top?.displayValue ?? (top?.value != null ? String(top.value) : ''); return who && value && !/rating/i.test(g.name ?? '') ? { stat: g.shortDisplayName ?? g.abbreviation ?? g.displayName ?? g.name ?? '', who, value: compact(value) } : null; }).filter(Boolean);
   for (const c of comp?.competitors ?? []) {
     const k = c.homeAway === 'home' ? 'home' : 'away'; const id = String(c.team?.id ?? c.id ?? '');
     let l = read(c.leaders);
-    if (!l.length && id) l = (comp.leaders ?? []).flatMap((g) => (g.leaders ?? []).filter((x) => String(x.team?.id ?? x.athlete?.team?.id ?? '') === id).slice(0, 1).map((x) => ({ stat: g.shortDisplayName ?? g.name ?? '', who: x.athlete?.shortName ?? x.athlete?.displayName ?? '', value: compact(x.displayValue ?? '') }))).filter((x) => x.who && x.value);
+    if (!l.length && id) l = (comp.leaders ?? []).flatMap((g) => (g.leaders ?? []).filter((x) => String(x.team?.id ?? x.athlete?.team?.id ?? '') === id).slice(0, 1).map((x) => ({ stat: g.shortDisplayName ?? g.name ?? '', who: x.athlete?.displayName ?? x.athlete?.shortName ?? '', value: compact(x.displayValue ?? '') }))).filter((x) => x.who && x.value);
     out[k] = l.slice(0, n);
   }
   return out;
@@ -152,7 +152,9 @@ export function postsFrom(json, league, now = Date.now()) { return (json?.events
 // enough to count: the minimums are the Owner's, in Sports settings.
 
 /** The minimums to start with: football's passing, rushing and receiving yards; basketball's points and assists. */
-export const DEFAULT_MINS = { pass: 100, rush: 25, rec: 25, pts: 10, ast: 5 };
+export const DEFAULT_MINS = { pass: 100, rush: 25, rec: 25, pts: 10, ast: 5, reb: 8, stocks: 3, tpm: 3 };
+/** The minimums, as they're set in Socials' sports settings: [key, label]. */
+export const MIN_FIELDS = [['pass', '🏈 Passing yards'], ['rush', '🏈 Rushing yards'], ['rec', '🏈 Receiving yards'], ['pts', '🏀 Points'], ['ast', '🏀 Assists'], ['reb', '🏀 Rebounds'], ['stocks', '🏀 Stocks (steals + blocks)'], ['tpm', '🏀 3-pointers made']];
 /** Leagues with player stats, and their sport. */
 export const STAT_SPORT = { nfl: 'football', ncaaf: 'football', nba: 'basketball' };
 
@@ -173,7 +175,7 @@ export function playerRows(json, league) {
   const sport = STAT_SPORT[league]; const out = {}; if (!sport) return out;
   for (const tm of json?.boxscore?.players ?? []) {
     const tid = String(tm.team?.id ?? ''); const rows = new Map();
-    const row = (a) => { const who = a.athlete?.shortName ?? a.athlete?.displayName ?? ''; if (!who) return null; if (!rows.has(who)) rows.set(who, { who, pos: a.athlete?.position?.abbreviation ?? '' }); return rows.get(who); };
+    const row = (a) => { const who = a.athlete?.displayName ?? a.athlete?.shortName ?? ''; if (!who) return null; if (!rows.has(who)) rows.set(who, { who, pos: a.athlete?.position?.abbreviation ?? '' }); return rows.get(who); };
     for (const g of tm.statistics ?? []) {
       const labels = (g.labels ?? g.names ?? []).map((x) => String(x).toUpperCase());
       const v = (a, lab) => (labels.indexOf(lab) >= 0 ? a.stats?.[labels.indexOf(lab)] : undefined);
@@ -184,7 +186,7 @@ export function playerRows(json, league) {
           if (kind === 'passing') { const r = row(a); if (r) r.pass = { att: v(a, 'C/ATT') ?? '', yds: num(v(a, 'YDS')), td: num(v(a, 'TD')), int: num(v(a, 'INT')) }; }
           else if (kind === 'rushing') { const r = row(a); if (r) r.rush = { car: num(v(a, 'CAR')), yds: num(v(a, 'YDS')), td: num(v(a, 'TD')) }; }
           else if (kind === 'receiving') { const r = row(a); if (r) r.rec = { rec: num(v(a, 'REC')), yds: num(v(a, 'YDS')), td: num(v(a, 'TD')) }; }
-        } else if (labels.includes('PTS')) { const r = row(a); if (r) r.bb = { pts: num(v(a, 'PTS')), ast: num(v(a, 'AST')), reb: num(v(a, 'REB')), fg: v(a, 'FG') ?? '', three: v(a, '3PT') ?? '' }; }
+        } else if (labels.includes('PTS')) { const r = row(a); if (r) { const three = v(a, '3PT') ?? ''; r.bb = { pts: num(v(a, 'PTS')), ast: num(v(a, 'AST')), reb: num(v(a, 'REB')), stl: num(v(a, 'STL')), blk: num(v(a, 'BLK')), tpm: num(String(three).split('-')[0]), fg: v(a, 'FG') ?? '', three }; } }
       }
     }
     out[tid] = [...rows.values()];
@@ -203,9 +205,29 @@ export function qualified(rows, mins = DEFAULT_MINS) {
     if (r.pass && r.pass.yds >= m.pass) { parts.push(`${r.pass.att ? `${r.pass.att}, ` : ''}${r.pass.yds} pass yds${r.pass.td ? `, ${r.pass.td} TD` : ''}${r.pass.int ? `, ${r.pass.int} INT` : ''}`); score += r.pass.yds; }
     if (r.rush && r.rush.yds >= m.rush) { parts.push(`${r.rush.car} car, ${r.rush.yds} rush yds${r.rush.td ? `, ${r.rush.td} TD` : ''}`); score += r.rush.yds * 1.2; }
     if (r.rec && r.rec.yds >= m.rec) { parts.push(`${r.rec.rec} rec, ${r.rec.yds} rec yds${r.rec.td ? `, ${r.rec.td} TD` : ''}`); score += r.rec.yds * 1.2; }
-    if (r.bb && (r.bb.pts >= m.pts || r.bb.ast >= m.ast)) { parts.push(`${r.bb.pts} PTS, ${r.bb.ast} AST, ${r.bb.reb} REB${r.bb.fg ? `, ${r.bb.fg} FG` : ''}${r.bb.three && !/^0-/.test(r.bb.three) ? `, ${r.bb.three} 3PT` : ''}`); score += r.bb.pts + r.bb.ast * 1.5; }
+    if (r.bb) {
+      const b = r.bb; const stocks = (b.stl ?? 0) + (b.blk ?? 0);
+      if (b.pts >= m.pts || b.ast >= m.ast || b.reb >= m.reb || stocks >= m.stocks || (b.tpm ?? 0) >= m.tpm) {
+        parts.push(`${b.pts} PTS, ${b.reb} REB, ${b.ast} AST${b.stl ? `, ${b.stl} STL` : ''}${b.blk ? `, ${b.blk} BLK` : ''}${b.fg ? `, ${b.fg} FG` : ''}${b.three && !/^0-/.test(b.three) ? `, ${b.three} 3PT` : ''}`);
+        score += b.pts + b.ast * 1.5 + b.reb * 1.2 + stocks * 2 + (b.tpm ?? 0);
+      }
+    }
     return parts.length ? { who: r.who, pos: r.pos, line: parts.join(' · '), score } : null;
   }).filter(Boolean).sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Who's OUT for each team, from a summary's injury report: { [team id]: [{ who, pos, detail }] } (players listed
+ * as Out, the season too: not those only questionable or doubtful).
+ */
+export function outPlayers(json) {
+  const out = {};
+  for (const tm of json?.injuries ?? []) {
+    const tid = String(tm.team?.id ?? ''); if (!tid) continue;
+    const list = (tm.injuries ?? []).filter((x) => /^out\b/i.test(x.status ?? x.type?.description ?? '') || /injured reserve/i.test(x.status ?? '')).map((x) => ({ who: x.athlete?.displayName ?? x.athlete?.shortName ?? '', pos: x.athlete?.position?.abbreviation ?? '', detail: x.details?.type ?? x.type?.abbreviation ?? '' })).filter((x) => x.who);
+    if (list.length) out[tid] = list;
+  }
+  return out;
 }
 
 /** Each team's players who did enough (see playerRows and qualified): { [team id]: [{ who, pos, line, score }] }. */

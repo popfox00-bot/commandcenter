@@ -8,6 +8,7 @@ import { el, store, about } from '../../lib/dom.js';
 import * as W from './weather-core.js';
 import * as S from './sports-core.js';
 import { nearbyColleges } from './college-sites.js';
+import { nationalTv, isPrimetime } from '../socials/socials-sports-core.js';
 import { calendarView, byDay, dayKey } from '../../lib/calendar.js';
 
 const PLACE_KEY = 'cc.updates.place';
@@ -255,9 +256,29 @@ export function mount(host, { only = 'weather' } = {}) {
       localNote = local.length ? '' : 'No FBS teams found near this ZIP.';
     }
 
+    // (📺 Primetime: the nationally televised NFL and NBA games, whoever plays, from the leagues' scoreboards:
+    // in the games here, and (kept with the teams' games) on the home screen's Updates card.)
+    const PRIME = 'prime:national';
+    async function loadPrime(force) {
+      const was = data[PRIME]; if (!force && was && Date.now() - was.at < (was.games?.some((g) => g.state === 'in') ? 45_000 : 10 * 60_000)) return;
+      const games = [];
+      await Promise.all(['nfl', 'nba'].map(async (league) => {
+        try {
+          for (const ev of (await getJson(S.urls.scoreboard(league)))?.events ?? []) {
+            const comp = ev.competitions?.[0]; const g = S.parseGame(ev); if (!g || !comp) continue;
+            const tv = nationalTv(comp); if (!isPrimetime(league, tv, g.date)) continue;
+            if (Date.parse(g.date) < Date.now() - 36 * 3600_000) continue;
+            games.push({ ...g, tv, league, primetime: true });
+          }
+        } catch { /* that league next time */ }
+      }));
+      data[PRIME] = { at: Date.now(), games: games.sort((a, b) => Date.parse(a.date) - Date.parse(b.date)) };
+    }
+
     async function load(force = false) {
       render();
       await findLocal();
+      await loadPrime(force);
       render();
       const all = followed();
       const stale = all.filter((t) => force || !data[keyOf(t)] || Date.now() - data[keyOf(t)].at > (hasLive() ? 45_000 : 5 * 60_000));
@@ -373,6 +394,7 @@ export function mount(host, { only = 'weather' } = {}) {
           list.push({ g, t, info: d.team });
         }
       }
+      for (const g of data[PRIME]?.games ?? []) if (!seen.has(g.id)) { seen.add(g.id); list.push({ g, t: { league: g.league, team: g.home?.id ?? '', prime: true }, info: null }); }
       list.sort((a, b) => Date.parse(a.g.date) - Date.parse(b.g.date));
       return list;
     }
@@ -396,7 +418,7 @@ export function mount(host, { only = 'weather' } = {}) {
       return el('div', { class: `cal-item upd-game${live ? ' upd-live' : ''}${done ? ' upd-done' : ''}${g.id === focusId ? ' upd-focus' : ''}`, 'data-game': g.id, style: { borderLeftColor: live ? '#dc2626' : color } },
         el('span', { class: 'cal-time small upd-status' }, ...status),
         el('span', { class: 'cal-what' },
-          el('span', { class: 'upd-game-head' }, badge, el('strong', { text: `${at} ${them.short || them.name || them.abbr}` }), t.local ? el('span', { class: 'muted small', text: 'local' }) : null),
+          el('span', { class: 'upd-game-head' }, badge, el('strong', { text: `${at} ${them.short || them.name || them.abbr}` }), t.local ? el('span', { class: 'muted small', text: 'local' }) : null, t.prime || g.primetime ? el('span', { class: 'upd-prime small', text: `📺 Primetime · ${t.league === 'nba' ? 'NBA' : 'NFL'}` }) : null),
           extra.length ? el('span', { class: 'muted small', text: extra.join(' · ') }) : null,
           view === 'day' && g.link ? el('a', { class: 'small', href: g.link, target: '_blank', rel: 'noopener noreferrer', text: 'ESPN ›' }) : null),
         el('span', { class: 'upd-side' }, score, statsBtn),

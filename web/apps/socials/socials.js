@@ -29,10 +29,10 @@ import {
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
 import { chatReplyStyled, moodOf, commentReply } from './socials-chat.js';
 import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
-import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
+import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, aiSize, aiLoadCrashed } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
-import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl, setVoiceStore, isMade, gpuVoicesOn, setGpuVoices, lastLoadCrashed } from './socials-speech.js';
+import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, FAST, engine, setEngine, ttsSize, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl, setVoiceStore, isMade, voiceHere, gpuVoicesOn, setGpuVoices, lastLoadCrashed } from './socials-speech.js';
 // (Voices made are kept on the phone, encrypted, so messages played again play at once, another day too.)
 setVoiceStore(voiceStore);
 import { readPhoto, readVideo } from './socials-vision.js';
@@ -945,7 +945,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const preview = el('button', { type: 'button', class: 'btn small', text: '▶ Preview', onclick: async () => {
       primeAudio();
       // (A natural voice picked: its sample, made ahead, at once. Otherwise the line said live.)
-      if (sayValue.startsWith('n:')) { await speak(SAMPLE_LINE, who(), { sample: sampleUrl(sayValue.slice(2)) }).catch(() => {}); if (lastProblem) toast(lastProblem); return; }
+      if (sayValue.startsWith('n:')) { await speak(SAMPLE_LINE, who(), { sample: sampleUrl(voiceHere(sayValue.slice(2))) }).catch(() => {}); if (lastProblem) toast(lastProblem); return; }
       if (naturalOn() && !naturalReady()) { preview.textContent = 'Loading…'; await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}`)); preview.textContent = '▶ Preview'; }
       await speak(`Hey! It's ${who().handle}. This is how I sound.`, who()).catch(() => {});
       if (lastProblem) toast(lastProblem);
@@ -1430,7 +1430,8 @@ function mountAdmin(host, { open = '' } = {}) {
   async function aiText(from, to, draft) {
     if (!aiOn()) return null;
     // (On but not loaded yet: loaded now, in the background (from the phone, once downloaded); this reply's the engine's.)
-    if (!aiReady()) { aiDownloaded().then((have) => { if (have) aiLoad().catch(() => {}); }); return null; }
+    // (Not after a load that never finished: the page was closed, most likely short of memory; loaded from Settings then.)
+    if (!aiReady()) { if (!aiLoadCrashed()) aiDownloaded().then((have) => { if (have) aiLoad().catch(() => {}); }); return null; }
     const msgs = conversation(state, from, to).slice(-14);
     const hist = msgs.map((x) => ({ mine: x.from === to, text: x.text, post: x.post ? { caption: postById(state, x.post)?.caption ?? '' } : null }));
     const a = accountById(state, from); const o = accountById(state, to);
@@ -1696,9 +1697,9 @@ function mountAdmin(host, { open = '' } = {}) {
     const aiBox = el('div', { class: 'so-ai' });
     const drawAi = async (msg = '') => {
       const sup = await aiSupport(); const have = await aiDownloaded(); const on = aiOn();
-      const status = el('p', { class: 'small muted', 'aria-live': 'polite', text: msg || (!sup.ok ? `Not available on this device: ${sup.why} Replies come from the built-in engine.` : aiReady() && on ? 'Ready: on this phone, works offline.' : have ? (on ? 'Downloaded. It loads the next time a reply is written.' : 'Downloaded, turned off.') : `Not downloaded (about ${AI_SIZE}, once; Wi-Fi recommended).`) });
+      const status = el('p', { class: 'small muted', 'aria-live': 'polite', text: msg || (!sup.ok ? `Not available on this device: ${sup.why} Replies come from the built-in engine.` : aiReady() && on ? 'Ready: on this phone, works offline.' : have ? (on ? 'Downloaded. It loads the next time a reply is written.' : 'Downloaded, turned off.') : `Not downloaded (about ${aiSize()}, once; Wi-Fi recommended).`) });
       const bar = el('div', { class: 'so-upbar-track so-ai-bar', hidden: true, role: 'progressbar', 'aria-label': 'AI model download', 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('span', { class: 'so-upbar-fill' }));
-      const go = el('button', { type: 'button', class: 'btn primary', text: have ? (on ? 'Load now' : 'Turn on') : `Download and turn on (${AI_SIZE})`, disabled: !sup.ok || (on && aiReady()) });
+      const go = el('button', { type: 'button', class: 'btn primary', text: have ? (on ? 'Load now' : 'Turn on') : `Download and turn on (${aiSize()})`, disabled: !sup.ok || (on && aiReady()) });
       go.addEventListener('click', async () => {
         go.disabled = true; setAiOn(true); bar.hidden = false; status.textContent = have ? 'Loading the model…' : 'Downloading the model… keep Socials open.';
         try {
@@ -1707,10 +1708,11 @@ function mountAdmin(host, { open = '' } = {}) {
         } catch (e) { drawAi(`Couldn't load it: ${e.message}. Replies come from the built-in engine.`); }
       });
       const off = on ? el('button', { type: 'button', class: 'btn', text: 'Turn off', onclick: () => { setAiOn(false); drawAi('Turned off: replies come from the built-in engine (the model stays downloaded).'); } }) : null;
-      const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the AI model (${AI_SIZE}) from this phone?`)) return; await aiRemove(); drawAi('Removed.'); } }) : null;
+      const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the AI model (${aiSize()}) from this phone?`)) return; await aiRemove(); drawAi('Removed.'); } }) : null;
       fill(aiBox, el('strong', { text: '🤖 AI replies (on this phone)' }),
         el('p', { class: 'small muted', text: 'A small language model on your phone writes the replies in messages: longer, more detailed and more natural, from the whole conversation, in each account\'s voice and at the level above. Downloaded once from Hugging Face, then it works offline; nothing you write is sent anywhere. When it\'s slow or off, the built-in engine answers.' }),
-        status, bar, el('div', { class: 'so-row' }, go, off, rm));
+        status, bar, el('div', { class: 'so-row' }, go, off, rm),
+        aiLoadCrashed() ? el('p', { class: 'warn-text small', text: 'The AI model didn\'t finish loading last time (the page was closed, most likely short of memory), so it isn\'t loaded by itself now: tap Load now to try again.' }) : null);
     };
     drawAi();
     // (Read aloud: new replies in a chat, and the natural voices (a download).)
@@ -1719,15 +1721,15 @@ function mountAdmin(host, { open = '' } = {}) {
     const tvBox = el('div', { class: 'so-ai so-tts' });
     const drawTv = async (msg = '') => {
       const have = await naturalDownloaded(); const on = naturalOn();
-      const status = el('p', { class: 'small muted', 'aria-live': 'polite', text: msg || (naturalReady() && on ? 'Ready: on this phone, works offline.' : have ? (on ? 'Downloaded. They load the first time something\'s played.' : 'Downloaded, turned off.') : `Not downloaded (about ${TTS_SIZE}, once). Until then, this phone's own voices speak.`) });
+      const status = el('p', { class: 'small muted', 'aria-live': 'polite', text: msg || (naturalReady() && on ? 'Ready: on this phone, works offline.' : have ? (on ? 'Downloaded. They load the first time something\'s played.' : 'Downloaded, turned off.') : `Not downloaded (about ${ttsSize()}, once). Until then, this phone's own voices speak.`) });
       const bar = el('div', { class: 'so-upbar-track so-ai-bar', hidden: true, role: 'progressbar', 'aria-label': 'Natural voices download', 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('span', { class: 'so-upbar-fill' }));
-      const go = el('button', { type: 'button', class: 'btn primary', text: have ? (on ? 'Load now' : 'Turn on') : `Download and turn on (${TTS_SIZE})`, disabled: on && naturalReady() });
+      const go = el('button', { type: 'button', class: 'btn primary', text: have ? (on ? 'Load now' : 'Turn on') : `Download and turn on (${ttsSize()})`, disabled: on && naturalReady() });
       go.addEventListener('click', async () => {
         go.disabled = true; setNaturalOn(true); bar.hidden = false; status.textContent = have ? 'Loading the voices…' : 'Downloading the voices… keep Socials open.';
-        try { await naturalLoad((q) => { bar.firstChild.style.width = `${Math.max(3, Math.round(q * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(q * 100))); status.textContent = `${have ? 'Loading' : 'Downloading'}… ${Math.round(q * 100)}%`; }); drawTv(`Ready: ${NATURAL.length} natural voices (each account picks one in Edit profile → Speaking voice → Choose…).`); } catch (e) { drawTv(`Couldn't load them: ${e.message}. This phone's voices speak instead.`); }
+        try { await naturalLoad((q) => { bar.firstChild.style.width = `${Math.max(3, Math.round(q * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(q * 100))); status.textContent = `${have ? 'Loading' : 'Downloading'}… ${Math.round(q * 100)}%`; }); drawTv(`Ready: ${engine() === 'fast' ? FAST.length : NATURAL.length} natural voices (each account picks one in Edit profile → Speaking voice → Choose…).`); } catch (e) { drawTv(`Couldn't load them: ${e.message}. This phone's voices speak instead.`); }
       });
       const off = on ? el('button', { type: 'button', class: 'btn', text: 'Turn off', onclick: () => { setNaturalOn(false); drawTv('Turned off: this phone\'s voices speak (the download stays).'); } }) : null;
-      const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the natural voices (${TTS_SIZE}) from this phone?`)) return; await naturalRemove(); drawTv('Removed.'); } }) : null;
+      const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the natural voices (${ttsSize()}) from this phone?`)) return; await naturalRemove(); drawTv('Removed.'); } }) : null;
       // (🔊 Test: a line played, and what happened said plainly: which voice, how long it took, or why not.)
       const test = el('button', { type: 'button', class: 'btn', text: '🔊 Test', onclick: async () => {
         primeAudio(); test.disabled = true; const t0 = Date.now(); let loadMs = 0;
@@ -1737,10 +1739,13 @@ function mountAdmin(host, { open = '' } = {}) {
         status.textContent = `${r.kind === 'none' ? (lastProblem || 'Nothing could be played.') : `${r.kind === 'natural' ? 'Natural voice' : 'This phone\'s voice'} played${loadMs ? ` (loading took ${(loadMs / 1000).toFixed(1)} s)` : ''}; the sound started after ${(first / 1000).toFixed(1)} s.${lastProblem ? ` ${lastProblem}` : ''}`} [${audioReport()}]`;
         test.disabled = false;
       } });
-      fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }),
+      // (Which set: Fast (for phones) or Full (best, slow on a phone).)
+      const pickEngine = el('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Natural voices on this phone' }, [['fast', `⚡ Fast (${FAST.length})`], ['full', `🎙 Full (${NATURAL.length})`]].map(([k, label]) => el('button', { type: 'button', role: 'radio', class: `seg${engine() === k ? ' active' : ''}`, 'aria-checked': String(engine() === k), text: label, onclick: () => { if (engine() === k) return; setEngine(k); drawTv(k === 'fast' ? 'Fast voices: quick on a phone (each account\'s voice becomes the fast one most like it; Nova stays Nova).' : 'Full voices: the best, but slow on a phone (a line can take a minute).'); } })));
+      fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }), pickEngine,
+        el('p', { class: 'small muted', text: engine() === 'fast' ? `⚡ Fast: ${FAST.length} voices (Piper, about ${ttsSize()}), quick enough for a phone; each account's voice becomes the fast one most like it (Nova stays Nova).` : `🎙 Full: the best ${NATURAL.length}, but slow on a phone's processor (best on a computer).` }),
         el('p', { class: 'small muted', text: `A small speech model on your phone: ${NATURAL.filter((v) => !v.blend).length} voices (American and British, women and men) and ${NATURAL.filter((v) => v.blend).length} blends of them, each described in a few words, that sound much more like people than the phone's own. Downloaded once, then it works offline; what it reads never leaves the phone. No WebGPU needed.` }),
         status, bar, el('div', { class: 'so-row' }, go, off, rm, test),
-        el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: gpuVoicesOn() }); c.addEventListener('change', () => { setGpuVoices(c.checked); toast(c.checked ? 'The graphics chip is used the next time the voices load (reopen the app).' : 'The processor is used the next time the voices load (reopen the app).'); }); return c; })(),
+        engine() === 'fast' ? null : el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: gpuVoicesOn() }); c.addEventListener('change', () => { setGpuVoices(c.checked); toast(c.checked ? 'The graphics chip is used the next time the voices load (reopen the app).' : 'The processor is used the next time the voices load (reopen the app).'); }); return c; })(),
           el('span', {}, el('strong', { text: '⚡ Use the graphics chip' }), el('span', { class: 'muted small', text: ' Makes the voices several times faster where it works, but takes much more memory: on an iPhone, Safari can close the page ("A problem repeatedly occurred"). Off by default on iPhone and iPad.' }))),
         lastLoadCrashed() ? el('p', { class: 'warn-text small', text: 'The voices didn\'t finish loading last time (the page was closed, most likely short of memory): they\'ll load on the processor next time.' }) : null,
         el('p', { class: 'small muted', text: 'They\'re made on the phone, so a message takes a moment the first time (much less on a phone whose graphics chip can run them); replies are made while they\'re being "typed". For voices that speak instantly: on an iPhone, Settings → Accessibility → Spoken Content → Voices → English, and download an "Enhanced" or "Premium" voice; Socials uses the best this phone has.' }));

@@ -16,6 +16,12 @@ export const TTS_MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 export const TTS_SIZE = '330 MB';
 export const TTS_FILE = /\/onnx\/model\.onnx/; // (the model file this version uses; the older 8-bit one is let go)
 const ON_KEY = 'cc.socials.voices'; // natural voices on ('on')
+// (Which natural voices this phone uses: 'full' (the 43 below, best, but slow on a phone's processor) or 'fast' (13,
+// Piper: about twenty times quicker, for phones). Fast unless chosen otherwise on an iPhone or iPad; full elsewhere.)
+const ENGINE_KEY = 'cc.socials.tts.engine';
+export const FAST_SIZE = '80 MB';
+export const engine = () => { const v = store.get(ENGINE_KEY); return v === 'fast' || v === 'full' ? v : (isAppleMobile() ? 'fast' : 'full'); };
+export const ttsSize = () => (engine() === 'fast' ? FAST_SIZE : TTS_SIZE);
 export const naturalOn = () => store.get(ON_KEY) === 'on';
 export const setNaturalOn = (on) => store.set(ON_KEY, on ? 'on' : 'off');
 
@@ -35,7 +41,25 @@ export const NATURAL = [
   ['am_michael+bm_george', 'Atlas', 'mix', 'M', 'deep steady narrator', 1], ['am_fenrir+am_onyx', 'Granite', 'US', 'M', 'gravelly very-deep bold', 1], ['am_puck+am_liam', 'Rio', 'US', 'M', 'youthful playful upbeat'], ['bm_fable+bm_lewis', 'Bard', 'UK', 'M', 'storyteller mellow warm'], ['am_echo+bm_daniel', 'Sage', 'mix', 'M', 'calm measured gentle'],
   ['af_heart+am_michael', 'Rowan', 'US', 'N', 'androgynous warm soft', 1], ['bf_emma+bm_george', 'Ash', 'UK', 'N', 'androgynous polished calm'], ['af_nicole*0.6+am_echo*0.4', 'Haze', 'US', 'N', 'whispery hushed androgynous'], ['af_bella*0.5+am_puck*0.5', 'Spark', 'US', 'N', 'energetic playful androgynous'],
 ].map(([id, name, accent, gender, words, best]) => ({ id, name, accent, gender, best: !!best, blend: id.includes('+'), tags: [...words.split(' '), ACCENT[accent], gender === 'F' ? 'woman' : gender === 'M' ? 'man' : 'neutral', ...(id.includes('+') ? ['blend'] : [])] }));
-export const naturalById = (id) => NATURAL.find((v) => v.id === id) ?? null;
+// (The fast natural voices: Piper's LibriTTS-R speakers (socials-piper-worker.js), picked for clean recordings and a
+// spread of pitch, brightness and pace (measured), each standing in for one of the full voices above (`full`); the
+// others go to the nearest by gender. Nova's is the fast voice most like Nova: crisp, polished, brisk.)
+export const FAST = [
+  ['p880', 'Nova', 'F', 'crisp polished brisk', 'af_nova'], ['p864', 'Iris', 'F', 'calm clear relaxed', 'af_sarah'], ['p64', 'June', 'F', 'warm clear even', 'af_heart'],
+  ['p656', 'Maple', 'F', 'soft warm expressive', 'af_nicole'], ['p408', 'Lark', 'F', 'bright high lively', 'af_bella'], ['p96', 'Hazel', 'F', 'low warm mellow', 'af_river'],
+  ['p624', 'Tess', 'F', 'brisk steady confident', 'af_kore'], ['p232', 'Ward', 'M', 'deep calm narrator', 'am_michael'], ['p296', 'Bram', 'M', 'very-deep steady', 'am_onyx'],
+  ['p824', 'Cole', 'M', 'clear crisp even', 'am_echo'], ['p32', 'Finn', 'M', 'friendly even easygoing', 'am_liam'], ['p208', 'Milo', 'M', 'lively expressive light', 'am_puck'],
+  ['p176', 'Rex', 'M', 'quick upbeat bold', 'am_fenrir'],
+].map(([id, name, gender, words, full]) => ({ id, name, gender, full, speaker: Number(id.slice(1)), fast: true, accent: 'US', best: true, blend: false, tags: [...words.split(' '), 'American', gender === 'F' ? 'woman' : 'man', 'fast'] }));
+export const naturalById = (id) => NATURAL.find((v) => v.id === id) ?? FAST.find((v) => v.id === id) ?? null;
+/** The fast voice standing in for a full one (or itself, when it's a fast one). */
+export function fastFor(id) {
+  const f = FAST.find((v) => v.id === id || v.full === id); if (f) return f;
+  const n = NATURAL.find((v) => v.id === id); const g = n?.gender === 'M' ? 'M' : 'F';
+  const pool = FAST.filter((v) => v.gender === g); return n?.gender === 'N' ? FAST[2] : pool[hash(id) % pool.length];
+}
+/** The full voice a fast one stands in for (or itself, when it's a full one). */
+export const fullFor = (id) => FAST.find((v) => v.id === id)?.full ?? id;
 /** The model's own voices (the files the blends are made from). */
 export const BASE_VOICES = NATURAL.filter((v) => !v.blend).map((v) => v.id);
 
@@ -128,17 +152,28 @@ export function sayable(text) {
 
 // ---- The natural voices' worker.
 let worker = null; let seq = 0; const pending = new Map(); let ready = false; let loadP = null;
+let workerFor = '';
 function w() {
-  if (worker) return worker;
-  worker = new Worker(new URL('./socials-tts-worker.js', import.meta.url), { type: 'module' });
+  if (worker && workerFor === engine()) return worker;
+  try { worker?.terminate(); } catch { /* gone */ }
+  workerFor = engine();
+  worker = new Worker(new URL(workerFor === 'fast' ? './socials-piper-worker.js' : './socials-tts-worker.js', import.meta.url), { type: 'module' });
   worker.onmessage = (e) => { const p = pending.get(e.data?.id); if (!p) return; if (e.data.type === 'progress') p.progress?.(e.data); else { pending.delete(e.data.id); if (e.data.type === 'error') p.reject(new Error(e.data.error)); else p.resolve(e.data); } };
   worker.onerror = (e) => { for (const p of pending.values()) p.reject(new Error(e.message || 'The voices stopped.')); pending.clear(); worker = null; ready = false; loadP = null; };
   return worker;
 }
 const ask = (msg, progress, transfer = []) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject, progress }); w().postMessage({ id, ...msg }, transfer); });
 
-/** Whether the natural voices are on the phone (the model and every voice). */
+/** Which natural voices this phone uses from now on ('fast' or 'full'): the other set let go from memory. */
+export function setEngine(e) {
+  if (e === engine()) { store.set(ENGINE_KEY, e); return; }
+  store.set(ENGINE_KEY, e); stopSpeaking();
+  try { worker?.terminate(); } catch { /* gone */ }
+  worker = null; workerFor = ''; ready = false; loadP = null; for (const p of pending.values()) p.reject(new Error('The voices changed.')); pending.clear();
+}
+/** Whether the natural voices this phone uses are on it (the model and every voice). */
 export async function naturalDownloaded() {
+  if (engine() === 'fast') { try { const c = await caches.open('piper-voices'); return (await c.keys()).some((r) => /libritts_r-medium\.onnx$/.test(r.url)); } catch { return false; } }
   try {
     const m = await caches.open('transformers-cache'); const hasModel = (await m.keys()).some((r) => r.url.includes(TTS_MODEL) && TTS_FILE.test(r.url));
     const v = await caches.open('kokoro-voices'); const have = new Set((await v.keys()).map((r) => r.url.split('/').pop()));
@@ -149,7 +184,7 @@ export async function naturalDownloaded() {
 export function naturalLoad(onProgress = () => {}) {
   if (ready) return Promise.resolve();
   const files = new Map(); let voices = 0;
-  loadP ??= Promise.all([naturalDownloaded(), gpuDevice()]).then(([have, device]) => { store.set(LOADING_KEY, String(Date.now())); return [have, device]; }).then(([have, device]) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES, device } }, (p) => {
+  loadP ??= Promise.all([naturalDownloaded(), engine() === 'fast' ? 'wasm' : gpuDevice()]).then(([have, device]) => { store.set(LOADING_KEY, String(Date.now())); return [have, device]; }).then(([have, device]) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES, device } }, (p) => {
     if (p.status === 'voice') voices = p.loaded / p.total;
     else if (p.file) files.set(p.file, { loaded: p.status === 'done' ? (p.total || files.get(p.file)?.total || 0) : p.loaded, total: p.total || files.get(p.file)?.total || 0 });
     let l = 0; let t = 0; for (const f of files.values()) { l += f.loaded; t += f.total; }
@@ -163,7 +198,7 @@ let runsOn = '';
 // is closed ("A problem repeatedly occurred"). So there it's only used when turned on (Sync and password); and if a
 // load didn't finish last time (the page was closed while loading), the processor is used, whatever the setting.)
 const GPU_KEY = 'cc.socials.tts.gpu'; const LOADING_KEY = 'cc.socials.tts.loading';
-const isAppleMobile = () => { const n = globalThis.navigator; return /iPhone|iPad|iPod/.test(n?.userAgent ?? '') || (n?.platform === 'MacIntel' && (n?.maxTouchPoints ?? 0) > 1); };
+function isAppleMobile() { const n = globalThis.navigator; return /iPhone|iPad|iPod/.test(n?.userAgent ?? '') || (n?.platform === 'MacIntel' && (n?.maxTouchPoints ?? 0) > 1); }
 /** Whether the voices may use the graphics chip: on by default except on an iPhone or iPad (where it's a choice). */
 export const gpuVoicesOn = () => { const v = store.get(GPU_KEY); return v ? v === 'on' : !isAppleMobile(); };
 export const setGpuVoices = (on) => store.set(GPU_KEY, on ? 'on' : 'off');
@@ -186,12 +221,14 @@ let kept = null;
 /** Where made voices are kept across restarts: { get(key) → { audio, rate } | null, put(key, audio, rate) }, or null. */
 export function setVoiceStore(s) { kept = s; }
 /** One piece of speech, from what's made already (here, or kept on the phone) or made now (and kept). */
-function makePiece(voice, speed, t) {
-  const k = madeKey(voice, speed, t); const have = made.get(k);
+/** The voice that's made, on this phone: a full one, or (fast voices in use) the fast one standing in for it. */
+export const voiceHere = (id) => (engine() === 'fast' ? fastFor(id).id : fullFor(id));
+function makePiece(voice0, speed, t) {
+  const voice = voiceHere(voice0); const k = madeKey(voice, speed, t); const have = made.get(k);
   if (have) { remember(k, have); return Promise.resolve(have); }
   const p = (async () => {
     const old = await kept?.get(k).catch(() => null); if (old?.audio?.length) return old;
-    const out = await ask({ type: 'speak', text: t, voice, speed });
+    const out = await ask({ type: 'speak', text: t, voice, speaker: FAST.find((v) => v.id === voice)?.speaker ?? 0, speed });
     if (out.device) runsOn = out.device;
     const v = { audio: out.audio, rate: out.rate }; kept?.put(k, v.audio, v.rate);
     return v;
@@ -212,7 +249,7 @@ export async function isMade(text, a) {
   const words = sayable(text); if (!words) return false;
   const sp = speakerFor(a, { naturalReady: true }); if (sp.kind !== 'natural') return false;
   for (const t of pieces(words)) {
-    const k = madeKey(sp.voice, speedFor(sp), t); const m = made.get(k);
+    const k = madeKey(voiceHere(sp.voice), speedFor(sp), t); const m = made.get(k);
     if (m && !(m instanceof Promise)) continue;
     const old = await kept?.get(k).catch(() => null); if (!old?.audio?.length) return false;
     remember(k, old);
@@ -232,6 +269,7 @@ export const SAMPLE_LINE = 'Hi! This is how I sound.';
 export const sampleUrl = (id) => new URL(`./voices/${String(id).replace(/[^a-z0-9]+/gi, '-')}.m4a`, import.meta.url).href;
 /** The natural voices taken off the phone (and turned off). */
 export async function naturalRemove() {
+  if (engine() === 'fast') { try { worker?.terminate(); } catch { /* gone */ } worker = null; workerFor = ''; ready = false; loadP = null; pending.clear(); try { await caches.delete('piper-voices'); } catch { /* none */ } return; }
   try { worker?.terminate(); } catch { /* gone */ }
   worker = null; ready = false; loadP = null; pending.clear(); setNaturalOn(false);
   try { await caches.delete('kokoro-voices'); } catch { /* none */ }

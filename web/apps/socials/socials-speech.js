@@ -168,6 +168,8 @@ export async function naturalRemove() {
 
 // ---- Playing.
 let ctx = null; let playing = null; let token = 0; let synthPrimed = false;
+// (Whether the <audio> player was heard moving last time (null: not known yet), and how the last line was played.)
+let elWorks = null; let lastRoute = '';
 /** Why the last try couldn't be heard ('' when it was): shown to you, not kept. */
 export let lastProblem = '';
 const audioCtx = () => (ctx ??= new (globalThis.AudioContext || globalThis.webkitAudioContext)());
@@ -199,7 +201,7 @@ export function wavOf(samples, rate) {
 export function audioReport() {
   const ua = globalThis.navigator?.userAgent ?? ''; const ios = /iPhone|iPad/.test(ua) ? (ua.match(/OS (\d+)_(\d+)/) ?? []).slice(1).join('.') : '';
   const standalone = globalThis.navigator?.standalone || globalThis.matchMedia?.('(display-mode: standalone)').matches;
-  return [ios ? `iOS ${ios}` : 'not iOS', standalone ? 'home-screen app' : 'browser tab', `player ${playerUnlocked ? 'unlocked' : 'locked'}`, `audio ${ctx?.state ?? 'not started'}`, `speech ${globalThis.speechSynthesis ? `${phoneVoices().length} voices` : 'none'}`, `natural ${ready ? 'loaded' : 'not loaded'}`].join(' · ');
+  return [ios ? `iOS ${ios}` : 'not iOS', standalone ? 'home-screen app' : 'browser tab', `player ${playerUnlocked ? 'unlocked' : 'locked'}`, `audio ${ctx?.state ?? 'not started'}`, `speech ${globalThis.speechSynthesis ? `${phoneVoices().length} voices` : 'none'}`, `natural ${ready ? 'loaded' : 'not loaded'}`, lastRoute ? `last played by ${lastRoute}` : null].filter(Boolean).join(' · ');
 }
 
 export function primeAudio() {
@@ -235,27 +237,39 @@ export async function speak(text, a, { onStart = () => {}, natural = false } = {
       // (Piece by piece: the next made while this one plays. Through the <audio> player when it's unlocked (an
       // iPhone's dependable way), else Web Audio.)
       const a = audioEl(); if (a && !playerUnlocked && unlockP) await within(unlockP, 800); const useEl = !!a && playerUnlocked;
-      const c = useEl ? null : audioCtx();
-      if (c && c.state !== 'running') await within(c.resume().catch(() => {}), 1500);
-      if (c && c.state !== 'running') throw new Error('the phone didn\'t let the sound start (tap 🔊 again)');
       const parts = pieces(words); const shift = sp.shift ?? 1;
       // (Pitch: made at speed ÷ pitch, played back that much faster or slower: higher or deeper, at its own pace.)
       const make = (t) => ask({ type: 'speak', text: t, voice: sp.voice, speed: Math.max(0.55, Math.min(1.6, sp.rate / shift)) });
       let next = make(parts[0]); let started = false;
       for (let i = 0; i < parts.length; i++) {
-        const out = await next; if (my !== token) return { kind: 'natural' };
+        // (Never left waiting on a voice that isn't coming: a phone short of memory can stall the model.)
+        const out = await within(next, 30000, null); if (my !== token) return { kind: 'natural' };
+        if (!out) throw new Error('making the voice took too long');
         if (i + 1 < parts.length) next = make(parts[i + 1]);
         const secs = out.audio.length / out.rate;
-        if (useEl) {
+        { let peak = 0; for (let k = 0; k < out.audio.length; k += 7) { const x = Math.abs(out.audio[k]); if (x > peak) peak = x; } if (!(peak > 1e-3)) throw new Error('the voice came out silent'); }
+        // (Through the <audio> player; if it says it's playing but its clock doesn't move (silent: seen on iPhones),
+        // through Web Audio instead, for this and the rest.)
+        let viaEl = useEl && elWorks !== false;
+        if (viaEl) {
           const url = URL.createObjectURL(wavOf(out.audio, out.rate));
           try {
             a.src = url; a.preservesPitch = false; a.mozPreservesPitch = false; a.webkitPreservesPitch = false; a.playbackRate = shift; playing = { stop: () => { a.pause(); } };
-            const ended = new Promise((ok) => { a.onended = ok; a.onerror = ok; });
+            const ended = new Promise((ok) => { a.onended = () => ok('ended'); a.onerror = () => ok('error'); });
             await a.play();
-            if (!started) { started = true; onStart(); }
-            await within(ended, (secs / shift) * 1000 + 1500);
+            const moving = await within(new Promise((ok) => { const t0 = performance.now(); const tick = () => { if (a.currentTime > 0.05 || a.ended) ok(true); else if (performance.now() - t0 > 1500) ok(false); else setTimeout(tick, 60); }; tick(); }), 1600, false);
+            if (my !== token) return { kind: 'natural' };
+            if (!moving) { a.pause(); elWorks = false; viaEl = false; lastRoute = 'web audio (the player stayed silent)'; } else {
+              elWorks = true; lastRoute = 'audio player';
+              if (!started) { started = true; onStart(); }
+              await within(ended, (secs / shift) * 1000 + 1500);
+            }
           } finally { URL.revokeObjectURL(url); }
-        } else {
+        }
+        if (!viaEl) {
+          const c = audioCtx(); if (c.state !== 'running') await within(c.resume().catch(() => {}), 1500);
+          if (c.state !== 'running') throw new Error('the phone didn\'t let the sound start (tap 🔊 again)');
+          if (!useEl) lastRoute = 'web audio';
           const buf = c.createBuffer(1, out.audio.length, out.rate); buf.copyToChannel(out.audio, 0);
           const src = c.createBufferSource(); src.buffer = buf; src.playbackRate.value = shift; src.connect(c.destination); playing = src;
           if (!started) { started = true; onStart(); }
@@ -273,9 +287,9 @@ export async function speak(text, a, { onStart = () => {}, natural = false } = {
   const v = phoneVoices(synth).find((x) => x.id === (sp.kind === 'phone' ? sp.voice : '')) ?? phoneVoices(synth).find((x) => /^en/i.test(x.lang));
   if (v) { u.voice = v.v; u.lang = v.lang; }
   u.rate = Math.max(0.5, Math.min(2, sp.rate)); u.pitch = Math.max(0.5, Math.min(2, sp.pitch));
-  onStart();
-  let started = false; u.onstart = () => { started = true; };
+  let started = false; u.onstart = () => { started = true; onStart(); };
   const err = await within(new Promise((ok) => { u.onend = () => ok(''); u.onerror = (e) => ok(e?.error || 'error'); synth.speak(u); }), Math.max(4000, words.length * 120), 'timeout');
-  if (err && err !== 'interrupted' && err !== 'canceled' && !(err === 'timeout' && started)) { lastProblem = `${lastProblem ? `${lastProblem} ` : ''}This phone's voice didn't play (${err}).`; return { kind: 'none' }; }
+  if (err && err !== 'interrupted' && err !== 'canceled' && !(err === 'timeout' && started)) { lastRoute = 'phone voice (didn\'t start)'; lastProblem = `${lastProblem ? `${lastProblem} ` : ''}This phone's voice didn't play (${err}).`; return { kind: 'none' }; }
+  lastRoute = started ? 'phone voice' : 'phone voice (never said it started)';
   return { kind: 'phone' };
 }

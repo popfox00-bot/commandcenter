@@ -515,12 +515,16 @@ function mountAdmin(host, { open = '' } = {}) {
   let saying = null;
   const sayBtn = (text, a, what = 'it') => (!canSpeak() || !text ? null : el('button', { type: 'button', class: 'so-say', 'aria-label': `Play ${what} aloud`, text: '🔊', onclick: async (e) => {
     e.stopPropagation(); const b = e.currentTarget;
-    if (saying === b) { stopSpeaking(); return; }
+    if (saying === b) { saying = null; stopSpeaking(); return; }
     primeAudio(); // (first, in the tap: an iPhone lets sound start only now)
-    saying?.classList.remove('on'); saying = b; b.classList.add('on');
-    if (naturalOn() && !naturalReady()) { b.textContent = '⏳'; toast('Loading the natural voices (once a session)…'); await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}. This phone's voice instead.`)); b.textContent = '🔊'; }
-    await speak(text, a); if (saying === b) { saying = null; b.classList.remove('on'); }
-    if (lastProblem) toast(lastProblem);
+    // (⏳ while the voice is being made; lit, pulsing, only once sound has started.)
+    saying?.classList.remove('on'); if (saying) saying.textContent = '🔊'; saying = b; b.textContent = '⏳';
+    if (naturalOn() && !naturalReady()) { toast('Loading the natural voices (once a session)…'); await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}. This phone's voice instead.`)); }
+    let heard = false;
+    const r = await speak(text, a, { onStart: () => { heard = true; b.textContent = '🔊'; b.classList.add('on'); } });
+    b.textContent = '🔊'; b.classList.remove('on'); if (saying !== b) return; // (stopped, or another 🔊 tapped)
+    saying = null;
+    if (lastProblem) toast(lastProblem); else if (!heard || r.kind === 'none') toast('Nothing could be played. Settings → 🔊 Test says why.');
   } }));
   async function replyFor(p, c) {
     const poster = accountById(state, p.by); const who = accountById(state, c.by); if (!poster || !who) return null;
@@ -1396,7 +1400,7 @@ function mountAdmin(host, { open = '' } = {}) {
         if (!alive || !mine()) return;
         const r = sendMessage(state, from, to, line);
         if (r) {
-          if (view.name === 'chat' && view.id === from && state.me === to) { markRead(state, to, from, r.at); if (readOn()) speak(line, accountById(state, from)).catch(() => {}); }
+          if (view.name === 'chat' && view.id === from && state.me === to) { markRead(state, to, from, r.at); if (readOn()) speak(line, accountById(state, from)).then(() => { if (lastProblem) toast(lastProblem); }, () => {}); }
           save();
         }
         if (then) typing.set(from, { t: then(), shown: true, token }); else typing.delete(from);

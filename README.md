@@ -1526,7 +1526,10 @@ Profile, ✈ for messages), where everything is made by you in the app.
     page's rules allow blob: sound, not data:) and the natural voices play through it; it also wakes Web Audio, then speaks once the voice is ready; it plays even with the silent
     switch on (iOS 17's audio session). Anything that can't be heard says why in a short note, and **🔊 Test**
     (by the natural voices' download) plays a line and tells you which voice played, how long it took, or what
-    went wrong.
+    went wrong. If the audio player says it's playing but its clock doesn't move (silent, as seen on iPhones), the
+    voice switches to Web Audio by itself and stays there; a voice that comes out silent, or takes more than 30 s to
+    make, falls back to this phone's voice with a note. A 🔊 shows ⏳ while the voice is made and lights up only once
+    sound has really started; if nothing started, a note says so.
 - **Replies to comments** (Sync and password → Replies to comments, on to start): your other accounts answer
   comments on their own posts, a moment after you comment as another account, and about half of the generated
   and automatic comments: thanks for a compliment, an answer to a question (where: the place in its caption),

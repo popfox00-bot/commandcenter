@@ -92,7 +92,7 @@ export const CONTENT_LEVELS = [
   { id: 'tame', name: 'Tame', note: 'No swearing at all.' },
   { id: 'casual', name: 'Casual', note: 'Mild words now and then: damn, hell.' },
   { id: 'spicy', name: 'Spicy', note: 'Swears freely, like close friends do.' },
-  { id: 'adult', name: 'Adult (18+)', note: 'Swearing, crude humor and flirting. Banter, not explicit.' },
+  { id: 'adult', name: 'Adult (18+)', note: 'Swearing, crude humor and flirting, in comments, captions and messages (every account here is a made-up adult). Banter, not explicit.' },
 ];
 
 const STRONG = /\b(fuck(?:ing|in'?|ed|er|s)?|motherfuck\w*|shit(?:ty|s)?|bullshit|ass(?:hole)?|bitch(?:es|ing)?|dick|piss(?:ed)?|bastard|wtf|af)\b/gi;

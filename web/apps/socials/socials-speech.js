@@ -168,11 +168,22 @@ async function gpuDevice() {
 const made = new Map(); const MADE_MAX = 80;
 const madeKey = (voice, speed, t) => `${voice}|${speed.toFixed(3)}|${t}`;
 function remember(k, v) { made.delete(k); made.set(k, v); while (made.size > MADE_MAX) made.delete(made.keys().next().value); }
-/** One piece of speech, from what's made already or made now (and kept). */
+// (And kept on the phone too, when Socials gives a place for it (socials-store.js' voiceStore: encrypted, its names
+// not giving the words away), so a message played again plays at once even after the app was closed.)
+let kept = null;
+/** Where made voices are kept across restarts: { get(key) → { audio, rate } | null, put(key, audio, rate) }, or null. */
+export function setVoiceStore(s) { kept = s; }
+/** One piece of speech, from what's made already (here, or kept on the phone) or made now (and kept). */
 function makePiece(voice, speed, t) {
   const k = madeKey(voice, speed, t); const have = made.get(k);
   if (have) { remember(k, have); return Promise.resolve(have); }
-  const p = ask({ type: 'speak', text: t, voice, speed }).then((out) => { const v = { audio: out.audio, rate: out.rate }; if (out.device) runsOn = out.device; remember(k, v); return v; }, (e) => { made.delete(k); throw e; });
+  const p = (async () => {
+    const old = await kept?.get(k).catch(() => null); if (old?.audio?.length) return old;
+    const out = await ask({ type: 'speak', text: t, voice, speed });
+    if (out.device) runsOn = out.device;
+    const v = { audio: out.audio, rate: out.rate }; kept?.put(k, v.audio, v.rate);
+    return v;
+  })().then((v) => { remember(k, v); return v; }, (e) => { made.delete(k); throw e; });
   remember(k, p); return p;
 }
 const speedFor = (sp) => Math.max(0.55, Math.min(1.6, sp.rate / (sp.shift ?? 1)));
@@ -180,6 +191,22 @@ const speedFor = (sp) => Math.max(0.55, Math.min(1.6, sp.rate / (sp.shift ?? 1))
  * `text` made ready ahead (in the background) in account `a`'s natural voice, so it plays at once when it's said: a
  * reply while its account is "typing", the newest message when a chat opens. Nothing when the natural voices aren't on.
  */
+/**
+ * Whether `text` in account `a`'s natural voice is made already (here or kept on the phone): then it plays at once,
+ * without loading the voices first.
+ */
+export async function isMade(text, a) {
+  if (!naturalOn()) return false;
+  const words = sayable(text); if (!words) return false;
+  const sp = speakerFor(a, { naturalReady: true }); if (sp.kind !== 'natural') return false;
+  for (const t of pieces(words)) {
+    const k = madeKey(sp.voice, speedFor(sp), t); const m = made.get(k);
+    if (m && !(m instanceof Promise)) continue;
+    const old = await kept?.get(k).catch(() => null); if (!old?.audio?.length) return false;
+    remember(k, old);
+  }
+  return true;
+}
 export function prepare(text, a) {
   if (!ready || !naturalOn()) return;
   const words = sayable(text); if (!words) return;
@@ -261,12 +288,13 @@ export const canSpeak = () => !!globalThis.speechSynthesis || ready;
  * `text` said as account `a` (its voice, speed and pitch), what was being said stopped first. Resolves when
  * it's done (or stopped): { kind } how it was said, or { kind: 'none' } if it couldn't be.
  */
-export async function speak(text, a, { onStart = () => {}, natural = false, sample = '' } = {}) {
+export async function speak(text, a, { onStart = () => {}, natural = false, sample = '', made: isReady = false } = {}) {
   stopSpeaking(); const my = token; lastProblem = '';
   const words = sayable(text); if (!words) return { kind: 'none' };
   // (`natural`: a natural voice tried out, even with them off. `sample`: its line made ahead (SAMPLE_LINE), played
   // as it is, at once, with or without the voices downloaded.)
-  const sp = speakerFor(a, { naturalReady: !!sample || (ready && (naturalOn() || natural)) });
+  // (`made`: every piece made already (isMade), so it plays without the voices loaded.)
+  const sp = speakerFor(a, { naturalReady: !!sample || (isReady && naturalOn()) || (ready && (naturalOn() || natural)) });
   if (sp.kind === 'natural') {
     try {
       // (Piece by piece: the next made while this one plays. Through the <audio> player when it's unlocked (an

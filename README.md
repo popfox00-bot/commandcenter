@@ -1494,7 +1494,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
   above the keyboard; sized to what's visible (the visual viewport) so typing doesn't shift the page, and the newest
   messages stay in sight when the keyboard opens.
 - **🔊 Read aloud.** Every message, comment and caption has a 🔊 that plays it in its account's speaking voice
-  (again to stop), and **🔊 Read new replies aloud** (Sync and password) speaks each reply in a chat as it comes.
+  (again to stop). **🔊 Play replies while chatting** (Sync and password, on unless turned off): for two minutes after
+  you send a message in a chat (`ACTIVE_CHAT_MS`), replies there play by themselves as they come, one after another
+  (a 🔊 tapped, or leaving the chat, stops them); opening a chat never plays anything by itself. Voices made are kept
+  on the phone (`voiceStore` in `socials-store.js`: up to 40 MB, the least recently played let go first), encrypted
+  with Socials' data key under names that don't give the words away (an HMAC), so a message played again plays at
+  once, even after the app was closed, without loading the voices.
   Each account's **Speaking voice**, speed (Slower, Normal, Faster) and pitch (Deeper, Natural, Higher) are in Edit
   profile (▶ Preview); left as "its own", one is picked from its username, quicker and brighter for a hype account,
   slower and lower for a chill one. **Choose…** opens the voice picker: every voice as a card with a few words
@@ -1553,7 +1558,7 @@ Profile, ✈ for messages), where everything is made by you in the app.
   A browser test watches every request while a post is read and captioned, comments are generated and messages are
   answered, and fails if any leaves the app. (Socials' only other network uses: the Sports front's public scores,
   and your own Saved Files copy, if set up, encrypted with your password on the phone before it's uploaded.)
-- **Language: Tame → Adult.** A slider in Sync and password for the words in generated replies and comments
+- **Language: Tame → Adult.** A slider in Sync and password for the words in generated replies, comments and captions (every account is a made-up adult)
   (`socials-style.js`): **Tame** never swears (anything that slips in is cleaned: "holy shit" → "holy cow"),
   **Casual** says damn and hell now and then, **Spicy** swears freely like close friends do, **Adult (18+)** adds
   crude humor and flirty asides. It's banter: nothing sexually explicit, at any level.

@@ -1449,6 +1449,10 @@ textarea.so-input { resize: vertical; }
 /* Messages: a chat. */
 .so.so-in-chat { padding-bottom: 0; }
 .so-chat-wrap { display: flex; flex-direction: column; height: calc(100dvh - var(--so-reels-top, 150px)); }
+/* (A chat: fixed over the whole visible screen (above the keyboard), not moved by the page scrolling.) */
+html.so-chat-open, html.so-chat-open body { overflow: hidden; overscroll-behavior: none; }
+html.so-chat-open .so-chat-wrap { position: fixed; left: 0; right: 0; top: var(--so-vvtop, 0px); height: var(--so-vvh, 100dvh); z-index: 60; background: var(--bg); padding-top: env(safe-area-inset-top); box-sizing: border-box; max-width: 720px; margin: 0 auto; }
+html.so-chat-open .so-chat { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .so-chat-who { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; font: inherit; color: var(--text); cursor: pointer; min-height: 44px; min-width: 0; }
 .so-chat-as { margin-left: auto; font-size: .85rem; white-space: nowrap; }
 .so-chat { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
@@ -1866,6 +1870,7 @@ body.has-dock:not(.dock-tucked) .so-tabs { bottom: var(--dock-h); height: 56px; 
 body.has-dock .so-toast { bottom: calc(76px + var(--dock-h)); }
 body.has-dock .so-reels { height: calc(100dvh - 56px - var(--dock-h) - var(--so-reels-top, 150px)); }
 body.has-dock .so-chat-wrap { height: calc(100dvh - var(--dock-h) - var(--so-reels-top, 150px)); }
+html.so-chat-open body.has-dock .so-chat-wrap { height: var(--so-vvh, 100dvh); }
 body.has-dock .rap-create { height: calc(100dvh - 190px - var(--dock-h)); }
 body.has-dock .scroll-rail { bottom: var(--dock-h); }
 .so-acceptall { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }

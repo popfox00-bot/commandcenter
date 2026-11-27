@@ -1461,6 +1461,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
   😏 Witty, 🙂 Classic; or its own, from its username, as before) and what it's into ("surfing, dry humor"). Its
   comments, replies, captions and messages take that voice (the built-in engine's too), and the AI writes as it,
   from its bio and interests (letting them show only when they fit).
+- **Chats** fill the screen as Messages does: the name at the top, the conversation in between, the box right
+  above the keyboard; sized to what's visible (the visual viewport) so typing doesn't shift the page, and the newest
+  messages stay in sight when the keyboard opens.
 - **🔊 Read aloud.** Every message, comment and caption has a 🔊 that plays it in its account's speaking voice
   (again to stop), and **🔊 Read new replies aloud** (Sync and password) speaks each reply in a chat as it comes.
   Each account's **Speaking voice**, speed (Slower, Normal, Faster) and pitch (Deeper, Natural, Higher) are in Edit

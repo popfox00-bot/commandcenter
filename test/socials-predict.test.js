@@ -258,8 +258,31 @@ test('read aloud: text made sayable, cut into pieces (the first short), each acc
   assert.equal(speakerFor({ handle: 'amy', speech: { voice: 'n:bm_george' } }, { voices, naturalReady: false }).kind, 'phone', 'natural not ready: this phone\'s');
   assert.ok(speakerFor({ handle: 'zed', voice: 'hype' }, { voices }).rate > speakerFor({ handle: 'zed', voice: 'chill' }, { voices }).rate, 'hype quicker than chill');
   assert.ok(Math.abs(speakerFor({ handle: 'zed', speech: { speed: 1.15 } }, { voices }).rate / speakerFor({ handle: 'zed' }, { voices }).rate - 1.15) < 1e-9, 'its speed on top');
-  assert.equal(NATURAL.length, 28);
+  assert.equal(NATURAL.length, 43); assert.equal(NATURAL.filter((v) => v.blend).length, 15);
   assert.deepEqual(cleanSpeech({ voice: 'n:af_heart', speed: 1.15 }), { voice: 'n:af_heart', speed: 1.15 }); assert.equal(cleanSpeech({ voice: 'x', speed: 1 }), null); assert.equal(cleanSpeech({ speed: 3 }), null);
   const s = emptyState(); const a = addAccount(s, { handle: 'kai' }); editAccount(s, a.id, { speech: { voice: 'p:v-en2', speed: 0.85 } });
   assert.deepEqual(normalize(JSON.parse(JSON.stringify(s))).accounts[0].speech, { voice: 'p:v-en2', speed: 0.85 });
+});
+
+test('speaking voices described by words: natural (and blends), this phone\'s by name and language; filtered by kind, words and search; pitch kept', async () => {
+  const { NATURAL, BASE_VOICES, phoneTags, speakerFor } = await import('../web/apps/socials/socials-speech.js');
+  const { filterVoices, commonTags } = await import('../web/apps/socials/socials-voicepicker.js');
+  const { cleanSpeech } = await import('../web/apps/socials/socials-core.js');
+  assert.ok(NATURAL.every((v) => v.tags.length >= 4), 'several words each');
+  assert.deepEqual(NATURAL.find((v) => v.name === 'Harbor').tags, ['warm', 'polished', 'soft', 'transatlantic', 'woman', 'blend']);
+  assert.equal(BASE_VOICES.length, 28, 'only the model\'s own are downloaded: blends are made from them');
+  assert.ok(NATURAL.filter((v) => v.blend).every((v) => v.id.split('+').every((p) => BASE_VOICES.includes(p.split('*')[0]))), 'every blend made of real voices');
+  assert.deepEqual(phoneTags({ name: 'Samantha (Enhanced)', lang: 'en-US' }), ['clear', 'friendly', 'woman', 'American', 'enhanced']);
+  assert.deepEqual(phoneTags({ name: 'Moira', lang: 'en-IE' }), ['soft', 'lilting', 'woman', 'Irish']);
+  assert.ok(phoneTags({ name: 'Zarvox', lang: 'en-US' }).includes('novelty'));
+  assert.deepEqual(phoneTags({ name: 'Thomas', lang: 'fr-FR' }), ['French']);
+  const list = [...NATURAL.map((v) => ({ value: `n:${v.id}`, name: v.name, kind: v.blend ? 'blend' : 'natural', tags: v.tags })), { value: 'p:x', name: 'Moira', kind: 'phone', tags: ['soft', 'lilting', 'woman', 'Irish'] }];
+  assert.deepEqual(filterVoices(list, { tags: ['deep', 'British'] }).map((v) => v.name), ['George']);
+  assert.deepEqual(filterVoices(list, { kind: 'phone' }).map((v) => v.name), ['Moira']);
+  assert.equal(filterVoices(list, { kind: 'natural' }).length, 43, 'natural includes blends');
+  assert.deepEqual(filterVoices(list, { q: 'andro' }).map((v) => v.name).sort(), ['Ash', 'Haze', 'Rowan', 'Spark']);
+  assert.ok(commonTags(list).includes('woman') && commonTags(list).includes('American'));
+  assert.deepEqual(cleanSpeech({ voice: 'n:af_heart+bf_emma', pitch: 0.88 }), { voice: 'n:af_heart+bf_emma', pitch: 0.88 });
+  const sp = speakerFor({ handle: 'a', speech: { voice: 'n:af_heart+bf_emma', pitch: 0.88 } }, { voices: [], naturalReady: true });
+  assert.deepEqual([sp.kind, sp.voice, sp.shift], ['natural', 'af_heart+bf_emma', 0.88]);
 });

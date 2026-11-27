@@ -4,7 +4,8 @@
 // '' (its own, picked from its username), or null (closed without picking).
 
 import { el, fill } from '../../lib/dom.js';
-import { NATURAL, phoneVoicesReady, phoneTags, naturalDownloaded, speak, stopSpeaking, naturalReady, naturalLoad, setNaturalOn, TTS_SIZE } from './socials-speech.js';
+import * as SP from './socials-speech.js';
+import { NATURAL, phoneVoicesReady, phoneTags, naturalDownloaded, speak, stopSpeaking, naturalReady, naturalLoad, setNaturalOn, TTS_SIZE, primeAudio } from './socials-speech.js';
 
 /** Every voice to choose from, described: [{ value, name, kind ('natural' | 'blend' | 'phone'), tags, best }]. */
 export async function voiceCatalog() {
@@ -53,10 +54,12 @@ export function pickVoice({ current = '', who = {} } = {}) {
     let playing = null;
     const play = async (b, value) => {
       if (playing === b) { stopSpeaking(); return; }
+      primeAudio(); // (first, in the tap: an iPhone lets sound start only now)
       playing?.classList.remove('on'); playing = b; b.classList.add('on');
-      if (value.startsWith('n:') && !naturalReady()) { b.textContent = '…'; await naturalLoad().catch(() => {}); b.textContent = '▶'; }
+      if (value.startsWith('n:') && !naturalReady()) { b.textContent = '⏳'; note.textContent = 'Loading the natural voices (once a session)…'; await naturalLoad().catch((x) => { note.textContent = `The natural voices couldn't load: ${x.message}`; }); b.textContent = '▶'; }
       await speak(`Hi, I'm ${who.handle || 'your account'}. This is how I'd sound.`, { ...who, speech: { ...(who.speech ?? {}), voice: value || undefined } }, { natural: value.startsWith('n:') }).catch(() => {});
       if (playing === b) { playing = null; b.classList.remove('on'); }
+      if (SP.lastProblem) note.textContent = SP.lastProblem;
     };
     const card = (v) => el('li', { class: `vp-card${current === v.value ? ' on' : ''}` },
       el('span', { class: 'vp-text' },

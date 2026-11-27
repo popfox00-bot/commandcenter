@@ -32,7 +32,7 @@ import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS }
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
-import { speak, stopSpeaking, canSpeak, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove } from './socials-speech.js';
+import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove } from './socials-speech.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
@@ -516,9 +516,11 @@ function mountAdmin(host, { open = '' } = {}) {
   const sayBtn = (text, a, what = 'it') => (!canSpeak() || !text ? null : el('button', { type: 'button', class: 'so-say', 'aria-label': `Play ${what} aloud`, text: '🔊', onclick: async (e) => {
     e.stopPropagation(); const b = e.currentTarget;
     if (saying === b) { stopSpeaking(); return; }
+    primeAudio(); // (first, in the tap: an iPhone lets sound start only now)
     saying?.classList.remove('on'); saying = b; b.classList.add('on');
-    if (naturalOn() && !naturalReady()) await naturalLoad().catch(() => {});
+    if (naturalOn() && !naturalReady()) { b.textContent = '⏳'; toast('Loading the natural voices (once a session)…'); await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}. This phone's voice instead.`)); b.textContent = '🔊'; }
     await speak(text, a); if (saying === b) { saying = null; b.classList.remove('on'); }
+    if (lastProblem) toast(lastProblem);
   } }));
   async function replyFor(p, c) {
     const poster = accountById(state, p.by); const who = accountById(state, c.by); if (!poster || !who) return null;
@@ -911,8 +913,10 @@ function mountAdmin(host, { open = '' } = {}) {
     const sayPitch = el('select', { class: 'so-input', 'aria-label': 'Speaking pitch' }, [['0.88', 'Deeper'], ['1', 'Natural pitch'], ['1.12', 'Higher']].map(([v, t]) => el('option', { value: v, text: t })));
     sayPitch.value = [0.88, 1.12].includes(a?.speech?.pitch) ? String(a.speech.pitch) : '1';
     const preview = el('button', { type: 'button', class: 'btn small', text: '▶ Preview', onclick: async () => {
-      if (sayValue.startsWith('n:') && !naturalReady()) { preview.textContent = 'Loading…'; await naturalLoad().catch(() => {}); preview.textContent = '▶ Preview'; }
-      speak(`Hey! It's ${who().handle}. This is how I sound.`, who(), { natural: sayValue.startsWith('n:') }).catch(() => {});
+      primeAudio();
+      if ((sayValue.startsWith('n:') || naturalOn()) && !naturalReady()) { preview.textContent = 'Loading…'; await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}`)); preview.textContent = '▶ Preview'; }
+      await speak(`Hey! It's ${who().handle}. This is how I sound.`, who(), { natural: sayValue.startsWith('n:') }).catch(() => {});
+      if (lastProblem) toast(lastProblem);
     } });
     const err = el('p', { class: 'so-err', role: 'alert' });
     const submit = () => {
@@ -1418,7 +1422,7 @@ function mountAdmin(host, { open = '' } = {}) {
     if (!msgs.length) list.append(el('p', { class: 'muted so-pad', text: `Say hi to @${o.handle}. (Switch to @${o.handle} to answer as them.)` }));
     if (typing.get(o.id)?.shown) list.append(el('div', { class: 'so-bubble so-typing', 'aria-label': `@${o.handle} is typing` }, el('span', { class: 'so-typing-dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'))));
     const input = el('input', { class: 'so-input', type: 'text', placeholder: 'Message…', 'aria-label': 'Message', maxlength: '2000', enterkeyhint: 'send' });
-    const send = () => { if (sendMessage(state, m.id, o.id, input.value)) { save(); autoReply(o.id, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
+    const send = () => { if (readOn()) primeAudio(); if (sendMessage(state, m.id, o.id, input.value)) { save(); autoReply(o.id, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
     // (The Owner just said something and no reply's on its way (replies by themselves off): ✨ one now.)
@@ -1564,9 +1568,18 @@ function mountAdmin(host, { open = '' } = {}) {
       });
       const off = on ? el('button', { type: 'button', class: 'btn', text: 'Turn off', onclick: () => { setNaturalOn(false); drawTv('Turned off: this phone\'s voices speak (the download stays).'); } }) : null;
       const rm = have ? el('button', { type: 'button', class: 'btn danger', text: 'Remove download', onclick: async () => { if (!confirm(`Remove the natural voices (${TTS_SIZE}) from this phone?`)) return; await naturalRemove(); drawTv('Removed.'); } }) : null;
+      // (🔊 Test: a line played, and what happened said plainly: which voice, how long it took, or why not.)
+      const test = el('button', { type: 'button', class: 'btn', text: '🔊 Test', onclick: async () => {
+        primeAudio(); test.disabled = true; const t0 = Date.now(); let loadMs = 0;
+        if (naturalOn() && !naturalReady()) { status.textContent = 'Loading the natural voices…'; try { await naturalLoad(); loadMs = Date.now() - t0; } catch (x) { status.textContent = `The natural voices couldn't load: ${x.message}`; } }
+        const t1 = Date.now(); let first = 0;
+        const r = await speak('Hi! This is a test of how I sound on this phone.', me() ?? { handle: 'test' }, { onStart: () => { first = Date.now() - t1; } });
+        status.textContent = r.kind === 'none' ? (lastProblem || 'Nothing could be played.') : `${r.kind === 'natural' ? 'Natural voice' : 'This phone\'s voice'} played${loadMs ? ` (loading took ${(loadMs / 1000).toFixed(1)} s)` : ''}; the sound started after ${(first / 1000).toFixed(1)} s.${lastProblem ? ` ${lastProblem}` : ''}`;
+        test.disabled = false;
+      } });
       fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }),
         el('p', { class: 'small muted', text: `A small speech model on your phone: ${NATURAL.filter((v) => !v.blend).length} voices (American and British, women and men) and ${NATURAL.filter((v) => v.blend).length} blends of them, each described in a few words, that sound much more like people than the phone's own. Downloaded once, then it works offline; what it reads never leaves the phone. No WebGPU needed.` }),
-        status, bar, el('div', { class: 'so-row' }, go, off, rm));
+        status, bar, el('div', { class: 'so-row' }, go, off, rm, test));
     };
     drawTv();
     return el('div', { class: 'so-text-settings' },

@@ -1490,7 +1490,8 @@ Profile, ✈ for messages), where everything is made by you in the app.
     speaks sentence by sentence (the next made while one plays), so it starts after the first short phrase is
     made (a few seconds on a phone). When they're off or not ready, this phone's voice speaks instead.
   - **On an iPhone** a page may only start sound in the moment of a tap, so each 🔊 (and ▶, and Send while replies
-    are read aloud) wakes the sound first, then speaks once the voice is ready; it plays even with the silent
+    are read aloud) unlocks an ordinary audio player (a tenth of a second of silence played on it, as a blob: the
+    page's rules allow blob: sound, not data:) and the natural voices play through it; it also wakes Web Audio, then speaks once the voice is ready; it plays even with the silent
     switch on (iOS 17's audio session). Anything that can't be heard says why in a short note, and **🔊 Test**
     (by the natural voices' download) plays a line and tells you which voice played, how long it took, or what
     went wrong.

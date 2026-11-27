@@ -37,7 +37,7 @@ test('the Dock: Home in the middle, four Favorites; open an app, go Home, change
   const home = await dock.getByRole('link', { name: 'Home' }).boundingBox(); assert.ok(Math.abs(home.x + home.width / 2 - 195) < 2, 'Home centered');
   // A Favorite opens its app; Home goes back.
   await dock.getByRole('link', { name: 'Clock' }).click(); await page.waitForURL(/#\/clock/);
-  assert.equal(await dock.getByRole('link', { name: 'Clock' }).getAttribute('aria-current'), 'page');
+  await dock.locator('[aria-label="Clock"][aria-current="page"]').waitFor({ timeout: 5000 }); // (the Dock redrawn just after the address changes)
   await dock.getByRole('link', { name: 'Home' }).click(); await page.waitForURL(/#\/$/); await page.locator('#app-grid .app-tile').first().waitFor();
   // Held down: change it.
   const fav = dock.getByRole('link', { name: 'Notes' }); const fb = await fav.boundingBox();

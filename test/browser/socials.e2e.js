@@ -142,12 +142,18 @@ test('Socials on two devices: the same password opens the same Socials from Driv
   await A.page.getByLabel('Password', { exact: true }).fill('heron42'); await A.page.getByLabel('Password again').fill('heron42');
   await A.page.getByRole('button', { name: 'Set password' }).click();
   await A.page.getByLabel('Username', { exact: true }).fill('maya'); await A.page.getByRole('button', { name: 'Create account' }).click();
+  // (The recovery key comes with the first sync: before the post or after it, as it happens; it stays on screen until
+  // "I've saved it", whatever's tapped meanwhile.)
+  let key = '';
+  const takeKey = async () => { key = await A.page.locator('.so-key').textContent(); await A.page.locator('.so-tabs button').nth(2).click({ timeout: 3000 }).catch(() => {}); assert.equal(await A.page.locator('.so-key').count(), 1, 'still shown after a tab was tapped'); await A.page.getByRole('button', { name: 'I\'ve saved it' }).click(); };
+  await A.page.getByText('Welcome to your feed').or(A.page.getByText('Your recovery key')).first().waitFor();
+  await A.page.waitForTimeout(800); if (await A.page.locator('.so-key').count()) await takeKey();
   await A.page.getByRole('button', { name: 'New post' }).first().click();
   await A.page.getByLabel('Photo or video').setInputFiles(await photo(A.page)); await A.page.getByRole('dialog', { name: 'Edit photo' }).getByRole('button', { name: 'Done' }).click(); await A.page.locator('.so-new-prev img').waitFor();
   await A.page.getByLabel('Caption').fill('From the first phone'); await A.page.getByRole('button', { name: 'Share' }).click();
-  await A.page.getByText('Your recovery key').waitFor({ timeout: 60000 });
-  assert.match(await A.page.locator('.so-key').textContent(), /^[A-Z2-9]{4}(-[A-Z2-9]{4}){7}$/);
-  await A.page.getByRole('button', { name: 'I\'ve saved it' }).click();
+  await A.page.locator('.so-post', { hasText: 'From the first phone' }).or(A.page.getByText('Your recovery key')).first().waitFor({ timeout: 30000 });
+  if (!key) { await A.page.getByText('Your recovery key').waitFor({ timeout: 60000 }); await takeKey(); }
+  assert.match(key, /^[A-Z2-9]{4}(-[A-Z2-9]{4}){7}$/);
   await A.page.getByRole('button', { name: 'Sync and password' }).click(); await A.page.getByRole('button', { name: 'Sync now' }).click();
   await A.page.waitForFunction(() => /^Synced/.test(document.querySelector('.so-sync-msg')?.textContent ?? '') && document.querySelector('.so-cloud')?.textContent === '☁');
   // (In Drive: only scrambled files, no caption, handle or photo readable.)

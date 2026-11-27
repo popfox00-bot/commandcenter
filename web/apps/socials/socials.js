@@ -32,7 +32,7 @@ import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS }
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
-import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove } from './socials-speech.js';
+import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove } from './socials-speech.js';
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
@@ -1574,7 +1574,7 @@ function mountAdmin(host, { open = '' } = {}) {
         if (naturalOn() && !naturalReady()) { status.textContent = 'Loading the natural voices…'; try { await naturalLoad(); loadMs = Date.now() - t0; } catch (x) { status.textContent = `The natural voices couldn't load: ${x.message}`; } }
         const t1 = Date.now(); let first = 0;
         const r = await speak('Hi! This is a test of how I sound on this phone.', me() ?? { handle: 'test' }, { onStart: () => { first = Date.now() - t1; } });
-        status.textContent = r.kind === 'none' ? (lastProblem || 'Nothing could be played.') : `${r.kind === 'natural' ? 'Natural voice' : 'This phone\'s voice'} played${loadMs ? ` (loading took ${(loadMs / 1000).toFixed(1)} s)` : ''}; the sound started after ${(first / 1000).toFixed(1)} s.${lastProblem ? ` ${lastProblem}` : ''}`;
+        status.textContent = `${r.kind === 'none' ? (lastProblem || 'Nothing could be played.') : `${r.kind === 'natural' ? 'Natural voice' : 'This phone\'s voice'} played${loadMs ? ` (loading took ${(loadMs / 1000).toFixed(1)} s)` : ''}; the sound started after ${(first / 1000).toFixed(1)} s.${lastProblem ? ` ${lastProblem}` : ''}`} [${audioReport()}]`;
         test.disabled = false;
       } });
       fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }),
@@ -1683,7 +1683,7 @@ function mountAdmin(host, { open = '' } = {}) {
       el('h3', { text: 'Your recovery key' }),
       el('p', { text: 'Socials is now kept in your Drive, encrypted. If you ever forget your password, this key opens it instead. Write it down or save it somewhere safe; it\'s shown only this once.' }),
       el('p', { class: 'so-key', text: key }),
-      el('button', { type: 'button', class: 'btn primary', text: 'I\'ve saved it', onclick: () => go({ name: 'feed' }) }));
+      el('button', { type: 'button', class: 'btn primary', text: 'I\'ve saved it', onclick: () => { sync.keyOnScreen = null; go({ name: 'feed' }); } }));
   }
 
   function draw() {
@@ -1691,8 +1691,10 @@ function mountAdmin(host, { open = '' } = {}) {
     if (!sessionOpen) { gate(); return; }
     drawBars(); applyBg();
     // (The recovery key, once, as soon as nothing's being made.)
-    if (sync.pendingKey && ['feed', 'profile', 'people', 'explore', 'settings'].includes(view.name)) { view = { name: 'recovery', key: sync.pendingKey }; sync.pendingKey = null; }
-    if (view.name === 'recovery') { fill(main, recovery(view.key)); return; }
+    if (sync.pendingKey && ['feed', 'profile', 'people', 'explore', 'settings'].includes(view.name)) { sync.keyOnScreen = sync.pendingKey; sync.pendingKey = null; }
+    // (Shown once: so it stays until "I've saved it", whatever's tapped meanwhile (a tab, New post…).)
+    if (sync.keyOnScreen) { view = { name: 'recovery', key: sync.keyOnScreen }; fill(main, recovery(sync.keyOnScreen)); return; }
+    if (view.name === 'recovery') view = { name: 'feed' };
     if (!me() && view.name !== 'settings') { fill(main, welcome()); return; }
     if (!me()) { fill(main, settings()); return; }
     const v = view;

@@ -177,8 +177,34 @@ const audioCtx = () => (ctx ??= new (globalThis.AudioContext || globalThis.webki
  * started (silently) now, for what's said a few seconds later, when it's ready. Also plays with the silent
  * switch on (iOS 17's audio session: as video does).
  */
+// (The player the natural voices play through: an ordinary <audio> element, the most dependable way to play sound on
+// an iPhone. Unlocked at a tap by playing a moment of silence on it; after that it can play what's made later.)
+let player = null; let playerUnlocked = false; let unlockP = null;
+let silence = ''; // (a tenth of a second of silence, as a blob: the page's rules allow blob: sound, not data:)
+function audioEl() {
+  if (player || typeof document === 'undefined') return player;
+  player = document.createElement('audio'); player.setAttribute('playsinline', ''); player.setAttribute('webkit-playsinline', ''); player.preload = 'auto';
+  player.hidden = true; document.body.append(player);
+  return player;
+}
+/** Float samples as a WAV file (16-bit, mono): what the <audio> player plays. */
+export function wavOf(samples, rate) {
+  const n = samples.length; const b = new DataView(new ArrayBuffer(44 + n * 2)); const str = (o, t) => { for (let i = 0; i < t.length; i++) b.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); b.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+  b.setUint32(24, rate, true); b.setUint32(28, rate * 2, true); b.setUint16(32, 2, true); b.setUint16(34, 16, true); str(36, 'data'); b.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, samples[i] || 0)); b.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true); }
+  return new Blob([b.buffer], { type: 'audio/wav' });
+}
+/** What the sound can do here, for 🔊 Test: a line of facts. */
+export function audioReport() {
+  const ua = globalThis.navigator?.userAgent ?? ''; const ios = /iPhone|iPad/.test(ua) ? (ua.match(/OS (\d+)_(\d+)/) ?? []).slice(1).join('.') : '';
+  const standalone = globalThis.navigator?.standalone || globalThis.matchMedia?.('(display-mode: standalone)').matches;
+  return [ios ? `iOS ${ios}` : 'not iOS', standalone ? 'home-screen app' : 'browser tab', `player ${playerUnlocked ? 'unlocked' : 'locked'}`, `audio ${ctx?.state ?? 'not started'}`, `speech ${globalThis.speechSynthesis ? `${phoneVoices().length} voices` : 'none'}`, `natural ${ready ? 'loaded' : 'not loaded'}`].join(' · ');
+}
+
 export function primeAudio() {
   try { if (globalThis.navigator?.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older iOS */ }
+  try { const a = audioEl(); if (a && (!playerUnlocked || a.paused)) { silence ||= URL.createObjectURL(wavOf(new Float32Array(2400), 24000)); a.src = silence; const pr = a.play(); unlockP = pr?.then?.(() => { playerUnlocked = true; }, () => {}) ?? null; if (!pr) playerUnlocked = true; } } catch { /* no <audio> */ }
   try {
     const c = audioCtx(); if (c.state !== 'running') c.resume?.();
     const b = c.createBuffer(1, 1, 22050); const src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start(0);
@@ -206,10 +232,12 @@ export async function speak(text, a, { onStart = () => {}, natural = false } = {
   const sp = speakerFor(a, { naturalReady: ready && (naturalOn() || natural) }); // (`natural`: a natural voice tried out, even with them off)
   if (sp.kind === 'natural') {
     try {
-      // (Piece by piece: the next made while this one plays.)
-      const c = audioCtx();
-      if (c.state !== 'running') await within(c.resume().catch(() => {}), 1500);
-      if (c.state !== 'running') throw new Error('the phone didn\'t let the sound start (tap 🔊 again)');
+      // (Piece by piece: the next made while this one plays. Through the <audio> player when it's unlocked (an
+      // iPhone's dependable way), else Web Audio.)
+      const a = audioEl(); if (a && !playerUnlocked && unlockP) await within(unlockP, 800); const useEl = !!a && playerUnlocked;
+      const c = useEl ? null : audioCtx();
+      if (c && c.state !== 'running') await within(c.resume().catch(() => {}), 1500);
+      if (c && c.state !== 'running') throw new Error('the phone didn\'t let the sound start (tap 🔊 again)');
       const parts = pieces(words); const shift = sp.shift ?? 1;
       // (Pitch: made at speed ÷ pitch, played back that much faster or slower: higher or deeper, at its own pace.)
       const make = (t) => ask({ type: 'speak', text: t, voice: sp.voice, speed: Math.max(0.55, Math.min(1.6, sp.rate / shift)) });
@@ -217,12 +245,24 @@ export async function speak(text, a, { onStart = () => {}, natural = false } = {
       for (let i = 0; i < parts.length; i++) {
         const out = await next; if (my !== token) return { kind: 'natural' };
         if (i + 1 < parts.length) next = make(parts[i + 1]);
-        const buf = ctx.createBuffer(1, out.audio.length, out.rate); buf.copyToChannel(out.audio, 0);
-        const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = shift; src.connect(ctx.destination); playing = src;
-        if (!started) { started = true; onStart(); }
-        src.start();
-        // (Its end, or its length and a moment more: never left waiting if the end isn't heard of.)
-        await within(new Promise((ok) => { src.onended = ok; }), (buf.duration / shift) * 1000 + 1500);
+        const secs = out.audio.length / out.rate;
+        if (useEl) {
+          const url = URL.createObjectURL(wavOf(out.audio, out.rate));
+          try {
+            a.src = url; a.preservesPitch = false; a.mozPreservesPitch = false; a.webkitPreservesPitch = false; a.playbackRate = shift; playing = { stop: () => { a.pause(); } };
+            const ended = new Promise((ok) => { a.onended = ok; a.onerror = ok; });
+            await a.play();
+            if (!started) { started = true; onStart(); }
+            await within(ended, (secs / shift) * 1000 + 1500);
+          } finally { URL.revokeObjectURL(url); }
+        } else {
+          const buf = c.createBuffer(1, out.audio.length, out.rate); buf.copyToChannel(out.audio, 0);
+          const src = c.createBufferSource(); src.buffer = buf; src.playbackRate.value = shift; src.connect(c.destination); playing = src;
+          if (!started) { started = true; onStart(); }
+          src.start();
+          // (Its end, or its length and a moment more: never left waiting if the end isn't heard of.)
+          await within(new Promise((ok) => { src.onended = ok; }), (secs / shift) * 1000 + 1500);
+        }
         if (my !== token) return { kind: 'natural' };
       }
       return { kind: 'natural' };

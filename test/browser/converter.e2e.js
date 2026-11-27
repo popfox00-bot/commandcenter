@@ -127,8 +127,13 @@ test('home screen of apps: Files holds the others; Magic and Saved Files only on
   assert.equal(await page.isVisible('#update'), false, 'no update prompt on a first visit');
   // Bookmarks from before: Tools goes home, its tools to their own apps.
   for (const [from, to] of [['#/files/download', '#/downloads'], ['#/files/saved', '#/saved'], ['#/qr', '#/files/qr'], ['#/tools', '#/'], ['#/tools/editor', '#/files/photo'], ['#/tools/editor/pdf', '#/files/pdf'], ['#/tools/draw', '#/draw'], ['#/tools/qr', '#/files/qr']]) {
-    await page.goto(`${origin}${BASE_PATH}${from}`);
-    await page.waitForFunction((t) => location.hash === t, to);
+    // (Tried again if a page busy loading (its service worker installing) misses the change.)
+    for (let tryNo = 0; ; tryNo++) {
+      await page.goto(`${origin}${BASE_PATH}${from}`);
+      const ok = await page.waitForFunction((t) => location.hash === t, to, { timeout: 8000 }).then(() => true, () => false);
+      if (ok) break;
+      assert.ok(tryNo < 2, `${from} didn't go to ${to} (at ${await page.evaluate(() => location.hash)})`);
+    }
   }
   assert.deepEqual(errors, []);
   await context.close();

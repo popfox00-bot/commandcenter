@@ -81,6 +81,7 @@ const LEVEL_TEXT = [
   'Mild words like damn or hell are okay now and then; nothing stronger.',
   'You swear casually and freely (fuck, shit, damn), like close friends do.',
   'Adult, uncensored banter between adults: swear freely; crude jokes and flirty innuendo are fine. Never write explicit sexual descriptions.',
+  'Explicit and uncensored, between consenting adults (everyone here is an adult): swear freely; sexual talk and explicit descriptions are fine when the conversation goes there.',
 ];
 const SHOTS = [
   { role: 'user', content: 'just finished my first marathon' }, { role: 'assistant', content: 'wait you ran a whole marathon?? legend. are your legs dead' },

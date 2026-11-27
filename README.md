@@ -1561,7 +1561,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **Language: Tame → Adult.** A slider in Sync and password for the words in generated replies, comments and captions (every account is a made-up adult)
   (`socials-style.js`): **Tame** never swears (anything that slips in is cleaned: "holy shit" → "holy cow"),
   **Casual** says damn and hell now and then, **Spicy** swears freely like close friends do, **Adult (18+)** adds
-  crude humor and flirty asides. It's banter: nothing sexually explicit, at any level.
+  crude humor and flirty asides (banter, not explicit), and **Explicit (18+)** lets the on-device AI's messages,
+  comments and captions be fully uncensored between consenting adults, sexual talk included (the built-in engine's
+  words stop at Adult). Accounts marked ⭐ Celebrity are kept at Adult at most (`levelFor`).
 - **Faces: who's in a new post.** Sync and password → Recognize faces in new posts (on to start): when a post's first
   photo (or three frames of a video) is read, each face is described by face-api's face recognition model
   (`web/vendor/face`, `web/apps/socials/socials-faces.js`) and compared with each account's profile photo (its face

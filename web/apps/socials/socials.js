@@ -73,8 +73,10 @@ const creplyOn = () => store.get(CREPLY_KEY) !== '0';
 const REPLY_KEY = 'cc.socials.autoreply';
 const replyOn = () => store.get(REPLY_KEY) !== '0';
 const LEVEL_KEY = 'cc.socials.level';
-/** How tame or adult the generated words are: 0 Tame … 3 Adult. */
-const levelNow = () => Math.max(0, Math.min(3, Number(store.get(LEVEL_KEY) ?? 0) || 0));
+/** How tame or adult the generated words are: 0 Tame … 3 Adult, 4 Explicit. */
+const levelNow = () => Math.max(0, Math.min(4, Number(store.get(LEVEL_KEY) ?? 0) || 0));
+/** The level for words written as or about these accounts: Explicit (4) only for made-up accounts, never ⭐ Celebrities (Adult at most). */
+const levelFor = (...as) => (as.flat().some((x) => x?.kind === 'celebrity') ? Math.min(3, levelNow()) : levelNow());
 const FACE_KEY = 'cc.socials.faces';
 const faceOn = () => store.get(FACE_KEY) !== '0';
 // (This device, for counting views: each device counts its own, the counts added up.)
@@ -556,9 +558,9 @@ function mountAdmin(host, { open = '' } = {}) {
     // (Not the same as any of its other replies on this post: tried again until it's new (the @mention aside).)
     const said = new Set(p.comments.filter((x) => x.by === p.by).map((x) => x.text.replace(/^@\S+\s*/, '').toLowerCase()));
     let draft = '';
-    for (let k = 0; k < 8; k++) { draft = spice(voice(commentReply(c.text.replace(/^@\S+\s*/, ''), { commenter: who.handle, caption: p.caption }), { persona }), levelNow(), { persona, mood: 'pos' }); if (!said.has(draft.replace(/^@\S+\s*/, '').toLowerCase())) break; }
+    for (let k = 0; k < 8; k++) { draft = spice(voice(commentReply(c.text.replace(/^@\S+\s*/, ''), { commenter: who.handle, caption: p.caption }), { persona }), levelFor(poster, who), { persona, mood: 'pos' }); if (!said.has(draft.replace(/^@\S+\s*/, '').toLowerCase())) break; }
     if (!aiOn() || !aiReady()) return draft;
-    const ai = await aiCommentReply({ poster: poster.handle, persona, about: aboutOf(poster), commenter: who.handle, comment: c.text, draft, scene: describeScene(p.scene), caption: p.caption, level: levelNow() }).catch(() => null);
+    const ai = await aiCommentReply({ poster: poster.handle, persona, about: aboutOf(poster), commenter: who.handle, comment: c.text, draft, scene: describeScene(p.scene), caption: p.caption, level: levelFor(poster, who) }).catch(() => null);
     return ai ? (/^@/.test(draft) && !/^@/.test(ai) && Math.random() < 0.5 ? `@${who.handle} ${ai}` : ai) : draft;
   }
   function answerComment(p, c, { now = false } = {}) {
@@ -579,7 +581,7 @@ function mountAdmin(host, { open = '' } = {}) {
   async function rewriteAuto(p) {
     const cs = p.comments.filter((c) => c.by !== p.by).slice(-3); if (!cs.length) return;
     const who = cs.map((c) => { const a = accountById(state, c.by); return { handle: a?.handle ?? 'friend', persona: personaFor(a), about: aboutOf(a) }; });
-    const out = await aiComments({ as: who, drafts: cs.map((c) => c.text), scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow() });
+    const out = await aiComments({ as: who, drafts: cs.map((c) => c.text), scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelFor(accountById(state, p.by), cs.map((c) => accountById(state, c.by))) });
     let changed = false; cs.forEach((c, i) => { if (out[i] && out[i] !== c.text && p.comments.includes(c)) { c.text = out[i].slice(0, 500); changed = true; } });
     if (changed) { save(); if (['feed', 'post', 'profile'].includes(view.name)) draw(); }
   }
@@ -611,12 +613,12 @@ function mountAdmin(host, { open = '' } = {}) {
       let written = texts;
       if (aiOn() && aiReady()) {
         const label = btn.textContent; btn.textContent = '✍️'; btn.disabled = true;
-        written = await aiComments({ as: who.map((id) => ({ handle: accountById(state, id)?.handle ?? 'friend', persona: persona(id), about: aboutOf(accountById(state, id)) })), drafts: texts, scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelNow(), avoid: p.comments.map((c) => c.text) });
+        written = await aiComments({ as: who.map((id) => ({ handle: accountById(state, id)?.handle ?? 'friend', persona: persona(id), about: aboutOf(accountById(state, id)) })), drafts: texts, scene: describeScene(p.scene), caption: p.caption, by: accountById(state, p.by)?.handle ?? '', level: levelFor(who.map((id) => accountById(state, id)), accountById(state, p.by)), avoid: p.comments.map((c) => c.text) });
         btn.textContent = label; btn.disabled = false;
       }
       let added = 0;
       const made = [];
-      written.forEach((t, i) => { const c = addComment(state, p.id, who[i], t === texts[i] ? spice(t, levelNow(), { persona: persona(who[i]), mood: 'pos' }) : t); if (c) { added++; made.push(c); } });
+      written.forEach((t, i) => { const c = addComment(state, p.id, who[i], t === texts[i] ? spice(t, levelFor(accountById(state, who[i]), accountById(state, p.by)), { persona: persona(who[i]), mood: 'pos' }) : t); if (c) { added++; made.push(c); } });
       if (added) { save(); draw(); }
       // (The poster answers about half of them (one at least).)
       const answer = made.filter((c, i) => i === 0 || Math.random() < 0.5);
@@ -1151,8 +1153,8 @@ function mountAdmin(host, { open = '' } = {}) {
       const tags = c.match(/#[\p{L}\p{N}_]+/gu) ?? []; const body = c.replace(/\s*#[\p{L}\p{N}_]+/gu, '').trim();
       const persona = personaFor(m);
       let t = null;
-      if (aiOn() && aiReady()) t = await aiCaption({ scene: describeScene(sc), draft: body, level: levelNow(), avoid: suggested, handle: m.handle, persona, about: aboutOf(m) });
-      t ??= spice(voice(body, { persona }), levelNow(), { persona, mood: 'pos' });
+      if (aiOn() && aiReady()) t = await aiCaption({ scene: describeScene(sc), draft: body, level: levelFor(m), avoid: suggested, handle: m.handle, persona, about: aboutOf(m) });
+      t ??= spice(voice(body, { persona }), levelFor(m), { persona, mood: 'pos' });
       return `${t}${tags.length ? ` ${tags.join(' ')}` : ''}`;
     };
     const suggest = el('button', { type: 'button', class: 'btn so-suggest', text: '✨ Suggest caption' });
@@ -1213,7 +1215,7 @@ function mountAdmin(host, { open = '' } = {}) {
         showUp('Posting… saving to this phone', 0.15);
         const p = make(false, scene);
         // (A few of the other accounts say something about it, made for its photo and caption.)
-        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), personas: who.map((a) => personaFor(a)), by: m.handle }).map((t, i) => spice(t, levelNow(), { persona: personaFor(who[i]), mood: 'pos' })) });
+        if (autoOn()) autoComment(state, p.id, { write: (who) => generateComments(p.caption, who.length, { photo: p.scene, tagged: (p.tags ?? []).map((t) => accountById(state, t)?.handle).filter(Boolean), as: who.map((a) => a.handle), personas: who.map((a) => personaFor(a)), by: m.handle }).map((t, i) => spice(t, levelFor(who, accountById(state, p.by)), { persona: personaFor(who[i]), mood: 'pos' })) });
         await saveState(state); edits++; store.set(DIRTY_KEY, '1');
         go(ready[0].kind === 'video' ? { name: 'reels' } : { name: 'feed' });
         // (Its automatic comments: rewritten by the AI when it's on; then the poster answers about half.)
@@ -1394,7 +1396,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const hist = conversation(state, from, to).slice(-40).map((x) => ({ mine: x.from === to, text: x.text, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
     const a = accountById(state, from); const persona = personaFor(a);
     const lastMine = [...hist].reverse().find((x) => x.mine)?.text ?? '';
-    return spice(chatReplyStyled(hist, { persona }), levelNow(), { persona, mood: moodOf(lastMine) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
+    return spice(chatReplyStyled(hist, { persona }), levelFor(a), { persona, mood: moodOf(lastMine) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
   }
   /** The AI's reply (when it's on and ready), from the conversation, meaning roughly what the engine would say; else null. */
   async function aiText(from, to, draft) {
@@ -1404,7 +1406,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const msgs = conversation(state, from, to).slice(-14);
     const hist = msgs.map((x) => ({ mine: x.from === to, text: x.text, post: x.post ? { caption: postById(state, x.post)?.caption ?? '' } : null }));
     const a = accountById(state, from); const o = accountById(state, to);
-    return aiReply({ history: hist, them: a?.handle ?? 'friend', me: o?.handle ?? 'you', persona: personaFor(a), about: aboutOf(a), style: styleOf(hist.filter((x) => x.mine).map((x) => x.text)), level: levelNow(), draft: draft.replace(/\n/g, ' ') });
+    return aiReply({ history: hist, them: a?.handle ?? 'friend', me: o?.handle ?? 'you', persona: personaFor(a), about: aboutOf(a), style: styleOf(hist.filter((x) => x.mine).map((x) => x.text)), level: levelFor(a, o), draft: draft.replace(/\n/g, ' ') });
   }
   /** `from` answers `to` (the Owner) in a moment; more from the Owner first: it waits and answers it all. */
   function autoReply(from, to) {
@@ -1567,7 +1569,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const lv = levelNow();
     const note = el('p', { class: 'small muted so-level-note', text: CONTENT_LEVELS[lv].note });
     const name = el('strong', { class: 'so-level-name', text: CONTENT_LEVELS[lv].name });
-    const range = el('input', { type: 'range', min: '0', max: '3', step: '1', value: String(lv), class: 'so-level', 'aria-label': 'Language: tame to adult', 'aria-valuetext': CONTENT_LEVELS[lv].name });
+    const range = el('input', { type: 'range', min: '0', max: '4', step: '1', value: String(lv), class: 'so-level', 'aria-label': 'Language: tame to explicit', 'aria-valuetext': CONTENT_LEVELS[lv].name });
     range.addEventListener('input', () => { const v = Number(range.value); store.set(LEVEL_KEY, String(v)); name.textContent = CONTENT_LEVELS[v].name; note.textContent = CONTENT_LEVELS[v].note; range.setAttribute('aria-valuetext', CONTENT_LEVELS[v].name); });
     const aiBox = el('div', { class: 'so-ai' });
     const drawAi = async (msg = '') => {
@@ -1620,7 +1622,7 @@ function mountAdmin(host, { open = '' } = {}) {
     };
     drawTv();
     return el('div', { class: 'so-text-settings' },
-      el('div', { class: 'so-level-row' }, el('span', {}, el('strong', { text: 'Language' }), ' · ', name), el('span', { class: 'small muted', text: 'Tame → Adult' })),
+      el('div', { class: 'so-level-row' }, el('span', {}, el('strong', { text: 'Language' }), ' · ', name), el('span', { class: 'small muted', text: 'Tame → Explicit' })),
       range, note, aiBox, readBox, tvBox);
   }
 

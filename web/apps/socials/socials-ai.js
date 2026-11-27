@@ -1,6 +1,6 @@
 // Socials' AI replies: an on-device language model (socials-ai-worker.js) writes the reply when the Owner
 // messages one of their accounts, from the whole conversation, in that account's voice and at the chosen level
-// (Tame … Adult). Turned on in Sync and password: a one-time download (~1.2 GB) from Hugging Face, then it
+// (Tame … Adult). Turned on in Sync and password: a one-time download (~1.2 GB; on an iPhone or iPad a smaller model, ~480 MB) from Hugging Face, then it
 // works offline. It needs WebGPU (iPhone with iOS 26 or later, current Chrome/Edge): without it, or while it
 // loads, or when what it writes doesn't hold up (too long, off topic, sounding like an assistant), the reply
 // comes from the built-in engine (socials-chat.js) as before. Nothing you write, nor anything written back, ever
@@ -10,8 +10,19 @@
 import { store } from '../../lib/dom.js';
 import { cleanWords } from './socials-style.js';
 
+// (The model: Qwen2.5 1.5B (1.2 GB) where there's room; on an iPhone or iPad the 0.5B one (480 MB): the larger one
+// takes more memory than Safari allows a page, which is closed ("A problem repeatedly occurred") while it downloads
+// or loads. A load that never finished (the page was closed during it) isn't started again by itself.)
+const isAppleMobile = () => { const n = globalThis.navigator; return /iPhone|iPad|iPod/.test(n?.userAgent ?? '') || (n?.platform === 'MacIntel' && (n?.maxTouchPoints ?? 0) > 1); };
 export const AI_MODEL = 'onnx-community/Qwen2.5-1.5B-Instruct';
+export const AI_MODEL_SMALL = 'onnx-community/Qwen2.5-0.5B-Instruct';
+export const aiModel = () => (isAppleMobile() ? AI_MODEL_SMALL : AI_MODEL);
+export const aiSize = () => (aiModel() === AI_MODEL_SMALL ? '480 MB' : '1.2 GB');
 export const AI_SIZE = '1.2 GB';
+const AI_LOADING = 'cc.socials.ai.loading';
+const aiCrashedBefore = !!store.get(AI_LOADING);
+/** Whether the last load of the model never finished (the page was closed during it: out of memory, most likely). */
+export const aiLoadCrashed = () => aiCrashedBefore;
 const KEY = 'cc.socials.ai';
 
 /** Whether AI replies are turned on (they still need the model downloaded and WebGPU). */
@@ -31,7 +42,7 @@ export async function aiSupport() {
 
 /** Whether the model is downloaded (kept by the browser). */
 export async function aiDownloaded() {
-  try { const c = await caches.open('transformers-cache'); return (await c.keys()).some((r) => r.url.includes(AI_MODEL) && /model_q4f16\.onnx/.test(r.url)); } catch { return false; }
+  try { const c = await caches.open('transformers-cache'); return (await c.keys()).some((r) => r.url.includes(aiModel()) && /model_q4f16\.onnx/.test(r.url)); } catch { return false; }
 }
 
 let worker = null; let seq = 0; const pending = new Map(); let ready = false; let loadP = null;
@@ -52,11 +63,11 @@ export function aiLoad(onProgress = () => {}, options = {}) {
   if (ready) return Promise.resolve();
   const files = new Map();
   // (Downloading allowed only when it isn't on the phone yet; the worker refuses anything remote otherwise.)
-  loadP ??= aiDownloaded().then((have) => ask({ type: 'load', options: { ...options, download: options.download ?? !have } }, (p) => {
+  loadP ??= aiDownloaded().then((have) => { store.set(AI_LOADING, String(Date.now())); return have; }).then((have) => ask({ type: 'load', options: { model: aiModel(), ...options, download: options.download ?? !have } }, (p) => {
     if (!p.file) return; files.set(p.file, { loaded: p.status === 'done' ? (p.total || files.get(p.file)?.total || 0) : p.loaded, total: p.total || files.get(p.file)?.total || 0 });
     let l = 0; let t = 0; for (const f of files.values()) { l += f.loaded; t += f.total; }
     onProgress(t ? Math.min(1, l / t) : 0, l, t);
-  })).then(() => { ready = true; }, (e) => { loadP = null; throw e; });
+  })).then(() => { ready = true; store.set(AI_LOADING, ''); }, (e) => { loadP = null; store.set(AI_LOADING, ''); throw e; });
   return loadP;
 }
 export const aiReady = () => ready;

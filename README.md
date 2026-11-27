@@ -1532,6 +1532,12 @@ Profile, ✈ for messages), where everything is made by you in the app.
     GPL-3.0). Its network is fenced in as the AI replies' is: the model's own files once, then nothing remote. It
     speaks sentence by sentence (the next made while one plays), so it starts after the first short phrase is
     made (a few seconds on a phone). When they're off or not ready, this phone's voice speaks instead.
+  - **⚡ Fast voices (for phones).** The full natural voices are too slow on a phone's processor (a line can take a
+    minute), so on an iPhone or iPad Socials uses 13 fast ones by default (Sync and password → ⚡ Fast / 🎙 Full):
+    Piper (`socials-piper-worker.js`, ONNX Runtime Web in `web/vendor/ort/`), one LibriTTS-R model (~80 MB, CC BY 4.0)
+    whose speakers were picked for clean recordings and a spread of pitch, brightness and pace, about twenty times
+    quicker than the full voices. Each full voice maps to the fast one most like it (`FAST`, `fastFor` in
+    `socials-speech.js`); Nova's is the crisp, polished, brisk one, named Nova. Each has a sample in `voices/` too.
   - **On an iPhone** a page may only start sound in the moment of a tap, so each 🔊 (and ▶, and Send while replies
     are read aloud) unlocks an ordinary audio player (a tenth of a second of silence played on it, as a blob: the
     page's rules allow blob: sound, not data:) and the natural voices play through it; it also wakes Web Audio, then speaks once the voice is ready; it plays even with the silent

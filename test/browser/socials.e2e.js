@@ -967,13 +967,15 @@ test('Socials\' Sports front: a nationally televised NFL game coming up (📺 Pr
   assert.match(await prime.locator('.sp-caption').textContent(), /Rams at Packers, .* on NBC\./);
   assert.equal(await page.locator('.sp-post[data-id="nfl:502"]').count(), 0, 'a local-TV game: not until it starts');
   // (Not started: who's out, from the injury report.)
-  await prime.scrollIntoViewIfNeeded(); await prime.locator('.sp-out').first().waitFor({ timeout: 8000 });
+  // (Its post is drawn again once the report's in: scrolled to, whichever copy is there.)
+  const into = (sel) => page.evaluate((q) => document.querySelector(q)?.scrollIntoView({ block: 'center' }), sel);
+  await into('.sp-post[data-id="nfl:501"]'); await prime.locator('.sp-out').first().waitFor({ timeout: 8000 });
   assert.match(await prime.locator('.sp-out-box').textContent(), /Injury report.*Packers.*🚫 OUT: Jordan Love \(QB\)/);
   await page.getByRole('tab', { name: /Primetime/ }).click();
   assert.deepEqual(await page.locator('.sp-post').evaluateAll((l) => l.map((x) => x.dataset.id)), ['nfl:501']);
   await page.getByRole('tab', { name: /All/ }).click();
   // The final: each team's players over the minimums.
-  const fin = page.locator('.sp-post[data-id="nfl:500"]'); await fin.scrollIntoViewIfNeeded();
+  const fin = page.locator('.sp-post[data-id="nfl:500"]'); await into('.sp-post[data-id="nfl:500"]');
   await fin.locator('.sp-pl-team').first().waitFor({ timeout: 8000 });
   const den = fin.locator('.sp-pl-team', { hasText: 'Broncos' });
   assert.match(await den.textContent(), /B\. Nix QB22\/30, 264 pass yds, 2 TD/); assert.match(await den.textContent(), /C\. Sutton WR6 rec, 98 rec yds, 1 TD/);

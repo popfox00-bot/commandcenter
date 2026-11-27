@@ -32,7 +32,7 @@ import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS }
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
-import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl, setVoiceStore, isMade } from './socials-speech.js';
+import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl, setVoiceStore, isMade, gpuVoicesOn, setGpuVoices, lastLoadCrashed } from './socials-speech.js';
 // (Voices made are kept on the phone, encrypted, so messages played again play at once, another day too.)
 setVoiceStore(voiceStore);
 import { readPhoto, readVideo } from './socials-vision.js';
@@ -1475,7 +1475,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const msgs = conversation(state, m.id, o.id);
     if (msgs.length) { markRead(state, m.id, o.id, msgs[msgs.length - 1].at); saveState(state); }
     // (The newest message from them, made ready in its natural voice, so its 🔊 plays at once.)
-    { const last = [...msgs].reverse().find((x) => x.from === o.id && x.text); if (last) { if (naturalOn() && !naturalReady()) naturalLoad().then(() => prepareVoice(last.text, o), () => {}); else prepareVoice(last.text, o); } }
+    { const last = [...msgs].reverse().find((x) => x.from === o.id && x.text); if (last) prepareVoice(last.text, o); } // (only when the voices are loaded already: opening a chat never loads them)
     const list = el('div', { class: 'so-chat', role: 'log', 'aria-label': `Messages with @${o.handle}` });
     chatAtEnd = true; list.addEventListener('scroll', () => { chatAtEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60; }, { passive: true });
     let lastDay = '';
@@ -1561,7 +1561,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const msgs = groupConversation(state, gid); const name = groupName(state, g, m.id);
     if (msgs.length) { markRead(state, m.id, gid, msgs[msgs.length - 1].at); saveState(state); }
     // (The newest message from someone else, made ready in its natural voice, so its 🔊 plays at once.)
-    { const last = [...msgs].reverse().find((x) => x.from !== m.id && x.text); const la = last && accountById(state, last.from); if (la) { if (naturalOn() && !naturalReady()) naturalLoad().then(() => prepareVoice(last.text, la), () => {}); else prepareVoice(last.text, la); } }
+    { const last = [...msgs].reverse().find((x) => x.from !== m.id && x.text); const la = last && accountById(state, last.from); if (la) prepareVoice(last.text, la); }
     const list = el('div', { class: 'so-chat', role: 'log', 'aria-label': `Group chat ${name}` });
     chatAtEnd = true; list.addEventListener('scroll', () => { chatAtEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60; }, { passive: true });
     let lastDay = ''; let lastFrom = '';
@@ -1740,6 +1740,9 @@ function mountAdmin(host, { open = '' } = {}) {
       fill(tvBox, el('strong', { text: '🗣 Natural voices (on this phone)' }),
         el('p', { class: 'small muted', text: `A small speech model on your phone: ${NATURAL.filter((v) => !v.blend).length} voices (American and British, women and men) and ${NATURAL.filter((v) => v.blend).length} blends of them, each described in a few words, that sound much more like people than the phone's own. Downloaded once, then it works offline; what it reads never leaves the phone. No WebGPU needed.` }),
         status, bar, el('div', { class: 'so-row' }, go, off, rm, test),
+        el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: gpuVoicesOn() }); c.addEventListener('change', () => { setGpuVoices(c.checked); toast(c.checked ? 'The graphics chip is used the next time the voices load (reopen the app).' : 'The processor is used the next time the voices load (reopen the app).'); }); return c; })(),
+          el('span', {}, el('strong', { text: '⚡ Use the graphics chip' }), el('span', { class: 'muted small', text: ' Makes the voices several times faster where it works, but takes much more memory: on an iPhone, Safari can close the page ("A problem repeatedly occurred"). Off by default on iPhone and iPad.' }))),
+        lastLoadCrashed() ? el('p', { class: 'warn-text small', text: 'The voices didn\'t finish loading last time (the page was closed, most likely short of memory): they\'ll load on the processor next time.' }) : null,
         el('p', { class: 'small muted', text: 'They\'re made on the phone, so a message takes a moment the first time (much less on a phone whose graphics chip can run them); replies are made while they\'re being "typed". For voices that speak instantly: on an iPhone, Settings → Accessibility → Spoken Content → Voices → English, and download an "Enhanced" or "Premium" voice; Socials uses the best this phone has.' }));
     };
     drawTv();

@@ -149,15 +149,48 @@ export async function naturalDownloaded() {
 export function naturalLoad(onProgress = () => {}) {
   if (ready) return Promise.resolve();
   const files = new Map(); let voices = 0;
-  loadP ??= naturalDownloaded().then((have) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES } }, (p) => {
+  loadP ??= Promise.all([naturalDownloaded(), gpuDevice()]).then(([have, device]) => ask({ type: 'load', options: { download: !have, voices: BASE_VOICES, device } }, (p) => {
     if (p.status === 'voice') voices = p.loaded / p.total;
     else if (p.file) files.set(p.file, { loaded: p.status === 'done' ? (p.total || files.get(p.file)?.total || 0) : p.loaded, total: p.total || files.get(p.file)?.total || 0 });
     let l = 0; let t = 0; for (const f of files.values()) { l += f.loaded; t += f.total; }
     onProgress(Math.min(1, (t ? l / t : 0) * 0.86 + voices * 0.14));
-  })).then(() => { ready = true; }, (e) => { loadP = null; throw e; });
+  })).then((r) => { ready = true; runsOn = r?.device ?? 'wasm'; }, (e) => { loadP = null; throw e; });
   return loadP;
 }
 export const naturalReady = () => ready;
+let runsOn = '';
+/** 'webgpu' when this phone's graphics chip can run the voices (much faster), else 'wasm'. */
+async function gpuDevice() {
+  try { const a = await globalThis.navigator?.gpu?.requestAdapter(); return a && !a.isFallbackAdapter && !a.info?.isFallbackAdapter ? 'webgpu' : 'wasm'; } catch { return 'wasm'; } // (not a software stand-in: slower than the processor)
+}
+
+// ---- Lines made already (kept a while, so a 🔊 tapped again, or a reply made while "typing", plays at once).
+const made = new Map(); const MADE_MAX = 80;
+const madeKey = (voice, speed, t) => `${voice}|${speed.toFixed(3)}|${t}`;
+function remember(k, v) { made.delete(k); made.set(k, v); while (made.size > MADE_MAX) made.delete(made.keys().next().value); }
+/** One piece of speech, from what's made already or made now (and kept). */
+function makePiece(voice, speed, t) {
+  const k = madeKey(voice, speed, t); const have = made.get(k);
+  if (have) { remember(k, have); return Promise.resolve(have); }
+  const p = ask({ type: 'speak', text: t, voice, speed }).then((out) => { const v = { audio: out.audio, rate: out.rate }; if (out.device) runsOn = out.device; remember(k, v); return v; }, (e) => { made.delete(k); throw e; });
+  remember(k, p); return p;
+}
+const speedFor = (sp) => Math.max(0.55, Math.min(1.6, sp.rate / (sp.shift ?? 1)));
+/**
+ * `text` made ready ahead (in the background) in account `a`'s natural voice, so it plays at once when it's said: a
+ * reply while its account is "typing", the newest message when a chat opens. Nothing when the natural voices aren't on.
+ */
+export function prepare(text, a) {
+  if (!ready || !naturalOn()) return;
+  const words = sayable(text); if (!words) return;
+  const sp = speakerFor(a, { naturalReady: true }); if (sp.kind !== 'natural') return;
+  for (const t of pieces(words)) makePiece(sp.voice, speedFor(sp), t).catch(() => {});
+}
+
+// ---- Samples: each natural voice saying one line, made ahead and kept with the app (voices/), so trying voices out
+// plays at once, even before the voices are downloaded.
+export const SAMPLE_LINE = 'Hi! This is how I sound.';
+export const sampleUrl = (id) => new URL(`./voices/${String(id).replace(/[^a-z0-9]+/gi, '-')}.m4a`, import.meta.url).href;
 /** The natural voices taken off the phone (and turned off). */
 export async function naturalRemove() {
   try { worker?.terminate(); } catch { /* gone */ }
@@ -201,7 +234,7 @@ export function wavOf(samples, rate) {
 export function audioReport() {
   const ua = globalThis.navigator?.userAgent ?? ''; const ios = /iPhone|iPad/.test(ua) ? (ua.match(/OS (\d+)_(\d+)/) ?? []).slice(1).join('.') : '';
   const standalone = globalThis.navigator?.standalone || globalThis.matchMedia?.('(display-mode: standalone)').matches;
-  return [ios ? `iOS ${ios}` : 'not iOS', standalone ? 'home-screen app' : 'browser tab', `player ${playerUnlocked ? 'unlocked' : 'locked'}`, `audio ${ctx?.state ?? 'not started'}`, `speech ${globalThis.speechSynthesis ? `${phoneVoices().length} voices` : 'none'}`, `natural ${ready ? 'loaded' : 'not loaded'}`, lastRoute ? `last played by ${lastRoute}` : null].filter(Boolean).join(' · ');
+  return [ios ? `iOS ${ios}` : 'not iOS', standalone ? 'home-screen app' : 'browser tab', `player ${playerUnlocked ? 'unlocked' : 'locked'}`, `audio ${ctx?.state ?? 'not started'}`, `speech ${globalThis.speechSynthesis ? `${phoneVoices().length} voices` : 'none'}`, `natural ${ready ? `loaded (${runsOn === 'webgpu' ? 'graphics chip' : 'processor'})` : 'not loaded'}`, lastRoute ? `last played by ${lastRoute}` : null].filter(Boolean).join(' · ');
 }
 
 export function primeAudio() {
@@ -228,22 +261,25 @@ export const canSpeak = () => !!globalThis.speechSynthesis || ready;
  * `text` said as account `a` (its voice, speed and pitch), what was being said stopped first. Resolves when
  * it's done (or stopped): { kind } how it was said, or { kind: 'none' } if it couldn't be.
  */
-export async function speak(text, a, { onStart = () => {}, natural = false } = {}) {
+export async function speak(text, a, { onStart = () => {}, natural = false, sample = '' } = {}) {
   stopSpeaking(); const my = token; lastProblem = '';
   const words = sayable(text); if (!words) return { kind: 'none' };
-  const sp = speakerFor(a, { naturalReady: ready && (naturalOn() || natural) }); // (`natural`: a natural voice tried out, even with them off)
+  // (`natural`: a natural voice tried out, even with them off. `sample`: its line made ahead (SAMPLE_LINE), played
+  // as it is, at once, with or without the voices downloaded.)
+  const sp = speakerFor(a, { naturalReady: !!sample || (ready && (naturalOn() || natural)) });
   if (sp.kind === 'natural') {
     try {
       // (Piece by piece: the next made while this one plays. Through the <audio> player when it's unlocked (an
       // iPhone's dependable way), else Web Audio.)
       const a = audioEl(); if (a && !playerUnlocked && unlockP) await within(unlockP, 800); const useEl = !!a && playerUnlocked;
-      const parts = pieces(words); const shift = sp.shift ?? 1;
+      const parts = sample ? [words] : pieces(words); const shift = sp.shift ?? 1;
       // (Pitch: made at speed ÷ pitch, played back that much faster or slower: higher or deeper, at its own pace.)
-      const make = (t) => ask({ type: 'speak', text: t, voice: sp.voice, speed: Math.max(0.55, Math.min(1.6, sp.rate / shift)) });
+      const make = sample ? () => fetch(sample).then((r) => { if (!r.ok) throw new Error('its sample is missing'); return r.arrayBuffer(); }).then((b) => audioCtx().decodeAudioData(b)).then((buf) => ({ audio: buf.getChannelData(0), rate: buf.sampleRate }))
+        : (t) => makePiece(sp.voice, speedFor(sp), t);
       let next = make(parts[0]); let started = false;
       for (let i = 0; i < parts.length; i++) {
         // (Never left waiting on a voice that isn't coming: a phone short of memory can stall the model.)
-        const out = await within(next, 30000, null); if (my !== token) return { kind: 'natural' };
+        const out = await within(next, 60000, null); if (my !== token) return { kind: 'natural' };
         if (!out) throw new Error('making the voice took too long');
         if (i + 1 < parts.length) next = make(parts[i + 1]);
         const secs = out.audio.length / out.rate;

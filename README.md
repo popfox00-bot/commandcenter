@@ -1526,8 +1526,13 @@ Profile, ✈ for messages), where everything is made by you in the app.
     page's rules allow blob: sound, not data:) and the natural voices play through it; it also wakes Web Audio, then speaks once the voice is ready; it plays even with the silent
     switch on (iOS 17's audio session). Anything that can't be heard says why in a short note, and **🔊 Test**
     (by the natural voices' download) plays a line and tells you which voice played, how long it took, or what
-    went wrong. If the audio player says it's playing but its clock doesn't move (silent, as seen on iPhones), the
-    voice switches to Web Audio by itself and stays there; a voice that comes out silent, or takes more than 30 s to
+    went wrong. **Speed:** the voices run on the phone's graphics chip (WebGPU) where it can (several times faster),
+    else on its processor (about two seconds of work per second of speech), and back to the processor if the chip
+    fails. Replies are made while they're "typing" and the newest message when a chat opens, and lines made are
+    kept a while, so their 🔊 plays at once. Trying voices out (the picker's ▶, Edit profile's ▶ Preview) plays a
+    sample of each natural voice made ahead and kept with the app (`web/apps/socials/voices/`, ~640 KB): at once,
+    and before the voices are downloaded (the picker lists them all). If the audio player says it's playing but its clock doesn't move (silent, as seen on iPhones), the
+    voice switches to Web Audio by itself and stays there; a voice that comes out silent, or takes more than 60 s to
     make, falls back to this phone's voice with a note. A 🔊 shows ⏳ while the voice is made and lights up only once
     sound has really started; if nothing started, a note says so.
 - **Replies to comments** (Sync and password → Replies to comments, on to start): your other accounts answer

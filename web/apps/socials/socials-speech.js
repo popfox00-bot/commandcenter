@@ -167,7 +167,25 @@ export async function naturalRemove() {
 }
 
 // ---- Playing.
-let ctx = null; let playing = null; let token = 0;
+let ctx = null; let playing = null; let token = 0; let synthPrimed = false;
+/** Why the last try couldn't be heard ('' when it was): shown to you, not kept. */
+export let lastProblem = '';
+const audioCtx = () => (ctx ??= new (globalThis.AudioContext || globalThis.webkitAudioContext)());
+/**
+ * Sound let out, at a tap (call it first thing in the tap, before anything waits): an iPhone only lets a page
+ * start sound in the moment of a tap, so the audio is woken (and a silent moment played) and the phone's speech
+ * started (silently) now, for what's said a few seconds later, when it's ready. Also plays with the silent
+ * switch on (iOS 17's audio session: as video does).
+ */
+export function primeAudio() {
+  try { if (globalThis.navigator?.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older iOS */ }
+  try {
+    const c = audioCtx(); if (c.state !== 'running') c.resume?.();
+    const b = c.createBuffer(1, 1, 22050); const src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start(0);
+  } catch { /* no Web Audio */ }
+  try { const sy = globalThis.speechSynthesis; if (sy && !synthPrimed) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; sy.speak(u); synthPrimed = true; } } catch { /* none */ }
+}
+const within = (p, ms, v) => Promise.race([p, new Promise((ok) => setTimeout(() => ok(v), ms))]);
 /** Whatever's being said, stopped. */
 export function stopSpeaking() {
   token++;
@@ -183,14 +201,15 @@ export const canSpeak = () => !!globalThis.speechSynthesis || ready;
  * it's done (or stopped): { kind } how it was said, or { kind: 'none' } if it couldn't be.
  */
 export async function speak(text, a, { onStart = () => {}, natural = false } = {}) {
-  stopSpeaking(); const my = token;
+  stopSpeaking(); const my = token; lastProblem = '';
   const words = sayable(text); if (!words) return { kind: 'none' };
   const sp = speakerFor(a, { naturalReady: ready && (naturalOn() || natural) }); // (`natural`: a natural voice tried out, even with them off)
   if (sp.kind === 'natural') {
     try {
       // (Piece by piece: the next made while this one plays.)
-      ctx ??= new (globalThis.AudioContext || globalThis.webkitAudioContext)();
-      if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      const c = audioCtx();
+      if (c.state !== 'running') await within(c.resume().catch(() => {}), 1500);
+      if (c.state !== 'running') throw new Error('the phone didn\'t let the sound start (tap 🔊 again)');
       const parts = pieces(words); const shift = sp.shift ?? 1;
       // (Pitch: made at speed ÷ pitch, played back that much faster or slower: higher or deeper, at its own pace.)
       const make = (t) => ask({ type: 'speak', text: t, voice: sp.voice, speed: Math.max(0.55, Math.min(1.6, sp.rate / shift)) });
@@ -202,11 +221,12 @@ export async function speak(text, a, { onStart = () => {}, natural = false } = {
         const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = shift; src.connect(ctx.destination); playing = src;
         if (!started) { started = true; onStart(); }
         src.start();
-        await new Promise((ok) => { src.onended = ok; });
+        // (Its end, or its length and a moment more: never left waiting if the end isn't heard of.)
+        await within(new Promise((ok) => { src.onended = ok; }), (buf.duration / shift) * 1000 + 1500);
         if (my !== token) return { kind: 'natural' };
       }
       return { kind: 'natural' };
-    } catch { if (my !== token) return { kind: 'natural' }; /* this phone's voice instead */ }
+    } catch (e) { if (my !== token) return { kind: 'natural' }; lastProblem = `Natural voice: ${e.message}. This phone's voice instead.`; /* this phone's voice instead */ }
   }
   const synth = globalThis.speechSynthesis; if (!synth) return { kind: 'none' };
   const u = new SpeechSynthesisUtterance(words);
@@ -214,6 +234,8 @@ export async function speak(text, a, { onStart = () => {}, natural = false } = {
   if (v) { u.voice = v.v; u.lang = v.lang; }
   u.rate = Math.max(0.5, Math.min(2, sp.rate)); u.pitch = Math.max(0.5, Math.min(2, sp.pitch));
   onStart();
-  await new Promise((ok) => { u.onend = ok; u.onerror = ok; synth.speak(u); });
+  let started = false; u.onstart = () => { started = true; };
+  const err = await within(new Promise((ok) => { u.onend = () => ok(''); u.onerror = (e) => ok(e?.error || 'error'); synth.speak(u); }), Math.max(4000, words.length * 120), 'timeout');
+  if (err && err !== 'interrupted' && err !== 'canceled' && !(err === 'timeout' && started)) { lastProblem = `${lastProblem ? `${lastProblem} ` : ''}This phone's voice didn't play (${err}).`; return { kind: 'none' }; }
   return { kind: 'phone' };
 }

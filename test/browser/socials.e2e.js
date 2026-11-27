@@ -1185,7 +1185,7 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
     const voices = [{ voiceURI: 'v-sam', name: 'Samantha', lang: 'en-US', localService: true }, { voiceURI: 'v-dan', name: 'Daniel', lang: 'en-GB', localService: true }, { voiceURI: 'v-net', name: 'Online Voice', lang: 'en-US', localService: false }];
     globalThis.__said = [];
     globalThis.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
-    Object.defineProperty(globalThis, 'speechSynthesis', { value: { getVoices: () => voices, addEventListener() {}, cancel() {}, speak(u) { globalThis.__said.push({ text: u.text, voice: u.voice?.voiceURI, rate: u.rate }); setTimeout(() => u.onend?.(), 30); } }, configurable: true });
+    Object.defineProperty(globalThis, 'speechSynthesis', { value: { getVoices: () => voices, addEventListener() {}, cancel() {}, speak(u) { if (u.text.trim()) globalThis.__said.push({ text: u.text, voice: u.voice?.voiceURI, rate: u.rate }); else globalThis.__primed = (globalThis.__primed ?? 0) + 1; setTimeout(() => { u.onstart?.(); u.onend?.(); }, 30); } }, configurable: true });
   });
   const page = await context.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${origin}${BASE}index.html#/socials/admin`);
@@ -1211,6 +1211,7 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   await page.evaluate(() => { globalThis.__said.length = 0; });
   await page.getByRole('button', { name: '▶ Preview' }).click();
   await page.waitForFunction(() => globalThis.__said.length === 1);
+  assert.equal(await page.evaluate(() => globalThis.__primed), 1, 'the phone\'s speech woken at the tap, once (silently)');
   assert.deepEqual(await page.evaluate(() => globalThis.__said[0].voice), 'v-dan');
   await page.getByRole('button', { name: 'Create account' }).click(); await page.getByText('Welcome to your feed').waitFor();
   // A post with a caption: 🔊 reads it (hashtags as words, no emojis).

@@ -1489,6 +1489,11 @@ Profile, ✈ for messages), where everything is made by you in the app.
     GPL-3.0). Its network is fenced in as the AI replies' is: the model's own files once, then nothing remote. It
     speaks sentence by sentence (the next made while one plays), so it starts after the first short phrase is
     made (a few seconds on a phone). When they're off or not ready, this phone's voice speaks instead.
+  - **On an iPhone** a page may only start sound in the moment of a tap, so each 🔊 (and ▶, and Send while replies
+    are read aloud) wakes the sound first, then speaks once the voice is ready; it plays even with the silent
+    switch on (iOS 17's audio session). Anything that can't be heard says why in a short note, and **🔊 Test**
+    (by the natural voices' download) plays a line and tells you which voice played, how long it took, or what
+    went wrong.
 - **Replies to comments** (Sync and password → Replies to comments, on to start): your other accounts answer
   comments on their own posts, a moment after you comment as another account, and about half of the generated
   and automatic comments: thanks for a compliment, an answer to a question (where: the place in its caption),

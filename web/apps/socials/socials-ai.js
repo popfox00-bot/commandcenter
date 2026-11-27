@@ -1,6 +1,6 @@
 // Socials' AI replies: an on-device language model (socials-ai-worker.js) writes the reply when the Owner
 // messages one of their accounts, from the whole conversation, in that account's voice and at the chosen level
-// (Tame … Adult). Turned on in Sync and password: a one-time download (~1.2 GB; on an iPhone or iPad a smaller model, ~480 MB) from Hugging Face, then it
+// (Tame … Adult). Turned on in Sync and password: a one-time download (~1.2 GB; not offered on an iPhone or iPad, where it takes more memory than Safari allows) from Hugging Face, then it
 // works offline. It needs WebGPU (iPhone with iOS 26 or later, current Chrome/Edge): without it, or while it
 // loads, or when what it writes doesn't hold up (too long, off topic, sounding like an assistant), the reply
 // comes from the built-in engine (socials-chat.js) as before. Nothing you write, nor anything written back, ever
@@ -10,14 +10,12 @@
 import { store } from '../../lib/dom.js';
 import { cleanWords } from './socials-style.js';
 
-// (The model: Qwen2.5 1.5B (1.2 GB) where there's room; on an iPhone or iPad the 0.5B one (480 MB): the larger one
-// takes more memory than Safari allows a page, which is closed ("A problem repeatedly occurred") while it downloads
-// or loads. A load that never finished (the page was closed during it) isn't started again by itself.)
-const isAppleMobile = () => { const n = globalThis.navigator; return /iPhone|iPad|iPod/.test(n?.userAgent ?? '') || (n?.platform === 'MacIntel' && (n?.maxTouchPoints ?? 0) > 1); };
+// (The model: Qwen2.5 1.5B (1.2 GB). Not on an iPhone or iPad: even the 0.5B one (480 MB) took more memory than Safari
+// allows a page, which was closed ("A problem repeatedly occurred"). A load that never finished isn't started again by itself.)
+function isAppleMobile() { const n = globalThis.navigator; return /iPhone|iPad|iPod/.test(n?.userAgent ?? '') || (n?.platform === 'MacIntel' && (n?.maxTouchPoints ?? 0) > 1); }
 export const AI_MODEL = 'onnx-community/Qwen2.5-1.5B-Instruct';
-export const AI_MODEL_SMALL = 'onnx-community/Qwen2.5-0.5B-Instruct';
-export const aiModel = () => (isAppleMobile() ? AI_MODEL_SMALL : AI_MODEL);
-export const aiSize = () => (aiModel() === AI_MODEL_SMALL ? '480 MB' : '1.2 GB');
+export const aiModel = () => AI_MODEL;
+export const aiSize = () => '1.2 GB';
 export const AI_SIZE = '1.2 GB';
 const AI_LOADING = 'cc.socials.ai.loading';
 const aiCrashedBefore = !!store.get(AI_LOADING);
@@ -26,11 +24,14 @@ export const aiLoadCrashed = () => aiCrashedBefore;
 const KEY = 'cc.socials.ai';
 
 /** Whether AI replies are turned on (they still need the model downloaded and WebGPU). */
-export const aiOn = () => store.get(KEY) === 'on';
+/** Whether this device can have AI replies at all: not an iPhone or iPad (the model takes more memory than Safari allows a page). */
+export const aiAvailable = () => !isAppleMobile();
+export const aiOn = () => aiAvailable() && store.get(KEY) === 'on';
 export const setAiOn = (on) => store.set(KEY, on ? 'on' : 'off');
 
 /** Whether this device can run it: { ok, why }. */
 export async function aiSupport() {
+  if (!aiAvailable()) return { ok: false, why: 'AI replies need more memory than Safari gives a page on an iPhone or iPad, so they\'re not offered here.' };
   try {
     if (!globalThis.navigator?.gpu) return { ok: false, why: 'This browser has no WebGPU (on iPhone it comes with iOS 26).' };
     const ad = await navigator.gpu.requestAdapter();
@@ -71,6 +72,17 @@ export function aiLoad(onProgress = () => {}, options = {}) {
   return loadP;
 }
 export const aiReady = () => ready;
+
+/**
+ * On an iPhone or iPad: AI replies off, and any of the model's files kept from before (a download that crashed the
+ * page part-way, or finished) deleted, to free the space. Once.
+ */
+export async function aiClearHere() {
+  if (aiAvailable() || store.get('cc.socials.ai.cleared') === '1') return;
+  setAiOn(false);
+  try { const c = await caches.open('transformers-cache'); for (const r of await c.keys()) if (/Qwen2\.5-[0-9.]+B-Instruct/.test(r.url)) await c.delete(r); } catch { /* none */ }
+  store.set('cc.socials.ai.cleared', '1');
+}
 
 /** The model and its engine taken off the phone (and turned off). */
 export async function aiRemove() {

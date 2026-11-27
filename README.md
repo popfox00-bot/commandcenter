@@ -1469,7 +1469,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **🖼 Backgrounds.** A picture of yours behind all of Socials (Sync and password → Background), and one per account
   on its own profile page (Edit profile → Profile background), with a veil of the page's color over it so text
   stays readable. Kept only on this phone (`web/lib/bg-image.js`).
-- **🤖 AI replies (on the phone).** Sync and password → AI replies: a small language model (Qwen2.5 1.5B Instruct,
+- **🤖 AI replies (on a computer).** Not on an iPhone or iPad: even a 480 MB model took more memory than Safari gives
+  a page and closed it, so there they're not offered (leftover files deleted) and the Language slider stops at Adult.
+  Sync and password → AI replies: a small language model (Qwen2.5 1.5B Instruct,
   4-bit, about 1.2 GB) that runs on the phone's GPU with WebGPU (iPhone with iOS 26 or later, current Chrome/Edge)
   through Transformers.js (`web/vendor/transformers`, `web/apps/socials/socials-ai.js` and its worker). Downloaded
   once from Hugging Face (with a progress bar), then kept by the browser: it works offline, and nothing you write is

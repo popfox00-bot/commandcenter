@@ -2,7 +2,7 @@
 // accounts (a handle, a name, a bio, a picture; one of them the Owner, yours), who each follows, posts (a
 // photo or a video, and a caption, by one account), likes, comments, and direct messages between accounts.
 //
-// The state: { accounts, posts, messages, reads, me: accountId | null, gone: { id: when } } where
+// The state: { accounts, posts, messages, groups, reads, me: accountId | null, gone: { id: when } } where
 //   Account = { id, handle, name, bio, avatar: Blob | null, avatarId, owner: bool, following: [accountId], saved: [postId], at, upd }
 //   Post    = { id, by, kind: 'photo' | 'video', image: Blob | null (the photo, or a video's still), imageId,
 //               video: Blob | null, videoId, more: [{ kind, image, imageId, video, videoId }] (a post of several:
@@ -12,11 +12,13 @@
 //               (accounts invited to share it: accepted, it's on their profile and in their followers' feeds too),
 //               viewsBy: { deviceId: count } (how many times it's been seen, counted on each device and added up) }
 //   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
+//             (in a group chat: `to` and `group` are the group's id; reads by the group's id too)
+//   Group   = { id, name, members: [accountId] (three or more, its maker among them), by, at, upd }
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
 
 /** A new, empty state. */
-export const emptyState = () => ({ accounts: [], posts: [], messages: [], reads: {}, me: null, gone: {} });
+export const emptyState = () => ({ accounts: [], posts: [], messages: [], groups: [], reads: {}, me: null, gone: {} });
 
 /** A fresh id (time and a little randomness: unique enough on one phone). */
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -95,6 +97,9 @@ export function removeAccount(state, id) {
   for (const m of state.messages ?? []) if (m.from === id || m.to === id) state.gone[m.id] = now;
   state.messages = (state.messages ?? []).filter((m) => m.from !== id && m.to !== id);
   if (state.reads) delete state.reads[id];
+  // (Out of its group chats; a group left with fewer than two is let go.)
+  for (const g of state.groups ?? []) if (g.members.includes(id)) { g.members = g.members.filter((x) => x !== id); g.upd = now; if (g.members.length < 2) state.gone[g.id] = now; }
+  state.groups = (state.groups ?? []).filter((g) => g.members.length >= 2);
   state.accounts = state.accounts.filter((a) => a.id !== id);
   state.posts = state.posts.filter((p) => p.by !== id);
   for (const a of state.accounts) if (a.following.includes(id)) { a.following = a.following.filter((f) => f !== id); a.upd = now; }
@@ -466,6 +471,42 @@ export function sendMessage(state, from, to, text, { post = null, collab = null 
 /** The messages between two accounts, oldest first. */
 export const conversation = (state, a, b) => (state.messages ?? []).filter((m) => (m.from === a && m.to === b) || (m.from === b && m.to === a)).sort((x, y) => x.at - y.at);
 
+// ---- Group chats: three or more accounts (yours among them), each message to all of them.
+
+/** A group chat made by `by` with `members` (others; `by` is added): returns it, or null (fewer than two others). */
+export function createGroup(state, by, members, name = '') {
+  const ids = [...new Set([by, ...members])].filter((id) => accountById(state, id));
+  if (!accountById(state, by) || ids.length < 3) return null;
+  const now = Date.now(); const g = { id: newId(), name: String(name ?? '').trim().slice(0, 60), members: ids, by, at: now, upd: now };
+  (state.groups ??= []).push(g); markRead(state, by, g.id, now);
+  return g;
+}
+export const groupById = (state, id) => (state.groups ?? []).find((g) => g.id === id) ?? null;
+/** A group's name: its own, or its members' handles (not `me`'s), "a, b and c". */
+export function groupName(state, g, me = null) {
+  if (g?.name) return g.name;
+  const hs = (g?.members ?? []).filter((id) => id !== me).map((id) => accountById(state, id)?.handle).filter(Boolean);
+  return hs.length <= 1 ? (hs[0] ?? 'Group') : `${hs.slice(0, -1).join(', ')} and ${hs[hs.length - 1]}`;
+}
+/** A group renamed (empty: back to its members' names). */
+export function renameGroup(state, id, name) { const g = groupById(state, id); if (!g) return null; g.name = String(name ?? '').trim().slice(0, 60); g.upd = Date.now(); return g; }
+/** `who` leaves a group (with fewer than two left, the group goes, its messages with it). */
+export function leaveGroup(state, id, who) {
+  const g = groupById(state, id); if (!g) return;
+  const now = Date.now(); g.members = g.members.filter((x) => x !== who); g.upd = now;
+  if (g.members.length < 2) { state.gone ??= {}; state.gone[g.id] = now; for (const m of state.messages ?? []) if (m.group === id) state.gone[m.id] = now; state.messages = (state.messages ?? []).filter((m) => m.group !== id); state.groups = state.groups.filter((x) => x.id !== id); }
+}
+/** A message to everyone in a group, from one of its members. Returns it, or null. */
+export function sendGroupMessage(state, from, id, text, { post = null } = {}) {
+  const g = groupById(state, id); const t = String(text ?? '').trim(); const sh = post && postById(state, post) ? post : null;
+  if (!g || !g.members.includes(from) || (!t && !sh)) return null;
+  const m = { id: newId(), from, to: id, group: id, text: t.slice(0, 2000), at: Date.now(), ...(sh ? { post: sh } : {}) };
+  (state.messages ??= []).push(m); markRead(state, from, id, m.at);
+  return m;
+}
+/** A group's messages, oldest first. */
+export const groupConversation = (state, id) => (state.messages ?? []).filter((m) => m.group === id).sort((x, y) => x.at - y.at);
+
 /** When `me` last read their chat with `other` (0: never). */
 const lastRead = (state, me, other) => state.reads?.[me]?.[other] ?? 0;
 
@@ -475,23 +516,32 @@ export function markRead(state, me, other, at = Date.now()) {
   state.reads[me][other] = Math.max(state.reads[me][other] ?? 0, at);
 }
 
-/** An account's chats, the latest first: [{ other: Account, last: Message, unread: number }]. */
+/**
+ * An account's chats, the latest first: [{ other: Account, last: Message, unread: number }], and its group chats
+ * among them ([{ group: Group, last, unread }]: `other` null).
+ */
 export function conversationsOf(state, me) {
-  const by = new Map();
+  const by = new Map(); const groups = new Map();
+  for (const g of state.groups ?? []) if (g.members.includes(me)) groups.set(g.id, { group: g, other: null, last: null, unread: 0 });
   for (const m of state.messages ?? []) {
+    if (m.group) { const c = groups.get(m.group); if (!c) continue; if (!c.last || m.at > c.last.at) c.last = m; if (m.from !== me && m.at > lastRead(state, me, m.group)) c.unread++; continue; }
     if (m.from !== me && m.to !== me) continue;
     const o = m.from === me ? m.to : m.from; const c = by.get(o) ?? { last: null, unread: 0 };
     if (!c.last || m.at > c.last.at) c.last = m;
     if (m.to === me && m.at > lastRead(state, me, o)) c.unread++;
     by.set(o, c);
   }
-  return [...by].map(([o, c]) => ({ other: accountById(state, o), ...c })).filter((c) => c.other).sort((a, b) => b.last.at - a.last.at);
+  const gs = [...groups.values()].map((c) => ({ ...c, last: c.last ?? { id: '', from: '', to: c.group.id, text: '', at: c.group.at } }));
+  return [...[...by].map(([o, c]) => ({ other: accountById(state, o), ...c })).filter((c) => c.other), ...gs].sort((a, b) => b.last.at - a.last.at);
 }
 
 /** An account's unopened messages: how many, and when the latest of them was sent (0: none). */
 export function unreadInfo(state, me) {
   let n = 0; let last = 0;
-  for (const m of state.messages ?? []) if (m.to === me && m.at > lastRead(state, me, m.from)) { n++; last = Math.max(last, m.at); }
+  const mine = new Set((state.groups ?? []).filter((g) => g.members.includes(me)).map((g) => g.id));
+  for (const m of state.messages ?? []) {
+    if (m.group ? mine.has(m.group) && m.from !== me && m.at > lastRead(state, me, m.group) : m.to === me && m.at > lastRead(state, me, m.from)) { n++; last = Math.max(last, m.at); }
+  }
   return { n, last };
 }
 
@@ -546,9 +596,11 @@ export function normalize(raw) {
   s.posts = (Array.isArray(raw.posts) ? raw.posts : []).filter((p) => p && ok(p.id) && ids.has(p.by)).map((p) => ({ id: p.id, by: p.by, kind: p.kind === 'video' ? 'video' : 'photo', image: p.image ?? null, imageId: p.imageId ?? (p.image ? newId() : null), video: p.video ?? null, videoId: p.videoId ?? (p.video ? newId() : null), ...(cleanFit(p.fit) ? { fit: cleanFit(p.fit) } : {}), more: Array.isArray(p.more) ? p.more.filter((m) => m && (m.imageId || m.videoId || m.image || m.video)).map((m) => ({ kind: m.kind === 'video' ? 'video' : 'photo', image: m.image ?? null, imageId: m.imageId ?? (m.image ? newId() : null), video: m.video ?? null, videoId: m.videoId ?? (m.video ? newId() : null), ...(cleanFit(m.fit) ? { fit: cleanFit(m.fit) } : {}) })) : [], viewsBy: p.viewsBy && typeof p.viewsBy === 'object' ? Object.fromEntries(Object.entries(p.viewsBy).filter(([k, v]) => ok(k) && Number.isFinite(v) && v > 0).map(([k, v]) => [k, Math.floor(v)])) : {}, collab: Array.isArray(p.collab) ? p.collab.filter((c) => c && ids.has(c.id) && c.id !== p.by && ['pending', 'accepted', 'declined'].includes(c.status)).slice(0, MAX_COLLAB).map((c) => ({ id: c.id, status: c.status, at: c.at ?? 0 })) : [], draft: !!p.draft, pinned: Number(p.pinned) || 0, trashed: Number(p.trashed) || 0, ...(p.fromSaved && typeof p.fromSaved.fileId === 'string' ? { fromSaved: { fileId: p.fromSaved.fileId.slice(0, 200), name: String(p.fromSaved.name ?? '').slice(0, 200), at: Number(p.fromSaved.at) || 0 } } : {}), ...(Array.isArray(p.faces) ? { faces: p.faces.filter((d) => Array.isArray(d) && d.length === 128 && d.every(Number.isFinite)).slice(0, 8).map((d) => d.map((v) => Math.round(v * 10000) / 10000)) } : {}), scene: p.scene === undefined ? undefined : cleanScene(p.scene), caption: p.caption ?? '', tags: Array.isArray(p.tags) ? [...new Set(p.tags.filter((t) => ids.has(t)))] : [], at: p.at ?? 0, upd: p.upd ?? p.at ?? 0, edited: p.edited ?? 0, likes: Array.isArray(p.likes) ? p.likes.filter((l) => ids.has(l)) : [], comments: Array.isArray(p.comments) ? p.comments.filter((c) => c && ids.has(c.by) && ok(c.text)) : [] }));
   s.me = ids.has(raw.me) ? raw.me : (s.accounts[0]?.id ?? null);
   s.gone = raw.gone && typeof raw.gone === 'object' ? Object.fromEntries(Object.entries(raw.gone).filter(([k, v]) => ok(k) && Number.isFinite(v))) : {};
-  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && ids.has(m.to) && (ok(m.text) || ok(m.post) || ok(m.collab)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}), ...(ok(m.collab) ? { collab: m.collab } : {}) }));
+  s.groups = (Array.isArray(raw.groups) ? raw.groups : []).filter((g) => g && ok(g.id) && Array.isArray(g.members) && !s.gone[g.id]).map((g) => ({ id: g.id, name: typeof g.name === 'string' ? g.name : '', members: [...new Set(g.members.filter((x) => ids.has(x)))], by: g.by, at: g.at ?? 0, upd: g.upd ?? g.at ?? 0 })).filter((g) => g.members.length >= 2);
+  const gids = new Map(s.groups.map((g) => [g.id, g]));
+  s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && (m.group ? gids.get(m.group)?.members.includes(m.from) : ids.has(m.to)) && (ok(m.text) || ok(m.post) || ok(m.collab)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, ...(m.group ? { group: m.group } : {}), text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}), ...(ok(m.collab) ? { collab: m.collab } : {}) }));
   s.reads = {};
-  if (raw.reads && typeof raw.reads === 'object') for (const [a, o] of Object.entries(raw.reads)) if (ids.has(a) && o && typeof o === 'object') s.reads[a] = Object.fromEntries(Object.entries(o).filter(([b, v]) => ids.has(b) && Number.isFinite(v)));
+  if (raw.reads && typeof raw.reads === 'object') for (const [a, o] of Object.entries(raw.reads)) if (ids.has(a) && o && typeof o === 'object') s.reads[a] = Object.fromEntries(Object.entries(o).filter(([b, v]) => (ids.has(b) || gids.has(b)) && Number.isFinite(v)));
   return s;
 }
 
@@ -570,7 +622,7 @@ export function mergeStates(local, remote) {
   const msgs = new Map([...(local.messages ?? []), ...(remote.messages ?? [])].map((m) => [m.id, m]));
   const reads = JSON.parse(JSON.stringify(local.reads ?? {}));
   for (const [a, o] of Object.entries(remote.reads ?? {})) for (const [b, v] of Object.entries(o ?? {})) { reads[a] ??= {}; reads[a][b] = Math.max(reads[a][b] ?? 0, v); }
-  const out = normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
+  const out = normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), groups: pick(local.groups ?? [], remote.groups ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
   // (Views from both: each device's count, the higher (a device's only grows), whichever version of the post won.)
   const vb = new Map(); for (const p of [...local.posts, ...(remote.posts ?? [])]) { const m = vb.get(p.id) ?? {}; for (const [k, v] of Object.entries(p.viewsBy ?? {})) m[k] = Math.max(m[k] ?? 0, v); vb.set(p.id, m); }
   for (const p of out.posts) p.viewsBy = { ...(vb.get(p.id) ?? {}) };

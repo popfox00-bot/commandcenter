@@ -1309,3 +1309,52 @@ test('Socials chat: the whole screen, its header at the top and the box at the b
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('Socials group chats: 👥 New group with two accounts; the Owner\'s message is answered by them in turn, each named and in its own voice (played while chatting); listed in Messages; renamed and left', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(() => {
+    const voices = [{ voiceURI: 'v-sam', name: 'Samantha', lang: 'en-US', localService: true }, { voiceURI: 'v-dan', name: 'Daniel', lang: 'en-GB', localService: true }];
+    globalThis.__said = [];
+    globalThis.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+    Object.defineProperty(globalThis, 'speechSynthesis', { value: { getVoices: () => voices, addEventListener() {}, cancel() {}, speak(u) { if (u.text.trim()) globalThis.__said.push({ text: u.text, voice: u.voice?.voiceURI }); setTimeout(() => { u.onstart?.(); u.onend?.(); }, 30); } }, configurable: true });
+  });
+  const page = await context.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  for (const h of ['amy', 'ben']) { await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); await page.getByText('Welcome to your feed').or(page.locator('.so-post').first()).first().waitFor(); }
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Messages' }).first().click();
+  await page.getByRole('button', { name: '👥 New group' }).click();
+  const start = page.getByRole('button', { name: /Pick at least two|Start the group/ });
+  assert.equal(await start.isDisabled(), true);
+  await page.getByLabel('Add @amy').check(); await page.getByLabel('Add @ben').check();
+  await page.getByLabel('Group name').fill('Beach crew');
+  await page.getByRole('button', { name: 'Start the group (3 people)' }).click();
+  await page.getByRole('log', { name: 'Group chat Beach crew' }).waitFor();
+  await page.getByLabel('Message', { exact: true }).fill('beach at 5 today?'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  // One or more answer, one after the other, each named over its message, and played (while chatting).
+  await page.locator('.so-bubble-who').first().waitFor({ timeout: 15000 });
+  assert.match(await page.locator('.so-bubble-who').first().textContent(), /amy|ben/);
+  await page.waitForFunction(() => globalThis.__said.length >= 1, null, { timeout: 15000 });
+  await page.waitForFunction(() => !document.querySelector('.so-typing'), null, { timeout: 30000 });
+  const answers = await page.locator('.so-bubble:not(.mine):not(.so-typing)').count();
+  assert.ok(answers >= 1 && answers <= 2, `${answers} answers`);
+  await page.waitForFunction((n) => globalThis.__said.length >= n, answers, { timeout: 15000 });
+  // In Messages, with its last message; renamed; left (and gone from the list).
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: /^Group chat Beach crew/ }).waitFor();
+  await page.getByRole('button', { name: /^Group chat Beach crew/ }).click();
+  await page.getByRole('button', { name: 'About the group Beach crew' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Group' });
+  await dlg.getByLabel('Group name').fill('Sunset crew'); await dlg.getByRole('button', { name: 'Save name' }).click();
+  await page.getByRole('log', { name: 'Group chat Sunset crew' }).waitFor();
+  await page.getByRole('button', { name: 'About the group Sunset crew' }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('dialog', { name: 'Group' }).getByRole('button', { name: 'Leave the group' }).click();
+  await page.getByRole('button', { name: '👥 New group' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: /^Group chat/ }).count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

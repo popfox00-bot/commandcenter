@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "fff8684bb1b5",
+  "version": "4ff79db28ed7",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",

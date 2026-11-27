@@ -93,6 +93,7 @@ export const CONTENT_LEVELS = [
   { id: 'casual', name: 'Casual', note: 'Mild words now and then: damn, hell.' },
   { id: 'spicy', name: 'Spicy', note: 'Swears freely, like close friends do.' },
   { id: 'adult', name: 'Adult (18+)', note: 'Swearing, crude humor and flirting, in comments, captions and messages (every account here is a made-up adult). Banter, not explicit.' },
+  { id: 'explicit', name: 'Explicit (18+)', note: 'Anything goes between consenting adults, sexual talk included, from the on-device AI (every account here is a made-up adult). ⭐ Celebrity accounts stay at Adult.' },
 ];
 
 const STRONG = /\b(fuck(?:ing|in'?|ed|er|s)?|motherfuck\w*|shit(?:ty|s)?|bullshit|ass(?:hole)?|bitch(?:es|ing)?|dick|piss(?:ed)?|bastard|wtf|af)\b/gi;
@@ -113,6 +114,7 @@ export function cleanWords(text, level = 0) {
  * fucking good"; Adult: and crude, flirty asides), never over it. `mood`: 'pos' | 'neg' | 'neutral'.
  */
 export function spice(text, level = 0, { rand = Math.random, mood = 'neutral', persona = 'classic' } = {}) {
+  level = Math.min(level, 3); // (the built-in engine's words go up to Adult; Explicit is the on-device AI's)
   let s = cleanWords(text, level); if (level <= 0) return s;
   const chance = [0, 0.3, 0.5, 0.65][level] * (persona === 'warm' ? 0.6 : persona === 'hype' || persona === 'chill' ? 1.2 : 1);
   if (rand() >= chance) return s;

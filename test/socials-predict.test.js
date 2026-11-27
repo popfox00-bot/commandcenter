@@ -147,7 +147,9 @@ test('voices and styles: each account its own voice (always the same); replies l
 test('language levels: Tame never swears (cleaned), Casual only mild, Spicy and Adult swear; Adult adds crude asides; AI replies checked before they\'re sent', async () => {
   const { spice, cleanWords, CONTENT_LEVELS } = await import('../web/apps/socials/socials-style.js');
   const { checkReply } = await import('../web/apps/socials/socials-ai.js');
-  assert.equal(CONTENT_LEVELS.length, 4);
+  assert.deepEqual(CONTENT_LEVELS.map((l) => l.id), ['tame', 'casual', 'spicy', 'adult', 'explicit']);
+  // (Explicit is the on-device AI's: the built-in engine's words stop at Adult.)
+  assert.equal(spice('so good', 4, { rand: () => 0.99 }), 'so good');
   assert.equal(cleanWords('holy shit this is fucking good, damn', 0), 'holy cow this is really good, dang');
   assert.equal(cleanWords('holy shit this is fucking good, damn', 1), 'holy cow this is freaking good, damn');
   assert.equal(cleanWords('holy shit this is fucking good, damn', 2), 'holy shit this is fucking good, damn');

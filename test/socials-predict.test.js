@@ -286,3 +286,12 @@ test('speaking voices described by words: natural (and blends), this phone\'s by
   const sp = speakerFor({ handle: 'a', speech: { voice: 'n:af_heart+bf_emma', pitch: 0.88 } }, { voices: [], naturalReady: true });
   assert.deepEqual([sp.kind, sp.voice, sp.shift], ['natural', 'af_heart+bf_emma', 0.88]);
 });
+
+test('an account\'s own phone voice: the best-sounding (premium, enhanced), never a novelty or old robotic one', async () => {
+  const { speakerFor } = await import('../web/apps/socials/socials-speech.js');
+  const voices = [{ id: 'z', name: 'Zarvox', lang: 'en-US' }, { id: 'f', name: 'Fred', lang: 'en-US' }, { id: 'b', name: 'Bells', lang: 'en-US' }, { id: 's', name: 'Samantha', lang: 'en-US' }, { id: 'a', name: 'Ava (Premium)', lang: 'en-US' }, { id: 'n', name: 'Nathan (Enhanced)', lang: 'en-US' }];
+  const picked = new Set(Array.from({ length: 30 }, (_, i) => speakerFor({ handle: `user${i}` }, { voices }).voice));
+  assert.deepEqual([...picked].sort(), ['a', 'n'], 'the top two kinds, for some variety');
+  assert.ok(!['z', 'f', 'b'].some((x) => picked.has(x)), 'no novelty voices');
+  assert.equal(speakerFor({ handle: 'x' }, { voices: voices.slice(0, 4) }).voice, 's', 'only plain ones: the natural-sounding one');
+});

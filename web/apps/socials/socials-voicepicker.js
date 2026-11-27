@@ -4,13 +4,16 @@
 // '' (its own, picked from its username), or null (closed without picking).
 
 import { el, fill } from '../../lib/dom.js';
-import { NATURAL, phoneVoicesReady, phoneTags, naturalDownloaded, speak, stopSpeaking, naturalReady, naturalLoad } from './socials-speech.js';
+import { NATURAL, phoneVoicesReady, phoneTags, naturalDownloaded, speak, stopSpeaking, naturalReady, naturalLoad, setNaturalOn, TTS_SIZE } from './socials-speech.js';
 
 /** Every voice to choose from, described: [{ value, name, kind ('natural' | 'blend' | 'phone'), tags, best }]. */
 export async function voiceCatalog() {
   const nat = await naturalDownloaded();
   const out = nat ? NATURAL.map((v) => ({ value: `n:${v.id}`, name: v.name, kind: v.blend ? 'blend' : 'natural', tags: v.tags, best: v.best })) : [];
-  for (const v of await phoneVoicesReady()) out.push({ value: `p:${v.id}`, name: v.name.replace(/\s*\((enhanced|premium|compact)\)/i, ''), kind: 'phone', tags: phoneTags(v), best: /\((enhanced|premium)\)/i.test(v.name) });
+  // (This phone's: the best-sounding first (premium, enhanced), the novelty and old robotic ones last.)
+  const q = (v, t) => (/\(premium\)/i.test(v.name) ? 0 : /\(enhanced\)/i.test(v.name) ? 1 : t.includes('novelty') ? 4 : t.includes('retro') ? 3 : 2);
+  const phone = (await phoneVoicesReady()).map((v) => { const tags = phoneTags(v); return { value: `p:${v.id}`, name: v.name.replace(/\s*\((enhanced|premium|compact)\)/i, ''), kind: 'phone', tags, best: /\((enhanced|premium)\)/i.test(v.name), q: q(v, tags), en: /^en/i.test(v.lang) ? 0 : 1 }; });
+  out.push(...phone.sort((a, b) => a.en - b.en || a.q - b.q));
   return out;
 }
 
@@ -40,9 +43,10 @@ export function pickVoice({ current = '', who = {} } = {}) {
     const tagRow = el('div', { class: 'row wrap vp-chips', role: 'group', 'aria-label': 'Describing words' });
     const note = el('p', { class: 'small muted', 'aria-live': 'polite' });
     const list = el('ul', { class: 'vp-list', 'aria-label': 'Voices' });
+    const banner = el('div', { class: 'vp-banner', hidden: true });
     const dlg = el('dialog', { class: 'ed-dialog vp-dialog', 'aria-label': 'Speaking voice' }, el('div', { class: 'sheet' },
       el('div', { class: 'row space' }, el('h2', { text: '🗣 Speaking voice' }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })),
-      search, kinds, tagRow, note, list));
+      banner, search, kinds, tagRow, note, list));
     dlg.addEventListener('close', () => { stopSpeaking(); dlg.remove(); resolve(picked); });
     search.addEventListener('input', () => { q = search.value; paint(); });
     const chip = (label, on, onclick, extra = {}) => el('button', { type: 'button', class: `btn small-btn sv-chip${on ? ' on' : ''}`, 'aria-pressed': String(on), text: label, onclick, ...extra });
@@ -61,7 +65,20 @@ export function pickVoice({ current = '', who = {} } = {}) {
       el('span', { class: 'row vp-acts' },
         v.value ? el('button', { type: 'button', class: 'btn small-btn', text: '▶', 'aria-label': `Play ${v.name}`, onclick: (e) => play(e.currentTarget, v.value) }) : null,
         el('button', { type: 'button', class: `btn small-btn${current === v.value ? '' : ' primary'}`, text: current === v.value ? '✓ In use' : 'Use', 'aria-label': `Use ${v.name}`, onclick: () => { picked = v.value; dlg.close(); } })));
+    // (No natural voices yet: offered here, downloaded without leaving.)
+    const drawBanner = () => {
+      const has = all.some((v) => v.kind !== 'phone'); banner.hidden = has; if (has) return;
+      const bar = el('div', { class: 'so-upbar-track', hidden: true, role: 'progressbar', 'aria-label': 'Natural voices download', 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('span', { class: 'so-upbar-fill' }));
+      const go = el('button', { type: 'button', class: 'btn primary', text: `Download them (${TTS_SIZE})` });
+      const msg = el('span', { class: 'small muted', text: 'This phone\'s own voices can sound robotic. The natural voices are 43 voices that sound like people, on the phone and offline once downloaded.' });
+      go.addEventListener('click', async () => {
+        go.disabled = true; bar.hidden = false; setNaturalOn(true);
+        try { await naturalLoad((x) => { bar.firstChild.style.width = `${Math.max(3, Math.round(x * 100))}%`; bar.setAttribute('aria-valuenow', String(Math.round(x * 100))); go.textContent = `Downloading… ${Math.round(x * 100)}%`; }); all = await voiceCatalog(); kind = 'natural'; paint(); } catch (e) { msg.textContent = `Couldn't download them: ${e.message}`; go.disabled = false; go.textContent = 'Try again'; }
+      });
+      fill(banner, el('strong', { text: '🗣 Want voices that sound like people?' }), msg, bar, go);
+    };
     function paint() {
+      drawBanner();
       fill(kinds, [['', 'All'], ['natural', '🗣 Natural'], ['blend', '🧪 Blends'], ['phone', '📱 This phone']].filter(([k]) => !k || all.some((v) => (k === 'natural' ? v.kind !== 'phone' : v.kind === k)))
         .map(([k, t]) => chip(t, kind === k, () => { kind = k; tags = []; paint(); })));
       const inKind = filterVoices(all, { kind });

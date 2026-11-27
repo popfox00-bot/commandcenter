@@ -206,8 +206,9 @@ test('Sports (its own app): 📊 Update stats pulls live scores and stats on req
   await context.route('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', (r) => { seen.push(r.request().url()); return r.fulfill({ json: scoreboardJson, headers: { 'access-control-allow-origin': '*' } }); });
   const { page, errors } = await openApp(context, '#/sports');
   await page.waitForFunction(() => /vs Chiefs/.test(document.querySelector('.cal-today')?.textContent ?? ''));
-  // Not live yet: nothing asked of the scoreboard until the button.
-  assert.ok(!seen.some((u) => u.includes('/scoreboard')));
+  // Not live yet: no live stats or box score asked for until the button (the scoreboards are read only for
+  // the primetime games, and their scores don't go into your teams' games until then).
+  assert.ok(!seen.some((u) => u.includes('/summary')));
   assert.equal(await page.locator('.upd-game.upd-live').count(), 0);
 
   await page.getByRole('button', { name: 'Update stats' }).click();
@@ -252,6 +253,28 @@ test('Sports (its own app): 📊 Update stats pulls live scores and stats on req
   // Month view: the live game's chip in red.
   await page.getByRole('tab', { name: 'Month' }).click();
   assert.match(await page.textContent('.cal-chip.upd-live-chip'), /● DEN vs KC/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('📺 Primetime: nationally televised NFL and NBA games, whoever plays, in Sports\' games and on the home screen\'s Updates card', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'America/Denver' });
+  await mockApis(context);
+  const T = (id, abbr, name, short) => ({ id, abbreviation: abbr, displayName: name, shortDisplayName: short, color: '003594' });
+  const at = (h) => new Date(NOW + h * 3600e3).toISOString();
+  const g = (id, home, away, tv) => ({ id, date: at(3), shortName: `${away.abbreviation} @ ${home.abbreviation}`, competitions: [{ status: { type: { state: 'pre', shortDetail: '8:15 PM' } }, broadcasts: [{ market: tv ? 'national' : 'home', names: [tv ?? 'KTLA'] }], competitors: [{ homeAway: 'home', team: home }, { homeAway: 'away', team: away }] }] });
+  await context.route('https://site.api.espn.com/apis/site/v2/sports/*/*/scoreboard', (r) => r.fulfill({ json: { events: [] }, headers: { 'access-control-allow-origin': '*' } }));
+  await context.route('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', (r) => r.fulfill({ json: { events: [g('7001', T('14', 'LAR', 'Los Angeles Rams', 'Rams'), T('9', 'GB', 'Green Bay Packers', 'Packers'), 'NBC')] }, headers: { 'access-control-allow-origin': '*' } }));
+  await context.route('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', (r) => r.fulfill({ json: { events: [g('8001', T('13', 'LAL', 'Los Angeles Lakers', 'Lakers'), T('2', 'BOS', 'Boston Celtics', 'Celtics'), 'ESPN'), g('8002', T('20', 'PHI', 'Philadelphia 76ers', '76ers'), T('3', 'NO', 'New Orleans Pelicans', 'Pelicans'), null)] }, headers: { 'access-control-allow-origin': '*' } }));
+  const { page, errors } = await openApp(context, '#/sports');
+  await page.locator('.upd-prime').first().waitFor();
+  const today = await page.locator('.cal-today').textContent();
+  assert.match(today, /Packers[\s\S]*📺 Primetime · NFL/); assert.match(today, /Celtics[\s\S]*📺 Primetime · NBA/);
+  assert.doesNotMatch(today, /Pelicans/, 'a local-TV game: not primetime');
+  // The home screen's Updates card lists them with today's games.
+  await page.goto(page.url().replace(/#.*$/, '#/'));
+  const card = page.locator('.updates-card'); await card.waitFor();
+  assert.match(await card.textContent(), /GB @ LAR[\s\S]*📺/); assert.match(await card.textContent(), /BOS @ LAL/);
   assert.deepEqual(errors, []);
   await context.close();
 });

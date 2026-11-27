@@ -3,7 +3,8 @@
 // - This phone's own (the browser's speech, `speechSynthesis`): nothing to download; on an iPhone, its voices
 //   (more, and better ones, in Settings → Accessibility → Spoken Content → Voices). Only voices that speak on
 //   the device are offered: a computer's browser can list online voices that send the text away; those aren't.
-// - Natural voices (socials-tts-worker.js): a small speech model, downloaded once (~105 MB), about 28 English
+// - Natural voices (socials-tts-worker.js): a small speech model at full quality (32-bit: the 8-bit one sounded
+//   metallic and was no faster; the 16-bit one went silent on some voices), downloaded once (~330 MB), 28 English
 //   voices (American and British, women and men) that sound far more like people.
 // Each account: its Speaking voice (Edit profile; or one of its own, picked from its handle) and speed; when the
 // natural voices are off or not ready, an account set to one speaks in this phone's voice.
@@ -12,7 +13,8 @@ import { store } from '../../lib/dom.js';
 import { personaFor } from './socials-style.js';
 
 export const TTS_MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-export const TTS_SIZE = '105 MB';
+export const TTS_SIZE = '330 MB';
+export const TTS_FILE = /\/onnx\/model\.onnx/; // (the model file this version uses; the older 8-bit one is let go)
 const ON_KEY = 'cc.socials.voices'; // natural voices on ('on')
 export const naturalOn = () => store.get(ON_KEY) === 'on';
 export const setNaturalOn = (on) => store.set(ON_KEY, on ? 'on' : 'off');
@@ -94,7 +96,12 @@ export function speakerFor(a, { naturalReady = false, voices = phoneVoices() } =
   if (want.startsWith('n:') && naturalReady && naturalById(want.slice(2))) return { kind: 'natural', voice: want.slice(2), rate, pitch: p0, shift };
   if (want.startsWith('p:') && voices.some((v) => v.id === want.slice(2))) return { kind: 'phone', voice: want.slice(2), rate, pitch: p0 };
   if (naturalReady && naturalOn()) return { kind: 'natural', voice: GOOD[hash(a?.handle) % GOOD.length], rate, pitch: p0, shift };
-  const en = voices.filter((v) => /^en/i.test(v.lang)); const pool = en.length ? en : voices;
+  // (Its own: the best-sounding of this phone's English voices: premium, then enhanced, then the natural-sounding
+  // ones phones have; never the novelty or old robotic ones.)
+  const en = voices.filter((v) => /^en/i.test(v.lang) && !phoneTags(v).some((t) => t === 'novelty' || t === 'retro'));
+  const rank = (v) => (/\(premium\)/i.test(v.name) ? 3 : /\(enhanced\)/i.test(v.name) ? 2 : /^(samantha|ava|alex|allison|susan|zoe|evan|nathan|joelle|noelle|tom|karen|daniel|kate|serena|moira|tessa|rishi|google|microsoft (aria|guy|jenny))/i.test(v.name) ? 1 : 0);
+  const top = Math.max(-1, ...en.map(rank)); const best = en.filter((v) => rank(v) >= Math.max(top - 1, Math.min(top, 1))); // (the top two levels: some variety between accounts)
+  const pool = best.length ? best : en.length ? en : voices;
   return { kind: 'phone', voice: pool.length ? pool[hash(a?.handle) % pool.length].id : '', rate, pitch: p0 };
 }
 
@@ -133,7 +140,7 @@ const ask = (msg, progress, transfer = []) => new Promise((resolve, reject) => {
 /** Whether the natural voices are on the phone (the model and every voice). */
 export async function naturalDownloaded() {
   try {
-    const m = await caches.open('transformers-cache'); const hasModel = (await m.keys()).some((r) => r.url.includes(TTS_MODEL) && /model_quantized\.onnx/.test(r.url));
+    const m = await caches.open('transformers-cache'); const hasModel = (await m.keys()).some((r) => r.url.includes(TTS_MODEL) && TTS_FILE.test(r.url));
     const v = await caches.open('kokoro-voices'); const have = new Set((await v.keys()).map((r) => r.url.split('/').pop()));
     return hasModel && BASE_VOICES.every((x) => have.has(`${x}.bin`));
   } catch { return false; }

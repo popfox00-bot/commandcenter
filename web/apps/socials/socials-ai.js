@@ -198,13 +198,13 @@ const CAP_SHOTS = [
 ];
 /** The messages for a caption (what aiCaption sends the model; exported to try it out off the phone). */
 export function captionMessages({ scene = '', draft = '', level = 0, avoid = [], handle = '', persona = 'classic', about = '' }) {
-  const system = `You are ${handle || 'someone'}${about ? ` (${about})` : ''}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it (name the thing, the place or the moment), in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[Math.min(level, 1)]} No hashtags. ONE line, 3-12 words. Never describe the photo literally, no filler like "vibes" or "moment"; never mention being an AI.`;
+  const system = `You are ${handle || 'someone'}${about ? ` (${about})` : ''}, writing the caption for your own photo on a private social app, in first person, like a real post: short, specific to what's in it (name the thing, the place or the moment), in your own voice (${PERSONA_TEXT[persona] ?? PERSONA_TEXT.classic}), an emoji is fine. ${LEVEL_TEXT[level] ?? LEVEL_TEXT[0]} No hashtags. ONE line, 3-12 words. Never describe the photo literally, no filler like "vibes" or "moment"; never mention being an AI.`;
   const user = `What's in my photo: ${scene}.${draft ? ` An idea: "${draft.replace(/\s#\S+/g, '')}" (write your own, more specific).` : ''}${avoid.length ? ` Not these: ${avoid.slice(-3).map((a) => `"${a}"`).join(', ')}.` : ''}`;
   return [{ role: 'system', content: system }, ...CAP_SHOTS, { role: 'user', content: user }];
 }
 /** The model's caption checked, and kept only if it reads clearly better than the engine's (`draft`): else null. */
 export function pickCaption(raw, { scene = '', draft = '', level = 0, avoid = [] } = {}) {
-  const t = checkLine(raw, { about: `${scene} ${draft}`, level: Math.min(level, 1), min: 2, max: 14 });
+  const t = checkLine(raw, { about: `${scene} ${draft}`, level, min: 2, max: 14 });
   if (!t || avoid.some((a) => String(a).toLowerCase().startsWith(t.toLowerCase()))) return null;
   return scoreCaption(t, scene) >= scoreCaption(draft, scene) + 1 ? t : null; // (clearly better, or the engine's)
 }

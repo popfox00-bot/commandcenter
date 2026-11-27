@@ -1245,12 +1245,31 @@ test('Socials read aloud: 🔊 on messages, comments and captions speaks in the 
   await page.getByRole('button', { name: 'Sync and password' }).click();
   await page.getByText('🗣 Natural voices (on this phone)').waitFor();
   assert.match(await page.locator('.so-tts').textContent(), /28 voices.*Not downloaded \(about 330 MB, once\)/);
-  await page.getByText('🔊 Read new replies aloud').click();
-  // A message to kai: its reply is spoken as it comes, in its voice.
+  // Replies play by themselves while you're chatting: on unless turned off.
+  assert.equal(await page.getByRole('checkbox', { name: /Play replies while chatting/ }).isChecked(), true);
+  // Sent to kai: its reply is spoken as it comes, in its voice (both lines, one after the other).
   await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @kai' }).click();
   await page.getByLabel('Message', { exact: true }).fill('how was the surf today?'); await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.locator('.so-bubble:not(.mine):not(.so-typing)').first().waitFor({ timeout: 10000 });
   await page.waitForFunction(() => globalThis.__said.filter((x) => x.voice === 'v-dan').length >= 3);
+  // Opening the chat again (not chatting): nothing plays by itself.
+  await page.waitForFunction(() => !document.querySelector('.so-typing'), null, { timeout: 15000 }); await page.waitForTimeout(500);
+  await page.getByRole('button', { name: 'Back' }).click(); await page.evaluate(() => { globalThis.__said.length = 0; });
+  await page.getByRole('button', { name: /@kai/ }).first().click(); await page.locator('.so-chat-bar').waitFor(); await page.waitForTimeout(1500);
+  assert.deepEqual(await page.evaluate(() => globalThis.__said.map((x) => x.text)), [], 'opening a chat plays nothing');
+  // Voices made are kept on the phone across restarts: encrypted, under a name that doesn't give the words away.
+  const kept = await page.evaluate(async () => {
+    const S = await import('./apps/socials/socials-store.js');
+    const audio = Float32Array.from({ length: 2400 }, (_, i) => Math.sin(i / 7) * 0.4);
+    await S.voiceStore.put('n:af_heart|1.000|see you at the beach', audio, 24000);
+    const back = await S.voiceStore.get('n:af_heart|1.000|see you at the beach');
+    const { idb } = await import('./lib/idb.js');
+    const keys = (await idb.keys()).map(String).filter((k) => k.startsWith('cc.socials.v.'));
+    const rec = await idb.get(keys[0]);
+    return { n: back?.audio.length, close: Math.abs(back.audio[100] - audio[100]) < 0.001, rate: back?.rate, keys, enc: rec?.enc === 1, plain: 'buf' in rec, other: await S.voiceStore.get('n:af_heart|1.000|something else') };
+  });
+  assert.equal(kept.n, 2400); assert.ok(kept.close); assert.equal(kept.rate, 24000); assert.equal(kept.keys.length, 1);
+  assert.ok(!/beach|heart/i.test(kept.keys[0]), 'the name gives nothing away'); assert.ok(kept.enc && !kept.plain, 'encrypted'); assert.equal(kept.other, null);
   // 🔊 on a message bubble too.
   await page.locator('.so-bubble.mine').getByRole('button', { name: /Play @owner\.me's message aloud/ }).click();
   await page.waitForFunction(() => globalThis.__said.some((x) => x.text === 'how was the surf today?'));

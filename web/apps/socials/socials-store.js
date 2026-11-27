@@ -21,6 +21,7 @@ import { normalize } from './socials-core.js';
 export const KEY = 'cc.socials';
 const MEDIA = 'cc.socials.m.';
 const KEYREC = 'cc.socials.key';
+const VOICE = 'cc.socials.v.'; const VOICE_INDEX = 'cc.socials.vi';
 const SESSION = 'cc.socials.dk';
 const ROUNDS = 210_000;
 
@@ -76,7 +77,7 @@ async function wrapWith(password, raw) {
  * everything back from Drive.
  */
 export async function resetData(password) {
-  for (const k2 of (await idb.keys()).map(String).filter((x) => x === KEY || x === KEYREC || x.startsWith(MEDIA))) await idb.del(k2);
+  for (const k2 of (await idb.keys()).map(String).filter((x) => x === KEY || x === KEYREC || x.startsWith(MEDIA) || x.startsWith(VOICE) || x === VOICE_INDEX)) await idb.del(k2);
   keptIds = null; lockData();
   return unlockData(password);
 }
@@ -174,3 +175,46 @@ export function saveState(state) {
   queue = queue.then(run, run);
   return queue;
 }
+
+// ---- Voices made (read aloud), kept so a message played again plays at once, even another day. Each is kept under a
+// name that doesn't give its words away (an HMAC of the voice, speed and words, with a key from the data key, or a
+// plain SHA-256 before Socials has one), its sound encrypted like everything else; at most VOICE_MAX bytes in all,
+// the ones played longest ago let go first. The index (names, sizes, when last played) holds no words.
+const VOICE_MAX = 40 * 1024 * 1024;
+let voiceMac = null; let voiceMacFor = null;
+async function voiceName(k) {
+  const key = await dataKey(); const data = new TextEncoder().encode(k);
+  if (!key) return b64(await crypto.subtle.digest('SHA-256', data)).replace(/[^a-z0-9]/gi, '').slice(0, 40);
+  if (voiceMacFor !== key) { const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key)); voiceMac = await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', new Uint8Array([...new TextEncoder().encode('cc.socials.voice'), ...raw])), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); voiceMacFor = key; }
+  return b64(await crypto.subtle.sign('HMAC', voiceMac, data)).replace(/[^a-z0-9]/gi, '').slice(0, 40);
+}
+const toI16 = (f) => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const x = Math.max(-1, Math.min(1, f[i] || 0)); o[i] = x < 0 ? x * 32768 : x * 32767; } return o; };
+const toF32 = (i16) => { const o = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) o[i] = i16[i] / (i16[i] < 0 ? 32768 : 32767); return o; };
+let voiceQ = Promise.resolve();
+const inTurn = (fn) => (voiceQ = voiceQ.then(fn, fn));
+export const voiceStore = {
+  /** A kept voice for `k`: { audio (Float32Array), rate }, or null. */
+  async get(k) {
+    try {
+      if (!(await dataKey()) && await dataEncrypted()) return null; // (locked: nothing read)
+      const name = await voiceName(k); const r = await idb.get(VOICE + name); if (!r) return null;
+      const key = await dataKey(); const buf = r.enc ? (key ? await open(key, r) : null) : r.buf; if (!buf) return null;
+      inTurn(async () => { const ix = (await idb.get(VOICE_INDEX)) ?? {}; if (ix[name]) { ix[name].at = Date.now(); await idb.set(VOICE_INDEX, ix); } });
+      return { audio: toF32(new Int16Array(buf)), rate: r.rate };
+    } catch { return null; }
+  },
+  /** `audio` (Float32Array at `rate`) kept for `k`. */
+  put(k, audio, rate) {
+    return inTurn(async () => {
+      const key = await dataKey(); if (!key && await dataEncrypted()) return; // (locked: nothing written)
+      const name = await voiceName(k); const bytes = toI16(audio).buffer;
+      await idb.set(VOICE + name, key ? { rate, ...(await seal(key, bytes)) } : { rate, buf: bytes });
+      const ix = (await idb.get(VOICE_INDEX)) ?? {}; ix[name] = { at: Date.now(), size: bytes.byteLength };
+      let total = Object.values(ix).reduce((t, x) => t + x.size, 0);
+      for (const [n] of Object.entries(ix).sort((a, b) => a[1].at - b[1].at)) { if (total <= VOICE_MAX) break; if (n === name) continue; total -= ix[n].size; delete ix[n]; await idb.del(VOICE + n); }
+      await idb.set(VOICE_INDEX, ix);
+    }).catch(() => {});
+  },
+  /** Every kept voice let go. */
+  clear: () => inTurn(async () => { for (const k2 of (await idb.keys()).map(String).filter((x) => x.startsWith(VOICE) || x === VOICE_INDEX)) await idb.del(k2); }),
+};

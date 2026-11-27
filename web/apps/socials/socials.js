@@ -10,7 +10,7 @@
 // phone first, so your other devices open the same Socials with the same password (socials-sync.js).
 
 import { el, fill, store } from '../../lib/dom.js';
-import { loadState, saveState, unlockData, lockData, rewrapData, resetData, dataKey, dataEncrypted } from './socials-store.js';
+import { loadState, saveState, unlockData, lockData, rewrapData, resetData, dataKey, dataEncrypted, voiceStore } from './socials-store.js';
 import { makeLock } from '../../lib/hidden-lock.js';
 import { connected } from '../../lib/saved-files.js';
 import { passkeysSupported, deviceCanPasskey, hasPasskey, createPasskey, usePasskey, removePasskey, passkeyOf } from '../../lib/passkey.js';
@@ -32,7 +32,9 @@ import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS }
 import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, AI_SIZE } from './socials-ai.js';
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
-import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl } from './socials-speech.js';
+import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, TTS_SIZE, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl, setVoiceStore, isMade } from './socials-speech.js';
+// (Voices made are kept on the phone, encrypted, so messages played again play at once, another day too.)
+setVoiceStore(voiceStore);
 import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
@@ -62,8 +64,10 @@ const SEEN_KEY = 'cc.socials.seen';
 // (Comments made for each new post, from three other accounts: on unless the Owner turns them off.)
 const AUTO_KEY = 'cc.socials.autocomment';
 const autoOn = () => store.get(AUTO_KEY) !== '0';
-const READ_KEY = 'cc.socials.readaloud'; // (new message replies read aloud as they come, in the chat)
-const readOn = () => store.get(READ_KEY) === 'on';
+const READ_KEY = 'cc.socials.readaloud'; // (replies played by themselves while you're chatting: on unless turned off)
+const readOn = () => store.get(READ_KEY) !== 'off';
+// (Chatting: for this long after you send a message in a chat, replies there play by themselves as they come.)
+export const ACTIVE_CHAT_MS = 2 * 60 * 1000;
 const CREPLY_KEY = 'cc.socials.commentreply';
 const creplyOn = () => store.get(CREPLY_KEY) !== '0';
 const REPLY_KEY = 'cc.socials.autoreply';
@@ -513,15 +517,35 @@ function mountAdmin(host, { open = '' } = {}) {
   let replying = null; // ({ post, comment, to }: the comment being replied to, in the post's box)
   // (🔊: a message, comment or caption read aloud in its account's voice (socials-speech.js); again to stop.)
   let saying = null;
+  // (Replies played by themselves while chatting: one after another, never cutting each other off. `chatting`: when
+  // you last sent a message in each chat; replies there play for ACTIVE_CHAT_MS after it. Opening a chat plays nothing.)
+  const autoQ = []; let autoBusy = false; const chatting = new Map();
+  const activeChat = (id) => readOn() && view.name === 'chat' && view.id === id && Date.now() - (chatting.get(id) ?? 0) < ACTIVE_CHAT_MS;
+  function autoSay(line, a, chatId) {
+    if (!activeChat(chatId)) return;
+    autoQ.push({ line, a, chatId });
+    if (autoBusy) return;
+    autoBusy = true;
+    (async () => {
+      while (autoQ.length) {
+        const x = autoQ.shift(); if (!(view.name === 'chat' && view.id === x.chatId)) continue;
+        await speak(x.line, x.a).catch(() => {}); if (lastProblem) toast(lastProblem);
+      }
+      autoBusy = false;
+    })();
+  }
   const sayBtn = (text, a, what = 'it') => (!canSpeak() || !text ? null : el('button', { type: 'button', class: 'so-say', 'aria-label': `Play ${what} aloud`, text: '🔊', onclick: async (e) => {
     e.stopPropagation(); const b = e.currentTarget;
     if (saying === b) { saying = null; stopSpeaking(); return; }
     primeAudio(); // (first, in the tap: an iPhone lets sound start only now)
     // (⏳ while the voice is being made; lit, pulsing, only once sound has started.)
     saying?.classList.remove('on'); if (saying) saying.textContent = '🔊'; saying = b; b.textContent = '⏳';
-    if (naturalOn() && !naturalReady()) { toast('Loading the natural voices (once a session)…'); await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}. This phone's voice instead.`)); }
+    autoQ.length = 0; // (a 🔊 tapped: the replies waiting to play by themselves give way)
+    // (Made already (kept on the phone): played at once, without loading the voices.)
+    const madeAlready = naturalOn() && !naturalReady() && await isMade(text, a);
+    if (naturalOn() && !naturalReady() && !madeAlready) { toast('Loading the natural voices (once a session)…'); await naturalLoad().catch((x) => toast(`The natural voices couldn't load: ${x.message}. This phone's voice instead.`)); }
     let heard = false;
-    const r = await speak(text, a, { onStart: () => { heard = true; b.textContent = '🔊'; b.classList.add('on'); } });
+    const r = await speak(text, a, { made: madeAlready, onStart: () => { heard = true; b.textContent = '🔊'; b.classList.add('on'); } });
     b.textContent = '🔊'; b.classList.remove('on'); if (saying !== b) return; // (stopped, or another 🔊 tapped)
     saying = null;
     if (lastProblem) toast(lastProblem); else if (!heard || r.kind === 'none') toast('Nothing could be played. Settings → 🔊 Test says why.');
@@ -1128,7 +1152,7 @@ function mountAdmin(host, { open = '' } = {}) {
       const persona = personaFor(m);
       let t = null;
       if (aiOn() && aiReady()) t = await aiCaption({ scene: describeScene(sc), draft: body, level: levelNow(), avoid: suggested, handle: m.handle, persona, about: aboutOf(m) });
-      t ??= spice(voice(body, { persona }), Math.min(levelNow(), 2), { persona, mood: 'pos' });
+      t ??= spice(voice(body, { persona }), levelNow(), { persona, mood: 'pos' });
       return `${t}${tags.length ? ` ${tags.join(' ')}` : ''}`;
     };
     const suggest = el('button', { type: 'button', class: 'btn so-suggest', text: '✨ Suggest caption' });
@@ -1396,7 +1420,7 @@ function mountAdmin(host, { open = '' } = {}) {
       if (!alive || !mine()) return;
       const text = ai ?? draft;
       // (Its voice made now, while it's "typing", so it's read at once when it arrives.)
-      if (readOn()) for (const line of text.split('\n')) prepareVoice(line, accountById(state, from));
+      if (activeChat(from)) for (const line of text.split('\n')) prepareVoice(line, accountById(state, from));
       // (Two messages sometimes: the first, then "typing" again, then the second.)
       const [one, ...more] = text.split('\n').map((x) => x.trim()).filter(Boolean);
       const wait = (line) => (ai ? 500 : Math.min(4200, 900 + line.length * 35));
@@ -1404,7 +1428,7 @@ function mountAdmin(host, { open = '' } = {}) {
         if (!alive || !mine()) return;
         const r = sendMessage(state, from, to, line);
         if (r) {
-          if (view.name === 'chat' && view.id === from && state.me === to) { markRead(state, to, from, r.at); if (readOn()) speak(line, accountById(state, from)).then(() => { if (lastProblem) toast(lastProblem); }, () => {}); }
+          if (view.name === 'chat' && view.id === from && state.me === to) { markRead(state, to, from, r.at); autoSay(line, accountById(state, from), from); }
           save();
         }
         if (then) typing.set(from, { t: then(), shown: true, token }); else typing.delete(from);
@@ -1433,15 +1457,16 @@ function mountAdmin(host, { open = '' } = {}) {
     if (!msgs.length) list.append(el('p', { class: 'muted so-pad', text: `Say hi to @${o.handle}. (Switch to @${o.handle} to answer as them.)` }));
     if (typing.get(o.id)?.shown) list.append(el('div', { class: 'so-bubble so-typing', 'aria-label': `@${o.handle} is typing` }, el('span', { class: 'so-typing-dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'))));
     const input = el('input', { class: 'so-input', type: 'text', placeholder: 'Message…', 'aria-label': 'Message', maxlength: '2000', enterkeyhint: 'send' });
-    const send = () => { if (readOn()) primeAudio(); if (sendMessage(state, m.id, o.id, input.value)) { save(); autoReply(o.id, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
+    const send = () => { if (readOn()) primeAudio(); if (sendMessage(state, m.id, o.id, input.value)) { chatting.set(o.id, Date.now()); save(); autoReply(o.id, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
     // (The Owner just said something and no reply's on its way (replies by themselves off): ✨ one now.)
     const last = msgs[msgs.length - 1];
     if (m.owner && last && last.from === m.id && (last.text || last.post) && !typing.has(o.id)) {
       list.append(el('div', { class: 'so-gen so-gen-reply' }, el('button', { type: 'button', class: 'btn so-gen-btn', text: `✨ Generate reply from @${o.handle}`, onclick: () => {
-        let r = null; for (const line of replyText(o.id, m.id).split('\n').filter(Boolean)) r = sendMessage(state, o.id, m.id, line.trim()) ?? r;
-        if (r) { markRead(state, m.id, o.id, r.at); save(); draw(); }
+        if (readOn()) primeAudio();
+        let r = null; const lines = []; for (const line of replyText(o.id, m.id).split('\n').filter(Boolean)) { const x = sendMessage(state, o.id, m.id, line.trim()); if (x) { r = x; lines.push(line.trim()); } }
+        if (r) { markRead(state, m.id, o.id, r.at); save(); draw(); for (const line of lines) autoSay(line, o, o.id); }
       } })));
     }
     return el('div', { class: 'so-chat-wrap' },
@@ -1566,7 +1591,7 @@ function mountAdmin(host, { open = '' } = {}) {
     drawAi();
     // (Read aloud: new replies in a chat, and the natural voices (a download).)
     const readBox = el('label', { class: 'so-switch-row' }, (() => { const c = el('input', { type: 'checkbox', checked: readOn() }); c.addEventListener('change', () => store.set(READ_KEY, c.checked ? 'on' : 'off')); return c; })(),
-      el('span', {}, el('strong', { text: '🔊 Read new replies aloud' }), el('span', { class: 'muted small', text: ' In a chat, each reply is spoken as it comes, in that account\'s voice. Any message, comment or caption plays with its 🔊.' })));
+      el('span', {}, el('strong', { text: '🔊 Play replies while chatting' }), el('span', { class: 'muted small', text: ' After you send a message, replies that come in the next couple of minutes play by themselves, one after another, in each account\'s voice. Opening a chat never plays anything by itself. Any message, comment or caption plays with its 🔊.' })));
     const tvBox = el('div', { class: 'so-ai so-tts' });
     const drawTv = async (msg = '') => {
       const have = await naturalDownloaded(); const on = naturalOn();
@@ -1730,6 +1755,8 @@ function mountAdmin(host, { open = '' } = {}) {
     const v = view;
     reelObserver?.disconnect();
     root.classList.toggle('so-in-reels', v.name === 'reels'); root.classList.toggle('so-in-chat', v.name === 'chat'); chatScreen(v.name === 'chat');
+    // (Out of the chat: replies still waiting to play by themselves are dropped, and one playing stops.)
+    if (v.name !== 'chat' && (autoBusy || autoQ.length)) { autoQ.length = 0; stopSpeaking(); }
     // (Reels and a chat fill the screen below the bars: how far down they start.)
     if (v.name === 'reels' || v.name === 'chat') root.style.setProperty('--so-reels-top', `${Math.round(main.getBoundingClientRect().top + (globalThis.scrollY || 0))}px`);
     fill(main, v.name === 'settings' ? settings() : v.name === 'reels' ? reels() : v.name === 'inbox' ? inbox() : v.name === 'chat' ? chat(v.id) : v.name === 'editpost' ? editPostView(v.id) : v.name === 'tag' ? tagView(v.tag) : v.name === 'explore' ? explore() : v.name === 'new' ? newPost() : v.name === 'profile' ? profile(v.id ?? state.me)

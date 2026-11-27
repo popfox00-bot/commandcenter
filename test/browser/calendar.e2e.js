@@ -484,7 +484,7 @@ test('Scan review: the file\'s picture and the face beside the account\'s photo;
   await page.getByText('Welcome to your feed').waitFor();
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click();
   await page.getByLabel('Username', { exact: true }).fill('jordan'); await page.getByRole('button', { name: 'Create account' }).click();
-  const saved = page.getByRole('button', { name: 'I\'ve saved it' }); await saved.or(page.getByText('Welcome to your feed')).first().waitFor(); if (await saved.count()) await saved.click();
+  const saved = page.getByRole('button', { name: 'I\'ve saved it' }); await saved.or(page.getByText('Welcome to your feed')).first().waitFor(); if (await saved.count()) await saved.click({ timeout: 3000 }).catch(() => {}); // (the locator handler above may have tapped it already)
   await page.getByText('Welcome to your feed').waitFor();
   await page.locator('.so-switch').click(); await page.getByRole('button', { name: /^Use @maya/ }).click();
   await page.locator('.so-switch', { hasText: 'maya' }).waitFor();

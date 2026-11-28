@@ -293,7 +293,8 @@ export function chatReply(history, { rand = Math.random, now = Date.now(), inter
   if (BYE.test(text) && !shared) { const night = /night|gn/i.test(text); return `${pick(night ? ['Night!', 'Night night', 'Sleep well!', 'Good night!'] : ['Bye!!', 'Talk soon!', 'Okay ttyl!', 'See you!'], rand)} ${e(night ? ['😴', '🌙', '💛', '❤️'] : ['👋', '❤️', '💛', '😄'])}`; }
   // (Its own question just answered: to the answer.)
   const askedQ = said && !said.mine && /\?\s*\S*$/.test(said.text ?? '');
-  if (askedQ && text && !BYE.test(text)) {
+  // (A question back isn't an answer: "how are you?" after its own question is answered as a question.)
+  if (askedQ && text && !BYE.test(text) && !ASK_BACK.test(text) && it !== 'howareyou' && !/\?\s*$/.test(text)) {
     const q = lower(said.text);
     const ack = mood === 'pos' ? pick(['Love that!', 'Yay!!', 'Nice!!', 'Ahh that\'s great', 'Glad to hear it!'], rand) : mood === 'neg' ? pick(['Aw no', 'Ugh, I\'m sorry', 'Oh no, that\'s rough', 'Noo'], rand) : pick(['Ohh okay', 'Got it!', 'Ah nice', 'Fair enough'], rand);
     const em = mood === 'pos' ? e(['😊', '🙌', '🥳', '💛']) : mood === 'neg' ? e(['😕', '🫂', '💛']) : e(['👍', '😄', '🙂']);

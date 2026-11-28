@@ -32,3 +32,8 @@ test('something the Owner mentions that the account is into gets an excited repl
   const doing = new Set(); for (let i = 0; i < 30; i++) doing.add(chatReplyStyled([{ mine: true, text: 'wyd?', at: 1 }], { about: 'Into: pottery', rand: Math.random }));
   assert.ok([...doing].some((x) => /pottery/i.test(x)), [...doing].join(' | '));
 });
+
+test('asked how it is, right after its own question: it answers about itself (not "got it")', () => {
+  const h = [{ mine: true, text: 'thanks!', at: 1 }, { mine: false, text: 'Of course! What are you up to later?', at: 2 }, { mine: true, text: 'how are you?', at: 3 }];
+  for (let i = 0; i < 60; i++) assert.match(chatReply(h, { rand: Math.random }), /good|great|not bad|chilling|gym|dinner|movie|home|coffee|working|cleaning|walk|phone|doing/i);
+});

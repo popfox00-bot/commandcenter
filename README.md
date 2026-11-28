@@ -90,7 +90,7 @@ choices that keep usage under them.
 
 ## Contents
 
-- [Files, Draw and QR](#files-draw-and-qr): [Video Editor](#video-editor) · [Saved Files](#saved-files) · [Downloads](#downloads)
+- [Files, Draw and QR](#files-draw-and-qr): [Video Editor](#video-editor) · [Reader](#reader) · [Saved Files](#saved-files) · [Downloads](#downloads)
 - [FM (FaceMask)](#fm-facemask): face swaps, Quick Swap, Characters · [Reverse Fill](#reverse-fill) · [Fashion](#fashion)
 - [Calendar](#calendar) · [Notes](#notes) · [Rap](#rap) · [Socials](#socials) · [Games](#games) · [Settings](#settings)
 - [Weather and Sports](#weather-and-sports): [weather](#weather) · [sports](#sports) · [push jobs](#push-jobs-weather-alerts-and-sports)
@@ -542,6 +542,24 @@ It needs a connection, and it's careful about what it fetches:
   as a generic file type. It won't start what there isn't room for on the phone.
 - **Sites that don't let apps fetch their files** (no CORS): the previews are shown as paused frames
   instead of stills, and a failed download offers **↗ Open in the browser** to save it from there.
+
+### Reader
+
+(In the **Vault**.) Your private files, in folders, encrypted on this phone, opened by themselves while the Vault is open.
+- **The figures** at the top: how many files, how big, how many folders (for the folder you're in too), and how much it
+  takes on the phone (compressed and encrypted).
+- **＋ Add files** (each compressed where that helps, then encrypted), **📁 New folder**, **Select** → Move to… /
+  Export / Delete; folders renamed or deleted from their row. Tap a file to look at it (photos, videos, sound, PDFs,
+  text: decrypted in memory only), ‹ › for the folder's others, Share / Save / Delete.
+- **📤 Export** a folder (or what's picked): one compressed ZIP, folders kept, **locked** (`.ccv`) with Reader's
+  password, a different one, or not locked; then 💾 Save to a drive (on a computer), Share → Save to Files → the drive
+  (iPhone), or Download. **📥 Import** a package from a drive (Reader's own open with no question; others ask their
+  password or recovery key), a ZIP, or any files: in, encrypted, a package of several into a folder of its name.
+- **Encryption:** AES-256-GCM with Reader's own 256-bit key, a random IV for every file; the list of names and folders is
+  encrypted too. The key is wrapped by a key of this device the browser won't hand out (so it opens with the Vault, no
+  second password), and by Reader's password and a recovery key (PBKDF2-SHA256, 600,000 rounds), shown once at setup.
+  Packages are the same CCV1 files Saved Files makes, so `decrypt.html` / `decrypt.py` open them on any computer with
+  the password or recovery key (`web/apps/reader/`, `lib/vault.js`, `decryption/FORMAT.md`).
 
 ### Saved Files
 

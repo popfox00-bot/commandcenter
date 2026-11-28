@@ -100,7 +100,7 @@ test('home screen of apps: Files holds the others; Magic and Saved Files only on
   await page.click('#view-app .back');
   await page.waitForFunction(() => location.hash === '#/hidden');
   await page.waitForSelector('.hid-apps .app-tile');
-  assert.deepEqual(await page.$$eval('.hid-apps .app-name', (els) => els.map((e) => e.textContent)), ['Magic', 'Saved Files']);
+  assert.deepEqual(await page.$$eval('.hid-apps .app-name', (els) => els.map((e) => e.textContent)), ['Magic', 'Saved Files', 'Reader']);
   // Locked again: Saved Files asks first too.
   await page.click('button:has-text("Lock")');
   await page.waitForSelector('#view-home:not([hidden])');

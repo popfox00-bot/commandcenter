@@ -77,3 +77,30 @@ file (section 2) and use it on the file (section 3): the data key never changes.
 ## 6. Without the password and the recovery key
 
 The files can't be opened. That's the point: nobody else can either.
+
+## Reader packages of any size (CCV2)
+
+Reader's 💽 Drive packages (and 📥 Import) use a second layout, made and opened a piece at a time, so a package can hold
+gigabytes and one file can be taken out without reading the rest. The key is kept exactly as above (section 2: the
+header's `password` and `recovery` wraps); `decrypt.py` opens these too (`--list` shows what's inside).
+
+| Bytes | What |
+| --- | --- |
+| 4 | the ASCII text `CCV2` |
+| 4 | the header's length `H` (unsigned, big-endian) |
+| H | UTF-8 JSON `{ "v": 2, "iterations": 600000, "password": <wrap>, "recovery": <wrap>, "chunk": 4194304 }` |
+| … | the **content** stream's pieces, then the **list** stream's pieces |
+| 16 | the trailer: u32 + u32 (high, low) = where the list's pieces start; u32 0; the ASCII text `CCVE` |
+
+**A piece:** u32 `L` (big-endian), a 12-byte IV, then `L + 16` bytes of AES-256-GCM ciphertext (with the data key). Its
+additional authenticated data is 10 bytes: the stream's letter (`C` or `M`), the piece's number from 0 (u64,
+big-endian), and `01` if it's the stream's last piece, else `00` (try both: the one that decrypts tells you). Every
+content piece but the last holds exactly `chunk` plaintext bytes, so content piece `k` starts at `8 + H + k × (chunk + 32)`.
+
+**The content** (the content pieces' plaintext, joined): for each file, `F`, u32 `J`, `J` bytes of UTF-8 JSON
+`{ "n": "<path, folders with />", "s": <size>, "t": "<type>", "m": <modified, ms>, "z": <compressed?> }`; then any number
+of `D`, u32 `K`, `K` bytes (the next block of the file, up to 1 MiB; when `z`, each block compressed on its own with raw
+DEFLATE, RFC 1951); then `E`. After the last file, `X`.
+
+**The list** (the list pieces' plaintext): UTF-8 JSON `{ "v": 2, "files": [{ n, s, t, m, z, "c": <the content piece its F
+is in>, "o": <its offset in that piece> }], "count": <files>, "size": <bytes>, "at": <made, ms> }`.

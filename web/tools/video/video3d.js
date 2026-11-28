@@ -6,7 +6,7 @@
 import { el, fill, store, about } from '../../lib/dom.js';
 import { LAYOUTS, EYE_CAPS, VR_SUFFIXES, eyeSize, frameSize, anaglyph } from './video-core.js';
 import * as O from './video-ops.js';
-import { picker, field, group, select, toggle, slider, segmented, progressBar, clock, secs, resultCard, showError } from './video-ui.js';
+import { picker, field, group, select, toggle, slider, segmented, progressBar, clock, secs, resultCard, showError, timeline } from './video-ui.js';
 
 const KEY = 'cc.video3d.options';
 // (Tests run without the model: depth guessed from the picture instead. Never set for real use.)
@@ -28,7 +28,7 @@ export function mount(host) {
   const save = () => store.set(KEY, JSON.stringify(o));
   const test = store.get(TEST_KEY) === '1';
   const urls = new Set();
-  let file = null; let opened = null; let worker = null; let loaded = null; let controller = null; let msPerFrame = null; let previewed = null;
+  let file = null; let opened = null; let worker = null; let loaded = null; let controller = null; let msPerFrame = null; let previewed = null; let tl = null;
   const trim = { start: 0, end: 0 };
 
   const status = el('div', { class: 'vid-status', role: 'status' });
@@ -52,6 +52,11 @@ export function mount(host) {
     try {
       fill(status, el('p', { class: 'small muted', text: `Opening ${f.name}…` }));
       opened = await O.openVideo(f); file = f; trim.start = 0; trim.end = opened.info.duration;
+      tl = timeline(opened, O.frameAt, { start: 0, end: trim.end, onChange: (s2, e2) => {
+        trim.start = s2; trim.end = e2;
+        for (const [k, v] of [['Start (seconds)', s2], ['End (seconds)', e2]]) { const n = opts.querySelector(`input[aria-label="${k}"]`); if (n) n.value = String(Math.round(v * 10) / 10); }
+        renderEstimate();
+      } });
       fill(status); work.hidden = false;
       const i = opened.info;
       infoLine.textContent = `${f.name}: ${i.w}×${i.h} · ${secs(i.duration)} · ${Math.round(i.fps * 100) / 100} fps · ${i.audio ? `sound (${i.audio.codec})` : 'no sound'}`;
@@ -84,7 +89,7 @@ export function mount(host) {
     const i = opened.info; const eye = eyeSize(i.w, i.h, o.cap); const fs = frameSize(o.layout, eye);
     const layoutNote = el('span', { class: 'muted small', text: `${LAYOUTS.find((l) => l.id === o.layout).note} Output ${fs.w}×${fs.h}, named …${VR_SUFFIXES[o.layout]}.mp4.` });
     const changed = () => { save(); renderOptions(); renderEstimate(); };
-    const tnum = (k) => { const n = el('input', { type: 'number', min: '0', max: String(i.duration), step: '0.1', value: String(Math.round(trim[k] * 10) / 10), inputmode: 'decimal', 'aria-label': k === 'start' ? 'Start (seconds)' : 'End (seconds)' }); n.addEventListener('change', () => { const v = Math.max(0, Math.min(i.duration, Number(n.value) || 0)); trim[k] = v; if (trim.end <= trim.start) trim[k === 'start' ? 'end' : 'start'] = k === 'start' ? Math.min(i.duration, v + 0.1) : Math.max(0, v - 0.1); renderOptions(); renderEstimate(); }); return n; };
+    const tnum = (k) => { const n = el('input', { type: 'number', min: '0', max: String(i.duration), step: '0.1', value: String(Math.round(trim[k] * 10) / 10), inputmode: 'decimal', 'aria-label': k === 'start' ? 'Start (seconds)' : 'End (seconds)' }); n.addEventListener('change', () => { const v = Math.max(0, Math.min(i.duration, Number(n.value) || 0)); trim[k] = v; if (trim.end <= trim.start) trim[k === 'start' ? 'end' : 'start'] = k === 'start' ? Math.min(i.duration, v + 0.1) : Math.max(0, v - 0.1); tl?.set(trim.start, trim.end); renderOptions(); renderEstimate(); }); return n; };
     fill(opts,
       group('Layout', segmented('Layout', o.layout, LAYOUTS.map((l) => [l.id, l.name]), (v) => { o.layout = v; changed(); }), null), layoutNote,
       field('Size per eye', select(o.cap, EYE_CAPS.map(([v, l]) => [v, v ? `${l} px (longer side)` : `${l} (${i.w}×${i.h})`]), (v) => { o.cap = Number(v); changed(); }), 'Never bigger than the video. 1920 suits Quest 3; 1440 converts faster.'),
@@ -94,7 +99,7 @@ export function mount(host) {
       field('Depth detail', select(o.detail, DETAIL, (v) => { o.detail = Number(v); changed(); })),
       field('Work out depth', select(o.stride, STRIDE, (v) => { o.stride = Number(v); changed(); }), 'Every 2nd or 3rd frame is faster; scene cuts are always worked out.'),
       toggle('Swap eyes (right eye first)', o.swap, (v) => { o.swap = v; save(); }),
-      el('div', { class: 'vid-trim' }, group('Start (s)', tnum('start')), group('End (s)', tnum('end'))),
+      group('Part to make 3D', tl), el('div', { class: 'vid-trim' }, group('Start (s)', tnum('start')), group('End (s)', tnum('end'))),
     );
   }
   const params = () => ({ layout: o.layout, strength: o.strength, convergence: 1 - o.popout / 100, smoothing: o.smoothing / 100, swap: o.swap, detail: o.detail, stride: o.stride });

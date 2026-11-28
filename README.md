@@ -126,7 +126,10 @@ AAC) and is checked before it's offered (it opens; its size, length, frame count
 anything off is shown in red or as a warning, never left out. Needs WebCodecs (iPhone: iOS 16.4 or later); a
 browser without says so plainly.
 
-- **✂️ Edit**: trim (start/end, or **Here** at the player's position), centered crop (1:1, 9:16, 16:9, 4:5,
+- **✂️ Edit**: trim on a **timeline** (a strip of the video's frames, the part kept between two handles; or start/end,
+  or **Here** at the player's position), **text** on the video (top, middle or bottom; small to large; five colours,
+  outlined), **speed** (¼× slow motion to 4×; the sound with it, higher or lower), **🎞 GIF** (a part of up to
+  15 s, 320–640 px, 8–15 frames a second; gifenc in `web/vendor/gifenc/`, MIT), centered crop (1:1, 9:16, 16:9, 4:5,
   4:3), size (longer side), rotate, flip, and sound kept, removed or **replaced** by another file's (music, a
   recording, a video). Also **⏪ Reverse** (picture and sound), **➕ Combine** (clips joined in order, fitted into
   the first one's frame) and **🎵 Sound only** (.m4a). Sound already in AAC is copied untouched.
@@ -1453,7 +1456,9 @@ Profile, ✈ for messages), where everything is made by you in the app.
   you going with?", "I had the best pizza" → "Best pizza ever?! Take me next time" (stock lines only when there's
   nothing of theirs to work with); an answer to its own question ("good!" to its "how are you?" gets "Love
   that!", "not great" gets "Aw no, what happened?"); asked back ("you?", "wyd") it says how it is or what it's
-  doing; plans you mentioned are followed up once they're over ("Going to a concert tonight", the next day:
+  doing (from what it's into, on its profile); what you've told it is remembered and asked after later ("my dog
+  Max" → "How's Max doing?", your sister, where you work or live, what you love: `factsIn`); something you mention that
+  it's into gets it excited; replies often add a bit of its own and a question; plans you mentioned are followed up once they're over ("Going to a concert tonight", the next day:
   "How was the concert??"); what the chat's about gets a fitting reaction and a question to keep it going; a
   shared post gets a comment made for its photo; goodbyes get a goodbye; and it never sends the same thing
   twice in a chat (nor opens or asks the same way it did lately). Each account has a **voice** of its own, always

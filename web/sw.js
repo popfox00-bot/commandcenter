@@ -4,7 +4,7 @@
 
 /* PRECACHE:BEGIN */
 const PRECACHE = {
-  "version": "93cb0274c2da",
+  "version": "29575ade97bc",
   "files": [
     "app.js",
     "apps/calculator/calc-core.js",
@@ -303,6 +303,8 @@ const PRECACHE = {
     "vendor/face/model/face_recognition_model.bin",
     "vendor/face/model/tiny_face_detector_model-weights_manifest.json",
     "vendor/face/model/tiny_face_detector_model.bin",
+    "vendor/gifenc/LICENSE",
+    "vendor/gifenc/gifenc.esm.js",
     "vendor/mediabunny/LICENSE",
     "vendor/mediabunny/mediabunny-aac-encoder.min.mjs",
     "vendor/mediabunny/mediabunny.min.mjs",

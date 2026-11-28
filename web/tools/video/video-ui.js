@@ -64,13 +64,13 @@ export const secs = (s) => `${(Math.round(s * 10) / 10).toFixed(1)} s`;
 export function resultCard({ blob, name, check, extra = [] }, urls) {
   const url = URL.createObjectURL(blob); urls.add(url);
   const file = new File([blob], name, { type: blob.type });
-  const isAudio = blob.type.startsWith('audio/');
+  const isAudio = blob.type.startsWith('audio/'); const isImage = blob.type.startsWith('image/');
   const info = check?.info;
-  const media = isAudio ? el('audio', { controls: true, src: url, class: 'vid-player' }) : el('video', { controls: true, playsinline: true, src: url, class: 'vid-player', preload: 'metadata' });
+  const media = isImage ? el('img', { src: url, alt: name, class: 'vid-player vid-gif' }) : isAudio ? el('audio', { controls: true, src: url, class: 'vid-player' }) : el('video', { controls: true, playsinline: true, src: url, class: 'vid-player', preload: 'metadata' });
   return el('section', { class: 'results vid-result' },
     el('h3', { text: `Done: ${name}` }),
     media,
-    el('p', { class: 'muted small', text: [formatBytes(blob.size), info ? `${info.w}×${info.h}` : null, info?.frames ? `${info.frames} frames` : null, info ? secs(info.duration) : null, info ? (info.audio ? 'with sound' : 'no sound') : null].filter(Boolean).join(' · ') }),
+    el('p', { class: 'muted small', text: [formatBytes(blob.size), info ? `${info.w}×${info.h}` : null, info?.frames ? `${info.frames} frames` : null, info ? secs(info.duration) : null, info && !isImage ? (info.audio ? 'with sound' : 'no sound') : null].filter(Boolean).join(' · ') }),
     check?.problems?.length ? el('div', { class: 'vid-problems', role: 'alert' }, el('strong', { class: 'bad-text', text: 'The file came out wrong:' }), el('ul', {}, ...check.problems.map((p) => el('li', { class: 'bad-text small', text: p })))) : null,
     ...(check?.warnings ?? []).map((w) => el('p', { class: 'warn-text small', role: 'status', text: w })),
     el('div', { class: 'row wrap' },
@@ -81,3 +81,41 @@ export function resultCard({ blob, name, check, extra = [] }, urls) {
 
 /** An error, in words, in `box`. */
 export const showError = (box, err) => fill(box, el('p', { class: 'bad-text', role: 'alert', text: err?.message ?? String(err) }));
+
+/**
+ * A timeline to trim with: a strip of the video's frames, the part kept lit between two handles (dragged with a
+ * finger or the mouse, or moved with the arrow keys), and its times. `opened` (openVideo's), `frameAt(t, w, h)` (the
+ * frame's RGBA), { start, end, onChange(start, end) }. Returns the element; its set(start, end) moves the handles.
+ */
+export function timeline(opened, frameAt, { start = 0, end = opened.info.duration, onChange = () => {} } = {}) {
+  const dur = opened.info.duration; const step = 0.05;
+  const strip = el('canvas', { class: 'vid-tl-strip', width: '640', height: '64', 'aria-hidden': 'true' });
+  const sel = el('div', { class: 'vid-tl-sel', 'aria-hidden': 'true' });
+  const a = el('input', { type: 'range', class: 'vid-tl-h', min: '0', max: String(dur), step: String(step), value: String(start), 'aria-label': 'Start of the part kept' });
+  const b = el('input', { type: 'range', class: 'vid-tl-h', min: '0', max: String(dur), step: String(step), value: String(end), 'aria-label': 'End of the part kept' });
+  const label = el('p', { class: 'small muted vid-tl-label' });
+  const box = el('div', { class: 'vid-tl' }, strip, sel, a, b);
+  const node = el('div', { class: 'vid-tl-wrap' }, box, label);
+  const paint = () => {
+    const s = Number(a.value); const e2 = Number(b.value);
+    sel.style.left = `${(s / dur) * 100}%`; sel.style.width = `${Math.max(0, ((e2 - s) / dur) * 100)}%`;
+    label.textContent = `${secs(s)} – ${secs(e2)} (${secs(e2 - s)} kept)`;
+  };
+  const moved = (which) => {
+    let s = Number(a.value); let e2 = Number(b.value);
+    if (e2 - s < 0.1) { if (which === a) s = Math.max(0, e2 - 0.1); else e2 = Math.min(dur, s + 0.1); a.value = String(s); b.value = String(e2); }
+    paint(); onChange(s, e2);
+  };
+  a.addEventListener('input', () => moved(a)); b.addEventListener('input', () => moved(b));
+  node.set = (s, e2) => { a.value = String(s); b.value = String(e2); paint(); };
+  paint();
+  // (The frames, drawn in as they're read: ten across.)
+  (async () => {
+    const ctx = strip.getContext('2d'); const n = 10; const tw = strip.width / n; const th = strip.height;
+    for (let i = 0; i < n; i++) {
+      if (!node.isConnected && i > 0) return;
+      try { const t = Math.min(dur - 0.01, (i + 0.5) * (dur / n)); const px = await frameAt(opened, t, Math.round(tw), th); ctx.putImageData(new ImageData(new Uint8ClampedArray(px), Math.round(tw), th), Math.round(i * tw), 0); } catch { /* a frame that won't read: left blank */ }
+    }
+  })();
+  return node;
+}

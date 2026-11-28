@@ -1426,7 +1426,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const hist = conversation(state, from, to).slice(-40).map((x) => ({ mine: x.from === to, text: x.text, at: x.at, post: x.post ? { caption: postById(state, x.post)?.caption ?? '', scene: postById(state, x.post)?.scene ?? null } : null }));
     const a = accountById(state, from); const persona = personaFor(a);
     const lastMine = [...hist].reverse().find((x) => x.mine)?.text ?? '';
-    return spice(chatReplyStyled(hist, { persona }), levelFor(a), { persona, mood: moodOf(lastMine) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
+    return spice(chatReplyStyled(hist, { persona, about: aboutOf(a) }), levelFor(a), { persona, mood: moodOf(lastMine) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
   }
   /** The AI's reply (when it's on and ready), from the conversation, meaning roughly what the engine would say; else null. */
   async function aiText(from, to, draft) {
@@ -1521,7 +1521,7 @@ function mountAdmin(host, { open = '' } = {}) {
     const hist = groupHist(gid, who).map((x) => ({ ...x, text: x.mine ? x.text : x.text.replace(/^[^:]{1,40}: /, '') }));
     const a = accountById(state, who); const persona = personaFor(a);
     const lastOther = [...hist].reverse().find((x) => !x.mine)?.text ?? '';
-    return spice(chatReplyStyled(hist.map((x) => ({ ...x, mine: !x.mine })), { persona }), levelFor(groupById(state, gid)?.members.map((id) => accountById(state, id)) ?? [a]), { persona, mood: moodOf(lastOther) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
+    return spice(chatReplyStyled(hist.map((x) => ({ ...x, mine: !x.mine })), { persona, about: aboutOf(a) }), levelFor(groupById(state, gid)?.members.map((id) => accountById(state, id)) ?? [a]), { persona, mood: moodOf(lastOther) }).split('\n').map((x) => x.trim()).filter(Boolean).join('\n');
   }
   async function groupAiText(gid, who, draft) {
     if (!aiOn() || !aiReady()) return null;

@@ -155,7 +155,7 @@ export async function convert3d(opened, file, worker, { layout = 'sbs', cap = 19
  * Edits in one pass: trim { start, end }, crop { left, top, width, height } (after rotation), size (the longer side:
  * 0 keeps it), rotate (0/90/180/270), flipH, flipV, audio ('keep' | 'remove'). Resolves to { blob, check }.
  */
-export async function editVideo(opened, { trim = {}, crop = null, size = 0, rotate = 0, flipH = false, flipV = false, audio = 'keep', onProgress = () => {}, signal } = {}) {
+export async function editVideo(opened, { trim = {}, crop = null, size = 0, rotate = 0, flipH = false, flipV = false, audio = 'keep', text = null, onProgress = () => {}, signal } = {}) {
   const M = await mb(); const { input, info } = opened;
   const start = Math.max(0, trim.start ?? 0); const end = Math.min(info.duration, trim.end ?? info.duration);
   const rot = ((rotate % 360) + (flipV ? 180 : 0)) % 360; const flip = flipH !== flipV; // (vertical flip: 180° and a horizontal one)
@@ -165,10 +165,14 @@ export async function editVideo(opened, { trim = {}, crop = null, size = 0, rota
   const W = Math.max(2, Math.round((region.width * k) / 2) * 2); const H = Math.max(2, Math.round((region.height * k) / 2) * 2);
   if (opened.audio && audio === 'keep' && opened.audio.codec !== 'aac') await ensureAac();
   const output = await makeOutput();
-  const plain = !crop && !size && !rot && !flip;
+  const words = String(text?.value ?? '').trim();
+  const plain = !crop && !size && !rot && !flip && !words;
+  // (Text on it: drawn on each frame, at the size it's made.)
+  const tc = words ? new OffscreenCanvas(W, H) : null; const tctx = tc?.getContext('2d');
   const conversion = await M.Conversion.init({
     input, output, trim: { start, end }, showWarnings: false,
-    video: plain ? { codec: 'avc' } : { codec: 'avc', bitrate: M.QUALITY_HIGH, rotate: rot, flip, ...(crop ? { crop: { left: Math.round(crop.left), top: Math.round(crop.top), width: Math.round(crop.width), height: Math.round(crop.height) } } : {}), width: W, height: H, fit: 'fill' },
+    video: plain ? { codec: 'avc' } : { codec: 'avc', bitrate: M.QUALITY_HIGH, rotate: rot, flip, ...(crop ? { crop: { left: Math.round(crop.left), top: Math.round(crop.top), width: Math.round(crop.width), height: Math.round(crop.height) } } : {}), width: W, height: H, fit: 'fill',
+      ...(words ? { process: (sample) => { tctx.clearRect(0, 0, W, H); sample.draw(tctx, 0, 0, W, H); drawText(tctx, W, H, { ...text, value: words }); return tc; } } : {}) },
     audio: audio === 'remove' ? { discard: true } : { codec: 'aac' },
   });
   if (!conversion.isValid) throw new Error(`This video can't be edited here: ${conversion.discardedTracks.map((d) => `${d.track.type} (${why(d)})`).join(', ')}.`);
@@ -285,4 +289,84 @@ export async function reverse(opened, { onProgress = () => {}, signal } = {}) {
   vs.close(); await output.finalize();
   const blob = blobOf(output);
   return { blob, check: await checkOutput(blob, { w: W, h: H, duration: info.duration, frames: times.length, audio: !!opened.audio, fps: info.fps }) };
+}
+
+// ---- Text on a video, speed, and GIFs ------------------------------------------------------------------------------
+
+/**
+ * Words drawn on a frame: `value`, `pos` ('top' | 'middle' | 'bottom'), `size` ('S' | 'M' | 'L'), `color` (CSS), with
+ * a dark outline so they read on anything; long lines wrapped to the frame's width.
+ */
+export function drawText(ctx, W, H, { value = '', pos = 'bottom', size = 'M', color = '#ffffff' } = {}) {
+  const px = Math.round(Math.min(W, H) * ({ S: 0.055, M: 0.08, L: 0.12 }[size] ?? 0.08));
+  ctx.save(); ctx.font = `800 ${px}px system-ui, -apple-system, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const lines = []; let cur = '';
+  for (const w of String(value).split(/\s+/)) { const t = cur ? `${cur} ${w}` : w; if (ctx.measureText(t).width > W * 0.88 && cur) { lines.push(cur); cur = w; } else cur = t; }
+  if (cur) lines.push(cur);
+  const lh = px * 1.2; const total = lh * lines.length;
+  const y0 = pos === 'top' ? H * 0.08 + lh / 2 : pos === 'middle' ? H / 2 - total / 2 + lh / 2 : H * 0.92 - total + lh / 2;
+  ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, px * 0.14); ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.fillStyle = color;
+  lines.forEach((l, i) => { ctx.strokeText(l, W / 2, y0 + i * lh); ctx.fillText(l, W / 2, y0 + i * lh); });
+  ctx.restore();
+}
+
+/**
+ * A video sped up or slowed down (`speed`: 0.25 … 4), its sound too (faster is higher, slower is lower, as a tape
+ * would). Frames are kept at its own frame rate (sped up: some left out; slowed: each held longer).
+ */
+export async function speedVideo(opened, speed, { onProgress = () => {}, signal } = {}) {
+  const M = await mb(); const { info } = opened; const k = Math.max(0.25, Math.min(4, Number(speed) || 1));
+  if (opened.audio) await ensureAac();
+  const W = Math.round(info.w / 2) * 2; const H = Math.round(info.h / 2) * 2; const fps = info.fps || 30;
+  const output = await makeOutput();
+  const canvas = new OffscreenCanvas(W, H); const ctx = canvas.getContext('2d');
+  const vs = new M.CanvasSource(canvas, { codec: 'avc', bitrate: M.QUALITY_HIGH }); output.addVideoTrack(vs, { frameRate: fps });
+  const as = opened.audio ? new M.AudioBufferSource({ codec: 'aac', bitrate: M.QUALITY_HIGH }) : null; if (as) output.addAudioTrack(as);
+  await output.start();
+  const sink = new M.VideoSampleSink(opened.video); const dur = info.duration / k; let lastSlot = -1; let held = null;
+  for await (const smp of sink.samples()) {
+    if (signal?.aborted) { smp.close(); await output.cancel(); throw canceled(); }
+    const t = smp.timestamp / k; const slot = Math.floor(t * fps + 1e-6);
+    if (slot > lastSlot) {
+      // (The frame before held until this one: slowed down, frames last longer.)
+      if (held) { await vs.add(held.t, Math.max(1 / fps, t - held.t)); }
+      ctx.clearRect(0, 0, W, H); smp.draw(ctx, 0, 0, W, H); held = { t }; lastSlot = slot;
+    }
+    smp.close(); onProgress(Math.min(0.95, t / dur));
+  }
+  if (held) await vs.add(held.t, Math.max(1 / fps, dur - held.t));
+  if (as) {
+    const src = await pcmOf(opened.audio, info.duration); const len = Math.max(1, Math.round(src.length / k));
+    const oc = new OfflineAudioContext(src.numberOfChannels, len, src.sampleRate); const n = oc.createBufferSource(); n.buffer = src; n.playbackRate.value = k; n.connect(oc.destination); n.start();
+    await as.add(await oc.startRendering()); as.close();
+  }
+  vs.close(); await output.finalize();
+  const blob = blobOf(output);
+  return { blob, check: await checkOutput(blob, { w: W, h: H, duration: dur, audio: !!opened.audio, fps }) };
+}
+
+/** The longest GIF made (a GIF of more is huge, and slow to make on a phone). */
+export const GIF_MAX_SECONDS = 15;
+/**
+ * A GIF of a video (or its `trim`): `width` px wide (even), `fps` frames a second, each frame with its own 256-colour
+ * palette (gifenc, vendor/gifenc, MIT). Resolves to { blob (image/gif), frames, w, h }.
+ */
+export async function makeGif(opened, { trim = {}, width = 480, fps = 12, onProgress = () => {}, signal } = {}) {
+  const M = await mb(); const { info } = opened; const G = await import('../../vendor/gifenc/gifenc.esm.js');
+  const start = Math.max(0, trim.start ?? 0); const end = Math.min(info.duration, trim.end ?? info.duration, start + GIF_MAX_SECONDS);
+  if (end - start < 0.1) throw new Error('The part chosen is too short.');
+  const w = Math.max(2, Math.round(Math.min(width, info.w) / 2) * 2); const h = Math.max(2, Math.round((w * info.h) / info.w / 2) * 2);
+  const times = []; for (let t = start; t < end - 1e-6; t += 1 / fps) times.push(t);
+  const c = new OffscreenCanvas(w, h); const ctx = c.getContext('2d', { willReadFrequently: true });
+  const gif = G.GIFEncoder(); const sink = new M.VideoSampleSink(opened.video); let n = 0; const delay = Math.round(1000 / fps);
+  for await (const smp of sink.samplesAtTimestamps(times)) {
+    if (signal?.aborted) { smp?.close(); throw canceled(); }
+    if (smp) { ctx.clearRect(0, 0, w, h); smp.draw(ctx, 0, 0, w, h); smp.close(); }
+    const { data } = ctx.getImageData(0, 0, w, h);
+    const palette = G.quantize(data, 256); const index = G.applyPalette(data, palette);
+    gif.writeFrame(index, w, h, { palette, delay });
+    n++; onProgress(n / times.length);
+  }
+  gif.finish();
+  return { blob: new Blob([gif.bytes()], { type: 'image/gif' }), frames: n, w, h };
 }

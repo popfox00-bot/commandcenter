@@ -2,8 +2,11 @@
 // conversation, not only the last line. It knows when it's being answered (it asked something a moment ago:
 // "good!" to its "how are you?" gets "Love that!"), when it's asked something back ("you?"), what the chat's
 // been about (the pizza, the trip), plans the Owner mentioned before and how they went ("How was the concert??"
-// the next day), a post shared with it, and what it's said already (never the same again). All on the phone,
-// offline. Pure: give it the history. `rand` and `now` for tests.
+// the next day), a post shared with it, and what it's said already (never the same again). It remembers what the
+// Owner has told it (a pet's name, a sister, where they work or live, what they love) and asks after it later; it has
+// a life of its own (what it's into, from its profile) that it talks about; and its replies are often a reaction, a
+// bit of its own, and a question to keep it going. All on the phone, offline. Pure: give it the history. `rand` and
+// `now` for tests.
 
 import { readText, emojisIn, intentOf, generateComment, placesIn } from './socials-predict.js';
 import { voice, styleOf } from './socials-style.js';
@@ -17,6 +20,46 @@ const NEG = /\b(bad|awful|terrible|no|nope|not really|tired|sad|sick|ugh|rough|s
 const BYE = /\b(bye|good ?night|gn|night night|ttyl|talk (to you )?later|gotta go|got to go|see (you|ya)|cya|later!?)\b/i;
 const ASK_BACK = /\b(you\?|and you|what about you|how about you|u\?|hbu|wbu|yourself\?)\s*$/i;
 const WHEN = /\b(tonight|tomorrow|this weekend|later today|later|next week|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
+
+// ---- What the Owner's told it, remembered.
+const PETS = 'dog|cat|puppy|pup|kitten|bunny|rabbit|bird|parrot|fish|hamster|horse|turtle|lizard|snake';
+const PEOPLE = 'sister|brother|mom|mum|dad|boyfriend|girlfriend|wife|husband|partner|roommate|bestie|best friend|boss|son|daughter|grandma|grandpa|cousin|niece|nephew|fiance|fiancé|fiancee';
+const NOT_NAME = /^(I|Im|The|A|An|And|But|So|He|She|They|It|We|You|Is|Was|Just|Today|Tonight|Lol|Omg)$/;
+/**
+ * What the Owner has told it about themselves, from their messages, latest last: [{ kind: 'pet' | 'person' | 'work' |
+ * 'city' | 'love', what, name?, at }] ("my dog Max" → { kind: 'pet', what: 'dog', name: 'Max' }).
+ */
+export function factsIn(history) {
+  const out = []; const seen = new Set();
+  const push = (f) => { const k = `${f.kind}|${lower(f.name ?? f.what)}`; if (seen.has(k)) return; seen.add(k); out.push(f); };
+  for (const m of history ?? []) {
+    if (!m?.mine || !m.text) continue; const t = String(m.text);
+    for (const g of t.matchAll(new RegExp(`\\bmy (${PETS})(?:'s name is|,| named| called| is called)? ([A-Z][a-z]{1,14})\\b`, 'gi'))) if (!NOT_NAME.test(g[2]) && /^[A-Z]/.test(g[2])) push({ kind: 'pet', what: g[1].toLowerCase(), name: g[2], at: m.at });
+    for (const g of t.matchAll(new RegExp(`\\bmy (${PEOPLE})(?:,| named| called)? ([A-Z][a-z]{1,14})?`, 'gi'))) { const name = g[2] && /^[A-Z]/.test(g[2]) && !NOT_NAME.test(g[2]) ? g[2] : undefined; push({ kind: 'person', what: g[1].toLowerCase(), name, at: m.at }); }
+    const w = t.match(/\bI (?:work|started working) (?:at|for) ([A-Z][\w&'.]*(?: [A-Z][\w&'.]*){0,3})/); if (w) push({ kind: 'work', what: w[1], at: m.at });
+    const c = t.match(/\bI (?:live|just moved|moved) (?:in|to) ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/); if (c) push({ kind: 'city', what: c[1], at: m.at });
+    const l = t.match(/\bI(?:'m| am)? (?:love|really love|really like|am obsessed with|'m obsessed with|obsessed with) ([a-z][a-z' ]{2,24}?)(?=[.!?,]|\s+(?:so|lately|right now|rn)\b|$)/i); if (l && !/^(you|it|that|this|him|her|them)\b/i.test(l[1])) push({ kind: 'love', what: l[1].trim(), at: m.at });
+  }
+  return out;
+}
+/** Something to ask after what it knows, or '' ("How's Max doing?"). */
+function recallLine(f, rand) {
+  if (f.kind === 'pet') return f.name ? pick([`How's ${f.name} doing?`, `Give ${f.name} a pet from me!`, `What's ${f.name} up to today?`], rand) : `How's your ${f.what}?`;
+  if (f.kind === 'person') return f.name ? pick([`How's ${f.name}?`, `How's ${f.name} doing?`], rand) : pick([`How's your ${f.what} doing?`, `How's your ${f.what}?`], rand);
+  if (f.kind === 'work') return pick([`How's work at ${f.what}?`, `Is ${f.what} keeping you busy?`], rand);
+  if (f.kind === 'city') return pick([`How's ${f.what} treating you?`, `Anything fun going on in ${f.what}?`], rand);
+  if (f.kind === 'love') return pick([`Still obsessed with ${f.what}?`, `Had any ${f.what} lately?`], rand);
+  return '';
+}
+
+// ---- Its own life: what it's into (its profile's Into, else its bio's words), to talk about.
+/** What an account is into, from its profile: a few short things ("hiking", "coffee", "techno"). */
+export function interestsOf(about = '') {
+  const into = String(about).match(/Into:\s*([^.]*)/i)?.[1] ?? '';
+  return into.split(/[,;/&+]|\band\b/i).map((x) => x.trim().toLowerCase()).filter((x) => x.length >= 3 && x.length <= 24 && !/^(stuff|things|everything|life)$/.test(x)).slice(0, 6);
+}
+const ownDoing = (x, rand) => pick([`Been all about ${x} today`, `Just did some ${x} stuff`, `Honestly just thinking about ${x} lol`, `Planning some ${x} this weekend`], rand);
+const ownShare = (x, rand) => pick([`Random but I've been so into ${x} lately`, `Also I finally got some ${x} time in this week`, `I've been on a ${x} kick lately honestly`], rand);
 
 /** How someone's message sounds: 'pos' | 'neg' | 'neutral'. */
 export function moodOf(text) {
@@ -201,13 +244,21 @@ function addition(text, talk, rand) {
  * below, then said its way and leaning toward how the Owner texts in this chat. Two messages, sometimes ("\n"
  * between: sent one after the other).
  */
-export function chatReplyStyled(history, { rand = Math.random, now = Date.now(), persona = 'classic' } = {}) {
+export function chatReplyStyled(history, { rand = Math.random, now = Date.now(), persona = 'classic', about = '' } = {}) {
   const h = (history ?? []).filter((m) => m && (m.text || m.post));
   const style = styleOf(h.filter((m) => m.mine).map((m) => m.text));
-  let out = chatReply(h, { rand, now });
+  let out = chatReply(h, { rand, now, interests: interestsOf(about) });
   // (Now and then, something from earlier in the chat brought back.)
   const theirs = h.filter((m) => m.mine && m.text); const older = theirs.slice(0, -3);
   if (older.length >= 2 && rand() < 0.14) { const old = [...older].reverse().map((m) => phraseIn(m.text)).find(Boolean); if (old && !out.toLowerCase().includes(old.noun)) out += ` ${pick([`Also still thinking about ${old.phrase} lol`, `Wait and how was ${old.phrase.replace(/^(a|an|some) /, 'the ')}?`, `Still not over ${old.phrase} btw`], rand)}`; }
+  // (A fuller reply now and then: when they wrote a lot and this is short, or it doesn't ask anything, something of
+  // its own and a question to keep it going.)
+  const last = [...h].reverse().find((m) => m.mine)?.text ?? ''; const ints = interestsOf(about);
+  if (!BYE.test(last) && moodOf(last) !== 'neg') {
+    if (last.length > 70 && out.length < 70 && rand() < 0.6) out += ` ${pick(['Honestly that sounds like a lot.', 'I love hearing about this stuff.', 'Okay that\'s so interesting.', 'Wow, okay.'], rand)}`;
+    if (ints.length && !/\?/.test(out) && rand() < 0.2) out += ` ${ownShare(pick(ints, rand), rand)}.`;
+    if (!/\?/.test(out) && rand() < 0.35) out += ` ${pick(['What else is new with you?', 'How\'s the rest of your day going?', 'What are you up to later?', 'Anything fun this week?'], rand)}`;
+  }
   out = voice(out, { persona, style, rand });
   // (Two messages: a reaction, then the rest; as people text.)
   const parts = out.split(/(?<=[.!?…]|\p{Extended_Pictographic})\s+(?=[\p{L}@])/u);
@@ -215,7 +266,7 @@ export function chatReplyStyled(history, { rand = Math.random, now = Date.now(),
   return out;
 }
 
-export function chatReply(history, { rand = Math.random, now = Date.now() } = {}) {
+export function chatReply(history, { rand = Math.random, now = Date.now(), interests = [] } = {}) {
   const h = (history ?? []).filter((m) => m && (m.text || m.post));
   const lastThem = [...h].reverse().findIndex((m) => !m.mine);
   // (What the Owner's said since it last spoke.)
@@ -242,7 +293,8 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   if (BYE.test(text) && !shared) { const night = /night|gn/i.test(text); return `${pick(night ? ['Night!', 'Night night', 'Sleep well!', 'Good night!'] : ['Bye!!', 'Talk soon!', 'Okay ttyl!', 'See you!'], rand)} ${e(night ? ['😴', '🌙', '💛', '❤️'] : ['👋', '❤️', '💛', '😄'])}`; }
   // (Its own question just answered: to the answer.)
   const askedQ = said && !said.mine && /\?\s*\S*$/.test(said.text ?? '');
-  if (askedQ && text && !BYE.test(text)) {
+  // (A question back isn't an answer: "how are you?" after its own question is answered as a question.)
+  if (askedQ && text && !BYE.test(text) && !ASK_BACK.test(text) && it !== 'howareyou' && !/\?\s*$/.test(text)) {
     const q = lower(said.text);
     const ack = mood === 'pos' ? pick(['Love that!', 'Yay!!', 'Nice!!', 'Ahh that\'s great', 'Glad to hear it!'], rand) : mood === 'neg' ? pick(['Aw no', 'Ugh, I\'m sorry', 'Oh no, that\'s rough', 'Noo'], rand) : pick(['Ohh okay', 'Got it!', 'Ah nice', 'Fair enough'], rand);
     const em = mood === 'pos' ? e(['😊', '🙌', '🥳', '💛']) : mood === 'neg' ? e(['😕', '🫂', '💛']) : e(['👍', '😄', '🙂']);
@@ -252,7 +304,7 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   // (Asked something back: "you?", "how are you?", "wyd".)
   if (ASK_BACK.test(text) || it === 'howareyou') {
     const doing = /\b(wyd|what are you (up to|doing)|what('?s| is) up|whats up|wbu|what about you)\b/i.test(text);
-    add(doing ? `${pick(DOING, rand)} ${e(['😄', '🙂', '😌', '🛋️'])}` : `${pick(FEELING, rand)} ${e(['😊', '🙂', '💛', '😄'])} ${pick(['Thanks for asking', 'What about you?', 'Busy day but good', 'Just relaxing now'], rand)}`, 10, true);
+    add(doing ? `${interests.length && rand() < 0.6 ? ownDoing(pick(interests, rand), rand) : pick(DOING, rand)} ${e(['😄', '🙂', '😌', '🛋️'])}` : `${pick(FEELING, rand)} ${e(['😊', '🙂', '💛', '😄'])} ${pick(['Thanks for asking', 'What about you?', 'Busy day but good', 'Just relaxing now'], rand)}`, 10, true);
   }
   // (A plan from before, now over: how did it go?)
   const plans = plansIn(h.filter((m) => m !== undefined)).filter((p) => over(p, now) && !h.some((m) => !m.mine && m.at > p.at && lower(m.text).includes('how was')));
@@ -278,6 +330,17 @@ export function chatReply(history, { rand = Math.random, now = Date.now() } = {}
   if (kw && it === 'chat') add(`Wait, ${kw}? Tell me more ${e(['👀', '😄', '🙂'])}`, 3);
   if (mood === 'neg' && !askedQ && !ASK_BACK.test(text)) add(`${pick(['Oh no', 'Aw', 'Ugh'], rand)} ${e(['😕', '🫂'])} ${pick(['What happened?', 'Are you okay?', 'Want to talk?'], rand)}`, 4);
   if (mood === 'pos' && !askedQ && !ASK_BACK.test(text) && it !== 'thanks') add(`${pick(['Love that!', 'Yay!', 'That\'s awesome'], rand)} ${e(['😊', '🙌', '💛'])}`, 3);
+  // (Something it was told before, asked after: a greeting, small talk, or now and then. Not what it asked after lately.)
+  const facts = factsIn(h.slice(0, -2)); const theirsRecent = h.filter((m) => !m.mine).slice(-8).map((m) => lower(m.text)).join(' ');
+  const fact = [...facts].reverse().find((f) => !theirsRecent.includes(lower(f.name ?? f.what)) && !lower(text).includes(lower(f.name ?? f.what)));
+  if (fact && !BYE.test(text) && mood !== 'neg') {
+    const q = recallLine(fact, rand);
+    if (it === 'hello') add(`${pick(['Hey!!', 'Hiii!', 'Heyy!', 'Hey you!'], rand)} ${e(['👋', '😊', '💛'])} ${q}`, 9, true);
+    else if (q && (it === 'chat' || it === 'yesno') && rand() < 0.35) add(`${pick(['Haha okay', 'Love that', 'Nice', 'Ha!'], rand)} ${e(['😄', '😊', '🙂'])} ${q}`, 5, true);
+  }
+  // (Something they said that it's into too.)
+  const shared2 = interests.find((x) => lower(text).includes(x));
+  if (shared2) add(`Wait, ${shared2}?! ${pick(['That\'s literally my favorite thing', 'I\'m obsessed with that', 'Okay we need to talk about this'], rand)} ${e(['🤩', '🙌', '😍'])} ${pick([`How long have you been into ${shared2}?`, 'Tell me everything', `We should do ${shared2} together sometime`], rand)}`, 11, true);
   // (Its words back come first: about what they actually said. The stock lines only when there's nothing to echo.)
   const echo = BYE.test(text) ? [] : reflect(text, { rand, mood, talk, askedQ, said });
   // (Something of its own, added to one of its echoes now and then: adding to the conversation.)

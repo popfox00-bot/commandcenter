@@ -23,12 +23,13 @@ const TABS = [
   { id: 'convert', label: 'Convert', load: () => import('../convert/convert.js') },
   { id: 'video', label: 'Video', load: () => import('../video/video-edit.js') },
   { id: 'video3d', label: '2D → 3D', load: () => import('../video/video3d.js') },
+  { id: 'videoframe', label: 'Socials Frame', load: () => import('../video/video-frame.js') },
 ];
 const hashFor = (id) => `#/files/${id}`;
 // The switches inside an app of Files: Photo Editor's three, Scan's two.
 const PHOTO = [['photo', '✏️ Edit'], ['collage', '🧩 Collage'], ['cutout', '✂️ Cutout']];
 const SCAN = [['scan', '📄 Documents'], ['qr', '▦ QR codes']];
-const VIDEO = [['video', '✂️ Edit'], ['video3d', '🥽 2D → 3D']];
+const VIDEO = [['video', '✂️ Edit'], ['video3d', '🥽 2D → 3D'], ['videoframe', '📱 Socials Frame']];
 /** The pane a tab shows (its own). */
 const paneOf = (id) => TABS.find((t) => t.id === id)?.pane ?? id;
 const inPhoto = (id) => PHOTO.some(([p]) => p === id);

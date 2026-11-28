@@ -2103,3 +2103,20 @@ img.vid-gif { object-fit: contain; background: var(--idle-bg); }
 .vid-topost { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: grid; gap: 8px; }
 .vid-topost-row { display: grid; gap: 8px; }
 .vid-topost-row select { min-height: 44px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 16px; padding: 0 8px; }
+
+/* ---------- Socials chat themes and wallpapers ---------- */
+.so-chat-look { margin-left: 4px; }
+.so-chat-wrap.so-themed .so-chat { background: var(--so-chat-bg); }
+.so-chat.so-wallpaper { background-size: cover; background-position: center; }
+.so-chat-wrap.so-themed .so-bubble { background: var(--so-their-bg); color: var(--so-their-fg); }
+.so-chat-wrap.so-themed .so-bubble.mine { background: var(--so-mine-bg); color: var(--so-mine-fg); }
+.so-chat-wrap.so-themed .so-chat-day, .so-chat-wrap.so-themed .so-bubble-who .muted { color: var(--so-chat-fg); }
+.so-chat.so-wallpaper .so-chat-day, .so-chat.so-wallpaper .so-bubble-who .muted { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.so-chat-wrap.so-themed .so-say { color: inherit; }
+.so-themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.so-theme-card { display: grid; gap: 4px; justify-items: center; padding: 6px; border: 2px solid transparent; border-radius: 12px; background: none; color: var(--text); cursor: pointer; font: inherit; }
+.so-theme-card.on { border-color: var(--primary); }
+.so-theme-prev { position: relative; width: 100%; aspect-ratio: 3 / 4; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+.so-theme-prev i { position: absolute; height: 14%; border-radius: 8px; }
+.so-theme-their { left: 10%; top: 22%; width: 55%; background: color-mix(in srgb, var(--text) 12%, var(--surface)); }
+.so-theme-mine { right: 10%; top: 50%; width: 55%; background: linear-gradient(135deg, #7a3ff2, #3b82f6); }

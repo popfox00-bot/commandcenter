@@ -1358,3 +1358,41 @@ test('Socials group chats: 👥 New group with two accounts; the Owner\'s messag
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Socials chat looks: 🎨 a theme for one chat (its bubbles and background change; other chats keep the usual look), a wallpaper of your own, back to the usual', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE}index.html#/socials/admin`);
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  for (const h of ['amy', 'ben']) { await page.locator('.so-switch').click(); await page.getByRole('button', { name: '+ Add New' }).click(); await page.getByLabel('Username', { exact: true }).fill(h); await page.getByRole('button', { name: 'Create account' }).click(); await page.getByText('Welcome to your feed').or(page.locator('.so-post').first()).first().waitFor(); }
+  await page.locator('.so-switch').click(); await page.getByRole('button', { name: 'Use @owner.me (Owner)' }).click();
+  await page.getByRole('button', { name: 'Messages' }).first().click(); await page.getByRole('button', { name: 'Message @amy' }).click();
+  await page.getByLabel('Message', { exact: true }).fill('hey!'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const mineBg = () => page.locator('.so-bubble.mine').first().evaluate((b) => getComputedStyle(b).backgroundImage + getComputedStyle(b).backgroundColor);
+  const usual = await mineBg();
+  await page.getByRole('button', { name: 'Chat theme and wallpaper' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Chat look' });
+  await dlg.getByRole('radio', { name: '🖤 Mono' }).click();
+  assert.equal(await dlg.getByRole('radio', { name: '🖤 Mono' }).getAttribute('aria-checked'), 'true');
+  await page.waitForFunction(() => document.querySelector('.so-chat-wrap')?.classList.contains('so-themed'));
+  assert.notEqual(await mineBg(), usual);
+  assert.match(await page.locator('.so-chat').evaluate((c) => getComputedStyle(c).backgroundColor), /rgb\(17, 17, 17\)/);
+  // A wallpaper of your own: behind this chat.
+  await dlg.getByLabel('Choose a picture for Chat wallpaper').setInputFiles(await photo(page));
+  await page.waitForFunction(() => document.querySelector('.so-chat')?.classList.contains('so-wallpaper'));
+  await dlg.getByRole('button', { name: 'Close' }).click();
+  // Another chat keeps the usual look.
+  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: 'Message @ben' }).click();
+  await page.locator('.so-chat-bar').waitFor();
+  assert.equal(await page.locator('.so-chat-wrap.so-themed').count(), 0); assert.equal(await page.locator('.so-chat.so-wallpaper').count(), 0);
+  // Back to amy's: still Mono (kept); then the usual again.
+  await page.getByRole('button', { name: 'Back' }).click(); await page.getByRole('button', { name: /Chat with @amy/ }).click();
+  await page.waitForFunction(() => document.querySelector('.so-chat-wrap')?.classList.contains('so-themed'));
+  await page.getByRole('button', { name: 'Chat theme and wallpaper' }).click();
+  await page.getByRole('dialog', { name: 'Chat look' }).getByRole('radio', { name: 'Usual' }).click();
+  await page.waitForFunction(() => !document.querySelector('.so-chat-wrap')?.classList.contains('so-themed'));
+  assert.deepEqual(errors, []);
+  await page.close();
+});

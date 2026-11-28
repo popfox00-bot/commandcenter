@@ -117,7 +117,7 @@ export async function syncSocials(api, local, password, { iterations = ITERATION
   tell();
   await pool([...uniq], 3, async ([id, blob]) => { await upload(api, mediaName(id), await seal(key, new Uint8Array(await blob.arrayBuffer()))); sent++; tell(); });
   // The merged copy, without the photos themselves, back to Drive.
-  const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => ({ ...p, more: (p.more ?? []).map(({ image: i2, video: v2, ...m }) => m) })), messages: state.messages, groups: state.groups ?? [], reads: state.reads };
+  const wire = { v: 1, at: Date.now(), gone: state.gone, accounts: state.accounts.map(({ avatar, ...a }) => a), posts: state.posts.map(({ image, video, ...p }) => ({ ...p, more: (p.more ?? []).map(({ image: i2, video: v2, ...m }) => m) })), messages: state.messages, groups: state.groups ?? [], looks: state.looks ?? {}, reads: state.reads };
   await upload(api, DATA_FILE, await seal(key, new TextEncoder().encode(JSON.stringify(wire))));
   try { onProgress?.({ done: total, total }); } catch { /* the caller's */ }
   // (Which photos and videos Drive has now: what's still to send, until the next sync, is the rest.)

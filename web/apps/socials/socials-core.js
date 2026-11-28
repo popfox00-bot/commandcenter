@@ -14,11 +14,12 @@
 //   Message = { id, from, to, text, post?: postId (a post shared), at }      reads = { accountId: { otherId: when last read } }
 //             (in a group chat: `to` and `group` are the group's id; reads by the group's id too)
 //   Group   = { id, name, members: [accountId] (three or more, its maker among them), by, at, upd }
+//   looks   = { chatKey: { theme, at } } (each chat's look: chatKey is the two accounts' ids, sorted, joined by '|', or a group's id)
 // `upd` is when it last changed and `gone` when something was deleted, so two phones' copies can be merged
 // (mergeStates); each photo and video has its own id so it's copied to Drive once.
 
 /** A new, empty state. */
-export const emptyState = () => ({ accounts: [], posts: [], messages: [], groups: [], reads: {}, me: null, gone: {} });
+export const emptyState = () => ({ accounts: [], posts: [], messages: [], groups: [], reads: {}, looks: {}, me: null, gone: {} });
 
 /** A fresh id (time and a little randomness: unique enough on one phone). */
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -507,6 +508,18 @@ export function sendGroupMessage(state, from, id, text, { post = null } = {}) {
 /** A group's messages, oldest first. */
 export const groupConversation = (state, id) => (state.messages ?? []).filter((m) => m.group === id).sort((x, y) => x.at - y.at);
 
+// ---- Chat looks: a theme per chat (its colours; a wallpaper picture is kept on the phone, by the same key).
+
+/** A chat's key: a group's id, or the two accounts' ids in order (the same chat seen from either side). */
+export const chatKey = (a, b = null) => (b == null ? String(a) : [String(a), String(b)].sort().join('|'));
+/** A chat's theme id ('' for the usual look). */
+export const chatTheme = (state, key) => state.looks?.[key]?.theme ?? '';
+/** A chat's theme set ('' back to the usual look). */
+export function setChatTheme(state, key, theme) {
+  state.looks ??= {};
+  state.looks[key] = { theme: String(theme ?? '').slice(0, 30), at: Date.now() }; // (kept even when '': a reset wins a sync too)
+}
+
 /** When `me` last read their chat with `other` (0: never). */
 const lastRead = (state, me, other) => state.reads?.[me]?.[other] ?? 0;
 
@@ -599,6 +612,8 @@ export function normalize(raw) {
   s.groups = (Array.isArray(raw.groups) ? raw.groups : []).filter((g) => g && ok(g.id) && Array.isArray(g.members) && !s.gone[g.id]).map((g) => ({ id: g.id, name: typeof g.name === 'string' ? g.name : '', members: [...new Set(g.members.filter((x) => ids.has(x)))], by: g.by, at: g.at ?? 0, upd: g.upd ?? g.at ?? 0 })).filter((g) => g.members.length >= 2);
   const gids = new Map(s.groups.map((g) => [g.id, g]));
   s.messages = (Array.isArray(raw.messages) ? raw.messages : []).filter((m) => m && ok(m.id) && ids.has(m.from) && (m.group ? gids.get(m.group)?.members.includes(m.from) : ids.has(m.to)) && (ok(m.text) || ok(m.post) || ok(m.collab)) && !s.gone[m.id]).map((m) => ({ id: m.id, from: m.from, to: m.to, ...(m.group ? { group: m.group } : {}), text: m.text ?? '', at: m.at ?? 0, ...(ok(m.post) ? { post: m.post } : {}), ...(ok(m.collab) ? { collab: m.collab } : {}) }));
+  s.looks = {};
+  if (raw.looks && typeof raw.looks === 'object') for (const [k, v] of Object.entries(raw.looks)) if (ok(k) && v && typeof v.theme === 'string') s.looks[k.slice(0, 120)] = { theme: v.theme.slice(0, 30), at: Number(v.at) || 0 };
   s.reads = {};
   if (raw.reads && typeof raw.reads === 'object') for (const [a, o] of Object.entries(raw.reads)) if (ids.has(a) && o && typeof o === 'object') s.reads[a] = Object.fromEntries(Object.entries(o).filter(([b, v]) => (ids.has(b) || gids.has(b)) && Number.isFinite(v)));
   return s;
@@ -622,7 +637,9 @@ export function mergeStates(local, remote) {
   const msgs = new Map([...(local.messages ?? []), ...(remote.messages ?? [])].map((m) => [m.id, m]));
   const reads = JSON.parse(JSON.stringify(local.reads ?? {}));
   for (const [a, o] of Object.entries(remote.reads ?? {})) for (const [b, v] of Object.entries(o ?? {})) { reads[a] ??= {}; reads[a][b] = Math.max(reads[a][b] ?? 0, v); }
-  const out = normalize({ accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), groups: pick(local.groups ?? [], remote.groups ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
+  // (Each chat's look: the one set last.)
+  const looks = { ...(remote.looks ?? {}) }; for (const [k, v] of Object.entries(local.looks ?? {})) if (!looks[k] || (v?.at ?? 0) >= (looks[k]?.at ?? 0)) looks[k] = v;
+  const out = normalize({ looks, accounts: pick(local.accounts, remote.accounts ?? []), posts: pick(local.posts, remote.posts ?? []), groups: pick(local.groups ?? [], remote.groups ?? []), messages: [...msgs.values()].filter((m) => !gone[m.id]), reads, me: local.me, gone });
   // (Views from both: each device's count, the higher (a device's only grows), whichever version of the post won.)
   const vb = new Map(); for (const p of [...local.posts, ...(remote.posts ?? [])]) { const m = vb.get(p.id) ?? {}; for (const [k, v] of Object.entries(p.viewsBy ?? {})) m[k] = Math.max(m[k] ?? 0, v); vb.set(p.id, m); }
   for (const p of out.posts) p.viewsBy = { ...(vb.get(p.id) ?? {}) };

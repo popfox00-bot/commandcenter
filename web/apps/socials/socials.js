@@ -29,7 +29,9 @@ import {
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
 import { chatReplyStyled, moodOf, commentReply } from './socials-chat.js';
 import { personaOf, personaFor, aboutOf, styleOf, spice, voice, CONTENT_LEVELS } from './socials-style.js';
-import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, aiSize, aiLoadCrashed } from './socials-ai.js';
+import { aiOn, setAiOn, aiSupport, aiDownloaded, aiLoad, aiReady, aiRemove, aiReply, aiComments, aiCaption, aiCommentReply, aiSize, aiLoadCrashed, aiAvailable, aiClearHere } from './socials-ai.js';
+// (An iPhone or iPad can't hold the AI model: replies come from the built-in engine there; leftovers cleared.)
+aiClearHere().catch(() => {});
 import { frameVideo, fitStyle, fitPosition } from './socials-videofit.js';
 import { pickVoice, describeVoice } from './socials-voicepicker.js';
 import { speak, stopSpeaking, canSpeak, primeAudio, lastProblem, audioReport, NATURAL, FAST, engine, setEngine, ttsSize, naturalOn, setNaturalOn, naturalDownloaded, naturalLoad, naturalReady, naturalRemove, prepare as prepareVoice, SAMPLE_LINE, sampleUrl, setVoiceStore, isMade, voiceHere, gpuVoicesOn, setGpuVoices, lastLoadCrashed } from './socials-speech.js';
@@ -1689,10 +1691,12 @@ function mountAdmin(host, { open = '' } = {}) {
   // ---- Sync and password settings.
   /** The words: how tame or adult (a slider), and AI replies (the on-device model: download, use, remove). */
   function textSettings() {
-    const lv = levelNow();
+    const lv = Math.min(levelNow(), aiAvailable() ? 4 : 3);
     const note = el('p', { class: 'small muted so-level-note', text: CONTENT_LEVELS[lv].note });
     const name = el('strong', { class: 'so-level-name', text: CONTENT_LEVELS[lv].name });
-    const range = el('input', { type: 'range', min: '0', max: '4', step: '1', value: String(lv), class: 'so-level', 'aria-label': 'Language: tame to explicit', 'aria-valuetext': CONTENT_LEVELS[lv].name });
+    // (Explicit is the on-device AI's: without it here (an iPhone or iPad), the slider stops at Adult.)
+    const top = aiAvailable() ? 4 : 3;
+    const range = el('input', { type: 'range', min: '0', max: String(top), step: '1', value: String(Math.min(lv, top)), class: 'so-level', 'aria-label': 'Language: tame to explicit', 'aria-valuetext': CONTENT_LEVELS[lv].name });
     range.addEventListener('input', () => { const v = Number(range.value); store.set(LEVEL_KEY, String(v)); name.textContent = CONTENT_LEVELS[v].name; note.textContent = CONTENT_LEVELS[v].note; range.setAttribute('aria-valuetext', CONTENT_LEVELS[v].name); });
     const aiBox = el('div', { class: 'so-ai' });
     const drawAi = async (msg = '') => {
@@ -1752,8 +1756,8 @@ function mountAdmin(host, { open = '' } = {}) {
     };
     drawTv();
     return el('div', { class: 'so-text-settings' },
-      el('div', { class: 'so-level-row' }, el('span', {}, el('strong', { text: 'Language' }), ' · ', name), el('span', { class: 'small muted', text: 'Tame → Explicit' })),
-      range, note, aiBox, readBox, tvBox);
+      el('div', { class: 'so-level-row' }, el('span', {}, el('strong', { text: 'Language' }), ' · ', name), el('span', { class: 'small muted', text: aiAvailable() ? 'Tame → Explicit' : 'Tame → Adult' })),
+      range, note, aiAvailable() ? aiBox : null, readBox, tvBox);
   }
 
   function settings() {

@@ -1509,6 +1509,10 @@ Profile, ✈ for messages), where everything is made by you in the app.
 - **Chats** fill the screen as Messages does: the name at the top, the conversation in between, the box right
   above the keyboard; sized to what's visible (the visual viewport) so typing doesn't shift the page, and the newest
   messages stay in sight when the keyboard opens.
+- **🎨 Chat looks.** 🎨 in a chat's header (one-to-one or group): a theme for that chat (Usual, Midnight, Sunset,
+  Ocean, Forest, Candy, Love, Mono: its background and both sides' bubbles, `CHAT_THEMES`), kept with the rest and
+  synced (`looks` in the state, by `chatKey`: the same chat from either side; the latest change wins, a reset too),
+  and a wallpaper picture of your own behind it (kept on this phone, `lib/bg-image.js`).
 - **👥 Group chats.** Messages → 👥 New group: pick two or more accounts (and a name, if you like). When the Owner
   says something there, one, two or sometimes three of the others answer, one after another (each "typing" first,
   its name over its message), from the whole group conversation, in its own way and, while chatting, read aloud in

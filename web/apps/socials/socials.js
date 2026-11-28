@@ -23,7 +23,7 @@ import {
   emptyState, normalize, addAccount, editAccount, removeAccount, accountById, toggleFollow, isFollowing,
   followersOf, followingOf, postsBy, addPost, removePost, postById, feedFor, toggleLike, addComment,
   searchAccounts, timeAgo, countLabel, handleProblem, mergeStates, accountsInOrder, setOwner, editPost, setMedia,
-  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, createGroup, groupById, groupName, renameGroup, leaveGroup, sendGroupMessage, groupConversation, taggedIn, captionParts, mediaOf, shuffled,
+  reelsOf, sendMessage, conversation, conversationsOf, markRead, unreadCount, chatKey, chatTheme, setChatTheme, createGroup, groupById, groupName, renameGroup, leaveGroup, sendGroupMessage, groupConversation, taggedIn, captionParts, mediaOf, shuffled,
   cleanScene, toggleSave, isSaved, savedOf, addView, viewsOf, rankPosts, collabsOf, setCollabs, answerCollab, leaveCollab, pendingCollabsFor, acceptAllCollabs, setFace, MAX_COLLAB, live, draftsOf, savedDrafts, togglePin, trashPost, restorePost, trashOf, emptyOldTrash, storiesOf, autoComment, postsWithTag, searchTags, hashtagsIn, switcherOrder, TRASH_DAYS,
 } from './socials-core.js';
 import { generateComments, suggestCaption, describeScene } from './socials-predict.js';
@@ -41,6 +41,18 @@ import { readPhoto, readVideo } from './socials-vision.js';
 import { sportsFront } from './socials-sports.js';
 import { createZip } from '../../lib/zip.js';
 import { loadBg, showBg, bgSetting } from '../../lib/bg-image.js';
+
+// (Chat themes: each chat's colours, set from 🎨 in its header: the background, your bubbles, theirs.)
+export const CHAT_THEMES = [
+  ['', 'Usual', null],
+  ['midnight', '🌙 Midnight', { bg: 'linear-gradient(180deg, #0b1026, #1b1f4b)', mine: 'linear-gradient(135deg, #8b5cf6, #6366f1)', mineFg: '#fff', their: '#262b55', theirFg: '#e8e9ff', fg: '#c7c9f5' }],
+  ['sunset', '🌅 Sunset', { bg: 'linear-gradient(180deg, #ffd3a5, #fd6585)', mine: 'linear-gradient(135deg, #ff7a18, #ff3d77)', mineFg: '#fff', their: 'rgba(255,255,255,.85)', theirFg: '#3a1f1f', fg: '#5a2a2a' }],
+  ['ocean', '🌊 Ocean', { bg: 'linear-gradient(180deg, #a8edea, #2b86c5)', mine: 'linear-gradient(135deg, #0ea5e9, #0369a1)', mineFg: '#fff', their: 'rgba(255,255,255,.88)', theirFg: '#0c2a3e', fg: '#0c2a3e' }],
+  ['forest', '🌲 Forest', { bg: 'linear-gradient(180deg, #d4fc79, #2e7d32)', mine: 'linear-gradient(135deg, #22c55e, #15803d)', mineFg: '#fff', their: 'rgba(255,255,255,.88)', theirFg: '#14301a', fg: '#14301a' }],
+  ['candy', '🍬 Candy', { bg: 'linear-gradient(180deg, #fbc2eb, #a6c1ee)', mine: 'linear-gradient(135deg, #ec4899, #a855f7)', mineFg: '#fff', their: 'rgba(255,255,255,.9)', theirFg: '#3b1d3a', fg: '#4a2a4a' }],
+  ['love', '❤️ Love', { bg: 'linear-gradient(180deg, #ffe1e8, #ff9a9e)', mine: 'linear-gradient(135deg, #f43f5e, #e11d48)', mineFg: '#fff', their: '#fff', theirFg: '#4a1020', fg: '#7a2030' }],
+  ['mono', '🖤 Mono', { bg: '#111', mine: '#f5f5f5', mineFg: '#111', their: '#2a2a2a', theirFg: '#f5f5f5', fg: '#aaa' }],
+];
 import { downloadBlob, shareFiles, canShareFiles } from '../../lib/files.js';
 import { handoff } from '../../lib/handoff.js';
 
@@ -1365,6 +1377,34 @@ function mountAdmin(host, { open = '' } = {}) {
   /** A group's face: two of its other members' pictures, overlapping. */
   const groupFace = (g, m, size = 'm') => el('span', { class: `so-group-face so-group-face-${size}`, 'aria-hidden': 'true' }, g.members.filter((id) => id !== m.id).slice(0, 2).map((id) => avatar(accountById(state, id), 's')));
 
+  // ---- Each chat's look: its theme (synced with the rest) and wallpaper (a picture kept on this phone).
+  const chatBgs = new Map(); // (chat key → its wallpaper Blob, null for none; undefined while it's read)
+  /** A chat's look put on its screen: the theme's colours, and its wallpaper (read the first time). */
+  function lookOf(wrap, key) {
+    const th = CHAT_THEMES.find(([id]) => id === chatTheme(state, key))?.[2];
+    wrap.classList.toggle('so-themed', !!th);
+    for (const [k, v] of Object.entries({ '--so-chat-bg': th?.bg, '--so-mine-bg': th?.mine, '--so-mine-fg': th?.mineFg, '--so-their-bg': th?.their, '--so-their-fg': th?.theirFg, '--so-chat-fg': th?.fg })) { if (v) wrap.style.setProperty(k, v); else wrap.style.removeProperty(k); }
+    const paint = (b) => { const list = wrap.querySelector('.so-chat'); if (!list) return; if (list.dataset.bgurl) URL.revokeObjectURL(list.dataset.bgurl); const u = b ? URL.createObjectURL(b) : ''; list.dataset.bgurl = u; list.style.backgroundImage = u ? `linear-gradient(rgba(0,0,0,.18), rgba(0,0,0,.18)), url("${u}")` : ''; list.classList.toggle('so-wallpaper', !!u); };
+    if (chatBgs.has(key)) paint(chatBgs.get(key) ?? null);
+    else { chatBgs.set(key, undefined); loadBg(`socials.chat.${key}`).then((b) => { chatBgs.set(key, b); if (wrap.isConnected) paint(b); }); }
+    return wrap;
+  }
+  /** 🎨 A chat's look: a theme (each a little preview) and a wallpaper of your own. */
+  function lookDialog(key, title) {
+    const grid = el('div', { class: 'so-themes', role: 'radiogroup', 'aria-label': 'Chat theme' });
+    const paintGrid = () => fill(grid, CHAT_THEMES.map(([id, label, th]) => el('button', { type: 'button', role: 'radio', class: `so-theme-card${chatTheme(state, key) === id ? ' on' : ''}`, 'aria-checked': String(chatTheme(state, key) === id), 'aria-label': label, onclick: () => { setChatTheme(state, key, id); save(); paintGrid(); draw(); } },
+      el('span', { class: 'so-theme-prev', style: th ? { background: th.bg } : {} }, el('i', { class: 'so-theme-their', style: th ? { background: th.their } : {} }), el('i', { class: 'so-theme-mine', style: th ? { background: th.mine } : {} })),
+      el('span', { class: 'small', text: label }))));
+    paintGrid();
+    const dlg = el('dialog', { class: 'ed-dialog vp-dialog', 'aria-label': 'Chat look' }, el('div', { class: 'sheet' },
+      el('div', { class: 'row space' }, el('h2', { text: `🎨 ${title}` }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '✕', onclick: () => dlg.close() })),
+      el('strong', { text: 'Theme' }), grid,
+      el('strong', { text: 'Wallpaper' }), bgSetting(`socials.chat.${key}`, 'Chat wallpaper', (b) => { chatBgs.set(key, b); draw(); }),
+      el('p', { class: 'small muted', text: 'Just for this chat. The theme follows you to your other devices; the wallpaper stays on this phone.' })));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg); dlg.showModal();
+  }
+
   /** 👥 New group: pick two or more accounts (and a name, if you like). */
   function newGroup() {
     const m = me(); const picked = new Set();
@@ -1502,13 +1542,15 @@ function mountAdmin(host, { open = '' } = {}) {
         if (r) { markRead(state, m.id, o.id, r.at); save(); draw(); for (const line of lines) autoSay(line, o, o.id); }
       } })));
     }
-    return el('div', { class: 'so-chat-wrap' },
+    const key = chatKey(m.id, o.id);
+    return lookOf(el('div', { class: 'so-chat-wrap' },
       el('div', { class: 'so-back' }, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Back', text: '‹', onclick: () => go({ name: 'inbox' }) }),
         el('button', { type: 'button', class: 'so-chat-who', onclick: () => go({ name: 'profile', id: o.id }) }, avatar(o, 's'), el('strong', { text: o.handle })),
-        el('button', { type: 'button', class: 'so-link so-chat-as', text: `Answer as @${o.handle}`, onclick: () => { useAccount(o.id); save(); go({ name: 'chat', id: m.id }); } })),
+        el('button', { type: 'button', class: 'so-link so-chat-as', text: `Answer as @${o.handle}`, onclick: () => { useAccount(o.id); save(); go({ name: 'chat', id: m.id }); } }),
+        el('button', { type: 'button', class: 'so-act so-chat-look', 'aria-label': 'Chat theme and wallpaper', text: '🎨', onclick: () => lookDialog(key, `Chat with @${o.handle}`) })),
       acceptAllBar(m, o.id),
       list,
-      el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send })));
+      el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send }))), key);
   }
 
   // ---- Group chats: when the Owner says something, one, two or more of the others answer, one after another (each
@@ -1584,11 +1626,12 @@ function mountAdmin(host, { open = '' } = {}) {
     const send = () => { if (readOn()) primeAudio(); if (sendGroupMessage(state, m.id, gid, input.value)) { chatting.set(gid, Date.now()); save(); groupAutoReply(gid, m.id); draw(); main.querySelector('.so-chat-bar input')?.focus(); } };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
-    return el('div', { class: 'so-chat-wrap' },
+    return lookOf(el('div', { class: 'so-chat-wrap' },
       el('div', { class: 'so-back' }, el('button', { type: 'button', class: 'so-act', 'aria-label': 'Back', text: '‹', onclick: () => go({ name: 'inbox' }) }),
-        el('button', { type: 'button', class: 'so-chat-who', 'aria-label': `About the group ${name}`, onclick: () => groupInfo(gid) }, groupFace(g, m, 's'), el('strong', { text: name }))),
+        el('button', { type: 'button', class: 'so-chat-who', 'aria-label': `About the group ${name}`, onclick: () => groupInfo(gid) }, groupFace(g, m, 's'), el('strong', { text: name })),
+        el('button', { type: 'button', class: 'so-act so-chat-look', 'aria-label': 'Chat theme and wallpaper', text: '🎨', onclick: () => lookDialog(chatKey(gid), name) })),
       list,
-      el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send })));
+      el('div', { class: 'so-chat-bar' }, avatar(m, 's'), input, el('button', { type: 'button', class: 'so-link', text: 'Send', onclick: send }))), chatKey(gid));
   }
   /** A group's details: rename it, who's in it, leave it. */
   function groupInfo(gid) {

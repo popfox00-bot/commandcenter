@@ -65,12 +65,15 @@ export function mount(host, { onEdit = null, onWrite = null, open: start = '' } 
     api = secureFiles(savedFiles(cfg));
     render(note || 'Loading…');
     try {
-      await load(); render(note);
+      await load();
+      // (Search or Favorites opened while this loaded: they stay; the list is drawn when they're closed.)
+      if (inFavs || inSearch) return;
+      render(note);
       // (A home-screen shortcut's: 🔎 Search, or the scanner over the main folder, once it's loaded.)
       if (start === 'search') { start = ''; openSearch(); } else if (start === 'scan') { start = ''; if (files.some(scannable)) openScanner(files, { download: (id) => api.download(id), onChange: refreshMatches, onClose: refreshMatches }); }
     } catch (err) {
       if (here && /No such folder/.test(err.message)) { here = ''; path = []; show('That folder is gone (deleted in Drive?).'); return; }
-      render('', err.message);
+      if (!inFavs && !inSearch) render('', err.message);
     }
   }
   async function load() {

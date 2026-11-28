@@ -55,3 +55,17 @@ test('kept through normalize and merged between two phones; leaving or a deleted
   // (Deleted on one phone: stays deleted when merged with one that still has it.)
   assert.equal(groupById(mergeStates(merged, other), g.id), null);
 });
+
+test('chat looks: one theme per chat (the same seen from either side), kept through normalize, the latest wins a merge, a reset too', async () => {
+  const { chatKey, chatTheme, setChatTheme } = await import('../web/apps/socials/socials-core.js');
+  const { s, me, a } = setup();
+  assert.equal(chatKey(me.id, a.id), chatKey(a.id, me.id));
+  setChatTheme(s, chatKey(me.id, a.id), 'ocean');
+  assert.equal(chatTheme(s, chatKey(a.id, me.id)), 'ocean');
+  assert.equal(chatTheme(s, 'nope'), '');
+  const other = normalize(JSON.parse(JSON.stringify(s)));
+  assert.equal(chatTheme(other, chatKey(me.id, a.id)), 'ocean');
+  // The other phone set it back to the usual look later: that wins.
+  setChatTheme(other, chatKey(me.id, a.id), ''); other.looks[chatKey(me.id, a.id)].at += 10;
+  assert.equal(chatTheme(mergeStates(s, other), chatKey(me.id, a.id)), '');
+});

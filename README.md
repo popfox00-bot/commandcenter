@@ -140,6 +140,8 @@ browser without says so plainly.
   and call buttons). Name, picture, caption, counts and "how long ago" are yours to set, with a preview. It's cropped
   to each frame's shape around the people in it (faces found every half second with face-api's tiny detector, eased
   between moments: `video-frame-core.js`), and every output is the same: MP4, 1080 × 1920 portrait, sound kept.
+  **📤 Make a Socials post** under the result puts it on the account you pick as a draft (with the caption), waiting in
+  Socials for you to share it (Socials must have been opened once this session, for its password).
 - **🥽 2D → 3D** makes a stereoscopic copy for VR headsets (Meta Quest: Skybox VR, DeoVR, Meta's player):
   - Layouts: **Full SBS** (2W×H, `_SBS_LR`), **Half SBS** (W×H, each eye squeezed to half width, `_3dh`) and
     **Top-Bottom** (W×2H, each eye full size, `_TB`). The endings are in one place (`VR_SUFFIXES` in

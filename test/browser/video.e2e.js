@@ -186,3 +186,28 @@ test('📱 Socials Frame: a preview, then a video call frame made at 1080 × 192
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('📱 Socials Frame → 📤 Make a Socials post: a draft on the account chosen, with its caption (Socials unlocked first)', async (t) => {
+  const { context, page, errors } = await open('#/socials/admin');
+  if (!(await canEncode(page))) { t.skip('no H.264 encoder in this browser'); await context.close(); return; }
+  await page.getByLabel('Password', { exact: true }).fill('heron42'); await page.getByLabel('Password again').fill('heron42');
+  await page.getByRole('button', { name: 'Set password' }).click();
+  await page.getByLabel('Username', { exact: true }).fill('owner.me'); await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByText('Welcome to your feed').waitFor();
+  await page.goto(`${origin}${BASE_PATH}#/files/videoframe`);
+  await page.locator('.studio-pane:not([hidden]) input[type=file]').first().setInputFiles(CLIP);
+  await page.getByText(/clip\.mp4: 320×180/).waitFor();
+  await page.getByRole('radio', { name: /Feed post/ }).click();
+  await page.getByLabel('Keep the people in frame (finds faces)').uncheck();
+  await page.getByLabel('Caption').fill('Sunset session 🌅');
+  await page.getByRole('button', { name: 'Make the video' }).click();
+  await page.getByRole('heading', { name: 'Done: clip-post.mp4' }).waitFor({ timeout: 90000 });
+  await page.getByLabel('Post as').waitFor();
+  assert.equal(await page.getByLabel('Post caption').inputValue(), 'Sunset session 🌅');
+  await page.getByRole('button', { name: '📤 Make a Socials post' }).click();
+  await page.getByText(/✓ A draft on @owner\.me in Socials/).waitFor({ timeout: 60000 });
+  const drafts = await page.evaluate(async () => { const S = await import('./apps/socials/socials-store.js'); const { state } = await S.loadState(); return state.posts.filter((p) => p.draft).map((p) => ({ kind: p.kind, caption: p.caption, frame: !!p.fromFrame, video: !!p.video, still: !!p.image })); });
+  assert.deepEqual(drafts, [{ kind: 'video', caption: 'Sunset session 🌅', frame: true, video: true, still: true }]);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

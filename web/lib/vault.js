@@ -65,6 +65,20 @@ export async function createVault(password, { iterations = ITERATIONS } = {}) {
   return { header, key: await useKey(raw), recoveryKey };
 }
 
+/**
+ * The same as createVault, with the data key's bytes too (for a key kept another way as well, e.g. Reader's, wrapped
+ * by a key of this device): { header, raw (32 bytes), recoveryKey }.
+ */
+export async function createVaultRaw(password, { iterations = ITERATIONS } = {}) {
+  const raw = rand(32); const recoveryKey = newRecoveryKey();
+  const header = { v: 1, kdf: 'PBKDF2-SHA256', iterations, password: await wrap(raw, password, iterations), recovery: await wrap(raw, cleanRecoveryKey(recoveryKey), iterations), created: Date.now() };
+  return { header, raw, recoveryKey };
+}
+/** The data key's bytes from the password or the recovery key; throws "Wrong password" otherwise. */
+export const unlockRaw = (header, secret) => rawKey(header, secret);
+/** A data key (for encryptFile / decryptFile) from its bytes. */
+export const keyFromRaw = (raw) => useKey(raw);
+
 /** The data key from the password or the recovery key; throws "Wrong password" otherwise. */
 export async function unlock(header, secret) {
   const tries = [[header.password, secret]];

@@ -1,5 +1,5 @@
-// Minimal ZIP writer (stored, no compression: images and PDFs are already compressed).
-// Works in browsers and Node. Returns a Uint8Array.
+// Minimal ZIP writer: stored (images and PDFs are already compressed), or deflated (zipCompressed, with the
+// browser's CompressionStream, each file only when that makes it smaller). Works in browsers and Node.
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -23,7 +23,10 @@ function dosDateTime(d) {
   return { time, date };
 }
 
-/** files: [{ name, bytes: Uint8Array }]. Names are made unique ("a.jpg", "a (2).jpg"). */
+/**
+ * files: [{ name, bytes: Uint8Array, deflated?: Uint8Array (the same, deflate-raw compressed: written so) }]. Names are
+ * made unique ("a.jpg", "a (2).jpg").
+ */
 export function createZip(files, now = new Date()) {
   const enc = new TextEncoder();
   const { time, date } = dosDateTime(now);
@@ -37,36 +40,36 @@ export function createZip(files, now = new Date()) {
     used.add(name.toLowerCase());
     const nameBytes = enc.encode(name);
     const crc = crc32(f.bytes);
-    const size = f.bytes.length;
+    const size = f.bytes.length; const method = f.deflated ? 8 : 0; const data = f.deflated ?? f.bytes; const csize = data.length;
     const header = new DataView(new ArrayBuffer(30));
     header.setUint32(0, 0x04034b50, true);
     header.setUint16(4, 20, true);       // version needed
     header.setUint16(6, 0x0800, true);   // UTF-8 names
-    header.setUint16(8, 0, true);        // stored
+    header.setUint16(8, method, true);   // stored (0) or deflated (8)
     header.setUint16(10, time, true);
     header.setUint16(12, date, true);
     header.setUint32(14, crc, true);
-    header.setUint32(18, size, true);
+    header.setUint32(18, csize, true);
     header.setUint32(22, size, true);
     header.setUint16(26, nameBytes.length, true);
     header.setUint16(28, 0, true);
-    local.push(new Uint8Array(header.buffer), nameBytes, f.bytes);
+    local.push(new Uint8Array(header.buffer), nameBytes, data);
 
     const cd = new DataView(new ArrayBuffer(46));
     cd.setUint32(0, 0x02014b50, true);
     cd.setUint16(4, 20, true);
     cd.setUint16(6, 20, true);
     cd.setUint16(8, 0x0800, true);
-    cd.setUint16(10, 0, true);
+    cd.setUint16(10, method, true);
     cd.setUint16(12, time, true);
     cd.setUint16(14, date, true);
     cd.setUint32(16, crc, true);
-    cd.setUint32(20, size, true);
+    cd.setUint32(20, csize, true);
     cd.setUint32(24, size, true);
     cd.setUint16(28, nameBytes.length, true);
     cd.setUint32(42, offset, true);
     central.push(new Uint8Array(cd.buffer), nameBytes);
-    offset += 30 + nameBytes.length + size;
+    offset += 30 + nameBytes.length + csize;
   }
   const cdSize = central.reduce((n, b) => n + b.length, 0);
   const end = new DataView(new ArrayBuffer(22));
@@ -76,6 +79,21 @@ export function createZip(files, now = new Date()) {
   end.setUint32(12, cdSize, true);
   end.setUint32(16, offset, true);
   return concat([...local, ...central, new Uint8Array(end.buffer)]);
+}
+
+/** A ZIP with each file deflated where that makes it smaller (`onProgress(done, total)`): as createZip. */
+export async function zipCompressed(files, { onProgress = () => {}, now = new Date() } = {}) {
+  const out = [];
+  for (const [i, f] of files.entries()) {
+    let deflated = null;
+    if (typeof CompressionStream !== 'undefined' && f.bytes.length > 64) {
+      const d = new Uint8Array(await new Response(new Blob([f.bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+      if (d.length < f.bytes.length * 0.97) deflated = d;
+    }
+    out.push({ name: f.name, bytes: f.bytes, ...(deflated ? { deflated } : {}) });
+    onProgress(i + 1, files.length);
+  }
+  return createZip(out, now);
 }
 
 export function concat(parts) {

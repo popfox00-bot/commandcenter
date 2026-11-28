@@ -45,6 +45,7 @@ export const APPS = [
   { id: 'refill', name: 'Reverse Fill', icon: '🎨', tint: 'amber', note: 'Take off a label, logo or stain', href: '#/refill', parent: 'magic', home: false, locked: true, load: () => import('./refill/refill.js') },
   { id: 'fashion', name: 'Fashion', icon: '👕', tint: 'pink', note: 'Put a top, pants, hat or shoes on', href: '#/fashion', parent: 'magic', home: false, locked: true, load: () => import('./fashion/fashion.js') },
   { id: 'saved', name: 'Saved Files', icon: '☁️', tint: 'slate', note: 'Your Google Drive folder', href: '#/saved', parent: 'hidden', home: false, locked: true, load: () => import('./saved/saved-app.js') },
+  { id: 'reader', name: 'Reader', icon: '🔐', tint: 'ink', note: 'Encrypted files · Folders · Drives', href: '#/reader', parent: 'hidden', home: false, locked: true, load: () => import('./reader/reader.js') },
   // The Vault: not on the home screen; Files' ⚙ settings → Admin, behind its own password (web/lib/hidden-lock.js).
   { id: 'hidden', name: 'Vault', icon: '🔐', tint: 'slate', note: '', href: '#/hidden', home: false, load: () => import('./hidden/hidden.js') },
   // Not on the home screen: opened from Settings.

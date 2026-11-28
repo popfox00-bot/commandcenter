@@ -96,3 +96,65 @@ test('Reader: set up, add files (encrypted), figures, folders, view, export a lo
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('Reader 💽 Drive: connect a drive (its STORAGE folder made), lock a whole folder into it a piece at a time, see it, open it, take everything out, add it to the library', async () => {
+  const context = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+  await context.addInitScript(() => {
+    try { sessionStorage.setItem('cc.hidden.open', '1'); } catch { /* private mode */ }
+    // (Chrome's folder picker stood in for by folders of the browser's own private storage: the same API.)
+    const dirOf = async (path) => { let d = await navigator.storage.getDirectory(); for (const p of path) d = await d.getDirectoryHandle(p, { create: true }); return d; };
+    globalThis.showDirectoryPicker = async (o = {}) => dirOf(o.id === 'reader-source' ? ['src', 'Holiday'] : o.id === 'reader-out' ? ['out'] : ['E-drive']);
+    for (const P of [FileSystemDirectoryHandle.prototype, FileSystemFileHandle.prototype]) { P.queryPermission ??= async () => 'granted'; P.requestPermission ??= async () => 'granted'; }
+  });
+  const page = await context.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}${BASE_PATH}#/reader`);
+  // A folder to pack: two files (one big, several pieces) and a sub-folder.
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory(); for (const n of ['src', 'out', 'E-drive']) { try { await root.removeEntry(n, { recursive: true }); } catch { /* none */ } }
+    let d = root; for (const p of ['src', 'Holiday']) d = await d.getDirectoryHandle(p, { create: true });
+    const put = async (dir, name, data) => { const w = await (await dir.getFileHandle(name, { create: true })).createWritable(); await w.write(data); await w.close(); };
+    const big = new Uint8Array(9 * 1024 * 1024); for (let i = 0; i < big.length; i++) big[i] = (i * 2654435761) >>> 24;
+    await put(d, 'clip.mp4', big); await put(await d.getDirectoryHandle('notes', { create: true }), 'plan.txt', 'Day 1: beach. '.repeat(5000));
+  });
+  await page.getByLabel('Reader password', { exact: true }).fill('maple river candle orbit'); await page.getByLabel('Reader password again').fill('maple river candle orbit');
+  await page.getByRole('button', { name: 'Set up Reader' }).click(); await page.getByRole('button', { name: 'I\'ve saved it' }).click({ timeout: 20000 });
+  await page.getByRole('tab', { name: /Drive · STORAGE/ }).click();
+  await page.getByRole('button', { name: '💽 Choose the drive…' }).click();
+  await page.getByText(/No packages in STORAGE yet/).waitFor();
+  assert.ok(await page.evaluate(async () => { const r = await navigator.storage.getDirectory(); const d = await r.getDirectoryHandle('E-drive'); await d.getDirectoryHandle('STORAGE'); return true; }), 'STORAGE made on the drive');
+  // 🔒 A whole folder into STORAGE.
+  await page.getByRole('button', { name: '🔒 New package from a folder…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New package' });
+  assert.equal(await dlg.getByLabel('Package name').inputValue(), 'Holiday');
+  await dlg.getByRole('button', { name: 'Lock 2 files into STORAGE' }).click();
+  await dlg.getByText(/✓ Holiday\.ccv in STORAGE: /).waitFor({ timeout: 60000 });
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Open Holiday.ccv' }).waitFor();
+  assert.match((await page.locator('.rd-stats').innerText()).replace(/\s+/g, ' '), /^1 package /);
+  // Open it: what's in it (Reader's own key: no password), take everything out exactly.
+  await page.getByRole('button', { name: 'Open Holiday.ccv' }).click();
+  const pkg = page.getByRole('dialog', { name: 'Package' });
+  await pkg.getByRole('button', { name: /Look at Holiday\/notes\/plan\.txt/ }).waitFor();
+  assert.match((await pkg.locator('.rd-stats').innerText()).replace(/\s+/g, ' '), /^2 files 9\.\d MB inside/);
+  await pkg.getByRole('button', { name: '📂 Take everything out to a folder…' }).click();
+  await pkg.getByText(/✓ 2 files taken out/).waitFor({ timeout: 60000 });
+  const same = await page.evaluate(async () => {
+    const r = await navigator.storage.getDirectory(); const out = await (await (await r.getDirectoryHandle('out')).getDirectoryHandle('Holiday')).getDirectoryHandle('Holiday');
+    const a = await (await out.getFileHandle('clip.mp4')).getFile(); const b = await (await (await out.getDirectoryHandle('notes')).getFileHandle('plan.txt')).getFile();
+    const src = await (await (await (await r.getDirectoryHandle('src')).getDirectoryHandle('Holiday')).getFileHandle('clip.mp4')).getFile();
+    const h = async (f) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await f.arrayBuffer()))].join(',');
+    return { clip: (await h(a)) === (await h(src)), text: (await b.text()).startsWith('Day 1: beach.'), size: b.size };
+  });
+  assert.deepEqual(same, { clip: true, text: true, size: 70000 });
+  // A look at one file, then into the library.
+  await pkg.getByRole('button', { name: /Look at Holiday\/notes\/plan\.txt/ }).click();
+  await page.locator('.rd-text').filter({ hasText: 'Day 1: beach.' }).waitFor();
+  await page.getByRole('dialog', { name: 'File' }).getByRole('button', { name: 'Close' }).click();
+  await pkg.getByRole('button', { name: '📚 Add to the library' }).click();
+  await pkg.getByText('✓ Added 2 to the library.').waitFor({ timeout: 60000 });
+  await pkg.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('tab', { name: '📚 Library' }).click();
+  assert.match((await page.locator('.rd-stats').innerText()).replace(/\s+/g, ' '), /^2 files .+ 3 folders$/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

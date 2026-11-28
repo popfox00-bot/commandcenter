@@ -2162,3 +2162,7 @@ img.vid-gif { object-fit: contain; background: var(--idle-bg); }
 .rd-pdf { display: grid; gap: 10px; justify-items: center; }
 .rd-pdf canvas { max-width: 100%; height: auto; background: #fff; }
 .rd-view-acts { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: rgba(20,20,20,.9); justify-content: center; }
+.rd-tabs { margin: 0; }
+.rd-drive { display: grid; gap: 10px; }
+.rd-pkg-list { max-height: 50dvh; overflow-y: auto; }
+.rd-open:disabled { opacity: .6; cursor: default; }

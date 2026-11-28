@@ -55,3 +55,14 @@ test('kinds, types, names', () => {
   assert.equal(typeOf('x.png'), 'image/png'); assert.equal(typeOf('x.weird'), 'application/octet-stream');
   assert.equal(baseName('My: trip.zip'), 'My_ trip'); assert.equal(baseName(''), 'files');
 });
+
+test('📥 Import opens a 💽 Drive package (CCV2): by the library\'s own key with no question, else by its password; folders kept', async () => {
+  const { writeCCV2 } = await import('../web/lib/ccv2.js');
+  const { header, raw } = await createVaultRaw('library password 2'); const session = { key: await keyFromRaw(raw), header };
+  const parts = [];
+  await writeCCV2({ files: [new File(['one'], 'Trip/a.txt', { type: 'text/plain' }), new File(['two two'], 'Trip/sub/b.txt', { type: 'text/plain' })], key: session.key, header, write: (b) => { parts.push(b.slice()); } });
+  const pkg = new File(parts, 'Trip.ccv');
+  const r = await open(pkg, { session }); assert.deepEqual(r.files.map((f) => [f.name, f.size]), [['Trip/a.txt', 3], ['Trip/sub/b.txt', 7]]);
+  await assert.rejects(open(pkg), (e) => e.needsSecret);
+  const r2 = await open(pkg, { secret: 'library password 2' }); assert.equal(await r2.files[1].text(), 'two two');
+});

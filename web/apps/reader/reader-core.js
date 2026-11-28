@@ -3,7 +3,8 @@
 // and by a recovery key, PBKDF2-SHA256: decryption/FORMAT.md), so decrypt.html or decrypt.py opens it anywhere, with
 // no app; and opened again: decrypted, unzipped, each file ready to look at or save. All in memory, on this device.
 
-import { createVault, encryptFile, openWithSecret, decryptFile } from '../../lib/vault.js';
+import { createVault, encryptFile, openWithSecret, decryptFile, unlockRaw, keyFromRaw } from '../../lib/vault.js';
+import { isCCV2, inspectCCV2, listCCV2, fileFromCCV2 } from '../../lib/ccv2.js';
 import { zipCompressed, readZip } from '../../lib/zip.js';
 
 /** The ending a locked package has. */
@@ -66,6 +67,15 @@ export async function lock(file, { password = '', session = null } = {}) {
  */
 export async function open(file, { secret = '', session = null } = {}) {
   const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  // (A package of any size (CCV2, from 💽 Drive): its list, then each file, with Reader's own key or its password.)
+  if (isCCV2(head)) {
+    const info = await inspectCCV2(file); let key = null;
+    if (session && session.header?.password?.salt && session.header.password.salt === info.header?.password?.salt) key = session.key;
+    else { if (!secret) throw Object.assign(new Error('This file is locked: enter its password or recovery key.'), { needsSecret: true }); key = await keyFromRaw(await unlockRaw(info.header, secret)); }
+    const list = await listCCV2(file, key, info); const files = [];
+    for (const e of list.files) { const f = await fileFromCCV2(file, key, e, { info }); files.push(new File([f], e.n, { type: e.t || typeOf(e.n), lastModified: e.m || 0 })); }
+    return { files, from: 'locked', inner: file.name };
+  }
   if (isLockedBytes(head)) {
     let inner = null;
     if (session) { try { inner = await decryptFile(session.key, file); } catch { inner = null; } }

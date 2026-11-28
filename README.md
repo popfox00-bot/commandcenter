@@ -555,11 +555,20 @@ It needs a connection, and it's careful about what it fetches:
   password, a different one, or not locked; then 💾 Save to a drive (on a computer), Share → Save to Files → the drive
   (iPhone), or Download. **📥 Import** a package from a drive (Reader's own open with no question; others ask their
   password or recovery key), a ZIP, or any files: in, encrypted, a package of several into a folder of its name.
+- **💽 Drive · STORAGE** (a computer's Chrome or Edge, e.g. Windows): connect a drive once (pick the drive or its
+  `STORAGE` folder; it's made if missing; remembered, Chrome asks your OK once a session). **🔒 New package from a folder…
+  / from files…** packs, compresses (where it helps: photos and videos aren't tried again) and encrypts straight into
+  `STORAGE\Name.ccv`, a piece at a time (CCV2, `lib/ccv2.js`: any size, never all in memory; about 400 MB/s for video,
+  170 MB/s for text on a fast machine, so the drive itself is usually the limit), with progress, speed, time left and
+  Cancel (nothing left behind). The figures: packages and their size; each package opens (Reader's own with no
+  password) to show its files and size: look at one, **📂 Take everything out to a folder…** (folders kept), or **📚 Add
+  to the library**. Nothing is uploaded: it's all this browser, this computer, the drive. On an iPhone, 📥 Import opens
+  these packages too.
 - **Encryption:** AES-256-GCM with Reader's own 256-bit key, a random IV for every file; the list of names and folders is
   encrypted too. The key is wrapped by a key of this device the browser won't hand out (so it opens with the Vault, no
   second password), and by Reader's password and a recovery key (PBKDF2-SHA256, 600,000 rounds), shown once at setup.
-  Packages are the same CCV1 files Saved Files makes, so `decrypt.html` / `decrypt.py` open them on any computer with
-  the password or recovery key (`web/apps/reader/`, `lib/vault.js`, `decryption/FORMAT.md`).
+  Exported packages are the same CCV1 files Saved Files makes and Drive packages are CCV2 (both in `FORMAT.md`);
+  `decrypt.py` opens both (`--list` for what's inside) on any computer with the password or recovery key, and `decrypt.html` the CCV1 ones (`web/apps/reader/`, `lib/vault.js`, `decryption/FORMAT.md`).
 
 ### Saved Files
 

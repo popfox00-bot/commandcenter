@@ -8,6 +8,7 @@ import { shareFiles, canShareFiles, downloadBlob, formatBytes } from '../../lib/
 import { strength } from '../../lib/vault.js';
 import * as R from './reader-store.js';
 import { pack, lock, open as openPackage, kindOf, baseName, LOCKED_EXT } from './reader-core.js';
+import { drivePanel, driveSupported, FOLDER } from './reader-drive.js';
 
 const ICON = { image: '🖼', video: '🎬', audio: '🎵', pdf: '📄', text: '📝', zip: '🗜', locked: '🔒', other: '📦' };
 const day = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
@@ -15,6 +16,7 @@ const day = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'nu
 export function mount(host) {
   const root = el('div', { class: 'rd' }); host.append(root);
   let ix = { folders: [], files: [] }; let here = null; let picking = null; // (null, or a Set of ids picked)
+  let tab = 'library'; // ('library', or 'drive': a drive's STORAGE folder, on a computer's Chrome or Edge)
   const urls = new Set(); const url = (b) => { const u = URL.createObjectURL(b); urls.add(u); return u; };
   const status = el('p', { class: 'small rd-status', role: 'status' });
   const say = (t, bad = false) => { status.textContent = t; status.classList.toggle('bad-text', bad); };
@@ -67,8 +69,10 @@ export function mount(host) {
     const imp = el('input', { type: 'file', multiple: true, class: 'visually-hidden', id: 'rd-import', accept: `${LOCKED_EXT},.zip,application/zip,*/*` });
     imp.addEventListener('change', () => { const f = [...imp.files]; imp.value = ''; if (f.length) importFiles(f); });
     const pickedN = picking?.size ?? 0;
+    if (tab === 'drive') return driveTab();
     fill(root,
       el('div', { class: 'rd-top' }, el('h2', { text: '🔐 Reader' }), el('button', { type: 'button', class: 'btn small ghost', text: '🔒 Lock', onclick: () => { R.close(); here = null; unlockScreen(); } })),
+      tabs(),
       el('div', { class: 'rd-stats', role: 'group', 'aria-label': 'What\'s in Reader' },
         el('div', {}, el('strong', { text: String(st.files) }), el('span', { text: st.files === 1 ? 'file' : 'files' })),
         el('div', {}, el('strong', { text: formatBytes(st.size) }), el('span', { text: 'in all' })),
@@ -97,6 +101,21 @@ export function mount(host) {
             el('span', { class: 'rd-ic', text: ICON[kindOf(f.name, f.type)] }), el('span', { class: 'rd-name' }, el('strong', { text: f.name }), el('span', { class: 'small muted', text: `${formatBytes(f.size)} · ${day(f.at)}` }))))),
         !folders.length && !files.length ? el('li', { class: 'rd-empty muted', text: here ? 'This folder is empty.' : 'Nothing here yet: ＋ Add files, or 📥 Import a package from a drive.' }) : null));
     if (note) say(note);
+  }
+
+  /** 📚 Library | 💽 Drive (where the browser can use a drive's folder). */
+  function tabs() {
+    if (!driveSupported()) return null;
+    return el('div', { class: 'segmented rd-tabs', role: 'tablist', 'aria-label': 'Reader' }, [['library', '📚 Library'], ['drive', `💽 Drive · ${FOLDER}`]].map(([id, label]) => el('button', { type: 'button', role: 'tab', class: `seg${tab === id ? ' active' : ''}`, 'aria-selected': String(tab === id), text: label, onclick: () => { tab = id; draw(); } })));
+  }
+  function driveTab() {
+    const box = el('div', { class: 'rd-drive' });
+    fill(root, el('div', { class: 'rd-top' }, el('h2', { text: '🔐 Reader' }), el('button', { type: 'button', class: 'btn small ghost', text: '🔒 Lock', onclick: () => { R.close(); here = null; tab = 'library'; unlockScreen(); } })), tabs(), box);
+    drivePanel(box, {
+      session: () => R.current(), ask: askSecret,
+      view: (items, i) => viewer(items.map(({ file }) => ({ name: file.name, size: file.size, at: file.lastModified || Date.now(), get: async () => file })), i),
+      addToLibrary: async (files, name) => { const into = files.length > 1 ? await R.newFolder(name, null, null, { unique: true }) : null; await R.addFiles(files, into); ix = await R.loadIndex(); },
+    });
   }
 
   async function addFiles(list) {
@@ -188,7 +207,7 @@ export function mount(host) {
       for (const u of shown) URL.revokeObjectURL(u); shown = [];
       const e = files[i]; title.textContent = e.name; info.textContent = `${formatBytes(e.size)} · ${day(e.at)} · ${i + 1} of ${files.length}`; fill(body, el('p', { class: 'muted', text: 'Opening…' })); fill(bar);
       try {
-        const f = await R.readFile(e); if (files[i] !== e) return; const k = kindOf(e.name, f.type); const u = URL.createObjectURL(f); shown.push(u);
+        const f = e.get ? await e.get() : await R.readFile(e); if (files[i] !== e) return; const k = kindOf(e.name, f.type); const u = URL.createObjectURL(f); shown.push(u);
         if (k === 'image') fill(body, el('img', { src: u, alt: e.name }));
         else if (k === 'video') fill(body, el('video', { src: u, controls: true, playsinline: true }));
         else if (k === 'audio') fill(body, el('audio', { src: u, controls: true }));
@@ -196,7 +215,7 @@ export function mount(host) {
         else if (k === 'pdf') { fill(body, el('p', { class: 'muted', text: 'Opening the PDF…' })); const P = await import('../../lib/pdf-reader.js'); const doc = await P.openPdf(f); const pages = []; for (let n = 1; n <= Math.min(doc.numPages, 20); n++) pages.push(await P.renderPage(doc, n, { dpi: 110, maxEdge: 1400 })); P.closePdf(doc); if (files[i] === e) fill(body, el('div', { class: 'rd-pdf' }, pages, doc.numPages > 20 ? el('p', { class: 'muted small', text: `The first 20 of ${doc.numPages} pages: save it to see the rest.` }) : null)); }
         else fill(body, el('p', { class: 'muted', text: 'No preview for this kind of file: save it to open it in another app.' }));
         fill(bar, canShareFiles([f]) ? el('button', { type: 'button', class: 'btn', text: 'Share', onclick: () => shareFiles([f], f.name).catch(() => {}) }) : null, el('button', { type: 'button', class: 'btn ghost', text: 'Save', onclick: () => downloadBlob(f, f.name) }),
-          el('button', { type: 'button', class: 'btn ghost danger', text: 'Delete', onclick: async () => { if (!confirm(`Delete "${e.name}" from Reader?`)) return; await R.deleteFiles([e.id]); dlg.close(); ix = await R.loadIndex(); draw(`Deleted "${e.name}".`); } }));
+          e.get ? null : el('button', { type: 'button', class: 'btn ghost danger', text: 'Delete', onclick: async () => { if (!confirm(`Delete "${e.name}" from Reader?`)) return; await R.deleteFiles([e.id]); dlg.close(); ix = await R.loadIndex(); draw(`Deleted "${e.name}".`); } }));
       } catch (err) { fill(body, el('p', { class: 'bad-text', text: err.message })); }
     };
     dlg.addEventListener('close', () => { for (const u of shown) URL.revokeObjectURL(u); dlg.remove(); });

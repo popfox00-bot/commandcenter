@@ -2098,3 +2098,5 @@ audio.vid-player { background: none; }
 .vid-text { display: grid; gap: 6px; }
 .vid-text select { min-height: 40px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 16px; padding: 0 8px; }
 img.vid-gif { object-fit: contain; background: var(--idle-bg); }
+.vid-frame-wrap { display: flex; justify-content: center; margin: 10px 0; }
+.vid-frame-preview { width: min(100%, 300px); height: auto; aspect-ratio: 9 / 16; border-radius: 16px; background: #000; box-shadow: 0 2px 12px rgba(0,0,0,.25); }

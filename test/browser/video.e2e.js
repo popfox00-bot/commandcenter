@@ -164,3 +164,25 @@ test('Edit: trim on the timeline, words on the video, twice as fast; a GIF of a 
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('📱 Socials Frame: a preview, then a video call frame made at 1080 × 1920 with its sound; each frame\'s own fields', async (t) => {
+  const { context, page, errors } = await open('#/files/videoframe');
+  if (!(await canEncode(page))) { t.skip('no H.264 encoder in this browser'); await context.close(); return; }
+  await page.getByRole('heading', { name: '📱 Socials Frame' }).waitFor();
+  await page.locator('.studio-pane:not([hidden]) input[type=file]').first().setInputFiles(CLIP);
+  await page.getByText(/clip\.mp4: 320×180/).waitFor();
+  // Each frame asks for its own words.
+  await page.getByRole('radio', { name: /Feed post/ }).click();
+  await page.getByLabel('Caption').waitFor(); await page.getByLabel('Likes').waitFor();
+  await page.getByRole('radio', { name: /Video call/ }).click();
+  assert.equal(await page.getByLabel('Caption').count(), 0);
+  await page.getByLabel('Caller\'s name').fill('Kai');
+  // (The preview is drawn: not all one colour.)
+  await page.waitForFunction(() => { const c = document.querySelector('.vid-frame-preview'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let min = 255; let max = 0; for (let i = 0; i < d.length; i += 400) { min = Math.min(min, d[i]); max = Math.max(max, d[i]); } return max - min > 60; });
+  await page.getByRole('button', { name: 'Make the video' }).click();
+  await page.getByRole('heading', { name: 'Done: clip-call.mp4' }).waitFor({ timeout: 90000 });
+  assert.match(await resultText(page), /1080×1920 · 1\.5 s · with sound/);
+  assert.equal(await page.locator('.vid-problems').count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

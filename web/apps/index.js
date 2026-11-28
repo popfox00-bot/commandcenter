@@ -65,7 +65,7 @@ export const CATEGORIES = [
 /** Files' own apps (routes #/files/<tab>; each lists the tabs that are part of it). */
 export const FILES_APPS = [
   { id: 'photo', name: 'Photo Editor', icon: '🖼️', tint: 'blue', note: 'Edit · Collage · Cutout', tabs: ['photo', 'collage', 'cutout'] },
-  { id: 'video', name: 'Video Editor', icon: '🎬', tint: 'purple', note: 'Edit · 2D → 3D for VR', tabs: ['video', 'video3d'] },
+  { id: 'video', name: 'Video Editor', icon: '🎬', tint: 'purple', note: 'Edit · 2D → 3D · Socials Frame', tabs: ['video', 'video3d', 'videoframe'] },
   { id: 'convert', name: 'Convert', icon: '🔁', tint: 'green', note: 'Photos and PDFs', tabs: ['convert'] },
   { id: 'pdf', name: 'PDF', icon: '📄', tint: 'red', note: 'Write · Sign', tabs: ['pdf'] },
   { id: 'scan', name: 'Scan', icon: '📷', tint: 'ink', note: 'Documents · QR codes', tabs: ['scan', 'qr'] },

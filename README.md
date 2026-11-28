@@ -133,6 +133,13 @@ browser without says so plainly.
   4:3), size (longer side), rotate, flip, and sound kept, removed or **replaced** by another file's (music, a
   recording, a video). Also **⏪ Reverse** (picture and sound), **➕ Combine** (clips joined in order, fitted into
   the first one's frame) and **🎵 Sound only** (.m4a). Sound already in AAC is copied untouched.
+- **📱 Socials Frame** wraps a video in a social-app frame, the app's own designs in familiar shapes (no other app's
+  name or logo): **📖 Story** (progress bars, the account, a reply box), **🖼 Feed post** (4:5 with header, likes,
+  caption; light or dark), **🎬 Short video** (likes and comments down the side, caption and sound below) and **📞 Video
+  call** (the caller's name, a running call timer, your small picture: a soft copy of the video, your picture or none,
+  and call buttons). Name, picture, caption, counts and "how long ago" are yours to set, with a preview. It's cropped
+  to each frame's shape around the people in it (faces found every half second with face-api's tiny detector, eased
+  between moments: `video-frame-core.js`), and every output is the same: MP4, 1080 × 1920 portrait, sound kept.
 - **🥽 2D → 3D** makes a stereoscopic copy for VR headsets (Meta Quest: Skybox VR, DeoVR, Meta's player):
   - Layouts: **Full SBS** (2W×H, `_SBS_LR`), **Half SBS** (W×H, each eye squeezed to half width, `_3dh`) and
     **Top-Bottom** (W×2H, each eye full size, `_TB`). The endings are in one place (`VR_SUFFIXES` in

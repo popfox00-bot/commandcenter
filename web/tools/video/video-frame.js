@@ -159,6 +159,54 @@ export async function frameVideo(opened, file, o, img, { trim = {}, onProgress =
   return { blob, check, name: framedName(file.name, o.style), people: found.filter((f) => f.faces.length).length };
 }
 
+/**
+ * A framed video put on a Socials account as a draft post (its video and a still of it, the frame's caption), waiting
+ * there for you to look it over and share it. Socials must be unlocked in this session. Resolves to the post's id.
+ */
+export async function toSocialsDraft(blob, name, accountId, caption = '') {
+  const S = await import('../../apps/socials/socials-store.js'); const C = await import('../../apps/socials/socials-core.js');
+  const { state } = await S.loadState();
+  if (!C.accountById(state, accountId)) throw new Error('That account isn\'t in Socials any more.');
+  const { prepareVideo } = await import('../../apps/socials/socials-editor.js');
+  const v = await prepareVideo(new File([blob], name, { type: 'video/mp4' }));
+  const p = C.addPost(state, accountId, { image: v.still, video: v.video, caption: String(caption ?? '').slice(0, 2200), draft: true });
+  p.fromFrame = { name, at: Date.now() };
+  await S.saveState(state);
+  return p.id;
+}
+/** Socials' accounts to post as ([{ id, handle, owner }], the Owner first), or null when Socials is locked. */
+async function socialsAccounts() {
+  try {
+    const S = await import('../../apps/socials/socials-store.js'); const C = await import('../../apps/socials/socials-core.js');
+    const { state } = await S.loadState();
+    return C.accountsInOrder(state).map((a) => ({ id: a.id, handle: a.handle, owner: !!a.owner }));
+  } catch { return null; }
+}
+/** 📤 Make a Socials post: which account, then a draft on it (or why it can't be yet). */
+function socialsPostBox(r, o) {
+  const box = el('div', { class: 'vid-topost' }, el('p', { class: 'small muted', text: 'Looking for your Socials accounts…' }));
+  socialsAccounts().then((accts) => {
+    if (!accts) { fill(box, el('p', { class: 'small', text: '📤 To make it a Socials post, open Socials once (it asks for its password), then come back here: this video stays.' })); return; }
+    if (!accts.length) { fill(box, el('p', { class: 'small', text: '📤 Make an account in Socials first to post this from it.' })); return; }
+    const want = String(o.handle || '').replace(/^@/, '').toLowerCase();
+    const first = accts.find((a) => a.handle.toLowerCase() === want) ?? accts[0];
+    const who = select(first.id, accts.map((a) => [a.id, `@${a.handle}${a.owner ? ' (Owner)' : ''}`]), () => {});
+    who.setAttribute('aria-label', 'Post as');
+    const cap = el('input', { type: 'text', class: 'so-input', value: o.caption || '', placeholder: 'Caption (optional)', 'aria-label': 'Post caption', maxlength: '2200' });
+    const note = el('p', { class: 'small', role: 'status' });
+    const btn = el('button', { type: 'button', class: 'btn primary', text: '📤 Make a Socials post', onclick: async () => {
+      btn.disabled = true; note.textContent = 'Putting it in Socials…';
+      try {
+        await toSocialsDraft(r.blob, r.name, who.value, cap.value);
+        const h = accts.find((a) => a.id === who.value)?.handle;
+        fill(note, `✓ A draft on @${h} in Socials, waiting for you to share it. `, el('a', { href: '#/socials', text: 'Open Socials' }));
+      } catch (e) { note.textContent = e.message === 'Socials is locked.' ? 'Socials is locked: open it once (its password), then tap again.' : `It couldn't be put in Socials: ${e.message}`; btn.disabled = false; }
+    } });
+    fill(box, el('strong', { text: '📤 Post it in Socials' }), el('div', { class: 'vid-topost-row' }, who, cap, btn), note);
+  });
+  return box;
+}
+
 export function mount(host) {
   const o = { ...DEFAULTS, ...store.json(KEY, {}) }; const save = () => store.set(KEY, JSON.stringify(o));
   const urls = new Set(); let file = null; let opened = null; let img = null; let controller = null; let tl = null; const trim = { start: 0, end: 0 };
@@ -227,7 +275,7 @@ export function mount(host) {
     try {
       const r = await frameVideo(opened, file, o, img, { trim, signal: controller.signal, onProgress: (p, label) => progress.set(p, label) });
       progress.hide();
-      fill(out, resultCard({ blob: r.blob, name: r.name, check: r.check, extra: [el('p', { class: 'small muted', text: o.people ? (r.people ? `Kept the people in frame (faces found at ${r.people} moment${r.people === 1 ? '' : 's'}).` : 'No faces found: cropped around the middle.') : 'Cropped around the middle.' })] }, urls));
+      fill(out, resultCard({ blob: r.blob, name: r.name, check: r.check, extra: [el('p', { class: 'small muted', text: o.people ? (r.people ? `Kept the people in frame (faces found at ${r.people} moment${r.people === 1 ? '' : 's'}).` : 'No faces found: cropped around the middle.') : 'Cropped around the middle.' }), socialsPostBox(r, o)] }, urls));
     } catch (e) { progress.hide(); showError(out, e.canceled ? new Error('Canceled. Nothing was saved.') : new Error(`The video couldn't be made: ${e.message}`)); }
     finally { controller = null; go.textContent = 'Make the video'; }
   }
